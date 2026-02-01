@@ -121,20 +121,17 @@ describe('startProgress', () => {
     expect(output).toContain('Working');
   });
 
-  it('update() changes the message', () => {
+  it('update() changes the message', async () => {
     const p = startProgress('Step 1');
     stderrSpy.mockClear(); // Clear initial write
     p.update('Step 2');
     
-    // Wait for at least one interval tick (100ms interval)
-    return new Promise(resolve => {
-      setTimeout(() => {
-        const output = stderrSpy.mock.calls.map(c => c[0]).join('');
-        expect(output).toContain('Step 2');
-        p.done('Finished');
-        resolve();
-      }, 150);
-    });
+    // Wait for at least one interval tick (100ms interval + 50ms buffer)
+    await new Promise(resolve => setTimeout(resolve, 150));
+    
+    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).toContain('Step 2');
+    p.done('Finished');
   });
 
   it('fail() writes failure message', () => {
