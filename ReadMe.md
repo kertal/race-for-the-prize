@@ -26,11 +26,7 @@ node race.js ./races/lauda-vs-hunt
 
 Two browsers launch. Two Wikipedia pages load. Then they scroll — human-like, pixel by pixel — to the bottom. Who reaches the finish line first?
 
-
-
 ![Lauda vs Hunt — side-by-side race replay](assets/race-for-the-prize-hunt-vs-lauda.gif)
-
-> **Generate it yourself:** `node race.js ./races/lauda-vs-hunt --format=gif` then copy the resulting `.gif` from the results folder to `assets/`.
 
 ### What's in the race folder
 
