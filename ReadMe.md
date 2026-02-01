@@ -35,6 +35,16 @@ races/lauda-vs-hunt/
   settings.json      # Race conditions (parallel, throttle, etc.)
 ```
 
+## 🏀 LeBron vs Curry
+
+The GOAT debate, settled by scrolling. LeBron James — "The King" — against Stephen Curry — "The Chef". Both dribble their way down their Wikipedia pages with a basketball-style scroll pattern: bouncing down and back up, making net progress toward the finish line.
+
+```bash
+node race.js ./races/lebron-vs-curry
+```
+
+LeBron powers through with heavy dribbles (big scrolls, big bounce-backs), while Curry uses quick crossover-style handles (faster tempo, tighter bounces). Who gets to the bottom first?
+
 ## Building Your Own Grand Prix
 
 Every race needs two contenders. Create a folder with two `.spec.js` scripts:
@@ -170,7 +180,8 @@ RaceForThePrize/
 │   ├── summary.js       # Results formatting & markdown reports
 │   └── sidebyside.js    # FFmpeg video composition
 ├── races/
-│   └── lauda-vs-hunt/   # 🏆 Example: the greatest rivalry in racing
+│   ├── lauda-vs-hunt/   # 🏆 Example: the greatest rivalry in racing
+│   └── lebron-vs-curry/ # 🏀 Example: the GOAT debate, dribble-style
 ├── tests/               # Test suite
 └── package.json
 ```
