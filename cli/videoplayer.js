@@ -159,12 +159,12 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles) {
     cursor: pointer;
     flex-shrink: 0;
   }
-  .results-table {
+  .results-table, .downloads {
     max-width: 900px;
     width: 100%;
     padding: 0.5rem 1.5rem 1rem;
   }
-  .results-table h2 {
+  .results-table h2, .downloads h2 {
     font-family: Georgia, serif;
     color: #d4af37;
     font-size: 1.1rem;
@@ -191,19 +191,6 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles) {
   td.winner { color: #4ecdc4; font-weight: bold; }
   td.winner-col { color: #d4af37; }
 
-  .downloads {
-    max-width: 900px;
-    width: 100%;
-    padding: 0.5rem 1.5rem 1.5rem;
-  }
-  .downloads h2 {
-    font-family: Georgia, serif;
-    color: #d4af37;
-    font-size: 1.1rem;
-    margin-bottom: 0.5rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-  }
   .download-links {
     display: flex;
     gap: 1rem;
@@ -332,10 +319,10 @@ ${downloadLinks}
     v2.playbackRate = rate;
   });
 
-  var FRAME = 1 / 30;
+  const FRAME = 1 / 30;
   function stepFrame(delta) {
     if (playing) { v1.pause(); v2.pause(); playing = false; playBtn.innerHTML = '&#9654;'; }
-    var t = Math.max(0, Math.min(duration, v1.currentTime + delta));
+    const t = Math.max(0, Math.min(duration, v1.currentTime + delta));
     v1.currentTime = t;
     v2.currentTime = t;
   }

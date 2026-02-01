@@ -1,26 +1,16 @@
 /**
- * Terminal racing animation for the CLI race tool.
- * Shows two racing cars advancing across the terminal while the race runs.
+ * Terminal racing animation and progress spinners.
  */
-
-const TRACK_WIDTH = 50;
-const TRACK_CHAR = '·';
-const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-const MAX_SPEED_INCREMENT = 1.5;
-const MIN_SPEED_INCREMENT = 0.3;
 
 import { c } from './colors.js';
 
-const PROGRESS_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
-/**
- * Show a spinner with a message. Returns { update(msg), done(msg) }.
- */
 export function startProgress(msg) {
   let idx = 0;
   const write = () => {
-    process.stderr.write(`\r  ${c.cyan}${PROGRESS_FRAMES[idx]}${c.reset} ${c.dim}${msg}${c.reset}\x1b[K`);
-    idx = (idx + 1) % PROGRESS_FRAMES.length;
+    process.stderr.write(`\r  ${c.cyan}${SPINNER[idx]}${c.reset} ${c.dim}${msg}${c.reset}\x1b[K`);
+    idx = (idx + 1) % SPINNER.length;
   };
   write();
   const interval = setInterval(write, 100);
@@ -39,11 +29,9 @@ export function startProgress(msg) {
 
 export class RaceAnimation {
   constructor(names, info) {
-    this.names = names; // [racer1, racer2]
+    this.names = names;
     this.info = info || null;
-    this.pos = [0, 0];
     this.finished = [false, false];
-    this.finishOrder = [];
     this.interval = null;
     this.frameIdx = 0;
     this.startTime = Date.now();
@@ -60,36 +48,26 @@ export class RaceAnimation {
 
   _tick() {
     this.frameIdx = (this.frameIdx + 1) % SPINNER.length;
-    const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(1);
-    const elapsedMs = Date.now() - this.startTime;
+    const ms = Date.now() - this.startTime;
+    const elapsed = (ms / 1000).toFixed(1);
     const allDone = this.finished.every(Boolean);
-    const emoji = allDone ? '🏁' : elapsedMs < 1000 ? '🔫' : '🏎️';
+    const emoji = allDone ? '🏁' : ms < 1000 ? '🔫' : '🏎️';
 
-    if (this.lines > 0) {
-      process.stderr.write(`\x1b[${this.lines}A`);
-    }
+    if (this.lines > 0) process.stderr.write(`\x1b[${this.lines}A`);
 
-    const output = [
-      `  ${c.cyan}${SPINNER[this.frameIdx]}${c.reset} ${c.dim}Elapsed: ${elapsed}s${c.reset}  ${emoji}`,
-    ];
-
-    this.lines = output.length;
-    process.stderr.write(output.map(l => l + '\x1b[K').join('\n') + '\n');
+    const line = `  ${c.cyan}${SPINNER[this.frameIdx]}${c.reset} ${c.dim}Elapsed: ${elapsed}s${c.reset}  ${emoji}`;
+    this.lines = 1;
+    process.stderr.write(line + '\x1b[K\n');
   }
 
   racerFinished(index) {
-    if (!this.finished[index]) {
-      this.finished[index] = true;
-      this.finishOrder.push(index);
-    }
-    this.pos[index] = TRACK_WIDTH;
+    this.finished[index] = true;
   }
 
   stop() {
     if (this.interval) clearInterval(this.interval);
     this.interval = null;
     this.finished = [true, true];
-    // Clear the animation lines
     if (this.lines > 0) {
       process.stderr.write(`\x1b[${this.lines}A`);
       for (let i = 0; i < this.lines; i++) process.stderr.write('\x1b[K\n');

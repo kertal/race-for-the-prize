@@ -118,7 +118,6 @@ const settingsPath = path.join(raceDir, 'settings.json');
 if (fs.existsSync(settingsPath)) {
   try {
     settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-
   } catch (e) {
     console.error(`${c.yellow}Warning: Could not parse settings.json: ${e.message}${c.reset}`);
   }
@@ -219,11 +218,9 @@ async function runSingleRace(runDir) {
   fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
   progress.done('Recordings processed');
 
-  // Create side-by-side from original .webm files before any format conversion
-  const sideBySideExt = format === 'mov' ? '.mov' : format === 'gif' ? '.gif' : '.webm';
-  const sideBySideName = `${racerNames[0]}-vs-${racerNames[1]}${sideBySideExt}`;
-  const slowmo = settings.slowmo || 0;
-  const sideBySidePath = createSideBySide(results[0].videoPath, results[1].videoPath, path.join(runDir, sideBySideName), format, slowmo);
+  const ext = format === 'webm' ? '.webm' : format === 'mov' ? '.mov' : '.gif';
+  const sideBySideName = `${racerNames[0]}-vs-${racerNames[1]}${ext}`;
+  const sideBySidePath = createSideBySide(results[0].videoPath, results[1].videoPath, path.join(runDir, sideBySideName), format, settings.slowmo || 0);
 
   if (format !== 'webm') {
     const convertProgress = startProgress(`Converting videos to ${format}…`);
@@ -232,13 +229,10 @@ async function runSingleRace(runDir) {
   }
 
   const videoFiles = racerNames.map(name => `${name}/${name}.race.webm`);
-  const altFmt = format !== 'webm' ? format : null;
-  const altExt = altFmt === 'mov' ? '.mov' : altFmt === 'gif' ? '.gif' : null;
-  const altFiles = altExt ? racerNames.map(name => `${name}/${name}.race${altExt}`) : null;
-  const playerPath = path.join(runDir, 'index.html');
-  fs.writeFileSync(playerPath, buildPlayerHtml(summary, videoFiles, altFmt, altFiles));
+  const altFiles = format !== 'webm' ? racerNames.map(name => `${name}/${name}.race${ext}`) : null;
+  fs.writeFileSync(path.join(runDir, 'index.html'), buildPlayerHtml(summary, videoFiles, format !== 'webm' ? format : null, altFiles));
 
-  return { summary, sideBySidePath, sideBySideName, playerPath };
+  return { summary, sideBySidePath, sideBySideName };
 }
 
 // --- Main ---

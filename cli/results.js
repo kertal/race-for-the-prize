@@ -77,16 +77,11 @@ export function convertVideos(results, format) {
       const dest = src.replace(/\.webm$/, ext);
       try {
         const args = ['-y', '-i', src];
-        if (format === 'mov') {
-          args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p');
-          args.push(dest);
-          execFileSync('ffmpeg', args, { timeout: 300000, stdio: 'pipe' });
-        } else {
-          args.push('-filter_complex', 'fps=10,scale=640:-2,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3');
-          args.push(dest);
-          execFileSync('ffmpeg', args, { timeout: 300000, stdio: 'pipe' });
-          compressGif(dest);
-        }
+        if (format === 'mov') args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p');
+        else args.push('-filter_complex', 'fps=10,scale=640:-2,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3');
+        args.push(dest);
+        execFileSync('ffmpeg', args, { timeout: 300000, stdio: 'pipe' });
+        if (format === 'gif') compressGif(dest);
         r[key] = dest;
       } catch (e) {
         console.error(`${c.dim}Warning: Could not convert ${path.basename(src)}: ${e.message}${c.reset}`);

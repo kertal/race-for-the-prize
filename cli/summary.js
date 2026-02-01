@@ -61,7 +61,7 @@ function printBar(label, duration, maxDuration, color, isWinner, width = 30) {
 }
 
 export function printSummary(summary) {
-  const { racers, comparisons, overallWinner, wins, errors, videos, clickCounts } = summary;
+  const { racers, comparisons, overallWinner, wins, errors, clickCounts } = summary;
   const colors = [c.red, c.blue];
   const w = 54;
 

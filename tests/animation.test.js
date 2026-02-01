@@ -29,7 +29,6 @@ describe('RaceAnimation', () => {
   it('initializes with correct state', () => {
     const anim = new RaceAnimation(['a', 'b']);
     expect(anim.names).toEqual(['a', 'b']);
-    expect(anim.pos).toEqual([0, 0]);
     expect(anim.finished).toEqual([false, false]);
     expect(anim.interval).toBeNull();
   });
@@ -48,11 +47,10 @@ describe('RaceAnimation', () => {
     anim.stop();
   });
 
-  it('racerFinished sets position and finished flag', () => {
+  it('racerFinished sets finished flag', () => {
     const anim = new RaceAnimation(['a', 'b']);
     anim.racerFinished(0);
     expect(anim.finished[0]).toBe(true);
-    expect(anim.pos[0]).toBe(50);
     expect(anim.finished[1]).toBe(false);
   });
 
