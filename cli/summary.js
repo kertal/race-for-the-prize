@@ -113,19 +113,6 @@ export function printSummary(summary) {
   }
   write(`  ${c.dim}${'─'.repeat(w)}${c.reset}\n\n`);
 
-  // Files — show race videos only (not _full), relative paths
-  const raceVideos = Object.entries(videos)
-    .filter(([key, val]) => val && !key.endsWith('_full'));
-  if (raceVideos.length > 0) {
-    write(`  ${c.dim}📁${c.reset}\n`);
-    for (const [key, val] of raceVideos) {
-      const rel = path.relative(process.cwd(), val);
-      const color = key === racers[0] ? colors[0] : colors[1];
-      write(`    ${color}${c.bold}${key}${c.reset}  ${c.dim}${rel}${c.reset}\n`);
-    }
-    write('\n');
-  }
-
   // Click events — only show if there are any
   const totalClicks = racers.reduce((sum, r) => sum + (clickCounts[r] || 0), 0);
   if (totalClicks > 0) {

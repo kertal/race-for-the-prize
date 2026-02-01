@@ -61,40 +61,16 @@ export class RaceAnimation {
   _tick() {
     this.frameIdx = (this.frameIdx + 1) % SPINNER.length;
     const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(1);
-    const colors = [c.red, c.blue];
-
-    for (let i = 0; i < 2; i++) {
-      if (!this.finished[i]) {
-        this.pos[i] = Math.min(this.pos[i] + Math.random() * MAX_SPEED_INCREMENT + MIN_SPEED_INCREMENT, TRACK_WIDTH);
-      }
-    }
+    const elapsedMs = Date.now() - this.startTime;
+    const allDone = this.finished.every(Boolean);
+    const emoji = allDone ? '🏁' : elapsedMs < 1000 ? '🔫' : '🏎️';
 
     if (this.lines > 0) {
       process.stderr.write(`\x1b[${this.lines}A`);
     }
 
-    const tracks = [0, 1].map(i => {
-      const p = Math.floor(this.pos[i]);
-      const behind = TRACK_CHAR.repeat(p);
-      const ahead = TRACK_CHAR.repeat(Math.max(0, TRACK_WIDTH - p));
-      const car = this.finished[i] ? '🏁' : '🏎️  💨';
-      let status;
-      if (this.finished[i]) {
-        const place = this.finishOrder.indexOf(i);
-        const medal = place === 0 ? '🥇' : '🥈';
-        status = medal;
-      } else {
-        status = `${c.dim}…${c.reset}`;
-      }
-      return `  ${colors[i]}${c.bold}${this.names[i].padEnd(10)}${c.reset} ${c.dim}${behind}${c.reset}${car}${c.dim}${ahead}${c.reset} ${status}`;
-    });
-
     const output = [
-      `  ${c.cyan}${SPINNER[this.frameIdx]}${c.reset} ${c.dim}Elapsed: ${elapsed}s${c.reset}`,
-      ``,
-      tracks[0],
-      tracks[1],
-      ``,
+      `  ${c.cyan}${SPINNER[this.frameIdx]}${c.reset} ${c.dim}Elapsed: ${elapsed}s${c.reset}  ${emoji}`,
     ];
 
     this.lines = output.length;
@@ -112,10 +88,14 @@ export class RaceAnimation {
   stop() {
     if (this.interval) clearInterval(this.interval);
     this.interval = null;
-    this.pos = [TRACK_WIDTH, TRACK_WIDTH];
     this.finished = [true, true];
-    this._tick();
+    // Clear the animation lines
+    if (this.lines > 0) {
+      process.stderr.write(`\x1b[${this.lines}A`);
+      for (let i = 0; i < this.lines; i++) process.stderr.write('\x1b[K\n');
+      process.stderr.write(`\x1b[${this.lines}A`);
+    }
     process.stderr.write(c.showCursor);
-    process.stderr.write('\n');
+    process.stderr.write(`  ${c.dim}🎤 Interviewing the racers… results coming soon${c.reset}\n\n`);
   }
 }

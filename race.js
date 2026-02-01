@@ -271,9 +271,10 @@ async function main() {
       fs.writeFileSync(path.join(resultsDir, 'README.md'), md);
     }
 
-    console.error(`  ${c.dim}📂 ${resultsDir}${c.reset}`);
-    console.error(`  ${c.dim}🎬 open ${path.join(resultsDir, totalRuns === 1 ? '' : '1', 'index.html')}${c.reset}`);
-    console.error(`  ${c.dim}   node race.js ${positional[0]} --results${c.reset}\n`);
+    const relResults = path.relative(process.cwd(), resultsDir);
+    const relHtml = path.relative(process.cwd(), path.join(resultsDir, totalRuns === 1 ? '' : '1', 'index.html'));
+    console.error(`  ${c.dim}📂 ${relResults}${c.reset}`);
+    console.error(`  ${c.dim}🎬 open ${relHtml}${c.reset}\n`);
   } catch (e) {
     console.error(`\n${c.red}${c.bold}Race failed:${c.reset} ${e.message}\n`);
     process.exit(1);
