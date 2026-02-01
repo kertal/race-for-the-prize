@@ -11,16 +11,14 @@ const MIN_SPEED_INCREMENT = 0.3;
 
 import { c } from './colors.js';
 
-const PROGRESS_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
 /**
  * Show a spinner with a message. Returns { update(msg), done(msg) }.
  */
 export function startProgress(msg) {
   let idx = 0;
   const write = () => {
-    process.stderr.write(`\r  ${c.cyan}${PROGRESS_FRAMES[idx]}${c.reset} ${c.dim}${msg}${c.reset}\x1b[K`);
-    idx = (idx + 1) % PROGRESS_FRAMES.length;
+    process.stderr.write(`\r  ${c.cyan}${SPINNER[idx]}${c.reset} ${c.dim}${msg}${c.reset}\x1b[K`);
+    idx = (idx + 1) % SPINNER.length;
   };
   write();
   const interval = setInterval(write, 100);

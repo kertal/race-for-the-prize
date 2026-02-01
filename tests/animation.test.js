@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { RaceAnimation } from '../cli/animation.js';
+import { RaceAnimation, startProgress } from '../cli/animation.js';
 import { c } from '../cli/colors.js';
 
 describe('c (ANSI color codes)', () => {
@@ -70,5 +70,69 @@ describe('RaceAnimation', () => {
   it('stop() without start() does not throw', () => {
     const anim = new RaceAnimation(['a', 'b']);
     expect(() => anim.stop()).not.toThrow();
+  });
+
+  it('shows info line when provided', () => {
+    const anim = new RaceAnimation(['a', 'b'], 'test info');
+    anim.start();
+    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).toContain('test info');
+    anim.stop();
+  });
+
+  it('racerFinished is idempotent for finishOrder', () => {
+    const anim = new RaceAnimation(['a', 'b']);
+    anim.racerFinished(0);
+    anim.racerFinished(0);
+    expect(anim.finishOrder).toEqual([0]);
+  });
+});
+
+describe('startProgress', () => {
+  let stderrSpy;
+
+  beforeEach(() => {
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    stderrSpy.mockRestore();
+  });
+
+  it('writes initial message to stderr', () => {
+    const p = startProgress('Loading...');
+    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).toContain('Loading...');
+    p.done();
+  });
+
+  it('done() clears interval and writes completion message', () => {
+    const p = startProgress('Working');
+    p.done('Done!');
+    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).toContain('Done!');
+    expect(output).toContain('✓');
+  });
+
+  it('done() uses original message when no doneMsg provided', () => {
+    const p = startProgress('Working');
+    p.done();
+    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).toContain('Working');
+  });
+
+  it('update() changes the message', () => {
+    const p = startProgress('Step 1');
+    p.update('Step 2');
+    // Trigger a tick by waiting
+    p.done('Finished');
+    // Just verify it doesn't throw
+  });
+
+  it('fail() writes failure message', () => {
+    const p = startProgress('Working');
+    p.fail('Something went wrong');
+    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).toContain('Something went wrong');
   });
 });
