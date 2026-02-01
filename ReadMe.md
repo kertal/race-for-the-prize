@@ -177,10 +177,10 @@ RaceForThePrize/
 
 ## Standing on the Shoulders of Giants
 
-Built by [@kertal](https://github.com/kertal) and his agents [The Flaming Bits](https://claude.com/product/claude-code). More humans with or without agents are welcome!
-Built on top of the mighty [Playwright](https://playwright.dev/) — the browser automation framework that makes all of this possible.
-Built on top of ideas while working on [Kibana](https://www.elastic.co/kibana).
-Built with support of the great "[Race for the Prize](https://www.youtube.com/watch?v=bs56ygZplQA)" song by [The Flaming Lips](https://www.flaminglips.com/). 
+- Built by [@kertal](https://github.com/kertal) and his agents [The Flaming Bits](https://claude.com/product/claude-code). More humans with or without agents are welcome!
+- Built on top of the mighty [Playwright](https://playwright.dev/) — the browser automation framework that makes all of this possible.
+- Built on top of ideas while working on [Kibana](https://www.elastic.co/kibana).
+- Built with support of the great "[Race for the Prize](https://www.youtube.com/watch?v=bs56ygZplQA)" song by [The Flaming Lips](https://www.flaminglips.com/). 
 
 ## License
 
