@@ -26,7 +26,9 @@ node race.js ./races/lauda-vs-hunt
 
 Two browsers launch. Two Wikipedia pages load. Then they scroll — human-like, pixel by pixel — to the bottom. Who reaches the finish line first?
 
-![Lauda vs Hunt — side-by-side race replay](assets/lauda-vs-hunt.gif)
+
+
+![Lauda vs Hunt — side-by-side race replay](assets/race-for-the-prize-hunt-vs-lauda.gif)
 
 > **Generate it yourself:** `node race.js ./races/lauda-vs-hunt --format=gif` then copy the resulting `.gif` from the results folder to `assets/`.
 
@@ -179,10 +181,10 @@ RaceForThePrize/
 
 ## Standing on the Shoulders of Giants
 
-Built by [@kertal](https://github.com/kertal) and his agents the called [The Flaming Bits](https://claude.com/product/claude-code). More humans with or without agents are welcome!
+Built by [@kertal](https://github.com/kertal) and his agents [The Flaming Bits](https://claude.com/product/claude-code). More humans with or without agents are welcome!
 Built on top of the mighty [Playwright](https://playwright.dev/) — the browser automation framework that makes all of this possible.
-Built on top of ideas while working on [Kibana](https://www.elastic.co/kibana)
-Built with support of the great "[Race for the Prize](https://www.youtube.com/watch?v=bs56ygZplQA)" song by [The Flaming Lips](https://www.flaminglips.com/) 
+Built on top of ideas while working on [Kibana](https://www.elastic.co/kibana).
+Built with support of the great "[Race for the Prize](https://www.youtube.com/watch?v=bs56ygZplQA)" song by [The Flaming Lips](https://www.flaminglips.com/). 
 
 ## License
 
