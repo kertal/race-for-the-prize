@@ -1,0 +1,28 @@
+{
+  "name": "race-for-the-price",
+  "version": "1.0.0",
+  "description": "🏆 Race two browsers head-to-head and crown a champion",
+  "type": "module",
+  "bin": {
+    "race-for-the-price": "./race.js"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "race": "node race.js"
+  },
+  "keywords": [
+    "browser",
+    "performance",
+    "playwright",
+    "benchmark",
+    "race",
+    "comparison"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "playwright": "^1.58.1"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.18"
+  }
+}
