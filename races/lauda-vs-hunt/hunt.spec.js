@@ -5,6 +5,7 @@
 await page.goto('https://en.wikipedia.org/wiki/James_Hunt', { waitUntil: 'domcontentloaded' });
 
 await page.raceRecordingStart();
+await page.waitForTimeout(1500);
 await page.raceStart('Scroll to Bottom');
 
 // Human-like scrolling: small steps with slight randomness
@@ -20,4 +21,5 @@ while (true) {
 }
 
 page.raceEnd('Scroll to Bottom');
+await page.waitForTimeout(1500);
 await page.raceRecordingEnd();

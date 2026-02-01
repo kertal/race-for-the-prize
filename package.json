@@ -1,10 +1,10 @@
 {
-  "name": "race-for-the-price",
+  "name": "race-for-the-prize",
   "version": "1.0.0",
   "description": "🏆 Race two browsers head-to-head and crown a champion",
   "type": "module",
   "bin": {
-    "race-for-the-price": "./race.js"
+    "race-for-the-prize": "./race.js"
   },
   "scripts": {
     "test": "vitest run",

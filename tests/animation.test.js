@@ -41,7 +41,7 @@ describe('RaceAnimation', () => {
     expect(anim.interval).not.toBeNull();
     const output = stderrSpy.mock.calls.map(c => c[0]).join('');
     expect(output).toContain('\x1b[?25l'); // hide cursor
-    expect(output).toContain('RaceForThePrice');
+    expect(output).toContain('RaceForThePrize');
     expect(output).toContain('a');
     expect(output).toContain('b');
 

@@ -50,7 +50,7 @@ export class RaceAnimation {
 
   start() {
     process.stderr.write(c.hideCursor);
-    let header = `\n  ${c.bold}RaceForThePrice${c.reset} 🏆  ${c.red}${c.bold}${this.names[0]}${c.reset} ${c.dim}vs${c.reset} ${c.blue}${c.bold}${this.names[1]}${c.reset}`;
+    let header = `\n  ${c.bold}RaceForThePrize${c.reset} 🏆  ${c.red}${c.bold}${this.names[0]}${c.reset} ${c.dim}vs${c.reset} ${c.blue}${c.bold}${this.names[1]}${c.reset}`;
     if (this.info) header += `\n  ${c.dim}${this.info}${c.reset}`;
     process.stderr.write(header + '\n\n');
     this.interval = setInterval(() => this._tick(), 120);
