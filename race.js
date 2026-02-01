@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * race.js — CLI entry point for RaceForThePrice 🏆
+ * race.js — CLI entry point for RaceForThePrize 🏆
  *
  * Orchestrates browser races: parses args, discovers racer scripts,
  * spawns the Playwright runner, collects results, and prints a report.
@@ -214,19 +214,21 @@ async function runSingleRace(runDir) {
     moveResults(recordingsBase, name, racerRunDirs[i], result, ['browser1', 'browser2'][i])
   );
 
-  if (format !== 'webm') {
-    progress.update('Converting videos…');
-    convertVideos(results, format);
-  }
-
   const summary = buildSummary(racerNames, results, settings, runDir);
   fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
   progress.done('Recordings processed');
 
+  // Create side-by-side from original .webm files before any format conversion
   const sideBySideExt = format === 'mov' ? '.mov' : format === 'gif' ? '.gif' : '.webm';
   const sideBySideName = `${racerNames[0]}-vs-${racerNames[1]}${sideBySideExt}`;
   const slowmo = settings.slowmo || 0;
   const sideBySidePath = createSideBySide(results[0].videoPath, results[1].videoPath, path.join(runDir, sideBySideName), format, slowmo);
+
+  if (format !== 'webm') {
+    const convertProgress = startProgress(`Converting videos to ${format}…`);
+    convertVideos(results, format);
+    convertProgress.done(`Videos converted to ${format}`);
+  }
 
   return { summary, sideBySidePath, sideBySideName };
 }

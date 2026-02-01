@@ -1,8 +1,8 @@
-# 🏆 RaceForThePrice
+# 🏆 RaceForThePrize
 
 **Ladies and gentlemen, welcome to race day!**
 
-RaceForThePrice is a command-line showdown that pits two browsers against each other in a head-to-head performance battle. Write your [Playwright](https://playwright.dev/) scripts, fire the starting gun, and watch them tear down the track side-by-side — complete with live terminal animation, video recordings, and a full race report declaring the champion.
+RaceForThePrize is a command-line showdown that pits two browsers against each other in a head-to-head performance battle. Write your [Playwright](https://playwright.dev/) scripts, fire the starting gun, and watch them tear down the track side-by-side — complete with live terminal animation, video recordings, and a full race report declaring the champion.
 
 No judges, no bias — just cold, hard milliseconds on the clock.
 
@@ -118,6 +118,10 @@ races/my-race/results-2026-01-31_14-30-00/
   README.md                           # Race report card
 ```
 
+Disclaimer: Due to the nature of the way the video is transformed, the aim here is not accuracy, it's to showcase, to visualize performance. To compare between different network and browser settings.
+Do double check and question the metrics and findigs. It should be a helpful tool supporting performance related narratives, but don't assume 100% accuracy. However, this generally applys to many 
+browser gained performance metrics. There are many side effects. And screen recording, plus video cutting is another one.
+
 ## The Podium Ceremony
 
 The terminal delivers the verdict in style:
@@ -157,7 +161,7 @@ The terminal delivers the verdict in style:
 ## Project Structure
 
 ```
-RaceForThePrice/
+RaceForThePrize/
 ├── race.js              # 🏁 Main entry point — the race director
 ├── runner.cjs           # Playwright automation engine
 ├── cli/
@@ -175,9 +179,10 @@ RaceForThePrice/
 
 ## Standing on the Shoulders of Giants
 
-This project was inspired by [@kertal](https://github.com/kertal)'s work at [Elastic](https://www.elastic.co/) and is built on top of the mighty [Playwright](https://playwright.dev/) — the browser automation framework that makes all of this possible.
-
-The name is a tip of the helmet to [The Flaming Lips](https://www.flaminglips.com/) and their great song *"Race for the Prize"* — because in the end, we're all just racing for something worth winning.
+Built by [@kertal](https://github.com/kertal) and his agents the called [The Flaming Bits](https://claude.com/product/claude-code). More humans with or without agents are welcome!
+Built on top of the mighty [Playwright](https://playwright.dev/) — the browser automation framework that makes all of this possible.
+Built on top of ideas while working on [Kibana](https://www.elastic.co/kibana)
+Built with support of the great "[Race for the Prize](https://www.youtube.com/watch?v=bs56ygZplQA)" song by [The Flaming Lips](https://www.flaminglips.com/) 
 
 ## License
 

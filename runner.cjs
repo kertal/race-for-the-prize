@@ -1,5 +1,5 @@
 /**
- * runner.cjs — Playwright browser automation engine for RaceForThePrice.
+ * runner.cjs — Playwright browser automation engine for RaceForThePrize.
  *
  * Launched as a child process by race.js. Receives a JSON config via argv,
  * runs two Playwright-driven browsers (parallel or sequential), records video,

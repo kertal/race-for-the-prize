@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-RaceForThePrice is a CLI tool that pits two browsers against each other in head-to-head performance battles using Playwright. It runs two `.spec.js` scripts (racers), measures execution times, records video, and declares a winner.
+RaceForThePrize is a CLI tool that pits two browsers against each other in head-to-head performance battles using Playwright. It runs two `.spec.js` scripts (racers), measures execution times, records video, and declares a winner.
 
 ## Commands
 
