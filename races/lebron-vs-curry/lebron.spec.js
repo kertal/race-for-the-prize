@@ -9,7 +9,7 @@ const fixedStart = 10000;
 await page.evaluate((y) => window.scrollTo(0, y), fixedStart);
 
 await page.raceRecordingStart();
-await page.waitForTimeout(3000);
+await page.waitForTimeout(1500);
 await page.raceStart('Dribble Race');
 
 // Basketball physics dribble — identical timing for both racers to stay in sync

@@ -37,7 +37,7 @@ races/lauda-vs-hunt/
 
 ## 🏀 LeBron vs Curry
 
-The GOAT debate, settled by browser performance. LeBron James — "The King" — against Stephen Curry — "The Chef". Both start midway down their Wikipedia pages and dribble — basketball physics style, with gravity acceleration down and deceleration up — three times before racing back to the top.
+The GOAT debate, settled by browser performance. LeBron James — "The King" — against Stephen Curry — "The Chef". Both start at a fixed scroll position on their Wikipedia pages and dribble — basketball physics style, with gravity acceleration down and deceleration up — three times before racing back to the top.
 
 ```bash
 node race.js ./races/lebron-vs-curry
