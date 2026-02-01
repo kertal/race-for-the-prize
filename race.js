@@ -24,6 +24,7 @@ import { parseArgs, discoverRacers, applyOverrides } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos } from './cli/results.js';
+import { buildPlayerHtml } from './cli/videoplayer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -117,7 +118,6 @@ const settingsPath = path.join(raceDir, 'settings.json');
 if (fs.existsSync(settingsPath)) {
   try {
     settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-
   } catch (e) {
     console.error(`${c.yellow}Warning: Could not parse settings.json: ${e.message}${c.reset}`);
   }
@@ -218,17 +218,19 @@ async function runSingleRace(runDir) {
   fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
   progress.done('Recordings processed');
 
-  // Create side-by-side from original .webm files before any format conversion
-  const sideBySideExt = format === 'mov' ? '.mov' : format === 'gif' ? '.gif' : '.webm';
-  const sideBySideName = `${racerNames[0]}-vs-${racerNames[1]}${sideBySideExt}`;
-  const slowmo = settings.slowmo || 0;
-  const sideBySidePath = createSideBySide(results[0].videoPath, results[1].videoPath, path.join(runDir, sideBySideName), format, slowmo);
+  const ext = format === 'webm' ? '.webm' : format === 'mov' ? '.mov' : '.gif';
+  const sideBySideName = `${racerNames[0]}-vs-${racerNames[1]}${ext}`;
+  const sideBySidePath = createSideBySide(results[0].videoPath, results[1].videoPath, path.join(runDir, sideBySideName), format, settings.slowmo || 0);
 
   if (format !== 'webm') {
     const convertProgress = startProgress(`Converting videos to ${format}…`);
     convertVideos(results, format);
     convertProgress.done(`Videos converted to ${format}`);
   }
+
+  const videoFiles = racerNames.map(name => `${name}/${name}.race.webm`);
+  const altFiles = format !== 'webm' ? racerNames.map(name => `${name}/${name}.race${ext}`) : null;
+  fs.writeFileSync(path.join(runDir, 'index.html'), buildPlayerHtml(summary, videoFiles, format !== 'webm' ? format : null, altFiles));
 
   return { summary, sideBySidePath, sideBySideName };
 }
@@ -263,8 +265,13 @@ async function main() {
       fs.writeFileSync(path.join(resultsDir, 'README.md'), md);
     }
 
-    console.error(`  ${c.dim}📂 ${resultsDir}${c.reset}`);
-    console.error(`  ${c.dim}   node race.js ${positional[0]} --results${c.reset}\n`);
+    const relResults = path.relative(process.cwd(), resultsDir);
+    // When there is only one run, index.html is written directly to resultsDir.
+    // When there are multiple runs, index.html for the first run lives in the "1" subdirectory.
+    const firstRunSubdir = totalRuns === 1 ? '' : '1';
+    const relHtml = path.relative(process.cwd(), path.join(resultsDir, firstRunSubdir, 'index.html'));
+    console.error(`  ${c.dim}📂 ${relResults}${c.reset}`);
+    console.error(`  ${c.dim}🎬 open ${relHtml}${c.reset}\n`);
   } catch (e) {
     console.error(`\n${c.red}${c.bold}Race failed:${c.reset} ${e.message}\n`);
     process.exit(1);

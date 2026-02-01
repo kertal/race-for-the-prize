@@ -61,30 +61,27 @@ function printBar(label, duration, maxDuration, color, isWinner, width = 30) {
 }
 
 export function printSummary(summary) {
-  const { racers, comparisons, overallWinner, wins, errors, videos, clickCounts } = summary;
+  const { racers, comparisons, overallWinner, wins, errors, clickCounts } = summary;
   const colors = [c.red, c.blue];
   const w = 54;
 
   const write = (s) => process.stderr.write(s);
 
-  write(`\n  ${c.bold}📊  Results${c.reset}\n`);
+  write(`\n  ${c.dim}🏁 Results${c.reset}\n`);
   write(`  ${c.dim}${'─'.repeat(w)}${c.reset}\n`);
 
   if (errors.length > 0) {
     write(`  ${c.red}${c.bold}⚠ Errors:${c.reset}\n`);
     errors.forEach(err => write(`    ${c.red}${err}${c.reset}\n`));
-    write('\n');
   }
 
   if (comparisons.length === 0) {
     write(`  ${c.dim}No measurements recorded.${c.reset}\n`);
-    write(`  ${c.dim}Use page.raceStart() / page.raceEnd() in scripts.${c.reset}\n\n`);
+    write(`  ${c.dim}Use page.raceStart() / page.raceEnd() in scripts.${c.reset}\n`);
   } else {
     for (const comp of comparisons) {
       const maxDur = Math.max(...comp.racers.map(r => r?.duration || 0));
-      write(`  ${c.cyan}${c.bold}⏱  ${comp.name}${c.reset}\n`);
-      write(`  ${c.dim}${'─'.repeat(w)}${c.reset}\n`);
-
+      write(`  ${c.dim}⏱ ${comp.name}${c.reset}\n`);
       for (let i = 0; i < 2; i++) {
         if (comp.racers[i]) {
           const isWinner = comp.winner === racers[i];
@@ -93,38 +90,21 @@ export function printSummary(summary) {
           write(`    ${colors[i]}${c.bold}${racers[i].padEnd(10)}${c.reset} ${c.dim}(no data)${c.reset}\n`);
         }
       }
-
-      if (comp.diffPercent !== null) {
+      if (comp.diffPercent !== null && comp.diff >= 0) {
         const winColor = comp.winner === racers[0] ? colors[0] : colors[1];
-        write(`\n    ${winColor}${c.bold}${comp.winner}${c.reset} is ${c.bold}${comp.diffPercent.toFixed(1)}%${c.reset} faster ${c.dim}(Δ ${comp.diff.toFixed(3)}s)${c.reset}\n`);
+        write(`    ${winColor}${c.bold}${comp.winner}${c.reset} is ${c.bold}${comp.diffPercent.toFixed(1)}%${c.reset} faster ${c.dim}(Δ ${comp.diff.toFixed(3)}s)${c.reset}\n`);
       }
-      write('\n');
     }
   }
 
-  // Overall winner
   write(`  ${c.dim}${'─'.repeat(w)}${c.reset}\n`);
   if (overallWinner === 'tie') {
-    write(`\n  ${c.yellow}${c.bold}  🤝  It's a tie!${c.reset}  ${c.dim}${wins[racers[0]]} – ${wins[racers[1]]}${c.reset}\n\n`);
+    write(`  ${c.yellow}${c.bold}🤝 It's a tie!${c.reset}\n`);
   } else if (overallWinner) {
     const winColor = overallWinner === racers[0] ? colors[0] : colors[1];
-    write(`\n  ${c.bold}  The 🏆 goes to ${winColor}${overallWinner.toUpperCase()}${c.reset} ${c.bold}!${c.reset}  👏👏👏\n`);
-    write(`  ${c.dim}  ${wins[racers[0]]} – ${wins[racers[1]]}${c.reset}\n\n`);
+    write(`  🏆 ${winColor}${c.bold}${overallWinner.toUpperCase()}${c.reset} ${c.bold}wins!${c.reset}\n`);
   }
-  write(`  ${c.dim}${'─'.repeat(w)}${c.reset}\n\n`);
-
-  // Files — show race videos only (not _full), relative paths
-  const raceVideos = Object.entries(videos)
-    .filter(([key, val]) => val && !key.endsWith('_full'));
-  if (raceVideos.length > 0) {
-    write(`  ${c.dim}📁${c.reset}\n`);
-    for (const [key, val] of raceVideos) {
-      const rel = path.relative(process.cwd(), val);
-      const color = key === racers[0] ? colors[0] : colors[1];
-      write(`    ${color}${c.bold}${key}${c.reset}  ${c.dim}${rel}${c.reset}\n`);
-    }
-    write('\n');
-  }
+  write(`  ${c.dim}${'─'.repeat(w)}${c.reset}\n`);
 
   // Click events — only show if there are any
   const totalClicks = racers.reduce((sum, r) => sum + (clickCounts[r] || 0), 0);
