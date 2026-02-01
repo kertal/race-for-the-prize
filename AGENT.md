@@ -38,3 +38,11 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 - Video trimming uses visual cue detection (colored pixels injected into the page) for frame-accurate segment extraction via FFmpeg.
 - CLI flags override `settings.json` values (CLI takes priority). See `config.js` `applyOverrides()`.
 - Tests exclude `races/` and `runner/` directories (configured in `vitest.config.js`).
+
+## Guidelines
+
+- **Keep dependencies minimal.** Don't add npm packages unless truly necessary. Prefer built-in Node.js APIs and simple custom code over pulling in a library. Every dependency is a maintenance burden — justify it before adding it.
+- **Cover changes with tests.** New functionality needs tests. Bug fixes need a regression test. Run `npm test` before considering any change complete. If existing tests break, fix them — don't skip or delete them.
+- **Keep it fun and approachable.** This is a playful utility — browser races! The code should be easy to read, easy to hack on, and enjoyable to contribute to. Favor clarity over cleverness. Short functions, obvious names, minimal indirection.
+- **Small, focused changes.** Do one thing per commit. Don't bundle unrelated refactors with feature work. Keep pull requests easy to review.
+- **Respect the existing style.** Match the conventions already in the codebase — ESM in `race.js` and CLI modules, CommonJS in `runner.cjs`, vitest for tests. Don't introduce new patterns without good reason.
