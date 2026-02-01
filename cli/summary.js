@@ -90,7 +90,7 @@ export function printSummary(summary) {
           write(`    ${colors[i]}${c.bold}${racers[i].padEnd(10)}${c.reset} ${c.dim}(no data)${c.reset}\n`);
         }
       }
-      if (comp.diffPercent !== null) {
+      if (comp.diffPercent !== null && comp.diff >= 0) {
         const winColor = comp.winner === racers[0] ? colors[0] : colors[1];
         write(`    ${winColor}${c.bold}${comp.winner}${c.reset} is ${c.bold}${comp.diffPercent.toFixed(1)}%${c.reset} faster ${c.dim}(Δ ${comp.diff.toFixed(3)}s)${c.reset}\n`);
       }

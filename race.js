@@ -266,7 +266,10 @@ async function main() {
     }
 
     const relResults = path.relative(process.cwd(), resultsDir);
-    const relHtml = path.relative(process.cwd(), path.join(resultsDir, totalRuns === 1 ? '' : '1', 'index.html'));
+    // When there is only one run, index.html is written directly to resultsDir.
+    // When there are multiple runs, index.html for the first run lives in the "1" subdirectory.
+    const firstRunSubdir = totalRuns === 1 ? '' : '1';
+    const relHtml = path.relative(process.cwd(), path.join(resultsDir, firstRunSubdir, 'index.html'));
     console.error(`  ${c.dim}📂 ${relResults}${c.reset}`);
     console.error(`  ${c.dim}🎬 open ${relHtml}${c.reset}\n`);
   } catch (e) {
