@@ -52,5 +52,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (kvFlags.format !== undefined) s.format = kvFlags.format;
   if (kvFlags.runs !== undefined) s.runs = Number(kvFlags.runs);
   if (kvFlags.slowmo !== undefined) s.slowmo = Number(kvFlags.slowmo);
+  if (kvFlags.name1 !== undefined) s.name1 = kvFlags.name1;
+  if (kvFlags.name2 !== undefined) s.name2 = kvFlags.name2;
   return s;
 }

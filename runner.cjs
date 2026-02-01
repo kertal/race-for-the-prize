@@ -424,15 +424,23 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     sharedState.finishOrder.push(id);
     const place = sharedState.finishOrder.length;
     const medal = place === 1 ? '🥇' : '🥈';
-    await page.evaluate(({ medal, place }) => {
+    const nameLabel = displayName || id;
+    await page.evaluate(({ medal, place, nameLabel }) => {
       const el = document.createElement('div');
       el.id = '__race_medal';
-      el.textContent = medal + ' ' + (place === 1 ? '1st' : '2nd');
       el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483647;'
-        + 'font:bold 64px/1 system-ui,sans-serif;pointer-events:none;'
+        + 'text-align:center;pointer-events:none;'
         + 'background:rgba(0,0,0,0.6);color:#fff;padding:24px 48px;border-radius:16px';
+      const placeDiv = document.createElement('div');
+      placeDiv.textContent = medal + ' ' + (place === 1 ? '1st' : '2nd');
+      placeDiv.style.cssText = 'font:bold 64px/1 system-ui,sans-serif';
+      el.appendChild(placeDiv);
+      const nameDiv = document.createElement('div');
+      nameDiv.textContent = nameLabel;
+      nameDiv.style.cssText = 'font:bold 28px/1.2 system-ui,sans-serif;margin-top:12px;opacity:0.9';
+      el.appendChild(nameDiv);
       document.body.appendChild(el);
-    }, { medal, place });
+    }, { medal, place, nameLabel });
     await page.waitForTimeout(1500);
   };
 
@@ -553,7 +561,7 @@ async function applyThrottling(page, throttle, id) {
  * Called twice (once per racer) by runParallel or runSequential.
  */
 async function runBrowserRecording(config, barriers, isParallel, sharedState, browserIndex = 0, throttle = null, profile = false, slowmo = 0) {
-  const { id, headless } = config;
+  const { id, headless, displayName } = config;
   const outputDir = path.join(__dirname, 'recordings', id);
   let browser = null;
   let context = null;

@@ -139,8 +139,8 @@ const executionMode = isParallel ? 'parallel' : 'sequential';
 const throttle = { network: settings.network || 'none', cpu: settings.cpuThrottle || 1 };
 
 const runnerConfig = {
-  browser1: { id: racerNames[0], script: scripts[0] },
-  browser2: { id: racerNames[1], script: scripts[1] },
+  browser1: { id: racerNames[0], script: scripts[0], displayName: settings.name1 || settings.names?.[0] || '' },
+  browser2: { id: racerNames[1], script: scripts[1], displayName: settings.name2 || settings.names?.[1] || '' },
   executionMode,
   throttle,
   headless: settings.headless || false,
