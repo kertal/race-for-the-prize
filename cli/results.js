@@ -87,7 +87,6 @@ export function convertVideos(results, format) {
           execFileSync('ffmpeg', args, { timeout: 300000, stdio: 'pipe' });
           compressGif(dest);
         }
-        fs.unlinkSync(src);
         r[key] = dest;
       } catch (e) {
         console.error(`${c.dim}Warning: Could not convert ${path.basename(src)}: ${e.message}${c.reset}`);

@@ -24,6 +24,7 @@ import { parseArgs, discoverRacers, applyOverrides } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos } from './cli/results.js';
+import { buildPlayerHtml } from './cli/videoplayer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -230,7 +231,14 @@ async function runSingleRace(runDir) {
     convertProgress.done(`Videos converted to ${format}`);
   }
 
-  return { summary, sideBySidePath, sideBySideName };
+  const videoFiles = racerNames.map(name => `${name}/${name}.race.webm`);
+  const altFmt = format !== 'webm' ? format : null;
+  const altExt = altFmt === 'mov' ? '.mov' : altFmt === 'gif' ? '.gif' : null;
+  const altFiles = altExt ? racerNames.map(name => `${name}/${name}.race${altExt}`) : null;
+  const playerPath = path.join(runDir, 'index.html');
+  fs.writeFileSync(playerPath, buildPlayerHtml(summary, videoFiles, altFmt, altFiles));
+
+  return { summary, sideBySidePath, sideBySideName, playerPath };
 }
 
 // --- Main ---
@@ -264,6 +272,7 @@ async function main() {
     }
 
     console.error(`  ${c.dim}📂 ${resultsDir}${c.reset}`);
+    console.error(`  ${c.dim}🎬 open ${path.join(resultsDir, totalRuns === 1 ? '' : '1', 'index.html')}${c.reset}`);
     console.error(`  ${c.dim}   node race.js ${positional[0]} --results${c.reset}\n`);
   } catch (e) {
     console.error(`\n${c.red}${c.bold}Race failed:${c.reset} ${e.message}\n`);
