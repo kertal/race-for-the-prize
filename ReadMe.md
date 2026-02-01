@@ -154,7 +154,34 @@ The terminal delivers the verdict in style:
 ## Prerequisites
 
 - **Node.js** 18+
-- **FFmpeg** (optional — for side-by-side video replays)
+- **FFmpeg** (optional — for side-by-side video replays and GIF generation)
+
+### Installing FFmpeg
+
+**macOS** (Homebrew):
+```bash
+brew install ffmpeg
+```
+
+**Ubuntu / Debian**:
+```bash
+sudo apt update && sudo apt install ffmpeg
+```
+
+**Windows** (Chocolatey):
+```bash
+choco install ffmpeg
+```
+
+**Windows** (winget):
+```bash
+winget install FFmpeg.FFmpeg
+```
+
+Verify the installation:
+```bash
+ffmpeg -version
+```
 
 ## Project Structure
 
