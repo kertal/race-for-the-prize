@@ -351,6 +351,7 @@ function sanitizeScript(script) {
  *   page.raceEnd(name)                — stop the stopwatch (sync: just arithmetic)
  *   await page.raceRecordingStart()   — manually start a video segment (async: syncs)
  *   page.raceRecordingEnd()           — manually end a video segment (sync)
+ *   page.raceMessage(text)            — send a message to the CLI terminal (sync)
  *
  * raceStart/raceEnd are async/sync respectively because starting requires
  * synchronizing both browsers at the starting line (via SyncBarrier), while
@@ -479,6 +480,9 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   let hasExplicitRecording = false;
   let autoRecordingStarted = false;
 
+  page.raceMessage = (text) => {
+    console.error(`[${id}] __raceMessage__:${text}`);
+  };
   page.raceRecordingStart = async () => { hasExplicitRecording = true; await startRecording(); };
   page.raceRecordingEnd = async () => { hasExplicitRecording = true; await stopRecording(); };
   page.raceStart = async (name = 'default') => {

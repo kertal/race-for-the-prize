@@ -59,6 +59,7 @@ ${c.dim}  ───────────────────────�
      ${c.dim}await${c.reset} page.click(${c.green}'.button'${c.reset});
      ${c.dim}await${c.reset} page.waitForSelector(${c.green}'.result'${c.reset});
      page.raceEnd(${c.green}'Load Time'${c.reset});              ${c.dim}// end measurement (sync)${c.reset}
+     page.raceMessage(${c.green}'I win!'${c.reset});              ${c.dim}// send message to CLI${c.reset}
      ${c.dim}await${c.reset} page.raceRecordingEnd();          ${c.dim}// optional: end video segment${c.reset}
 
      ${c.dim}If raceRecordingStart/End are omitted, recording wraps raceStart to raceEnd.${c.reset}
@@ -179,6 +180,12 @@ function runRace() {
       const text = d.toString();
       racerNames.forEach((name, i) => {
         if (text.includes(`[${name}] Context closed`)) animation.racerFinished(i);
+        const msgPrefix = `[${name}] __raceMessage__:`;
+        const msgIdx = text.indexOf(msgPrefix);
+        if (msgIdx !== -1) {
+          const msgText = text.slice(msgIdx + msgPrefix.length).split('\n')[0];
+          animation.addMessage(i, name, msgText);
+        }
       });
       if (animation.finished.every(Boolean) && animation.interval) animation.stop();
     });
