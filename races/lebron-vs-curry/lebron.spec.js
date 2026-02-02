@@ -50,5 +50,6 @@ for (let s = 0; s < scrollSteps; s++) {
 await page.evaluate(() => window.scrollTo(0, 0));
 
 page.raceEnd('Dribble Race');
+page.raceMessage('King James has arrived.');
 await page.waitForTimeout(1500);
 await page.raceRecordingEnd();
