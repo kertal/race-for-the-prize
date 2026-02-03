@@ -481,6 +481,11 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   let autoRecordingStarted = false;
 
   page.raceMessage = (text) => {
+    if (text == null) {
+      text = '';
+    } else if (typeof text !== 'string') {
+      text = String(text);
+    }
     console.error(`[${id}] __raceMessage__:${text}`);
   };
   page.raceRecordingStart = async () => { hasExplicitRecording = true; await startRecording(); };
