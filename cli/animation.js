@@ -89,6 +89,6 @@ export class RaceAnimation {
       process.stderr.write(`\x1b[${this.lines}A`);
     }
     process.stderr.write(c.showCursor);
-    process.stderr.write(`  ${c.dim}🎤 Interviewing the racers… results coming soon${c.reset}\n`);
+    process.stderr.write(`  ${c.dim}Calculating results…${c.reset}\n`);
   }
 }
