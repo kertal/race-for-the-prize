@@ -71,8 +71,7 @@ export class RaceAnimation {
     this.finished[index] = true;
   }
 
-  addMessage(index, name, text) {
-    const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(1);
+  addMessage(index, name, text, elapsed) {
     this.messages.push({ index, name, text, elapsed });
   }
 
