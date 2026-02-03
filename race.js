@@ -180,14 +180,14 @@ function runRace() {
       const text = d.toString();
       racerNames.forEach((name, i) => {
         if (text.includes(`[${name}] Context closed`)) animation.racerFinished(i);
-        const msgPrefix = `[${name}] __raceMessage__:`;
+        const msgPrefix = `[${name}] __raceMessage__[`;
         const msgIdx = text.indexOf(msgPrefix);
         if (msgIdx !== -1) {
           const payload = text.slice(msgIdx + msgPrefix.length).split('\n')[0];
-          const colonIdx = payload.indexOf(':');
-          const elapsed = colonIdx !== -1 ? payload.slice(0, colonIdx) : '0.0';
-          const msgText = colonIdx !== -1 ? payload.slice(colonIdx + 1) : payload;
-          animation.addMessage(i, name, msgText, elapsed);
+          const match = payload.match(/^([\d.]+)\]:(.*)$/);
+          if (match) {
+            animation.addMessage(i, name, match[2], match[1]);
+          }
         }
       });
       if (animation.finished.every(Boolean) && animation.interval) animation.stop();

@@ -490,7 +490,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
       text = String(text);
     }
     const elapsed = raceStartTime ? ((Date.now() - raceStartTime) / 1000).toFixed(1) : '0.0';
-    console.error(`[${id}] __raceMessage__:${elapsed}:${text}`);
+    console.error(`[${id}] __raceMessage__[${elapsed}]:${text}`);
   };
   page.raceRecordingStart = async () => { hasExplicitRecording = true; await startRecording(); };
   page.raceRecordingEnd = async () => { hasExplicitRecording = true; await stopRecording(); };
