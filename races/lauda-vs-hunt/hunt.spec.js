@@ -21,5 +21,6 @@ while (true) {
 }
 
 page.raceEnd('Scroll to Bottom');
+page.raceMessage('Full throttle, no regrets!');
 await page.waitForTimeout(1500);
 await page.raceRecordingEnd();

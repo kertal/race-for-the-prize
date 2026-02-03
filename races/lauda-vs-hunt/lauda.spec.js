@@ -21,5 +21,6 @@ while (true) {
 }
 
 page.raceEnd('Scroll to Bottom');
+page.raceMessage('Precision beats chaos.');
 await page.waitForTimeout(1500);
 await page.raceRecordingEnd();
