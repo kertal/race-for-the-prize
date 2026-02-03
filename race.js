@@ -183,8 +183,11 @@ function runRace() {
         const msgPrefix = `[${name}] __raceMessage__:`;
         const msgIdx = text.indexOf(msgPrefix);
         if (msgIdx !== -1) {
-          const msgText = text.slice(msgIdx + msgPrefix.length).split('\n')[0];
-          animation.addMessage(i, name, msgText);
+          const payload = text.slice(msgIdx + msgPrefix.length).split('\n')[0];
+          const colonIdx = payload.indexOf(':');
+          const elapsed = colonIdx !== -1 ? payload.slice(0, colonIdx) : '0.0';
+          const msgText = colonIdx !== -1 ? payload.slice(colonIdx + 1) : payload;
+          animation.addMessage(i, name, msgText, elapsed);
         }
       });
       if (animation.finished.every(Boolean) && animation.interval) animation.stop();
