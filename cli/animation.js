@@ -83,11 +83,6 @@ export class RaceAnimation {
     if (this.interval) clearInterval(this.interval);
     this.interval = null;
     this.finished = [true, true];
-    if (this.lines > 0) {
-      process.stderr.write(`\x1b[${this.lines}A`);
-      for (let i = 0; i < this.lines; i++) process.stderr.write('\x1b[K\n');
-      process.stderr.write(`\x1b[${this.lines}A`);
-    }
     process.stderr.write(c.showCursor);
     process.stderr.write(`  ${c.dim}Calculating results…${c.reset}\n`);
   }
