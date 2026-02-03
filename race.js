@@ -183,7 +183,7 @@ function runRace() {
         const msgPrefix = `[${name}] __raceMessage__:`;
         const msgIdx = text.indexOf(msgPrefix);
         if (msgIdx !== -1) {
-          const msgText = text.slice(msgIdx + msgPrefix.length).split('\n')[0];
+          const msgText = text.slice(msgIdx + msgPrefix.length).split('\n')[0].trim();
           animation.addMessage(i, name, msgText);
         }
       });
