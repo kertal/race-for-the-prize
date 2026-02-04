@@ -1,20 +1,18 @@
-# 🏆 RaceForThePrice
+# 🏆 RaceForThePrize
 
 **Ladies and gentlemen, welcome to race day!**
 
-RaceForThePrice is a command-line showdown that pits two browsers against each other in a head-to-head performance battle. Write your [Playwright](https://playwright.dev/) scripts, fire the starting gun, and watch them tear down the track side-by-side — complete with live terminal animation, video recordings, and a full race report declaring the champion.
+RaceForThePrize is a command-line showdown that pits two browsers against each other in a head-to-head performance battle. Write your [Playwright](https://playwright.dev/) scripts, fire the starting gun, and watch them tear down the track side-by-side — complete with live terminal animation, video recordings, and a full race report declaring the champion.
 
 No judges, no bias — just cold, hard milliseconds on the clock.
 
 ## The Starting Grid
 
 ```bash
-# Install dependencies (including Playwright)
-npm install
-
-# Install the Chromium browser engine
-npx playwright install chromium
+npm install && npx playwright install chromium
 ```
+
+New to Node.js or need help with your platform? See the full **[Installation Guide](INSTALLATION.md)** for step-by-step instructions on macOS, Linux, and Windows.
 
 ## 🏁 Race Day: Lauda vs Hunt
 
@@ -26,6 +24,8 @@ node race.js ./races/lauda-vs-hunt
 
 Two browsers launch. Two Wikipedia pages load. Then they scroll — human-like, pixel by pixel — to the bottom. Who reaches the finish line first?
 
+![Lauda vs Hunt — side-by-side race replay](assets/race-for-the-prize-hunt-vs-lauda.gif)
+
 ### What's in the race folder
 
 ```
@@ -34,6 +34,16 @@ races/lauda-vs-hunt/
   hunt.spec.js       # 🔵 Racer 2: James Hunt's Wikipedia page
   settings.json      # Race conditions (parallel, throttle, etc.)
 ```
+
+## 🏀 LeBron vs Curry
+
+The GOAT debate, settled by browser performance. LeBron James — "The King" — against Stephen Curry — "The Chef". Both start at a fixed scroll position on their Wikipedia pages and dribble — basketball physics style, with gravity acceleration down and deceleration up — three times before racing back to the top.
+
+```bash
+node race.js ./races/lebron-vs-curry
+```
+
+The dribbles are perfectly synced. The difference? The scroll back to the top: LeBron uses a smooth ease-in-out, Curry snaps up with a cubic ease-out. Pure browser performance decides the winner.
 
 ## Building Your Own Grand Prix
 
@@ -198,6 +208,10 @@ races/my-race/results-2026-01-31_14-30-00/
   README.md                           # Race report card
 ```
 
+Disclaimer: Due to the nature of the way the video is transformed, the aim here is not accuracy, it's to showcase, to visualize performance. To compare between different network and browser settings.
+Do double check and question the metrics and findigs. It should be a helpful tool supporting performance related narratives, but don't assume 100% accuracy. However, this generally applys to many 
+browser gained performance metrics. There are many side effects. And screen recording, plus video cutting is another one.
+
 ## The Podium Ceremony
 
 The terminal delivers the verdict in style:
@@ -231,13 +245,15 @@ The terminal delivers the verdict in style:
 
 ## Prerequisites
 
-- **Node.js** 18+
-- **FFmpeg** (optional — for side-by-side video replays)
+- **Node.js** 18+ (required)
+- **FFmpeg** (optional — for side-by-side video replays and GIF export)
+
+See the **[Installation Guide](INSTALLATION.md)** for detailed setup instructions on every platform.
 
 ## Project Structure
 
 ```
-RaceForThePrice/
+RaceForThePrize/
 ├── race.js              # 🏁 Main entry point — the race director
 ├── runner.cjs           # Playwright automation engine
 ├── cli/
@@ -248,16 +264,18 @@ RaceForThePrice/
 │   ├── summary.js       # Results formatting & markdown reports
 │   └── sidebyside.js    # FFmpeg video composition
 ├── races/
-│   └── lauda-vs-hunt/   # 🏆 Example: the greatest rivalry in racing
+│   ├── lauda-vs-hunt/   # 🏆 Example: the greatest rivalry in racing
+│   └── lebron-vs-curry/ # 🏀 Example: the GOAT debate, dribble-style
 ├── tests/               # Test suite
 └── package.json
 ```
 
 ## Standing on the Shoulders of Giants
 
-This project was inspired by [@kertal](https://github.com/kertal)'s work at [Elastic](https://www.elastic.co/) and is built on top of the mighty [Playwright](https://playwright.dev/) — the browser automation framework that makes all of this possible.
-
-The name is a tip of the helmet to [The Flaming Lips](https://www.flaminglips.com/) and their great song *"Race for the Prize"* — because in the end, we're all just racing for something worth winning.
+- Built by [@kertal](https://github.com/kertal) and his agents [The Flaming Bits](https://claude.com/product/claude-code). More humans with or without agents are welcome!
+- Built on top of the mighty [Playwright](https://playwright.dev/) — the browser automation framework that makes all of this possible.
+- Built on top of ideas while working on [Kibana](https://www.elastic.co/kibana).
+- Built with support of the great "[Race for the Prize](https://www.youtube.com/watch?v=bs56ygZplQA)" song by [The Flaming Lips](https://www.flaminglips.com/). 
 
 ## License
 

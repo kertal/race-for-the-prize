@@ -7,10 +7,11 @@ import path from 'path';
 import fs from 'fs';
 import { c } from './colors.js';
 import { startProgress } from './animation.js';
+import { compressGif } from './results.js';
 
 function codecArgs(format) {
   if (format === 'mov') return ['-c:v', 'libx264', '-pix_fmt', 'yuv420p'];
-  if (format === 'gif') return ['-vf', 'fps=10,scale=1280:-1'];
+  if (format === 'gif') return [];  // GIF-specific filters are applied in filter_complex
   return ['-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0'];
 }
 
@@ -32,14 +33,17 @@ export function createSideBySide(video1Path, video2Path, outputPath, format = 'w
 
   try {
     const pts = slowmo > 0 ? `setpts=${slowmo}*PTS,` : '';
+    const gifTail = format === 'gif' ? ',fps=10,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3' : '';
     execFileSync('ffmpeg', [
       '-y',
       '-i', video1Path,
       '-i', video2Path,
-      '-filter_complex', `[0:v]${pts}scale=640:360[left];[1:v]${pts}scale=640:360[right];[left][right]hstack=inputs=2`,
+      '-filter_complex', `[0:v]${pts}scale=640:-2[left];[1:v]${pts}scale=640:-2[right];[left][right]hstack=inputs=2${gifTail}`,
       ...codecArgs(format),
       outputPath
     ], { timeout: 300000, stdio: 'pipe' });
+
+    if (format === 'gif') compressGif(outputPath);
 
     progress.done(`Side-by-side: ${path.basename(outputPath)}`);
     return outputPath;

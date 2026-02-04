@@ -1,5 +1,5 @@
 /**
- * runner.cjs — Playwright browser automation engine for RaceForThePrice.
+ * runner.cjs — Playwright browser automation engine for RaceForThePrize.
  *
  * Launched as a child process by race.js. Receives a JSON config via argv,
  * runs two Playwright-driven browsers (parallel or sequential), records video,
@@ -351,6 +351,7 @@ function sanitizeScript(script) {
  *   page.raceEnd(name)                — stop the stopwatch (sync: just arithmetic)
  *   await page.raceRecordingStart()   — manually start a video segment (async: syncs)
  *   page.raceRecordingEnd()           — manually end a video segment (sync)
+ *   page.raceMessage(text)            — send a message to the CLI terminal (sync)
  *
  * raceStart/raceEnd are async/sync respectively because starting requires
  * synchronizing both browsers at the starting line (via SyncBarrier), while
@@ -461,7 +462,10 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     return stopPromise;
   };
 
+  let raceStartTime = null;
+
   const startMeasure = (name = 'default') => {
+    if (raceStartTime === null) raceStartTime = Date.now();
     activeMeasurements[name] = (Date.now() - recordingStartTime) / 1000;
   };
 
@@ -479,6 +483,15 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   let hasExplicitRecording = false;
   let autoRecordingStarted = false;
 
+  page.raceMessage = (text) => {
+    if (text == null) {
+      text = '';
+    } else if (typeof text !== 'string') {
+      text = String(text);
+    }
+    const elapsed = raceStartTime ? ((Date.now() - raceStartTime) / 1000).toFixed(1) : '0.0';
+    console.error(`[${id}] __raceMessage__[${elapsed}]:${text}`);
+  };
   page.raceRecordingStart = async () => { hasExplicitRecording = true; await startRecording(); };
   page.raceRecordingEnd = async () => { hasExplicitRecording = true; await stopRecording(); };
   page.raceStart = async (name = 'default') => {

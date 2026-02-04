@@ -58,6 +58,15 @@ export function moveResults(recordingsBase, racerName, destDir, runnerResult, br
   return data;
 }
 
+/** Compress a GIF in-place using gifsicle (if available). */
+export function compressGif(filePath) {
+  try {
+    execFileSync('gifsicle', ['-O3', '--lossy=80', '--colors', '128', '-b', filePath], { timeout: 300000, stdio: 'pipe' });
+  } catch {
+    // gifsicle not available — ffmpeg output is already optimised
+  }
+}
+
 /** Convert .webm videos to the requested format (mov/gif) via ffmpeg. */
 export function convertVideos(results, format) {
   for (const r of results) {
@@ -69,10 +78,10 @@ export function convertVideos(results, format) {
       try {
         const args = ['-y', '-i', src];
         if (format === 'mov') args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p');
-        else args.push('-vf', 'fps=10,scale=640:-1');
+        else args.push('-filter_complex', 'fps=10,scale=640:-2,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3');
         args.push(dest);
         execFileSync('ffmpeg', args, { timeout: 300000, stdio: 'pipe' });
-        fs.unlinkSync(src);
+        if (format === 'gif') compressGif(dest);
         r[key] = dest;
       } catch (e) {
         console.error(`${c.dim}Warning: Could not convert ${path.basename(src)}: ${e.message}${c.reset}`);
