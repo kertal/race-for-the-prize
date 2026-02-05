@@ -20,7 +20,7 @@ import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c } from './cli/colors.js';
-import { parseArgs, discoverRacers, applyOverrides } from './cli/config.js';
+import { parseArgs, discoverRacers, applyOverrides, discoverSetupTeardown } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos } from './cli/results.js';
@@ -49,7 +49,9 @@ ${c.dim}  ───────────────────────�
      ${c.cyan}races/my-race/${c.reset}
        ${c.green}contender-a.spec.js${c.reset}  ${c.dim}# Racer 1 (name = filename without .spec.js)${c.reset}
        ${c.blue}contender-b.spec.js${c.reset}  ${c.dim}# Racer 2${c.reset}
-       ${c.dim}settings.json${c.reset}        ${c.dim}# Optional: { parallel, network, cpuThrottle }${c.reset}
+       ${c.dim}settings.json${c.reset}        ${c.dim}# Optional: { parallel, network, cpuThrottle, setup, teardown }${c.reset}
+       ${c.dim}setup.sh${c.reset}             ${c.dim}# Optional: runs before race (or setup.js)${c.reset}
+       ${c.dim}teardown.sh${c.reset}          ${c.dim}# Optional: runs after race (or teardown.js)${c.reset}
 
   ${c.bold}2.${c.reset} Each script gets a Playwright ${c.cyan}page${c.reset} with race helpers:
 
@@ -126,6 +128,106 @@ if (fs.existsSync(settingsPath)) {
 }
 
 settings = applyOverrides(settings, boolFlags, kvFlags);
+
+// --- Setup/Teardown discovery ---
+
+const { setup: setupScript, teardown: teardownScript } = discoverSetupTeardown(raceDir, settings);
+
+/**
+ * Run a setup or teardown script.
+ * Supports both shell scripts (.sh) and Node.js scripts (.js).
+ * Can be a string (script path) or object { command, timeout, waitFor }.
+ *
+ * @param {string|object} script - Script path or config object
+ * @param {string} label - Label for logging ('Setup' or 'Teardown')
+ * @returns {Promise<void>}
+ */
+async function runScript(script, label) {
+  if (!script) return;
+
+  const config = typeof script === 'string' ? { command: script } : script;
+  const { command, timeout = 60000, waitFor } = config;
+  const scriptPath = path.resolve(raceDir, command);
+
+  if (!fs.existsSync(scriptPath)) {
+    console.error(`${c.yellow}Warning: ${label} script not found: ${scriptPath}${c.reset}`);
+    return;
+  }
+
+  const progress = startProgress(`Running ${label.toLowerCase()}…`);
+
+  return new Promise((resolve, reject) => {
+    const ext = path.extname(scriptPath);
+    const isShell = ext === '.sh';
+    const args = isShell ? [scriptPath] : [scriptPath];
+    const cmd = isShell ? 'bash' : 'node';
+
+    const child = spawn(cmd, args, {
+      cwd: raceDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, RACE_DIR: raceDir },
+    });
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', d => { stdout += d; });
+    child.stderr.on('data', d => { stderr += d; });
+
+    const timeoutId = setTimeout(() => {
+      child.kill('SIGTERM');
+      progress.done(`${label} timed out after ${timeout}ms`);
+      reject(new Error(`${label} script timed out after ${timeout}ms`));
+    }, timeout);
+
+    child.on('close', code => {
+      clearTimeout(timeoutId);
+      if (code === 0) {
+        progress.done(`${label} completed`);
+
+        // If waitFor is specified, poll for the condition
+        if (waitFor) {
+          const { url, timeout: waitTimeout = 30000, interval = 1000 } = waitFor;
+          if (url) {
+            const waitProgress = startProgress(`Waiting for ${url}…`);
+            const startTime = Date.now();
+
+            const poll = async () => {
+              try {
+                const res = await fetch(url);
+                if (res.ok) {
+                  waitProgress.done(`Service ready at ${url}`);
+                  resolve();
+                  return;
+                }
+              } catch {}
+
+              if (Date.now() - startTime > waitTimeout) {
+                waitProgress.done(`Timeout waiting for ${url}`);
+                reject(new Error(`Timeout waiting for ${url} after ${waitTimeout}ms`));
+                return;
+              }
+              setTimeout(poll, interval);
+            };
+            poll();
+            return;
+          }
+        }
+
+        resolve();
+      } else {
+        progress.done(`${label} failed (exit code ${code})`);
+        if (stderr) console.error(`${c.dim}${stderr}${c.reset}`);
+        reject(new Error(`${label} script exited with code ${code}`));
+      }
+    });
+
+    child.on('error', err => {
+      clearTimeout(timeoutId);
+      progress.done(`${label} error: ${err.message}`);
+      reject(err);
+    });
+  });
+}
 
 // --- Results directory ---
 
@@ -251,6 +353,14 @@ async function runSingleRace(runDir) {
 // --- Main ---
 
 async function main() {
+  // Run setup script before races
+  try {
+    await runScript(setupScript, 'Setup');
+  } catch (e) {
+    console.error(`\n${c.red}${c.bold}Setup failed:${c.reset} ${e.message}\n`);
+    process.exit(1);
+  }
+
   try {
     if (totalRuns === 1) {
       const { summary, sideBySidePath, sideBySideName } = await runSingleRace(resultsDir);
@@ -286,8 +396,15 @@ async function main() {
     console.error(`  ${c.dim}📂 ${relResults}${c.reset}`);
   } catch (e) {
     console.error(`\n${c.red}${c.bold}Race failed:${c.reset} ${e.message}\n`);
-    process.exit(1);
+    throw e; // Re-throw to trigger teardown via finally
+  } finally {
+    // Run teardown script after races (even on failure)
+    try {
+      await runScript(teardownScript, 'Teardown');
+    } catch (e) {
+      console.error(`\n${c.yellow}Teardown failed:${c.reset} ${e.message}`);
+    }
   }
 }
 
-main().then(() => process.exit(0));
+main().then(() => process.exit(0)).catch(() => process.exit(1));

@@ -55,3 +55,26 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (kvFlags.slowmo !== undefined) s.slowmo = Number(kvFlags.slowmo);
   return s;
 }
+
+/**
+ * Discover setup and teardown scripts in a race directory.
+ * Looks for convention-based files: setup.sh, setup.js, teardown.sh, teardown.js
+ * These can be overridden by settings.json setup/teardown fields.
+ *
+ * @param {string} raceDir - Path to the race directory
+ * @param {object} settings - Settings object (may contain setup/teardown overrides)
+ * @returns {{ setup: string|object|null, teardown: string|object|null }}
+ */
+export function discoverSetupTeardown(raceDir, settings = {}) {
+  const allFiles = fs.readdirSync(raceDir).filter(f => !f.startsWith('.'));
+
+  // Convention-based discovery (shell scripts preferred over JS)
+  const setupConvention = ['setup.sh', 'setup.js'].find(f => allFiles.includes(f));
+  const teardownConvention = ['teardown.sh', 'teardown.js'].find(f => allFiles.includes(f));
+
+  // Settings override convention
+  const setup = settings.setup !== undefined ? settings.setup : (setupConvention || null);
+  const teardown = settings.teardown !== undefined ? settings.teardown : (teardownConvention || null);
+
+  return { setup, teardown };
+}

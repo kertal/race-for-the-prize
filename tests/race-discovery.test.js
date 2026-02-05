@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { discoverRacers, parseArgs, applyOverrides } from '../cli/config.js';
+import { discoverRacers, parseArgs, applyOverrides, discoverSetupTeardown } from '../cli/config.js';
 
 let tmpDir;
 
@@ -170,5 +170,104 @@ describe('settings override', () => {
     const orig = { parallel: true };
     applyOverrides(orig, new Set(['sequential']), {});
     expect(orig.parallel).toBe(true);
+  });
+});
+
+describe('setup/teardown discovery', () => {
+  it('discovers setup.sh by convention', () => {
+    fs.writeFileSync(path.join(tmpDir, 'setup.sh'), '#!/bin/bash\necho "setup"');
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+
+    const { setup, teardown } = discoverSetupTeardown(tmpDir);
+    expect(setup).toBe('setup.sh');
+    expect(teardown).toBe(null);
+  });
+
+  it('discovers teardown.sh by convention', () => {
+    fs.writeFileSync(path.join(tmpDir, 'teardown.sh'), '#!/bin/bash\necho "teardown"');
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+
+    const { setup, teardown } = discoverSetupTeardown(tmpDir);
+    expect(setup).toBe(null);
+    expect(teardown).toBe('teardown.sh');
+  });
+
+  it('discovers both setup.js and teardown.js', () => {
+    fs.writeFileSync(path.join(tmpDir, 'setup.js'), 'console.log("setup")');
+    fs.writeFileSync(path.join(tmpDir, 'teardown.js'), 'console.log("teardown")');
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+
+    const { setup, teardown } = discoverSetupTeardown(tmpDir);
+    expect(setup).toBe('setup.js');
+    expect(teardown).toBe('teardown.js');
+  });
+
+  it('prefers .sh over .js for setup', () => {
+    fs.writeFileSync(path.join(tmpDir, 'setup.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'setup.js'), 'console.log("setup")');
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+
+    const { setup } = discoverSetupTeardown(tmpDir);
+    expect(setup).toBe('setup.sh');
+  });
+
+  it('prefers .sh over .js for teardown', () => {
+    fs.writeFileSync(path.join(tmpDir, 'teardown.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'teardown.js'), 'console.log("teardown")');
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+
+    const { teardown } = discoverSetupTeardown(tmpDir);
+    expect(teardown).toBe('teardown.sh');
+  });
+
+  it('settings.json setup overrides convention', () => {
+    fs.writeFileSync(path.join(tmpDir, 'setup.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'custom-setup.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+
+    const { setup } = discoverSetupTeardown(tmpDir, { setup: './custom-setup.sh' });
+    expect(setup).toBe('./custom-setup.sh');
+  });
+
+  it('settings.json teardown overrides convention', () => {
+    fs.writeFileSync(path.join(tmpDir, 'teardown.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+
+    const { teardown } = discoverSetupTeardown(tmpDir, { teardown: { command: './cleanup.sh', timeout: 5000 } });
+    expect(teardown).toEqual({ command: './cleanup.sh', timeout: 5000 });
+  });
+
+  it('settings.json can disable convention with null', () => {
+    fs.writeFileSync(path.join(tmpDir, 'setup.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+
+    const { setup } = discoverSetupTeardown(tmpDir, { setup: null });
+    expect(setup).toBe(null);
+  });
+
+  it('returns null for both when no scripts exist', () => {
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+
+    const { setup, teardown } = discoverSetupTeardown(tmpDir);
+    expect(setup).toBe(null);
+    expect(teardown).toBe(null);
+  });
+
+  it('ignores dotfiles', () => {
+    fs.writeFileSync(path.join(tmpDir, '.setup.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+
+    const { setup } = discoverSetupTeardown(tmpDir);
+    expect(setup).toBe(null);
   });
 });
