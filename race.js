@@ -19,14 +19,36 @@ import path from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { RaceAnimation, startProgress } from './cli/animation.js';
-import { c } from './cli/colors.js';
+import { c, FORMAT_EXTENSIONS } from './cli/colors.js';
 import { parseArgs, discoverRacers, applyOverrides } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos } from './cli/results.js';
 import { buildPlayerHtml } from './cli/videoplayer.js';
 
+/** Format a Date as YYYY-MM-DD_HH-MM-SS for directory naming. */
+export function formatTimestamp(date) {
+  const pad = n => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
+}
+
+/**
+ * Build the paths for results output display.
+ * Returns { relResults, relHtml } relative to cwd.
+ */
+export function buildResultsPaths(resultsDir, totalRuns, cwd = process.cwd()) {
+  const relResults = path.relative(cwd, resultsDir);
+  const firstRunSubdir = totalRuns === 1 ? '' : '1';
+  const relHtml = path.relative(cwd, path.join(resultsDir, firstRunSubdir, 'index.html'));
+  return { relResults, relHtml };
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Check if running as main module (not imported)
+const isMainModule = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isMainModule) {
 
 // --- Argument parsing ---
 
@@ -105,11 +127,11 @@ if (boolFlags.has('results')) {
 const { racerFiles, racerNames } = discoverRacers(raceDir);
 
 if (racerFiles.length < 2) {
-  console.error(`${c.red}Error: Need 2 .spec.js (or .js) script files in ${raceDir}, found ${racerFiles.length}${c.reset}`);
+  console.error(`${c.red}Error: Need at least 2 .spec.js (or .js) script files in ${raceDir}, found ${racerFiles.length}${c.reset}`);
   process.exit(1);
 }
-if (racerFiles.length > 2) {
-  console.error(`${c.yellow}Warning: Found ${racerFiles.length} script files, using first two: ${racerFiles[0]}, ${racerFiles[1]}${c.reset}`);
+if (racerFiles.length > 5) {
+  console.error(`${c.yellow}Warning: Found ${racerFiles.length} script files, using first five: ${racerFiles.slice(0, 5).join(', ')}${c.reset}`);
 }
 const scripts = racerFiles.map(f => fs.readFileSync(path.join(raceDir, f), 'utf-8'));
 
@@ -129,9 +151,7 @@ settings = applyOverrides(settings, boolFlags, kvFlags);
 
 // --- Results directory ---
 
-const now = new Date();
-const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`;
-const resultsDir = path.join(raceDir, `results-${timestamp}`);
+const resultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}`);
 const totalRuns = settings.runs || 1;
 
 // --- Build runner config ---
@@ -141,8 +161,7 @@ const executionMode = isParallel ? 'parallel' : 'sequential';
 const throttle = { network: settings.network || 'none', cpu: settings.cpuThrottle || 1 };
 
 const runnerConfig = {
-  browser1: { id: racerNames[0], script: scripts[0] },
-  browser2: { id: racerNames[1], script: scripts[1] },
+  browsers: racerNames.map((name, i) => ({ id: name, script: scripts[i] })),
   executionMode,
   throttle,
   headless: settings.headless || false,
@@ -206,7 +225,11 @@ function runRace() {
       // Parse the last valid JSON line from runner stdout
       const lines = stdout.trim().split('\n');
       for (let i = lines.length - 1; i >= 0; i--) {
-        try { return resolve(JSON.parse(lines[i])); } catch {}
+        try {
+          return resolve(JSON.parse(lines[i]));
+        } catch (e) {
+          if (i === 0) console.error(`Warning: Could not parse runner output`);
+        }
       }
       reject(new Error('Could not parse runner output'));
     });
@@ -224,16 +247,17 @@ async function runSingleRace(runDir) {
   const progress = startProgress('Processing recordings…');
   const recordingsBase = path.join(__dirname, 'recordings');
   const results = racerNames.map((name, i) =>
-    moveResults(recordingsBase, name, racerRunDirs[i], result, ['browser1', 'browser2'][i])
+    moveResults(recordingsBase, name, racerRunDirs[i], result.browsers[i])
   );
 
   const summary = buildSummary(racerNames, results, settings, runDir);
   fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
   progress.done('Recordings processed');
 
-  const ext = format === 'webm' ? '.webm' : format === 'mov' ? '.mov' : '.gif';
-  const sideBySideName = `${racerNames[0]}-vs-${racerNames[1]}${ext}`;
-  const sideBySidePath = createSideBySide(results[0].videoPath, results[1].videoPath, path.join(runDir, sideBySideName), format, settings.slowmo || 0);
+  const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
+  const sideBySideName = `${racerNames.join('-vs-')}${ext}`;
+  const videoPaths = results.map(r => r.videoPath).filter(Boolean);
+  const sideBySidePath = createSideBySide(videoPaths, path.join(runDir, sideBySideName), format, settings.slowmo || 0);
 
   if (format !== 'webm') {
     const convertProgress = startProgress(`Converting videos to ${format}…`);
@@ -241,7 +265,7 @@ async function runSingleRace(runDir) {
     convertProgress.done(`Videos converted to ${format}`);
   }
 
-  const videoFiles = racerNames.map(name => `${name}/${name}.race.webm`);
+  const videoFiles = racerNames.map(name => `${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
   const altFiles = format !== 'webm' ? racerNames.map(name => `${name}/${name}.race${ext}`) : null;
   fs.writeFileSync(path.join(runDir, 'index.html'), buildPlayerHtml(summary, videoFiles, format !== 'webm' ? format : null, altFiles));
 
@@ -278,12 +302,9 @@ async function main() {
       fs.writeFileSync(path.join(resultsDir, 'README.md'), md);
     }
 
-    const relResults = path.relative(process.cwd(), resultsDir);
-    // When there is only one run, index.html is written directly to resultsDir.
-    // When there are multiple runs, index.html for the first run lives in the "1" subdirectory.
-    const firstRunSubdir = totalRuns === 1 ? '' : '1';
-    const relHtml = path.relative(process.cwd(), path.join(resultsDir, firstRunSubdir, 'index.html'));
+    const { relResults, relHtml } = buildResultsPaths(resultsDir, totalRuns);
     console.error(`  ${c.dim}📂 ${relResults}${c.reset}`);
+    console.error(`  ${c.cyan}${c.bold}open ${relHtml}${c.reset}`);
   } catch (e) {
     console.error(`\n${c.red}${c.bold}Race failed:${c.reset} ${e.message}\n`);
     process.exit(1);
@@ -291,3 +312,5 @@ async function main() {
 }
 
 main().then(() => process.exit(0));
+
+} // end isMainModule

@@ -1,24 +1,32 @@
 /**
  * Generates a self-contained HTML file with a retro Grand Prix styled
- * side-by-side video player for race results.
+ * video player for race results. Supports 2-5 racers.
  */
 
+// Racer label colors matching RACER_COLORS from colors.js
+const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f', '#9b59b6'];
+
 export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles) {
-  const [video1, video2] = videoFiles;
-  const racer1 = summary.racers[0];
-  const racer2 = summary.racers[1];
+  const racers = summary.racers;
   const comparisons = summary.comparisons || [];
   const overallWinner = summary.overallWinner;
+  const count = racers.length;
 
+  // Generate table header columns
+  const headerCols = ['Measurement', ...racers, 'Winner', 'Diff'];
+  const tableHeader = headerCols.map(col => `<th>${col}</th>`).join('');
+
+  // Generate results rows
   const resultsRows = comparisons.map(comp => {
-    const d0 = comp.racers[0] ? `${comp.racers[0].duration.toFixed(3)}s` : '-';
-    const d1 = comp.racers[1] ? `${comp.racers[1].duration.toFixed(3)}s` : '-';
+    const durationCells = racers.map((racer, i) => {
+      const duration = comp.racers[i] ? `${comp.racers[i].duration.toFixed(3)}s` : '-';
+      const winClass = comp.winner === racer ? ' class="winner"' : '';
+      return `<td${winClass}>${duration}</td>`;
+    }).join('');
     const winner = comp.winner || '-';
     const diff = comp.diffPercent !== null ? `${comp.diffPercent.toFixed(1)}%` : '-';
-    const w0 = comp.winner === racer1 ? ' class="winner"' : '';
-    const w1 = comp.winner === racer2 ? ' class="winner"' : '';
-    const wc = comp.winner ? ' class="winner-col"' : '';
-    return `<tr><td>${comp.name}</td><td${w0}>${d0}</td><td${w1}>${d1}</td><td${wc}>${winner}</td><td>${diff}</td></tr>`;
+    const winnerClass = comp.winner ? ' class="winner-col"' : '';
+    return `<tr><td>${comp.name}</td>${durationCells}<td${winnerClass}>${winner}</td><td>${diff}</td></tr>`;
   }).join('\n        ');
 
   const winnerBanner = overallWinner === 'tie'
@@ -27,21 +35,44 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles) {
       ? `<span class="trophy">&#127942;</span> ${overallWinner.toUpperCase()} wins!`
       : '';
 
+  // Generate video elements
+  const videoElements = racers.map((racer, i) => {
+    const color = RACER_CSS_COLORS[i % RACER_CSS_COLORS.length];
+    return `  <div class="racer">
+    <div class="racer-label" style="color: ${color}">${racer}</div>
+    <video id="v${i}" src="${videoFiles[i]}" preload="auto" muted></video>
+  </div>`;
+  }).join('\n');
+
+  // Generate download links
   const downloadLinks = altFormat && altFiles
     ? `<div class="downloads">
   <h2>Downloads</h2>
   <div class="download-links">
-    <a href="${altFiles[0]}" download>${racer1} (.${altFormat})</a>
-    <a href="${altFiles[1]}" download>${racer2} (.${altFormat})</a>
+    ${racers.map((racer, i) => `<a href="${altFiles[i]}" download>${racer} (.${altFormat})</a>`).join('\n    ')}
   </div>
 </div>` : '';
+
+  // Generate video element IDs for JavaScript
+  const videoIds = racers.map((_, i) => `v${i}`);
+  const videoVars = videoIds.map(id => `const ${id} = document.getElementById('${id}');`).join('\n  ');
+  const videoArray = `[${videoIds.join(', ')}]`;
+
+  // Calculate layout-specific styles
+  const maxWidth = count <= 2 ? 680 : count === 3 ? 450 : 340;
+  const containerMaxWidth = count <= 2 ? 1400 : count === 3 ? 1400 : 1440;
+
+  // Title based on racer count
+  const title = count === 2
+    ? `Race: ${racers[0]} vs ${racers[1]}`
+    : `Race: ${racers.join(' vs ')}`;
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Race: ${racer1} vs ${racer2}</title>
+<title>${title}</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -77,15 +108,17 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles) {
   .trophy { font-size: 1.4rem; }
   .player-container {
     display: flex;
+    flex-wrap: wrap;
     gap: 1rem;
     padding: 0 1.5rem;
-    max-width: 1400px;
+    max-width: ${containerMaxWidth}px;
     width: 100%;
     justify-content: center;
   }
   .racer {
     flex: 1;
-    max-width: 680px;
+    min-width: 280px;
+    max-width: ${maxWidth}px;
     text-align: center;
   }
   .racer-label {
@@ -95,8 +128,6 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles) {
     letter-spacing: 0.1em;
     padding: 0.5rem 0;
   }
-  .racer:first-child .racer-label { color: #e74c3c; }
-  .racer:last-child .racer-label { color: #3498db; }
   video {
     width: 100%;
     border: 2px solid #333;
@@ -219,20 +250,13 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles) {
 <div class="winner-banner">${winnerBanner}</div>
 
 <div class="player-container">
-  <div class="racer">
-    <div class="racer-label">${racer1}</div>
-    <video id="v1" src="${video1}" preload="auto" muted></video>
-  </div>
-  <div class="racer">
-    <div class="racer-label">${racer2}</div>
-    <video id="v2" src="${video2}" preload="auto" muted></video>
-  </div>
+${videoElements}
 </div>
 
 <div class="controls">
-  <button class="frame-btn" id="prevFrame" title="Previous frame (←)">&#9664;&#9664;</button>
+  <button class="frame-btn" id="prevFrame" title="Previous frame (&#8592)">&#9664;&#9664;</button>
   <button class="play-btn" id="playBtn">&#9654;</button>
-  <button class="frame-btn" id="nextFrame" title="Next frame (→)">&#9654;&#9654;</button>
+  <button class="frame-btn" id="nextFrame" title="Next frame (&#8594)">&#9654;&#9654;</button>
   <input type="range" class="scrubber" id="scrubber" min="0" max="1000" value="0">
   <span class="time-display" id="timeDisplay">0:00 / 0:00</span>
   <select class="speed-select" id="speedSelect">
@@ -247,7 +271,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles) {
   <h2>Results</h2>
   <table>
     <thead>
-      <tr><th>Measurement</th><th>${racer1}</th><th>${racer2}</th><th>Winner</th><th>Diff</th></tr>
+      <tr>${tableHeader}</tr>
     </thead>
     <tbody>
         ${resultsRows}
@@ -261,8 +285,9 @@ ${downloadLinks}
 
 <script>
 (function() {
-  const v1 = document.getElementById('v1');
-  const v2 = document.getElementById('v2');
+  ${videoVars}
+  const videos = ${videoArray};
+  const primary = videos[0];
   const playBtn = document.getElementById('playBtn');
   const scrubber = document.getElementById('scrubber');
   const timeDisplay = document.getElementById('timeDisplay');
@@ -278,53 +303,49 @@ ${downloadLinks}
   }
 
   function onMeta() {
-    duration = Math.max(v1.duration || 0, v2.duration || 0);
+    duration = Math.max(...videos.map(v => v.duration || 0));
     timeDisplay.textContent = fmt(0) + ' / ' + fmt(duration);
   }
-  v1.addEventListener('loadedmetadata', onMeta);
-  v2.addEventListener('loadedmetadata', onMeta);
+  videos.forEach(v => v.addEventListener('loadedmetadata', onMeta));
 
   playBtn.addEventListener('click', function() {
     if (playing) {
-      v1.pause(); v2.pause();
+      videos.forEach(v => v.pause());
       playBtn.innerHTML = '&#9654;';
     } else {
-      v1.play(); v2.play();
+      videos.forEach(v => v.play());
       playBtn.innerHTML = '&#9646;&#9646;';
     }
     playing = !playing;
   });
 
-  v1.addEventListener('ended', function() {
+  primary.addEventListener('ended', function() {
     playing = false;
     playBtn.innerHTML = '&#9654;';
   });
 
-  v1.addEventListener('timeupdate', function() {
+  primary.addEventListener('timeupdate', function() {
     if (duration > 0) {
-      scrubber.value = (v1.currentTime / duration) * 1000;
-      timeDisplay.textContent = fmt(v1.currentTime) + ' / ' + fmt(duration);
+      scrubber.value = (primary.currentTime / duration) * 1000;
+      timeDisplay.textContent = fmt(primary.currentTime) + ' / ' + fmt(duration);
     }
   });
 
   scrubber.addEventListener('input', function() {
     const t = (scrubber.value / 1000) * duration;
-    v1.currentTime = t;
-    v2.currentTime = t;
+    videos.forEach(v => v.currentTime = t);
   });
 
   speedSelect.addEventListener('change', function() {
     const rate = parseFloat(speedSelect.value);
-    v1.playbackRate = rate;
-    v2.playbackRate = rate;
+    videos.forEach(v => v.playbackRate = rate);
   });
 
   const FRAME = 1 / 30;
   function stepFrame(delta) {
-    if (playing) { v1.pause(); v2.pause(); playing = false; playBtn.innerHTML = '&#9654;'; }
-    const t = Math.max(0, Math.min(duration, v1.currentTime + delta));
-    v1.currentTime = t;
-    v2.currentTime = t;
+    if (playing) { videos.forEach(v => v.pause()); playing = false; playBtn.innerHTML = '&#9654;'; }
+    const t = Math.max(0, Math.min(duration, primary.currentTime + delta));
+    videos.forEach(v => v.currentTime = t);
   }
 
   document.getElementById('prevFrame').addEventListener('click', function() { stepFrame(-FRAME); });

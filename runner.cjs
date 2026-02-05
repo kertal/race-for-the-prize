@@ -23,6 +23,28 @@ const { execFileSync } = require('child_process');
 let activeBrowsers = [];
 let activeContexts = [];
 
+// --- Constants ---
+
+// Screen dimensions for window layout
+const SCREEN = {
+  width: 1920,
+  height: 1080
+};
+
+// Window height for browser layout
+const WINDOW_HEIGHT = 800;
+
+// Visual cue detection thresholds for frame-accurate trimming
+const CUE_DETECTION = {
+  startHueMin: 130,
+  startHueMax: 170,
+  startYMax: 80,
+  endHueMin: 60,
+  endHueMax: 100,
+  endYMin: 120,
+  saturationMin: 80
+};
+
 // --- Video helpers ---
 
 /** Return the most recently modified .webm filename in a directory, or null. */
@@ -46,11 +68,11 @@ function getMostRecentVideo(dir) {
  */
 function detectCueFrames(videoPath) {
   try {
-    // Crop 10x10 top-left corner where the cue pixel lives, then analyze color
+    // Crop 30x30 top-left corner where the cue square lives, then analyze color
     const escaped = videoPath.replace(/\\/g, '/').replace(/'/g, "'\\''").replace(/ /g, '\\ ');
     const result = execFileSync('ffprobe', [
       '-f', 'lavfi',
-      '-i', 'movie=' + escaped + ',crop=10:10:0:0,signalstats',
+      '-i', 'movie=' + escaped + ',crop=30:30:0:0,signalstats',
       '-show_entries', 'frame=pts_time:frame_tags=lavfi.signalstats.HUEAVG,lavfi.signalstats.SATAVG,lavfi.signalstats.YAVG',
       '-of', 'csv=p=0',
       '-v', 'quiet'
@@ -73,18 +95,21 @@ function detectCueFrames(videoPath) {
       if (time > prevTime && prevTime > 0) frameDuration = time - prevTime;
       prevTime = time;
 
-      // Cue frames have high saturation (>80).
+      // Cue frames have high saturation.
       // Green (#00FF00): hue ~146, sat ~118, Y ~38 in signalstats
       // Red (#FF0000): hue ~81, sat ~116, Y ~161 in signalstats
-      if (sat > 80) {
-        if (hue > 130 && hue < 170 && y < 80) {
+      if (sat > CUE_DETECTION.saturationMin) {
+        if (hue > CUE_DETECTION.startHueMin && hue < CUE_DETECTION.startHueMax && y < CUE_DETECTION.startYMax) {
           startCues.push(time);
-        } else if (hue > 60 && hue < 100 && y > 120) {
+        } else if (hue > CUE_DETECTION.endHueMin && hue < CUE_DETECTION.endHueMax && y > CUE_DETECTION.endYMin) {
           endCues.push(time);
         }
       }
     }
 
+    if (startCues.length === 0 || endCues.length === 0) {
+      console.error(`[detectCueFrames] Warning: Could not detect cues (start: ${startCues.length}, end: ${endCues.length})`);
+    }
     return { startCues, endCues, frameDuration };
   } catch (e) {
     console.error(`[detectCueFrames] Failed: ${e.message}`);
@@ -202,7 +227,7 @@ async function cleanup() {
   for (const browser of activeBrowsers) { try { await browser.close(); } catch {} }
   await new Promise(r => setTimeout(r, 100));
 
-  console.log(JSON.stringify({ browser1Video: null, browser2Video: null }));
+  console.log(JSON.stringify({ browsers: [] }));
   process.exit(0);
 }
 
@@ -222,11 +247,15 @@ class SyncBarrier {
     this.resolvers = [];
     this.sharedState = sharedState;
     this.released = false;
+    this.checkIntervals = [];
   }
 
   releaseAll() {
     if (this.released) return;
     this.released = true;
+    // Clean up all polling intervals
+    this.checkIntervals.forEach(clearInterval);
+    this.checkIntervals = [];
     this.resolvers.forEach(r => r({ aborted: true }));
     this.resolvers = [];
   }
@@ -247,9 +276,11 @@ class SyncBarrier {
       const check = setInterval(() => {
         if (this.sharedState?.hasError || this.released) {
           clearInterval(check);
+          this.checkIntervals = this.checkIntervals.filter(i => i !== check);
           resolve({ aborted: true });
         }
       }, 100);
+      this.checkIntervals.push(check);
     });
   }
 }
@@ -292,6 +323,26 @@ async function getClickEvents(page) {
   catch { return []; }
 }
 
+/**
+ * Remap click timestamps to match trimmed video segments.
+ * Adjusts timestamps so they're relative to the start of the trimmed video.
+ */
+function remapClickTimestamps(clickEvents, segments) {
+  if (segments.length === 0) return clickEvents;
+
+  const adjusted = [];
+  let offset = 0;
+  for (const seg of segments) {
+    for (const evt of clickEvents) {
+      if (evt.timestamp >= seg.start && evt.timestamp <= seg.end) {
+        adjusted.push({ ...evt, timestamp: offset + (evt.timestamp - seg.start) });
+      }
+    }
+    offset += seg.end - seg.start;
+  }
+  return adjusted;
+}
+
 // --- Script execution ---
 
 /** Fix smart quotes, non-breaking spaces, and line endings in user scripts. */
@@ -332,11 +383,11 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   const activeMeasurements = {};
 
   // --- Visual cues for frame-accurate video trimming ---
-  // Place a small colored pixel in the top-left corner so ffprobe can detect cut points.
+  // Place a colored square in the top-left corner so ffprobe can detect cut points.
   const CUE_COLOR_START = '#00FF00';
   const CUE_COLOR_END = '#FF0000';
   const CUE_DURATION_MS = 300;
-  const CUE_SIZE = 10; // px — small enough to be invisible, large enough for detection
+  const CUE_SIZE = 30; // px — large enough for reliable detection
 
   const flashCue = async (color) => {
     await page.evaluate(({ c, size }) => {
@@ -386,19 +437,41 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
 
   const showMedal = async () => {
     if (!sharedState) return;
-    sharedState.finishOrder.push(id);
+    // Record finish with actual measurement end time for accurate ranking
+    const lastMeasurement = measurements[measurements.length - 1];
+    const endTime = lastMeasurement ? lastMeasurement.endTime : (Date.now() - recordingStartTime) / 1000;
+    sharedState.finishOrder.push({ id, endTime });
     if (noOverlay) return;
-    const place = sharedState.finishOrder.length;
-    const medal = place === 1 ? '🥇' : '🥈';
-    await page.evaluate(({ medal, place }) => {
-      const el = document.createElement('div');
-      el.id = '__race_medal';
-      el.textContent = medal + ' ' + (place === 1 ? '1st' : '2nd');
-      el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483647;'
-        + 'font:bold 64px/1 system-ui,sans-serif;pointer-events:none;'
-        + 'background:rgba(0,0,0,0.6);color:#fff;padding:24px 48px;border-radius:16px';
-      document.body.appendChild(el);
-    }, { medal, place });
+
+    if (isParallel) {
+      // Parallel mode: show placement medals based on actual end times
+      const sorted = [...sharedState.finishOrder].sort((a, b) => a.endTime - b.endTime);
+      const place = sorted.findIndex(f => f.id === id) + 1;
+      const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+      const ordinals = ['1st', '2nd', '3rd', '4th', '5th'];
+      const medal = medals[place - 1] || `${place}`;
+      const ordinal = ordinals[place - 1] || `${place}th`;
+      await page.evaluate(({ medal, ordinal }) => {
+        const el = document.createElement('div');
+        el.id = '__race_medal';
+        el.textContent = medal + ' ' + ordinal;
+        el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483647;'
+          + 'font:bold 64px/1 system-ui,sans-serif;pointer-events:none;'
+          + 'background:rgba(0,0,0,0.6);color:#fff;padding:24px 48px;border-radius:16px';
+        document.body.appendChild(el);
+      }, { medal, ordinal });
+    } else {
+      // Sequential mode: just show finish flag (no placement since they don't race simultaneously)
+      await page.evaluate(() => {
+        const el = document.createElement('div');
+        el.id = '__race_medal';
+        el.textContent = '🏁';
+        el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483647;'
+          + 'font:bold 80px/1 system-ui,sans-serif;pointer-events:none;'
+          + 'background:rgba(0,0,0,0.6);color:#fff;padding:24px 48px;border-radius:16px';
+        document.body.appendChild(el);
+      });
+    }
     await page.waitForTimeout(1500);
   };
 
@@ -408,8 +481,9 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
       const result = await barriers.recordingStart.wait(`${id} startRecording`);
       if (result?.aborted) return;
     }
-    await flashCue(CUE_COLOR_START);
+    // Show REC indicator BEFORE the green cue so it's visible when trimming starts
     await showRecordingIndicator();
+    await flashCue(CUE_COLOR_START);
     currentSegmentStart = (Date.now() - recordingStartTime) / 1000;
   };
 
@@ -524,13 +598,55 @@ async function applyThrottling(page, throttle, id) {
   }
 }
 
+// --- Window layout calculation for N browsers ---
+
+/**
+ * Calculate window position and size for browser at given index.
+ * For 2 browsers: side-by-side horizontally
+ * For 3 browsers: 3 across
+ * For 4 browsers: 2x2 grid
+ * For 5 browsers: 3 on top, 2 on bottom
+ */
+function calculateWindowLayout(index, total) {
+  const { width: screenWidth, height: screenHeight } = SCREEN;
+
+  if (total <= 2) {
+    // Side by side
+    const width = Math.floor(screenWidth / 2);
+    return { x: index * width, y: 0, width, height: WINDOW_HEIGHT };
+  } else if (total === 3) {
+    // 3 across
+    const width = Math.floor(screenWidth / 3);
+    return { x: index * width, y: 0, width, height: WINDOW_HEIGHT };
+  } else if (total === 4) {
+    // 2x2 grid
+    const width = Math.floor(screenWidth / 2);
+    const height = Math.floor(screenHeight / 2);
+    const row = Math.floor(index / 2);
+    const col = index % 2;
+    return { x: col * width, y: row * height, width, height };
+  } else {
+    // 5 browsers: 3 on top, 2 on bottom (centered)
+    const width = Math.floor(screenWidth / 3);
+    const height = Math.floor(screenHeight / 2);
+    if (index < 3) {
+      // Top row: 3 browsers
+      return { x: index * width, y: 0, width, height };
+    } else {
+      // Bottom row: 2 browsers, centered
+      const bottomOffset = Math.floor(width / 2);
+      return { x: bottomOffset + (index - 3) * width, y: height, width, height };
+    }
+  }
+}
+
 // --- Single browser recording flow ---
 
 /**
  * Launch one browser, run the race script, record video, collect results.
- * Called twice (once per racer) by runParallel or runSequential.
+ * Called N times (once per racer) by runParallel or runSequential.
  */
-async function runBrowserRecording(config, barriers, isParallel, sharedState, browserIndex = 0, throttle = null, profile = false, slowmo = 0, noOverlay = false) {
+async function runBrowserRecording(config, barriers, isParallel, sharedState, browserIndex = 0, totalBrowsers = 2, throttle = null, profile = false, slowmo = 0, noOverlay = false) {
   const { id, headless } = config;
   const outputDir = path.join(__dirname, 'recordings', id);
   let browser = null;
@@ -540,10 +656,9 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
   fs.mkdirSync(outputDir, { recursive: true });
   cleanupOldVideos(outputDir);
 
-  const windowWidth = 960;
-  const windowHeight = 800;
+  const layout = calculateWindowLayout(browserIndex, totalBrowsers);
   const windowArgs = isParallel
-    ? [`--window-position=${browserIndex === 0 ? 0 : windowWidth},0`, `--window-size=${windowWidth},${windowHeight}`]
+    ? [`--window-position=${layout.x},${layout.y}`, `--window-size=${layout.width},${layout.height}`]
     : [];
 
   try {
@@ -552,8 +667,8 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
     browser = await chromium.launch(launchOpts);
     activeBrowsers.push(browser);
 
-    const viewportWidth = isParallel ? windowWidth - 20 : 1280;
-    const viewportHeight = isParallel ? windowHeight - 100 : 720;
+    const viewportWidth = isParallel ? layout.width - 20 : 1280;
+    const viewportHeight = isParallel ? layout.height - 100 : 720;
     const videoScale = slowmo > 0 ? 2 : 1;
     context = await browser.newContext({
       recordVideo: { dir: outputDir, size: { width: viewportWidth * videoScale, height: viewportHeight * videoScale } },
@@ -587,21 +702,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
 
     // Adjust click timestamps to match trimmed video segments
     const clickEvents = await getClickEvents(page);
-    let adjustedClicks;
-    if (markerSegments.length > 0) {
-      adjustedClicks = [];
-      let offset = 0;
-      for (const seg of markerSegments) {
-        for (const evt of clickEvents) {
-          if (evt.timestamp >= seg.start && evt.timestamp <= seg.end) {
-            adjustedClicks.push({ ...evt, timestamp: offset + (evt.timestamp - seg.start) });
-          }
-        }
-        offset += seg.end - seg.start;
-      }
-    } else {
-      adjustedClicks = clickEvents;
-    }
+    const adjustedClicks = remapClickTimestamps(clickEvents, markerSegments);
 
     await context.close();
     activeContexts = activeContexts.filter(c => c !== context);
@@ -617,6 +718,9 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
         const { startCues, endCues, frameDuration } = detectCueFrames(videoPath);
         const segments = cueSegments(startCues, endCues, frameDuration);
         const trimSegments = segments.length > 0 ? segments : markerSegments;
+        if (segments.length === 0 && markerSegments.length > 0) {
+          console.error(`[${id}] Cue detection failed, using marker segments`);
+        }
         const res = extractSegments(videoPath, trimSegments, id);
         fullVideoFile = path.basename(res.fullPath);
       }
@@ -663,31 +767,35 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
 
 // --- Execution modes ---
 
-async function runParallel(browser1Config, browser2Config, throttle, profile, slowmo, noOverlay) {
+async function runParallel(browserConfigs, throttle, profile, slowmo, noOverlay) {
+  const count = browserConfigs.length;
   const sharedState = { hasError: false, errorMessage: null, finishOrder: [] };
   const barriers = {
-    ready: new SyncBarrier(2, sharedState),
-    recordingStart: new SyncBarrier(2, sharedState),
-    stop: new SyncBarrier(2, sharedState)
+    ready: new SyncBarrier(count, sharedState),
+    recordingStart: new SyncBarrier(count, sharedState),
+    stop: new SyncBarrier(count, sharedState)
   };
 
-  const results = await Promise.allSettled([
-    runBrowserRecording(browser1Config, barriers, true, sharedState, 0, throttle, profile, slowmo, noOverlay),
-    runBrowserRecording(browser2Config, barriers, true, sharedState, 1, throttle, profile, slowmo, noOverlay)
-  ]);
+  const promises = browserConfigs.map((config, i) =>
+    runBrowserRecording(config, barriers, true, sharedState, i, count, throttle, profile, slowmo, noOverlay)
+  );
+
+  const results = await Promise.allSettled(promises);
 
   return results.map((r, i) => {
     if (r.status === 'fulfilled') return r.value;
-    const id = i === 0 ? browser1Config.id : browser2Config.id;
-    return { id, videoPath: null, error: r.reason?.message || 'Unknown error' };
+    return { id: browserConfigs[i].id, videoPath: null, error: r.reason?.message || 'Unknown error' };
   });
 }
 
-async function runSequential(browser1Config, browser2Config, throttle, profile, slowmo, noOverlay) {
+async function runSequential(browserConfigs, throttle, profile, slowmo, noOverlay) {
   const sharedState = { hasError: false, errorMessage: null, finishOrder: [] };
-  const r1 = await runBrowserRecording(browser1Config, null, false, sharedState, 0, throttle, profile, slowmo, noOverlay);
-  const r2 = await runBrowserRecording(browser2Config, null, false, sharedState, 1, throttle, profile, slowmo, noOverlay);
-  return [r1, r2];
+  const results = [];
+  for (let i = 0; i < browserConfigs.length; i++) {
+    const result = await runBrowserRecording(browserConfigs[i], null, false, sharedState, i, browserConfigs.length, throttle, profile, slowmo, noOverlay);
+    results.push(result);
+  }
+  return results;
 }
 
 // --- Main entry point ---
@@ -700,37 +808,37 @@ async function main() {
   try { config = JSON.parse(configJson); }
   catch (e) { console.error('Error: Invalid JSON:', e.message); process.exit(1); }
 
-  const { browser1, browser2, executionMode, throttle, headless, profile, slowmo, noOverlay } = config;
-  browser1.headless = headless || false;
-  browser2.headless = headless || false;
+  const { browsers, executionMode, throttle, headless, profile, slowmo, noOverlay } = config;
+
+  // Set headless flag on all browser configs
+  for (const browser of browsers) {
+    browser.headless = headless || false;
+  }
 
   fs.mkdirSync(path.join(__dirname, 'recordings'), { recursive: true });
 
   let results;
   try {
     results = executionMode === 'parallel'
-      ? await runParallel(browser1, browser2, throttle, profile, slowmo, noOverlay)
-      : await runSequential(browser1, browser2, throttle, profile, slowmo, noOverlay);
+      ? await runParallel(browsers, throttle, profile, slowmo, noOverlay)
+      : await runSequential(browsers, throttle, profile, slowmo, noOverlay);
   } catch (error) {
-    results = [
-      { id: browser1.id, videoPath: null, error: error.message },
-      { id: browser2.id, videoPath: null, error: error.message }
-    ];
+    results = browsers.map(b => ({ id: b.id, videoPath: null, error: error.message }));
   }
 
   const errors = results.filter(r => r.error).map(r => `${r.id}: ${r.error}`);
 
+  // Output in new array-based format
   console.log(JSON.stringify({
-    browser1Video: results[0]?.videoPath || null,
-    browser2Video: results[1]?.videoPath || null,
-    browser1FullVideo: results[0]?.fullVideoPath || null,
-    browser2FullVideo: results[1]?.fullVideoPath || null,
-    browser1Trace: results[0]?.tracePath || null,
-    browser2Trace: results[1]?.tracePath || null,
-    browser1ClickEvents: results[0]?.clickEvents || [],
-    browser2ClickEvents: results[1]?.clickEvents || [],
-    browser1Measurements: results[0]?.measurements || [],
-    browser2Measurements: results[1]?.measurements || [],
+    browsers: results.map(r => ({
+      id: r.id,
+      videoPath: r.videoPath || null,
+      fullVideoPath: r.fullVideoPath || null,
+      tracePath: r.tracePath || null,
+      clickEvents: r.clickEvents || [],
+      measurements: r.measurements || [],
+      error: r.error || null
+    })),
     errors: errors.length > 0 ? errors : undefined
   }));
 
@@ -739,6 +847,6 @@ async function main() {
 
 main().catch(err => {
   console.error('Fatal error:', err);
-  console.log(JSON.stringify({ browser1Video: null, browser2Video: null, errors: [err.message] }));
+  console.log(JSON.stringify({ browsers: [], errors: [err.message] }));
   process.exit(1);
 });

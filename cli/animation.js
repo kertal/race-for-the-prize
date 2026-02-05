@@ -2,7 +2,7 @@
  * Terminal racing animation and progress spinners.
  */
 
-import { c } from './colors.js';
+import { c, RACER_COLORS } from './colors.js';
 
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
@@ -31,7 +31,7 @@ export class RaceAnimation {
   constructor(names, info) {
     this.names = names;
     this.info = info || null;
-    this.finished = [false, false];
+    this.finished = new Array(names.length).fill(false);
     this.messages = [];
     this.interval = null;
     this.frameIdx = 0;
@@ -41,7 +41,13 @@ export class RaceAnimation {
 
   start() {
     process.stderr.write(c.hideCursor);
-    let header = `\n  ${c.bold}RaceForThePrize${c.reset} 🏆  ${c.red}${c.bold}${this.names[0]}${c.reset} ${c.dim}vs${c.reset} ${c.blue}${c.bold}${this.names[1]}${c.reset}`;
+    // Build dynamic header with all racer names
+    const coloredNames = this.names.map((name, i) => {
+      const color = RACER_COLORS[i % RACER_COLORS.length];
+      return `${color}${c.bold}${name}${c.reset}`;
+    });
+    const vsString = coloredNames.join(` ${c.dim}vs${c.reset} `);
+    let header = `\n  ${c.bold}RaceForThePrize${c.reset} 🏆  ${vsString}`;
     if (this.info) header += `\n  ${c.dim}${this.info}${c.reset}`;
     process.stderr.write(header + '\n\n');
     this.interval = setInterval(() => this._tick(), 120);
@@ -61,7 +67,7 @@ export class RaceAnimation {
     process.stderr.write(line + '\x1b[K\n');
 
     for (const msg of this.messages) {
-      const nameColor = msg.index === 0 ? c.red : c.blue;
+      const nameColor = RACER_COLORS[msg.index % RACER_COLORS.length];
       process.stderr.write(`  ${nameColor}${c.bold}${msg.name}:${c.reset} ${c.dim}"${msg.text}" (${msg.elapsed}s)${c.reset}\x1b[K\n`);
       this.lines++;
     }
@@ -78,7 +84,7 @@ export class RaceAnimation {
   stop() {
     if (this.interval) clearInterval(this.interval);
     this.interval = null;
-    this.finished = [true, true];
+    this.finished = this.finished.map(() => true);
     process.stderr.write(c.showCursor);
     process.stderr.write(`  ${c.dim}Calculating results…${c.reset}\n`);
   }

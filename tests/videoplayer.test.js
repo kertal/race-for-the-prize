@@ -83,4 +83,66 @@ describe('buildPlayerHtml', () => {
     expect(html).toContain('<!DOCTYPE html>');
     expect(html).toContain('<tbody>');
   });
+
+  it('supports 3 racers', () => {
+    const summary = {
+      racers: ['alpha', 'beta', 'gamma'],
+      comparisons: [
+        { name: 'Load', racers: [{ duration: 1.0 }, { duration: 1.5 }, { duration: 2.0 }], winner: 'alpha', diff: 1.0, diffPercent: 100.0 },
+      ],
+      overallWinner: 'alpha',
+    };
+    const videos = ['alpha/alpha.race.webm', 'beta/beta.race.webm', 'gamma/gamma.race.webm'];
+    const html = buildPlayerHtml(summary, videos);
+    expect(html).toContain('src="alpha/alpha.race.webm"');
+    expect(html).toContain('src="beta/beta.race.webm"');
+    expect(html).toContain('src="gamma/gamma.race.webm"');
+    expect(html).toContain('<th>alpha</th>');
+    expect(html).toContain('<th>beta</th>');
+    expect(html).toContain('<th>gamma</th>');
+    expect(html).toContain('const videos = [v0, v1, v2]');
+  });
+
+  it('supports 4 racers', () => {
+    const summary = {
+      racers: ['a', 'b', 'c', 'd'],
+      comparisons: [],
+      overallWinner: null,
+    };
+    const videos = ['a/a.race.webm', 'b/b.race.webm', 'c/c.race.webm', 'd/d.race.webm'];
+    const html = buildPlayerHtml(summary, videos);
+    expect(html).toContain('id="v0"');
+    expect(html).toContain('id="v1"');
+    expect(html).toContain('id="v2"');
+    expect(html).toContain('id="v3"');
+    expect(html).toContain('const videos = [v0, v1, v2, v3]');
+  });
+
+  it('supports 5 racers with download links', () => {
+    const summary = {
+      racers: ['r1', 'r2', 'r3', 'r4', 'r5'],
+      comparisons: [],
+      overallWinner: 'r1',
+    };
+    const videos = ['r1/r1.webm', 'r2/r2.webm', 'r3/r3.webm', 'r4/r4.webm', 'r5/r5.webm'];
+    const altFiles = ['r1/r1.gif', 'r2/r2.gif', 'r3/r3.gif', 'r4/r4.gif', 'r5/r5.gif'];
+    const html = buildPlayerHtml(summary, videos, 'gif', altFiles);
+    expect(html).toContain('id="v4"');
+    expect(html).toContain('r1 (.gif)');
+    expect(html).toContain('r5 (.gif)');
+    expect(html).toContain('const videos = [v0, v1, v2, v3, v4]');
+  });
+
+  it('assigns correct colors to racer labels', () => {
+    const summary = {
+      racers: ['red', 'blue', 'green'],
+      comparisons: [],
+      overallWinner: null,
+    };
+    const videos = ['r/r.webm', 'b/b.webm', 'g/g.webm'];
+    const html = buildPlayerHtml(summary, videos);
+    expect(html).toContain('style="color: #e74c3c"');
+    expect(html).toContain('style="color: #3498db"');
+    expect(html).toContain('style="color: #27ae60"');
+  });
 });
