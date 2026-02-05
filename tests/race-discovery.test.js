@@ -100,6 +100,11 @@ describe('argument parsing', () => {
     expect(boolFlags.has('results')).toBe(true);
   });
 
+  it('parses --no-overlay flag', () => {
+    const { boolFlags } = parseArgs(['dir', '--no-overlay']);
+    expect(boolFlags.has('no-overlay')).toBe(true);
+  });
+
   it('handles key=value flags', () => {
     const { kvFlags } = parseArgs(['dir', '--network=fast-3g', '--cpu=4']);
     expect(kvFlags.network).toBe('fast-3g');
@@ -143,6 +148,11 @@ describe('settings override', () => {
   it('CLI --profile sets profile', () => {
     const s = applyOverrides({}, new Set(['profile']), {});
     expect(s.profile).toBe(true);
+  });
+
+  it('CLI --no-overlay sets noOverlay', () => {
+    const s = applyOverrides({}, new Set(['no-overlay']), {});
+    expect(s.noOverlay).toBe(true);
   });
 
   it('CLI --slowmo sets slowmo factor', () => {
