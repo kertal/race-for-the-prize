@@ -10,7 +10,7 @@
  * - "total": metrics for the entire browser session
  */
 
-import { c } from './colors.js';
+import { c, RACER_COLORS } from './colors.js';
 
 /**
  * Performance metric definitions.
@@ -177,21 +177,21 @@ function getMetricValue(profileData, key) {
 
 /**
  * Build profile comparison from captured metrics.
- * @param {string[]} racerNames - Names of the two racers
+ * @param {string[]} racerNames - Names of the racers (supports 2-5)
  * @param {Object[]} profileData - Array of profile data for each racer (with total/measured sections)
  * @returns {Object} Profile comparison results with measured and total sections
  */
 export function buildProfileComparison(racerNames, profileData) {
   const measuredComparisons = [];
   const totalComparisons = [];
-  const measuredWins = { [racerNames[0]]: 0, [racerNames[1]]: 0 };
-  const totalWins = { [racerNames[0]]: 0, [racerNames[1]]: 0 };
+  const measuredWins = Object.fromEntries(racerNames.map(n => [n, 0]));
+  const totalWins = Object.fromEntries(racerNames.map(n => [n, 0]));
 
   for (const [key, metric] of Object.entries(PROFILE_METRICS)) {
     const vals = profileData.map(p => getMetricValue(p, key));
 
-    // Skip if neither racer has data for this metric
-    if (vals[0] === null && vals[1] === null) continue;
+    // Skip if no racer has data for this metric
+    if (vals.every(v => v === null)) continue;
 
     const comp = {
       key,
@@ -203,23 +203,36 @@ export function buildProfileComparison(racerNames, profileData) {
       formatted: vals.map(v => v !== null ? metric.format(v) : '-'),
       winner: null,
       diff: null,
-      diffPercent: null
+      diffPercent: null,
+      rankings: []
     };
 
     // Determine winner (lower is better for all metrics)
-    if (vals[0] !== null && vals[1] !== null && vals[0] !== vals[1]) {
-      const winIdx = vals[0] <= vals[1] ? 0 : 1;
-      const loseIdx = 1 - winIdx;
-      comp.winner = racerNames[winIdx];
-      comp.diff = vals[loseIdx] - vals[winIdx];
-      comp.diffPercent = vals[winIdx] > 0
-        ? (comp.diff / vals[winIdx] * 100)
-        : 0;
+    // Rank all racers that have data, sorted by value ascending
+    const racersWithData = vals
+      .map((v, i) => v !== null ? { index: i, value: v } : null)
+      .filter(Boolean)
+      .sort((a, b) => a.value - b.value);
 
-      if (metric.scope === 'measured') {
-        measuredWins[racerNames[winIdx]]++;
-      } else {
-        totalWins[racerNames[winIdx]]++;
+    if (racersWithData.length >= 2) {
+      const bestVal = racersWithData[0].value;
+      const worstVal = racersWithData[racersWithData.length - 1].value;
+      comp.rankings = racersWithData.map(r => racerNames[r.index]);
+
+      // Only declare a winner if best and worst differ
+      if (bestVal !== worstVal) {
+        const winIdx = racersWithData[0].index;
+        comp.winner = racerNames[winIdx];
+        comp.diff = worstVal - bestVal;
+        comp.diffPercent = bestVal > 0
+          ? (comp.diff / bestVal * 100)
+          : 0;
+
+        if (metric.scope === 'measured') {
+          measuredWins[racerNames[winIdx]]++;
+        } else {
+          totalWins[racerNames[winIdx]]++;
+        }
       }
     }
 
@@ -247,24 +260,19 @@ export function buildProfileComparison(racerNames, profileData) {
       overallWinner: totalOverallWinner,
       byCategory: groupByCategory(totalComparisons)
     },
-    // Combined for backward compatibility
+    // Combined
     comparisons: [...measuredComparisons, ...totalComparisons],
-    wins: {
-      [racerNames[0]]: measuredWins[racerNames[0]] + totalWins[racerNames[0]],
-      [racerNames[1]]: measuredWins[racerNames[1]] + totalWins[racerNames[1]]
-    }
+    wins: Object.fromEntries(racerNames.map(n => [n, measuredWins[n] + totalWins[n]]))
   };
 }
 
 function determineOverallWinner(wins, racerNames, comparisons) {
-  if (wins[racerNames[0]] > wins[racerNames[1]]) {
-    return racerNames[0];
-  } else if (wins[racerNames[1]] > wins[racerNames[0]]) {
-    return racerNames[1];
-  } else if (comparisons.length > 0) {
-    return 'tie';
-  }
-  return null;
+  if (comparisons.length === 0) return null;
+  const maxWins = Math.max(...racerNames.map(n => wins[n]));
+  const winnersWithMax = racerNames.filter(n => wins[n] === maxWins);
+  if (winnersWithMax.length === 1) return winnersWithMax[0];
+  if (maxWins === 0) return null;
+  return 'tie';
 }
 
 function groupByCategory(comparisons) {
@@ -289,7 +297,7 @@ const categoryLabels = {
 /**
  * Print a section of profile metrics.
  */
-function printProfileSection(title, section, racers, colors, w, write) {
+function printProfileSection(title, section, racers, w, write) {
   const { comparisons, wins, overallWinner, byCategory } = section;
 
   if (comparisons.length === 0) return;
@@ -304,24 +312,25 @@ function printProfileSection(title, section, racers, colors, w, write) {
       const maxVal = Math.max(...comp.values.filter(v => v !== null));
 
       write(`  ${c.dim}${comp.name}${c.reset}\n`);
-      for (let i = 0; i < 2; i++) {
+      for (let i = 0; i < racers.length; i++) {
+        const color = RACER_COLORS[i % RACER_COLORS.length];
         const val = comp.values[i];
         const formatted = comp.formatted[i];
         const isWinner = comp.winner === racers[i];
         const medal = isWinner ? ' 🏆' : '';
 
-        // Simple bar visualization
         const barWidth = 20;
         const filled = val !== null && maxVal > 0
           ? Math.round((val / maxVal) * barWidth)
           : 0;
         const bar = '▓'.repeat(filled) + '░'.repeat(barWidth - filled);
 
-        write(`    ${colors[i]}${c.bold}${racers[i].padEnd(10)}${c.reset} ${colors[i]}${bar}${c.reset}  ${formatted}${medal}\n`);
+        write(`    ${color}${c.bold}${racers[i].padEnd(12)}${c.reset} ${color}${bar}${c.reset}  ${formatted}${medal}\n`);
       }
 
       if (comp.winner && comp.diffPercent !== null) {
-        const winColor = comp.winner === racers[0] ? colors[0] : colors[1];
+        const winnerIdx = racers.indexOf(comp.winner);
+        const winColor = RACER_COLORS[winnerIdx % RACER_COLORS.length];
         write(`    ${winColor}${c.bold}${comp.winner}${c.reset} is ${c.bold}${comp.diffPercent.toFixed(1)}%${c.reset} better\n`);
       }
     }
@@ -330,12 +339,17 @@ function printProfileSection(title, section, racers, colors, w, write) {
 
   write(`  ${c.dim}${'─'.repeat(w)}${c.reset}\n`);
   write(`  ${c.bold}Score: ${c.reset}`);
-  write(`${colors[0]}${racers[0]}${c.reset} ${wins[racers[0]]} - ${wins[racers[1]]} ${colors[1]}${racers[1]}${c.reset}\n`);
+  const scoreStr = racers.map((r, i) => {
+    const color = RACER_COLORS[i % RACER_COLORS.length];
+    return `${color}${r}${c.reset} ${wins[r]}`;
+  }).join(' · ');
+  write(`${scoreStr}\n`);
 
   if (overallWinner === 'tie') {
     write(`  ${c.yellow}${c.bold}🤝 Tie!${c.reset}\n`);
   } else if (overallWinner) {
-    const winColor = overallWinner === racers[0] ? colors[0] : colors[1];
+    const winnerIdx = racers.indexOf(overallWinner);
+    const winColor = RACER_COLORS[winnerIdx % RACER_COLORS.length];
     write(`  🏆 ${winColor}${c.bold}${overallWinner}${c.reset} wins!\n`);
   }
 }
@@ -347,7 +361,6 @@ function printProfileSection(title, section, racers, colors, w, write) {
  */
 export function printProfileAnalysis(profileComparison, racers) {
   const { measured, total } = profileComparison;
-  const colors = [c.red, c.blue];
   const w = 54;
 
   const write = (s) => process.stderr.write(s);
@@ -359,14 +372,12 @@ export function printProfileAnalysis(profileComparison, racers) {
 
   write(`\n  ${c.bold}📊 Performance Profile Analysis${c.reset}\n`);
 
-  // Print measured metrics first (between raceStart/raceEnd)
   if (measured.comparisons.length > 0) {
-    printProfileSection('⏱️  During Measurement (raceStart → raceEnd)', measured, racers, colors, w, write);
+    printProfileSection('⏱️  During Measurement (raceStart → raceEnd)', measured, racers, w, write);
   }
 
-  // Print total metrics
   if (total.comparisons.length > 0) {
-    printProfileSection('📈 Total Session', total, racers, colors, w, write);
+    printProfileSection('📈 Total Session', total, racers, w, write);
   }
 }
 
@@ -393,18 +404,20 @@ function buildScopeMarkdown(title, section, racers) {
   for (const [category, comps] of Object.entries(byCategory)) {
     lines.push(`**${categoryLabelsPlain[category] || category}**`);
     lines.push('');
-    lines.push(`| Metric | ${racers[0]} | ${racers[1]} | Winner | Diff |`);
-    lines.push('|---|---|---|---|---|');
+    const headerCols = ['Metric', ...racers, 'Winner', 'Diff'];
+    lines.push(`| ${headerCols.join(' | ')} |`);
+    lines.push(`|${headerCols.map(() => '---').join('|')}|`);
 
     for (const comp of comps) {
       const winner = comp.winner || '-';
       const diff = comp.diffPercent !== null ? `${comp.diffPercent.toFixed(1)}%` : '-';
-      lines.push(`| ${comp.name} | ${comp.formatted[0]} | ${comp.formatted[1]} | ${winner} | ${diff} |`);
+      lines.push(`| ${comp.name} | ${comp.formatted.join(' | ')} | ${winner} | ${diff} |`);
     }
     lines.push('');
   }
 
-  lines.push(`**Score:** ${racers[0]} ${wins[racers[0]]} - ${wins[racers[1]]} ${racers[1]}`);
+  const scoreStr = racers.map(r => `${r} ${wins[r]}`).join(' · ');
+  lines.push(`**Score:** ${scoreStr}`);
   if (overallWinner && overallWinner !== 'tie') {
     lines.push(`**Winner:** ${overallWinner}`);
   } else if (overallWinner === 'tie') {

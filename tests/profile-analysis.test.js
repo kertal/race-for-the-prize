@@ -262,19 +262,13 @@ describe('buildProfileMarkdown', () => {
     const comparison = buildProfileComparison(['racer1', 'racer2'], [metrics1, metrics2]);
     const markdown = buildProfileMarkdown(comparison, ['racer1', 'racer2']);
 
-    // Check for expected sections
     expect(markdown).toContain('### Performance Profile Analysis');
     expect(markdown).toContain('Lower values are better');
     expect(markdown).toContain('During Measurement');
     expect(markdown).toContain('Total Session');
-
-    // Check for table structure
     expect(markdown).toContain('| Metric |');
-    expect(markdown).toContain('| racer1 |');
-    expect(markdown).toContain('|---|---|---|---|---|');
-
-    // Check for winner information
     expect(markdown).toContain('racer1');
+    expect(markdown).toContain('racer2');
     expect(markdown).toContain('**Score:**');
   });
 
@@ -292,5 +286,96 @@ describe('buildProfileMarkdown', () => {
 
     // Should contain the percentage diff (100%)
     expect(markdown).toContain('100.0%');
+  });
+});
+
+describe('multi-racer support (3-5 racers)', () => {
+  it('compares all 4 racers and picks the best', () => {
+    const data = [
+      { total: { networkTransferSize: 3000 }, measured: { networkTransferSize: 1000 } },
+      { total: { networkTransferSize: 1000 }, measured: { networkTransferSize: 500 } },
+      { total: { networkTransferSize: 4000 }, measured: { networkTransferSize: 2000 } },
+      { total: { networkTransferSize: 2000 }, measured: { networkTransferSize: 800 } },
+    ];
+    const result = buildProfileComparison(['angular', 'htmx', 'react', 'svelte'], data);
+
+    const totalTransfer = result.total.comparisons.find(c => c.key === 'total.networkTransferSize');
+    expect(totalTransfer.winner).toBe('htmx');
+    expect(totalTransfer.values).toEqual([3000, 1000, 4000, 2000]);
+    // diff = worst (4000) - best (1000) = 3000, diffPercent = 3000/1000*100 = 300%
+    expect(totalTransfer.diff).toBe(3000);
+    expect(totalTransfer.diffPercent).toBe(300);
+  });
+
+  it('tracks wins for all racers', () => {
+    const data = [
+      { total: { networkTransferSize: 100, scriptDuration: 400 }, measured: {} },
+      { total: { networkTransferSize: 200, scriptDuration: 100 }, measured: {} },
+      { total: { networkTransferSize: 300, scriptDuration: 200 }, measured: {} },
+    ];
+    const result = buildProfileComparison(['a', 'b', 'c'], data);
+
+    // 'a' wins network, 'b' wins script
+    expect(result.total.wins.a).toBe(1);
+    expect(result.total.wins.b).toBe(1);
+    expect(result.total.wins.c).toBe(0);
+    expect(result.total.overallWinner).toBe('tie');
+  });
+
+  it('includes rankings for all racers', () => {
+    const data = [
+      { total: { networkTransferSize: 2000 }, measured: {} },
+      { total: { networkTransferSize: 1000 }, measured: {} },
+      { total: { networkTransferSize: 3000 }, measured: {} },
+      { total: { networkTransferSize: 1500 }, measured: {} },
+    ];
+    const result = buildProfileComparison(['a', 'b', 'c', 'd'], data);
+
+    const comp = result.total.comparisons.find(c => c.key === 'total.networkTransferSize');
+    expect(comp.rankings).toEqual(['b', 'd', 'a', 'c']);
+  });
+
+  it('combined wins include all racers', () => {
+    const data = [
+      { total: { networkTransferSize: 100 }, measured: { networkTransferSize: 200 } },
+      { total: { networkTransferSize: 200 }, measured: { networkTransferSize: 100 } },
+      { total: { networkTransferSize: 300 }, measured: { networkTransferSize: 300 } },
+    ];
+    const result = buildProfileComparison(['a', 'b', 'c'], data);
+
+    expect(result.wins.a).toBeDefined();
+    expect(result.wins.b).toBeDefined();
+    expect(result.wins.c).toBeDefined();
+  });
+
+  it('printProfileAnalysis works with 4 racers', () => {
+    const data = [
+      { total: { networkTransferSize: 1000 }, measured: { networkTransferSize: 500 } },
+      { total: { networkTransferSize: 2000 }, measured: { networkTransferSize: 800 } },
+      { total: { networkTransferSize: 1500 }, measured: { networkTransferSize: 600 } },
+      { total: { networkTransferSize: 3000 }, measured: { networkTransferSize: 1200 } },
+    ];
+    const racers = ['angular', 'htmx', 'react', 'svelte'];
+    const comparison = buildProfileComparison(racers, data);
+
+    const mockWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    expect(() => printProfileAnalysis(comparison, racers)).not.toThrow();
+    mockWrite.mockRestore();
+  });
+
+  it('buildProfileMarkdown generates columns for all racers', () => {
+    const data = [
+      { total: { networkTransferSize: 1000 }, measured: {} },
+      { total: { networkTransferSize: 2000 }, measured: {} },
+      { total: { networkTransferSize: 1500 }, measured: {} },
+    ];
+    const racers = ['angular', 'react', 'svelte'];
+    const comparison = buildProfileComparison(racers, data);
+    const markdown = buildProfileMarkdown(comparison, racers);
+
+    expect(markdown).toContain('angular');
+    expect(markdown).toContain('react');
+    expect(markdown).toContain('svelte');
+    expect(markdown).toContain('| Metric | angular | react | svelte | Winner | Diff |');
   });
 });
