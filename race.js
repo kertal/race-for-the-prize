@@ -284,7 +284,6 @@ async function main() {
     const firstRunSubdir = totalRuns === 1 ? '' : '1';
     const relHtml = path.relative(process.cwd(), path.join(resultsDir, firstRunSubdir, 'index.html'));
     console.error(`  ${c.dim}📂 ${relResults}${c.reset}`);
-    console.error(`  ${c.cyan}open ${relHtml}${c.reset}\n`);
   } catch (e) {
     console.error(`\n${c.red}${c.bold}Race failed:${c.reset} ${e.message}\n`);
     process.exit(1);
