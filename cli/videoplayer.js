@@ -254,9 +254,9 @@ ${videoElements}
 </div>
 
 <div class="controls">
-  <button class="frame-btn" id="prevFrame" title="Previous frame (&#8592)">&#9664;&#9664;</button>
-  <button class="play-btn" id="playBtn">&#9654;</button>
-  <button class="frame-btn" id="nextFrame" title="Next frame (&#8594)">&#9654;&#9654;</button>
+  <button class="frame-btn" id="prevFrame" title="Previous frame (←)">◀◀</button>
+  <button class="play-btn" id="playBtn">▶</button>
+  <button class="frame-btn" id="nextFrame" title="Next frame (→)">▶▶</button>
   <input type="range" class="scrubber" id="scrubber" min="0" max="1000" value="0">
   <span class="time-display" id="timeDisplay">0:00 / 0:00</span>
   <select class="speed-select" id="speedSelect">

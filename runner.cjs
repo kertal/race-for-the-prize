@@ -23,27 +23,17 @@ const { execFileSync } = require('child_process');
 let activeBrowsers = [];
 let activeContexts = [];
 
-// --- Constants ---
+// --- Constants (loaded from shared ESM module) ---
 
-// Screen dimensions for window layout
-const SCREEN = {
-  width: 1920,
-  height: 1080
-};
+// These will be populated by loadConstants() before main() runs
+let SCREEN, WINDOW_HEIGHT, CUE_DETECTION;
 
-// Window height for browser layout
-const WINDOW_HEIGHT = 800;
-
-// Visual cue detection thresholds for frame-accurate trimming
-const CUE_DETECTION = {
-  startHueMin: 130,
-  startHueMax: 170,
-  startYMax: 80,
-  endHueMin: 60,
-  endHueMax: 100,
-  endYMin: 120,
-  saturationMin: 80
-};
+async function loadConstants() {
+  const { SCREEN: s, VIDEO_DEFAULTS: v, CUE_DETECTION: c } = await import('./cli/colors.js');
+  SCREEN = s;
+  WINDOW_HEIGHT = v.windowHeight;
+  CUE_DETECTION = c;
+}
 
 // --- Video helpers ---
 
@@ -801,6 +791,9 @@ async function runSequential(browserConfigs, throttle, profile, slowmo, noOverla
 // --- Main entry point ---
 
 async function main() {
+  // Load shared constants from ESM module
+  await loadConstants();
+
   const configJson = process.argv[2];
   if (!configJson) { console.error('Error: Config JSON required'); process.exit(1); }
 
