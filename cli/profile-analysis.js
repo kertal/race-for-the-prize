@@ -280,7 +280,7 @@ function groupByCategory(comparisons) {
 
 const categoryLabels = {
   network: '🌐 Network',
-  loading: '⏱️  Loading',
+  loading: '⏱️ Loading',
   memory: '🧠 Memory',
   computation: '⚡ Computation',
   rendering: '🎨 Rendering'

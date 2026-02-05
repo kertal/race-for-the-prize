@@ -435,10 +435,11 @@ async function setupMetricsCollection(page, id) {
 
           // Compute deltas for measurement period
           if (startSnapshot) {
-            result.measured.scriptDuration = Math.max(0, endMetrics.scriptDuration - startSnapshot.scriptDuration);
-            result.measured.layoutDuration = Math.max(0, endMetrics.layoutDuration - startSnapshot.layoutDuration);
-            result.measured.recalcStyleDuration = Math.max(0, endMetrics.recalcStyleDuration - startSnapshot.recalcStyleDuration);
-            result.measured.taskDuration = Math.max(0, endMetrics.taskDuration - startSnapshot.taskDuration);
+            const computeDelta = (metric) => Math.max(0, endMetrics[metric] - startSnapshot[metric]);
+            result.measured.scriptDuration = computeDelta('scriptDuration');
+            result.measured.layoutDuration = computeDelta('layoutDuration');
+            result.measured.recalcStyleDuration = computeDelta('recalcStyleDuration');
+            result.measured.taskDuration = computeDelta('taskDuration');
           }
         }
       } catch (error) {
