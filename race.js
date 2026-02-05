@@ -266,8 +266,13 @@ async function runSingleRace(runDir) {
   }
 
   const videoFiles = racerNames.map(name => `${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
+  const fullVideoFiles = racerNames.map(name => `${name}/${name}.full${FORMAT_EXTENSIONS.webm}`);
   const altFiles = format !== 'webm' ? racerNames.map(name => `${name}/${name}.race${ext}`) : null;
-  fs.writeFileSync(path.join(runDir, 'index.html'), buildPlayerHtml(summary, videoFiles, format !== 'webm' ? format : null, altFiles));
+  const playerOptions = {
+    fullVideoFiles,
+    mergedVideoFile: sideBySidePath ? sideBySideName : null
+  };
+  fs.writeFileSync(path.join(runDir, 'index.html'), buildPlayerHtml(summary, videoFiles, format !== 'webm' ? format : null, altFiles, playerOptions));
 
   return { summary, sideBySidePath, sideBySideName };
 }
