@@ -71,7 +71,9 @@ export class RaceAnimation {
   }
 
   racerFinished(index) {
-    this.finished[index] = true;
+    if (!this.finished[index]) {
+      this.finished[index] = true;
+    }
   }
 
   addMessage(index, name, text, elapsed) {

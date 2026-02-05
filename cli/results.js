@@ -82,6 +82,7 @@ export function convertVideos(results, format) {
         args.push(dest);
         execFileSync('ffmpeg', args, { timeout: 300000, stdio: 'pipe' });
         if (format === 'gif') compressGif(dest);
+        // Keep the original .webm file for the HTML video player
         r[key] = dest;
       } catch (e) {
         console.error(`${c.dim}Warning: Could not convert ${path.basename(src)}: ${e.message}${c.reset}`);
