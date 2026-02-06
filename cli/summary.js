@@ -33,6 +33,34 @@ function computeComparison(name, vals, racerNames) {
 }
 
 /**
+ * Compute display order from best to worst using average ranking position
+ * across all comparisons. Each comparison's `rankings` array gives the full
+ * order (fastest to slowest), so this captures 2nd vs 3rd, not just wins.
+ * Returns array of original indices into summary.racers.
+ */
+export function getPlacementOrder(summary) {
+  const { racers, comparisons } = summary;
+  if (!comparisons || comparisons.length === 0) return racers.map((_, i) => i);
+
+  const avgRank = racers.map((name) => {
+    let totalRank = 0;
+    let counted = 0;
+    for (const comp of comparisons) {
+      if (comp.rankings && comp.rankings.length > 0) {
+        const rank = comp.rankings.indexOf(name);
+        totalRank += rank !== -1 ? rank : racers.length;
+        counted++;
+      }
+    }
+    return counted > 0 ? totalRank / counted : racers.length;
+  });
+
+  const indices = racers.map((_, i) => i);
+  indices.sort((a, b) => avgRank[a] - avgRank[b]);
+  return indices;
+}
+
+/**
  * Determine overall winner from win counts.
  * Returns racer name, 'tie', or null (no data).
  */
@@ -264,6 +292,34 @@ export function buildMarkdownSummary(summary, sideBySideName) {
   lines.push('');
 
   return lines.join('\n');
+}
+
+/**
+ * Find the run whose durations are closest to the median values.
+ * Returns the 0-based index of the best-matching run.
+ */
+export function findMedianRunIndex(summaries, medianSummary) {
+  let bestIdx = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < summaries.length; i++) {
+    let totalDist = 0;
+    for (const medComp of medianSummary.comparisons) {
+      const runComp = summaries[i].comparisons.find(c => c.name === medComp.name);
+      if (!runComp) continue;
+      for (let r = 0; r < medComp.racers.length; r++) {
+        const medDur = medComp.racers[r]?.duration;
+        const runDur = runComp.racers[r]?.duration;
+        if (medDur != null && runDur != null) {
+          totalDist += Math.abs(runDur - medDur);
+        }
+      }
+    }
+    if (totalDist < bestDist) {
+      bestDist = totalDist;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
 }
 
 /** Compute median of each measurement across multiple runs. */

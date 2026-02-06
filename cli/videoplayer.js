@@ -4,6 +4,7 @@
  */
 
 import { PROFILE_METRICS } from './profile-analysis.js';
+import { getPlacementOrder } from './summary.js';
 
 // Racer label colors matching RACER_COLORS from colors.js
 const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f', '#9b59b6'];
@@ -87,8 +88,24 @@ function buildProfileHtml(profileComparison, racers) {
   return html;
 }
 
+function buildRunNavHtml(runNav) {
+  if (!runNav) return '';
+  const { currentRun, totalRuns, pathPrefix } = runNav;
+  let html = `<div class="run-nav">`;
+  for (let i = 1; i <= totalRuns; i++) {
+    const href = currentRun === i ? '#' : `${pathPrefix}${i}/index.html`;
+    const cls = currentRun === i ? 'run-nav-btn active' : 'run-nav-btn';
+    html += `<a class="${cls}" href="${href}">Run ${i}</a>`;
+  }
+  const medianHref = currentRun === 'median' ? '#' : `${pathPrefix}index.html`;
+  const medianCls = currentRun === 'median' ? 'run-nav-btn active' : 'run-nav-btn';
+  html += `<a class="${medianCls}" href="${medianHref}">Median</a>`;
+  html += `</div>`;
+  return html;
+}
+
 export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, options = {}) {
-  const { fullVideoFiles, mergedVideoFile } = options;
+  const { fullVideoFiles, mergedVideoFile, runNavigation, medianRunLabel } = options;
   const racers = summary.racers;
   const comparisons = summary.comparisons || [];
   const overallWinner = summary.overallWinner;
@@ -112,14 +129,18 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
       ? `<span class="trophy">&#127942;</span> ${overallWinner.toUpperCase()} wins!`
       : '';
 
-  // Generate video elements for race videos
-  const videoElements = racers.map((racer, i) => {
-    const color = RACER_CSS_COLORS[i % RACER_CSS_COLORS.length];
+  // Generate video elements for race videos (empty when no videos, e.g. median page)
+  // Order by placement: winner first, then 2nd, 3rd, etc.
+  const hasVideos = videoFiles && videoFiles.length > 0;
+  const placementOrder = getPlacementOrder(summary);
+  const videoElements = hasVideos ? placementOrder.map((origIdx, displayIdx) => {
+    const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
+    const racer = racers[origIdx];
     return `  <div class="racer">
     <div class="racer-label" style="color: ${color}">${racer}</div>
-    <video id="v${i}" src="${videoFiles[i]}" preload="auto" muted></video>
+    <video id="v${displayIdx}" src="${videoFiles[origIdx]}" preload="auto" muted></video>
   </div>`;
-  }).join('\n');
+  }).join('\n') : '';
 
   // Generate merged video element
   const mergedVideoElement = mergedVideoFile ? `
@@ -127,28 +148,31 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   <video id="mergedVideo" src="${mergedVideoFile}" preload="auto" muted></video>
 </div>` : '';
 
-  // Generate download links
+  // Generate download links (in placement order)
   const downloadLinks = altFormat && altFiles
     ? `<div class="downloads">
   <h2>Downloads</h2>
   <div class="download-links">
-    ${racers.map((racer, i) => `<a href="${altFiles[i]}" download>${racer} (.${altFormat})</a>`).join('\n    ')}
+    ${placementOrder.map(i => `<a href="${altFiles[i]}" download>${racers[i]} (.${altFormat})</a>`).join('\n    ')}
   </div>
 </div>` : '';
 
   // Generate profile analysis section
   const profileHtml = buildProfileHtml(profileComparison, racers);
 
-  // Generate video element IDs for JavaScript
-  const videoIds = racers.map((_, i) => `v${i}`);
-  const videoVars = videoIds.map(id => `const ${id} = document.getElementById('${id}');`).join('\n  ');
-  const videoArray = `[${videoIds.join(', ')}]`;
-
-  // Generate full video paths for JavaScript (or null if not provided)
-  const fullVideoPaths = fullVideoFiles
-    ? `[${fullVideoFiles.map(f => `'${f}'`).join(', ')}]`
-    : 'null';
-  const raceVideoPaths = `[${videoFiles.map(f => `'${f}'`).join(', ')}]`;
+  // Generate JavaScript video references (only needed when videos exist)
+  let videoVars = '', videoArray = '', raceVideoPaths = '', fullVideoPaths = 'null';
+  if (hasVideos) {
+    const videoIds = placementOrder.map((_, i) => `v${i}`);
+    videoVars = videoIds.map(id => `const ${id} = document.getElementById('${id}');`).join('\n  ');
+    videoArray = `[${videoIds.join(', ')}]`;
+    const orderedVideoFiles = placementOrder.map(i => videoFiles[i]);
+    raceVideoPaths = `[${orderedVideoFiles.map(f => `'${f}'`).join(', ')}]`;
+    const orderedFullVideoFiles = fullVideoFiles ? placementOrder.map(i => fullVideoFiles[i]) : null;
+    fullVideoPaths = orderedFullVideoFiles
+      ? `[${orderedFullVideoFiles.map(f => `'${f}'`).join(', ')}]`
+      : 'null';
+  }
 
   // Calculate layout-specific styles
   const maxWidth = count <= 2 ? 680 : count === 3 ? 450 : 340;
@@ -168,6 +192,9 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     ${hasFullVideos ? '<button class="mode-btn" id="modeFull" title="Full recordings">Full</button>' : ''}
     ${hasMergedVideo ? '<button class="mode-btn" id="modeMerged" title="Side-by-side merged video">Merged</button>' : ''}
   </div>` : '';
+
+  // Run navigation for multi-run results
+  const runNavHtml = buildRunNavHtml(runNavigation);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -191,6 +218,36 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     height: 20px;
     background: repeating-conic-gradient(#222 0% 25%, #d4af37 0% 50%) 0 0 / 20px 20px;
   }
+  .run-nav {
+    display: flex;
+    gap: 0.4rem;
+    padding: 0.7rem 1rem 0;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .run-nav-btn {
+    background: #2a2a2a;
+    color: #999;
+    border: 1px solid #444;
+    border-radius: 4px;
+    padding: 0.3rem 0.8rem;
+    font-size: 0.8rem;
+    text-decoration: none;
+    font-family: 'Courier New', monospace;
+    transition: all 0.2s;
+  }
+  .run-nav-btn:hover {
+    background: #3a3a3a;
+    border-color: #d4af37;
+    color: #e8e0d0;
+  }
+  .run-nav-btn.active {
+    background: #d4af37;
+    color: #1a1a1a;
+    border-color: #d4af37;
+    font-weight: bold;
+    pointer-events: none;
+  }
   h1 {
     font-family: Georgia, 'Times New Roman', serif;
     font-size: 1.8rem;
@@ -208,6 +265,12 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     padding-bottom: 1rem;
   }
   .trophy { font-size: 1.4rem; }
+  .video-source-note {
+    text-align: center;
+    font-size: 0.8rem;
+    color: #777;
+    padding-bottom: 0.5rem;
+  }
   .mode-toggle {
     display: flex;
     gap: 0.5rem;
@@ -466,12 +529,13 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
 <body>
 
 <div class="checkered-bar"></div>
-
+${runNavHtml}
 <h1>Race for the Prize</h1>
 <div class="winner-banner">${winnerBanner}</div>
+${medianRunLabel ? `<div class="video-source-note">Videos from ${medianRunLabel} (closest to median)</div>` : ''}
 ${modeToggle}
 
-<div class="player-container" id="playerContainer">
+${hasVideos ? `<div class="player-container" id="playerContainer">
 ${videoElements}
 </div>
 ${mergedVideoElement}
@@ -491,7 +555,7 @@ ${mergedVideoElement}
     <option value="1" selected>1x</option>
     <option value="2">2x</option>
   </select>
-</div>
+</div>` : ''}
 
 <div class="profile-analysis">
   <h2>Results</h2>
@@ -504,7 +568,7 @@ ${downloadLinks}
 
 <div class="checkered-bar"></div>
 
-<script>
+${hasVideos ? `<script>
 (function() {
   ${videoVars}
   const raceVideos = ${videoArray};
@@ -665,7 +729,7 @@ ${downloadLinks}
     else if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
   });
 })();
-</script>
+</script>` : ''}
 </body>
 </html>`;
 }

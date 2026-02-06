@@ -5,7 +5,7 @@ import { buildProfileComparison } from '../cli/profile-analysis.js';
 const makeSummary = (overrides = {}) => ({
   racers: ['lauda', 'hunt'],
   comparisons: [
-    { name: 'Load', racers: [{ duration: 1.0 }, { duration: 2.0 }], winner: 'lauda', diff: 1.0, diffPercent: 100.0 },
+    { name: 'Load', racers: [{ duration: 1.0 }, { duration: 2.0 }], winner: 'lauda', diff: 1.0, diffPercent: 100.0, rankings: ['lauda', 'hunt'] },
   ],
   overallWinner: 'lauda',
   ...overrides,
@@ -251,5 +251,64 @@ describe('buildPlayerHtml', () => {
     expect(html).toContain('react');
     expect(html).toContain('profile-bar-fill');
     expect(html).toContain('profile-bar-fill');
+  });
+
+  it('shows winner video first when hunt wins', () => {
+    const summary = makeSummary({
+      overallWinner: 'hunt',
+      comparisons: [
+        { name: 'Load', racers: [{ duration: 2.0 }, { duration: 1.0 }], winner: 'hunt', rankings: ['hunt', 'lauda'] },
+      ],
+    });
+    const html = buildPlayerHtml(summary, videoFiles);
+    const laudaPos = html.indexOf('src="lauda/lauda.race.webm"');
+    const huntPos = html.indexOf('src="hunt/hunt.race.webm"');
+    expect(huntPos).toBeLessThan(laudaPos);
+  });
+
+  it('shows winner video first with original colors preserved', () => {
+    const summary = makeSummary({
+      overallWinner: 'hunt',
+      comparisons: [
+        { name: 'Load', racers: [{ duration: 2.0 }, { duration: 1.0 }], winner: 'hunt', rankings: ['hunt', 'lauda'] },
+      ],
+    });
+    const html = buildPlayerHtml(summary, videoFiles);
+    // hunt (index 1) should appear first but keep its blue color (#3498db)
+    const huntLabelMatch = html.match(/color: (#[0-9a-f]+)">hunt/);
+    expect(huntLabelMatch[1]).toBe('#3498db');
+  });
+
+  it('omits script tag when no videos provided', () => {
+    const summary = makeSummary();
+    const html = buildPlayerHtml(summary, [], null, null, {
+      runNavigation: { currentRun: 'median', totalRuns: 3, pathPrefix: '' },
+    });
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('Results');
+  });
+
+  it('shows median page with videos and source note', () => {
+    const summary = makeSummary();
+    const medianVideos = ['2/lauda/lauda.race.webm', '2/hunt/hunt.race.webm'];
+    const html = buildPlayerHtml(summary, medianVideos, null, null, {
+      runNavigation: { currentRun: 'median', totalRuns: 3, pathPrefix: '' },
+      medianRunLabel: 'Run 2',
+    });
+    expect(html).toContain('<script>');
+    expect(html).toContain('src="2/lauda/lauda.race.webm"');
+    expect(html).toContain('Videos from Run 2 (closest to median)');
+  });
+
+  it('shows run navigation bar', () => {
+    const summary = makeSummary();
+    const html = buildPlayerHtml(summary, videoFiles, null, null, {
+      runNavigation: { currentRun: 1, totalRuns: 3, pathPrefix: '../' },
+    });
+    expect(html).toContain('Run 1');
+    expect(html).toContain('Run 2');
+    expect(html).toContain('Run 3');
+    expect(html).toContain('Median');
+    expect(html).toContain('run-nav-btn active');
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown } from '../cli/summary.js';
+import { buildSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, getPlacementOrder, findMedianRunIndex } from '../cli/summary.js';
 
 describe('buildSummary', () => {
   const names = ['lauda', 'hunt'];
@@ -455,5 +455,99 @@ describe('buildSummary with 5 racers', () => {
     expect(summary.comparisons[0].racers[1]).toBeNull(); // b has no data
     expect(summary.comparisons[0].racers[3]).toBeNull(); // d has no data
     expect(summary.comparisons[0].rankings).toEqual(['c', 'a', 'e']);
+  });
+});
+
+describe('getPlacementOrder', () => {
+  it('returns winner first for 2 racers', () => {
+    const summary = {
+      racers: ['lauda', 'hunt'],
+      comparisons: [{ rankings: ['hunt', 'lauda'] }],
+    };
+    expect(getPlacementOrder(summary)).toEqual([1, 0]); // hunt first
+  });
+
+  it('returns original order when no comparisons', () => {
+    const summary = { racers: ['a', 'b', 'c'], comparisons: [] };
+    expect(getPlacementOrder(summary)).toEqual([0, 1, 2]);
+  });
+
+  it('orders 3 racers by ranking (fastest to slowest)', () => {
+    // Single comparison: c fastest, a second, b slowest
+    const summary = {
+      racers: ['a', 'b', 'c'],
+      comparisons: [{ rankings: ['c', 'a', 'b'] }],
+    };
+    expect(getPlacementOrder(summary)).toEqual([2, 0, 1]); // c, a, b
+  });
+
+  it('uses average rank across multiple comparisons', () => {
+    // Comp1: a wins (a=0, b=2, c=1), Comp2: b wins (b=0, c=1, a=2)
+    // avgRank: a=(0+2)/2=1, b=(2+0)/2=1, c=(1+1)/2=1 → tie, original order
+    const summary = {
+      racers: ['a', 'b', 'c'],
+      comparisons: [
+        { rankings: ['a', 'c', 'b'] },
+        { rankings: ['b', 'c', 'a'] },
+      ],
+    };
+    expect(getPlacementOrder(summary)).toEqual([0, 1, 2]);
+  });
+
+  it('differentiates 2nd from 3rd place', () => {
+    // Single comparison: b fastest, c second, a slowest
+    const summary = {
+      racers: ['a', 'b', 'c'],
+      comparisons: [{ rankings: ['b', 'c', 'a'] }],
+    };
+    expect(getPlacementOrder(summary)).toEqual([1, 2, 0]); // b, c, a
+  });
+
+  it('handles racers missing from rankings', () => {
+    // Only a and c have data; b is unranked (gets worst rank)
+    const summary = {
+      racers: ['a', 'b', 'c'],
+      comparisons: [{ rankings: ['c', 'a'] }],
+    };
+    const order = getPlacementOrder(summary);
+    expect(order[0]).toBe(2); // c first (rank 0)
+    expect(order[1]).toBe(0); // a second (rank 1)
+    expect(order[2]).toBe(1); // b last (unranked)
+  });
+});
+
+describe('findMedianRunIndex', () => {
+  const makeComp = (name, durations) => ({
+    name,
+    racers: durations.map(d => d != null ? { duration: d } : null),
+  });
+
+  it('picks the run closest to median', () => {
+    const summaries = [
+      { comparisons: [makeComp('Load', [1.0, 3.0])] },
+      { comparisons: [makeComp('Load', [2.0, 2.0])] },
+      { comparisons: [makeComp('Load', [1.5, 2.5])] },
+    ];
+    const median = { comparisons: [makeComp('Load', [2.0, 2.0])] };
+    expect(findMedianRunIndex(summaries, median)).toBe(1);
+  });
+
+  it('picks first run on tie', () => {
+    const summaries = [
+      { comparisons: [makeComp('Load', [1.0, 2.0])] },
+      { comparisons: [makeComp('Load', [1.0, 2.0])] },
+    ];
+    const median = { comparisons: [makeComp('Load', [1.0, 2.0])] };
+    expect(findMedianRunIndex(summaries, median)).toBe(0);
+  });
+
+  it('handles multiple comparisons', () => {
+    const summaries = [
+      { comparisons: [makeComp('Load', [1.0, 2.0]), makeComp('Paint', [3.0, 4.0])] },
+      { comparisons: [makeComp('Load', [1.5, 2.5]), makeComp('Paint', [2.0, 3.0])] },
+    ];
+    const median = { comparisons: [makeComp('Load', [1.25, 2.25]), makeComp('Paint', [2.5, 3.5])] };
+    // Both runs have total distance 1.5 — tie goes to first run
+    expect(findMedianRunIndex(summaries, median)).toBe(0);
   });
 });
