@@ -1,7 +1,11 @@
-import { describe, it, expect, afterAll } from 'vitest';
-import { execFileSync, execSync } from 'node:child_process';
+import { describe, it, expect, afterAll, beforeAll } from 'vitest';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const RACERS = [
   { name: 'alpha',   targetMs: 600,  recordingWindow: 1.2 },
@@ -12,6 +16,15 @@ const RACERS = [
 
 const DURATION_TOLERANCE_MS = 50;
 const VIDEO_TOLERANCE_S = 1.0;
+
+function hasFfprobe() {
+  try {
+    execFileSync('ffprobe', ['-version'], { stdio: 'pipe', timeout: 5_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function getVideoDuration(videoPath) {
   const out = execFileSync('ffprobe', [
@@ -27,34 +40,32 @@ function getVideoDuration(videoPath) {
 describe('trim-accuracy integration', () => {
   let resultsDir;
 
+  beforeAll(() => {
+    if (!hasFfprobe()) {
+      throw new Error('ffprobe is not installed or not on PATH — skipping trim-accuracy tests');
+    }
+  });
+
   it('runs trim-test race and produces accurate results', () => {
-    const projectRoot = path.resolve(import.meta.dirname, '..');
+    const projectRoot = path.resolve(__dirname, '..');
     const raceDir = path.join(projectRoot, 'races', 'trim-test');
 
-    // Run the race
-    const result = execSync('node race.js ./races/trim-test', {
+    // Run the race, capturing stderr to parse the results directory path
+    const proc = spawnSync('node', ['race.js', './races/trim-test'], {
       cwd: projectRoot,
       timeout: 45_000,
       encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, FORCE_COLOR: '0' },
     });
 
-    // stderr contains the output with 📂 path — but execSync with encoding
-    // only returns stdout. We need stderr. Re-run with buffer approach.
-    // Actually, execSync returns stdout. stderr goes to pipe and is lost.
-    // Let's use a different approach: find the newest results dir.
-    const resultsDirs = fs.readdirSync(raceDir)
-      .filter(d => d.startsWith('results-'))
-      .map(d => ({
-        name: d,
-        fullPath: path.join(raceDir, d),
-        mtime: fs.statSync(path.join(raceDir, d)).mtimeMs,
-      }))
-      .sort((a, b) => b.mtime - a.mtime);
+    expect(proc.status).toBe(0);
 
-    expect(resultsDirs.length).toBeGreaterThan(0);
-    resultsDir = resultsDirs[0].fullPath;
+    // Parse the results directory from the 📂 line in stderr (strip ANSI codes)
+    const stripped = proc.stderr.replace(/\x1b\[[0-9;]*m/g, '');
+    const match = stripped.match(/📂\s+(.+)/);
+    expect(match).not.toBeNull();
+    resultsDir = path.resolve(projectRoot, match[1].trim());
+    expect(fs.existsSync(resultsDir)).toBe(true);
 
     // --- Verify summary.json ---
     const summary = JSON.parse(fs.readFileSync(path.join(resultsDir, 'summary.json'), 'utf-8'));
@@ -88,7 +99,7 @@ describe('trim-accuracy integration', () => {
       expect(raceDuration).toBeLessThan(fullDuration);
 
       // Trimmed video duration should be close to expected recording window
-      // (padding 300ms + race + padding 300ms)
+      // (padding 300ms + race + padding 300ms + ~850ms medal/cue overhead)
       expect(raceDuration).toBeGreaterThan(racer.recordingWindow - VIDEO_TOLERANCE_S);
       expect(raceDuration).toBeLessThan(racer.recordingWindow + VIDEO_TOLERANCE_S);
     }
