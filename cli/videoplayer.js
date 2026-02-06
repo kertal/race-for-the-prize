@@ -1,181 +1,20 @@
 /**
  * Generates a self-contained HTML file with a retro Grand Prix styled
  * video player for race results. Supports 2-5 racers.
+ *
+ * Structure: CSS template + section builders + JS template + main assembler.
+ * Each section builder returns an HTML string or '' if nothing to render.
  */
 
 import { PROFILE_METRICS } from './profile-analysis.js';
 
-// Racer label colors matching RACER_COLORS from colors.js
 const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f', '#9b59b6'];
 
-/**
- * Build sorted bar-chart HTML rows for a single metric.
- * @param {Object[]} entries - Array of { name, index, val, formatted } sorted best-first
- * @param {string|null} winner - Winner name
- * @param {function} formatDelta - Formats the delta value as string
- */
-function buildMetricRowsHtml(entries, winner, formatDelta) {
-  const nonNullVals = entries.filter(e => e.val !== null).map(e => e.val);
-  const maxVal = nonNullVals.length > 0 ? Math.max(...nonNullVals) : 0;
-  const bestVal = entries[0]?.val;
-  let html = '';
-  for (const entry of entries) {
-    const color = RACER_CSS_COLORS[entry.index % RACER_CSS_COLORS.length];
-    const barPct = entry.val !== null && maxVal > 0 ? Math.round((entry.val / maxVal) * 100) : 0;
-    let delta = '';
-    if (entry.val !== null && bestVal !== null && entry.val !== bestVal) {
-      delta = `<span class="profile-delta">(+${formatDelta(entry.val - bestVal)})</span>`;
-    }
-    html += `
-        <div class="profile-row">
-          <span class="profile-racer" style="color: ${color}">${entry.name}</span>
-          <span class="profile-bar-track">
-            <span class="profile-bar-fill" style="width: ${barPct}%; background: ${color}"></span>
-          </span>
-          <span class="profile-value">${entry.formatted}${delta}</span>
-          ${winner === entry.name ? '<span class="profile-medal">&#127942;</span>' : ''}
-        </div>`;
-  }
-  return html;
-}
+// ---------------------------------------------------------------------------
+// CSS Template
+// ---------------------------------------------------------------------------
 
-/** Sort racers by value ascending (best first), nulls last. */
-function sortByValue(racers, getValue) {
-  return racers
-    .map((name, i) => ({ name, index: i, ...getValue(i) }))
-    .sort((a, b) => {
-      if (a.val === null) return 1;
-      if (b.val === null) return -1;
-      return a.val - b.val;
-    });
-}
-
-function buildProfileHtml(profileComparison, racers) {
-  if (!profileComparison) return '';
-  const { measured, total } = profileComparison;
-  if (measured.comparisons.length === 0 && total.comparisons.length === 0) return '';
-
-  let html = `<div class="profile-analysis">
-  <h2>Performance Profile</h2>
-  <p class="profile-note">Lower values are better for all metrics</p>\n`;
-
-  const scopes = [
-    ['During Measurement (raceStart → raceEnd)', measured],
-    ['Total Session', total],
-  ];
-  for (const [title, section] of scopes) {
-    if (section.comparisons.length === 0) continue;
-    html += `<h3>${title}</h3>\n`;
-    for (const [category, comps] of Object.entries(section.byCategory)) {
-      html += `<h4>${category[0].toUpperCase() + category.slice(1)}</h4>\n`;
-      for (const comp of comps) {
-        const sorted = sortByValue(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }));
-        const formatDelta = PROFILE_METRICS[comp.key].format;
-        html += `<div class="profile-metric">
-        <div class="profile-metric-name">${comp.name}</div>${buildMetricRowsHtml(sorted, comp.winner, formatDelta)}</div>\n`;
-      }
-    }
-    if (section.overallWinner === 'tie') {
-      html += `<div class="profile-winner">&#129309; Tie!</div>`;
-    } else if (section.overallWinner) {
-      const idx = racers.indexOf(section.overallWinner);
-      html += `<div class="profile-winner">&#127942; <span style="color: ${RACER_CSS_COLORS[idx % RACER_CSS_COLORS.length]}">${section.overallWinner}</span> wins!</div>`;
-    }
-  }
-
-  html += `</div>`;
-  return html;
-}
-
-export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, options = {}) {
-  const { fullVideoFiles, mergedVideoFile } = options;
-  const racers = summary.racers;
-  const comparisons = summary.comparisons || [];
-  const overallWinner = summary.overallWinner;
-  const profileComparison = summary.profileComparison || null;
-  const count = racers.length;
-
-  // Generate results section (bar-chart style, sorted best-first)
-  let resultsHtml = '';
-  for (const comp of comparisons) {
-    const sorted = sortByValue(racers, i => {
-      const r = comp.racers[i];
-      return { val: r ? r.duration : null, formatted: r ? `${r.duration.toFixed(3)}s` : '-' };
-    });
-    resultsHtml += `<div class="profile-metric">
-        <div class="profile-metric-name">${comp.name}</div>${buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`)}</div>\n`;
-  }
-
-  const winnerBanner = overallWinner === 'tie'
-    ? `<span class="trophy">&#129309;</span> It's a Tie!`
-    : overallWinner
-      ? `<span class="trophy">&#127942;</span> ${overallWinner.toUpperCase()} wins!`
-      : '';
-
-  // Generate video elements for race videos
-  const videoElements = racers.map((racer, i) => {
-    const color = RACER_CSS_COLORS[i % RACER_CSS_COLORS.length];
-    return `  <div class="racer">
-    <div class="racer-label" style="color: ${color}">${racer}</div>
-    <video id="v${i}" src="${videoFiles[i]}" preload="auto" muted></video>
-  </div>`;
-  }).join('\n');
-
-  // Generate merged video element
-  const mergedVideoElement = mergedVideoFile ? `
-<div class="merged-container" id="mergedContainer" style="display: none;">
-  <video id="mergedVideo" src="${mergedVideoFile}" preload="auto" muted></video>
-</div>` : '';
-
-  // Generate download links
-  const downloadLinks = altFormat && altFiles
-    ? `<div class="downloads">
-  <h2>Downloads</h2>
-  <div class="download-links">
-    ${racers.map((racer, i) => `<a href="${altFiles[i]}" download>${racer} (.${altFormat})</a>`).join('\n    ')}
-  </div>
-</div>` : '';
-
-  // Generate profile analysis section
-  const profileHtml = buildProfileHtml(profileComparison, racers);
-
-  // Generate video element IDs for JavaScript
-  const videoIds = racers.map((_, i) => `v${i}`);
-  const videoVars = videoIds.map(id => `const ${id} = document.getElementById('${id}');`).join('\n  ');
-  const videoArray = `[${videoIds.join(', ')}]`;
-
-  // Generate full video paths for JavaScript (or null if not provided)
-  const fullVideoPaths = fullVideoFiles
-    ? `[${fullVideoFiles.map(f => `'${f}'`).join(', ')}]`
-    : 'null';
-  const raceVideoPaths = `[${videoFiles.map(f => `'${f}'`).join(', ')}]`;
-
-  // Calculate layout-specific styles
-  const maxWidth = count <= 2 ? 680 : count === 3 ? 450 : 340;
-  const containerMaxWidth = count <= 2 ? 1400 : count === 3 ? 1400 : 1440;
-
-  // Title based on racer count
-  const title = count === 2
-    ? `Race: ${racers[0]} vs ${racers[1]}`
-    : `Race: ${racers.join(' vs ')}`;
-
-  // Video mode toggle buttons
-  const hasFullVideos = fullVideoFiles && fullVideoFiles.length > 0;
-  const hasMergedVideo = !!mergedVideoFile;
-  const modeToggle = (hasFullVideos || hasMergedVideo) ? `
-  <div class="mode-toggle">
-    <button class="mode-btn active" id="modeRace" title="Race segments only">Race</button>
-    ${hasFullVideos ? '<button class="mode-btn" id="modeFull" title="Full recordings">Full</button>' : ''}
-    ${hasMergedVideo ? '<button class="mode-btn" id="modeMerged" title="Side-by-side merged video">Merged</button>' : ''}
-  </div>` : '';
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${title}</title>
-<style>
+const PAGE_CSS = `
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     background: #1a1a1a;
@@ -205,9 +44,35 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     font-family: Georgia, serif;
     font-size: 1.2rem;
     color: #e8e0d0;
-    padding-bottom: 1rem;
+    padding-bottom: 0.5rem;
   }
   .trophy { font-size: 1.4rem; }
+  .race-info {
+    max-width: 900px;
+    width: 100%;
+    padding: 0.3rem 1.5rem 0.8rem;
+  }
+  .race-info table {
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+  .race-info td {
+    padding: 0.15rem 0.8rem 0.15rem 0;
+  }
+  .race-info td:first-child {
+    color: #888;
+  }
+  .errors {
+    max-width: 900px;
+    width: 100%;
+    padding: 0.3rem 1.5rem;
+  }
+  .errors ul {
+    list-style: none;
+    font-size: 0.85rem;
+    color: #e74c3c;
+  }
+  .errors li::before { content: "\\26A0  "; }
   .mode-toggle {
     display: flex;
     gap: 0.5rem;
@@ -241,14 +106,12 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     flex-wrap: wrap;
     gap: 1rem;
     padding: 0 1.5rem;
-    max-width: ${containerMaxWidth}px;
     width: 100%;
     justify-content: center;
   }
   .racer {
     flex: 1;
     min-width: 280px;
-    max-width: ${maxWidth}px;
     text-align: center;
   }
   .racer-label {
@@ -269,9 +132,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     width: 100%;
     padding: 0 1.5rem;
   }
-  .merged-container video {
-    width: 100%;
-  }
+  .merged-container video { width: 100%; }
   .controls {
     max-width: 900px;
     width: 100%;
@@ -343,45 +204,12 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     cursor: pointer;
     flex-shrink: 0;
   }
-  .downloads {
+  .section {
     max-width: 900px;
     width: 100%;
     padding: 0.5rem 1.5rem 1rem;
   }
-  .downloads h2 {
-    font-family: Georgia, serif;
-    color: #d4af37;
-    font-size: 1.1rem;
-    margin-bottom: 0.5rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-  }
-
-  .download-links {
-    display: flex;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
-  .download-links a {
-    color: #e8e0d0;
-    background: #2a2a2a;
-    border: 1px solid #555;
-    border-radius: 4px;
-    padding: 0.4rem 0.8rem;
-    text-decoration: none;
-    font-size: 0.85rem;
-  }
-  .download-links a:hover {
-    background: #3a3a3a;
-    border-color: #d4af37;
-  }
-
-  .profile-analysis {
-    max-width: 900px;
-    width: 100%;
-    padding: 0.5rem 1.5rem 1rem;
-  }
-  .profile-analysis h2 {
+  .section h2 {
     font-family: Georgia, serif;
     color: #d4af37;
     font-size: 1.1rem;
@@ -394,23 +222,21 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     font-size: 0.8rem;
     margin-bottom: 1rem;
   }
-  .profile-analysis h3 {
+  .section h3 {
     color: #e8e0d0;
     font-size: 0.95rem;
     margin: 1rem 0 0.5rem;
     border-bottom: 1px solid #444;
     padding-bottom: 0.3rem;
   }
-  .profile-analysis h4 {
+  .section h4 {
     color: #999;
     font-size: 0.8rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     margin: 0.8rem 0 0.4rem;
   }
-  .profile-metric {
-    margin-bottom: 0.6rem;
-  }
+  .profile-metric { margin-bottom: 0.6rem; }
   .profile-metric-name {
     color: #888;
     font-size: 0.8rem;
@@ -453,59 +279,212 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     font-size: 0.75rem;
     margin-left: 0.3rem;
   }
-  .profile-medal {
-    font-size: 0.85rem;
-  }
+  .profile-medal { font-size: 0.85rem; }
   .profile-winner {
     font-size: 0.9rem;
     font-weight: bold;
     margin-top: 0.2rem;
   }
-</style>
-</head>
-<body>
+  .file-links {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .file-links a {
+    color: #e8e0d0;
+    background: #2a2a2a;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 0.4rem 0.8rem;
+    text-decoration: none;
+    font-size: 0.85rem;
+  }
+  .file-links a:hover {
+    background: #3a3a3a;
+    border-color: #d4af37;
+  }`;
 
-<div class="checkered-bar"></div>
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-<h1>Race for the Prize</h1>
-<div class="winner-banner">${winnerBanner}</div>
-${modeToggle}
+/** Build sorted bar-chart HTML rows for a single metric. */
+function buildMetricRowsHtml(entries, winner, formatDelta) {
+  const nonNullVals = entries.filter(e => e.val !== null).map(e => e.val);
+  const maxVal = nonNullVals.length > 0 ? Math.max(...nonNullVals) : 0;
+  const bestVal = entries[0]?.val;
+  let html = '';
+  for (const entry of entries) {
+    const color = RACER_CSS_COLORS[entry.index % RACER_CSS_COLORS.length];
+    const barPct = entry.val !== null && maxVal > 0 ? Math.round((entry.val / maxVal) * 100) : 0;
+    let delta = '';
+    if (entry.val !== null && bestVal !== null && entry.val !== bestVal) {
+      delta = `<span class="profile-delta">(+${formatDelta(entry.val - bestVal)})</span>`;
+    }
+    html += `
+        <div class="profile-row">
+          <span class="profile-racer" style="color: ${color}">${entry.name}</span>
+          <span class="profile-bar-track">
+            <span class="profile-bar-fill" style="width: ${barPct}%; background: ${color}"></span>
+          </span>
+          <span class="profile-value">${entry.formatted}${delta}</span>
+          ${winner === entry.name ? '<span class="profile-medal">&#127942;</span>' : ''}
+        </div>`;
+  }
+  return html;
+}
 
-<div class="player-container" id="playerContainer">
-${videoElements}
-</div>
-${mergedVideoElement}
+/** Sort racers by value ascending (best first), nulls last. */
+function sortByValue(racers, getValue) {
+  return racers
+    .map((name, i) => ({ name, index: i, ...getValue(i) }))
+    .sort((a, b) => {
+      if (a.val === null) return 1;
+      if (b.val === null) return -1;
+      return a.val - b.val;
+    });
+}
 
-<div class="controls">
-  <div class="controls-row">
-    <button class="frame-btn" id="prevFrame" title="Previous frame (←)">◀◀</button>
-    <button class="play-btn" id="playBtn">▶</button>
-    <button class="frame-btn" id="nextFrame" title="Next frame (→)">▶▶</button>
-    <input type="range" class="scrubber" id="scrubber" min="0" max="1000" value="0">
+// ---------------------------------------------------------------------------
+// Section Builders — each returns an HTML string (or '' if nothing to show)
+// ---------------------------------------------------------------------------
+
+function buildRaceInfoHtml(summary) {
+  const { racers, settings, timestamp } = summary;
+  const rows = [];
+  if (timestamp) rows.push(`<tr><td>Date</td><td>${new Date(timestamp).toLocaleString()}</td></tr>`);
+  racers.forEach((r, i) => rows.push(`<tr><td>Racer ${i + 1}</td><td>${r}</td></tr>`));
+  if (settings) {
+    const mode = settings.parallel === false ? 'sequential' : 'parallel';
+    rows.push(`<tr><td>Mode</td><td>${mode}</td></tr>`);
+    if (settings.network && settings.network !== 'none') rows.push(`<tr><td>Network</td><td>${settings.network}</td></tr>`);
+    if (settings.cpuThrottle && settings.cpuThrottle > 1) rows.push(`<tr><td>CPU Throttle</td><td>${settings.cpuThrottle}x</td></tr>`);
+    if (settings.format && settings.format !== 'webm') rows.push(`<tr><td>Format</td><td>${settings.format}</td></tr>`);
+    if (settings.headless) rows.push(`<tr><td>Headless</td><td>yes</td></tr>`);
+    if (settings.runs && settings.runs > 1) rows.push(`<tr><td>Runs</td><td>${settings.runs}</td></tr>`);
+  }
+  if (rows.length === 0) return '';
+  return `<div class="race-info"><table>${rows.join('')}</table></div>`;
+}
+
+function buildErrorsHtml(errors) {
+  if (!errors || errors.length === 0) return '';
+  return `<div class="errors"><ul>${errors.map(e => `<li>${e}</li>`).join('')}</ul></div>`;
+}
+
+function buildResultsHtml(comparisons, racers, clickCounts) {
+  let html = '';
+  for (const comp of comparisons) {
+    const sorted = sortByValue(racers, i => {
+      const r = comp.racers[i];
+      return { val: r ? r.duration : null, formatted: r ? `${r.duration.toFixed(3)}s` : '-' };
+    });
+    html += `<div class="profile-metric">
+        <div class="profile-metric-name">${comp.name}</div>${buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`)}</div>\n`;
+  }
+  if (clickCounts) {
+    const total = racers.reduce((sum, r) => sum + (clickCounts[r] || 0), 0);
+    if (total > 0) {
+      const maxCount = Math.max(...racers.map(r => clickCounts[r] || 0));
+      html += `<div class="profile-metric">
+        <div class="profile-metric-name">Clicks</div>${racers.map((r, i) => {
+        const count = clickCounts[r] || 0;
+        const barPct = maxCount > 0 ? Math.round((count / maxCount) * 100) : 0;
+        const color = RACER_CSS_COLORS[i % RACER_CSS_COLORS.length];
+        return `
+        <div class="profile-row">
+          <span class="profile-racer" style="color: ${color}">${r}</span>
+          <span class="profile-bar-track">
+            <span class="profile-bar-fill" style="width: ${barPct}%; background: ${color}"></span>
+          </span>
+          <span class="profile-value">${count}</span>
+        </div>`;
+      }).join('')}</div>\n`;
+    }
+  }
+  return html;
+}
+
+function buildProfileHtml(profileComparison, racers) {
+  if (!profileComparison) return '';
+  const { measured, total } = profileComparison;
+  if (measured.comparisons.length === 0 && total.comparisons.length === 0) return '';
+
+  let html = `<div class="section">
+  <h2>Performance Profile</h2>
+  <p class="profile-note">Lower values are better for all metrics</p>\n`;
+
+  const scopes = [
+    ['During Measurement (raceStart → raceEnd)', measured],
+    ['Total Session', total],
+  ];
+  for (const [title, section] of scopes) {
+    if (section.comparisons.length === 0) continue;
+    html += `<h3>${title}</h3>\n`;
+    for (const [category, comps] of Object.entries(section.byCategory)) {
+      html += `<h4>${category[0].toUpperCase() + category.slice(1)}</h4>\n`;
+      for (const comp of comps) {
+        const sorted = sortByValue(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }));
+        const formatDelta = PROFILE_METRICS[comp.key].format;
+        html += `<div class="profile-metric">
+        <div class="profile-metric-name">${comp.name}</div>${buildMetricRowsHtml(sorted, comp.winner, formatDelta)}</div>\n`;
+      }
+    }
+    if (section.overallWinner === 'tie') {
+      html += `<div class="profile-winner">&#129309; Tie!</div>`;
+    } else if (section.overallWinner) {
+      const idx = racers.indexOf(section.overallWinner);
+      html += `<div class="profile-winner">&#127942; <span style="color: ${RACER_CSS_COLORS[idx % RACER_CSS_COLORS.length]}">${section.overallWinner}</span> wins!</div>`;
+    }
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+function buildFilesHtml(racers, videoFiles, options) {
+  const { fullVideoFiles, mergedVideoFile, traceFiles, altFormat, altFiles } = options;
+  const links = [];
+
+  racers.forEach((r, i) => {
+    if (videoFiles[i]) links.push(`<a href="${videoFiles[i]}">${r} (race)</a>`);
+  });
+  if (fullVideoFiles) {
+    racers.forEach((r, i) => {
+      if (fullVideoFiles[i]) links.push(`<a href="${fullVideoFiles[i]}">${r} (full)</a>`);
+    });
+  }
+  if (mergedVideoFile) {
+    links.push(`<a href="${mergedVideoFile}">side-by-side</a>`);
+  }
+  if (altFormat && altFiles) {
+    racers.forEach((r, i) => {
+      if (altFiles[i]) links.push(`<a href="${altFiles[i]}" download>${r} (.${altFormat})</a>`);
+    });
+  }
+  if (traceFiles) {
+    racers.forEach((r, i) => {
+      if (traceFiles[i]) links.push(`<a href="${traceFiles[i]}" title="Open in chrome://tracing or ui.perfetto.dev">${r} (profile)</a>`);
+    });
+  }
+
+  if (links.length === 0) return '';
+
+  return `<div class="section">
+  <h2>Files</h2>
+  <div class="file-links">
+    ${links.join('\n    ')}
   </div>
-  <span class="time-display" id="timeDisplay">0:00.000 / 0:00.000</span>
-  <span class="frame-display" id="frameDisplay">Frame: 0</span>
-  <select class="speed-select" id="speedSelect">
-    <option value="0.25">0.25x</option>
-    <option value="0.5">0.5x</option>
-    <option value="1" selected>1x</option>
-    <option value="2">2x</option>
-  </select>
-</div>
+</div>`;
+}
 
-<div class="profile-analysis">
-  <h2>Results</h2>
-${resultsHtml}
-</div>
+// ---------------------------------------------------------------------------
+// Player Script Builder
+// ---------------------------------------------------------------------------
 
-${profileHtml}
-
-${downloadLinks}
-
-<div class="checkered-bar"></div>
-
-<script>
-(function() {
+function buildPlayerScript(config) {
+  const { videoVars, videoArray, raceVideoPaths, fullVideoPaths } = config;
+  return `(function() {
   ${videoVars}
   const raceVideos = ${videoArray};
   const raceVideoPaths = ${raceVideoPaths};
@@ -527,7 +506,6 @@ ${downloadLinks}
   const FPS = 30;
   const FRAME = 1 / FPS;
 
-  // Format time with milliseconds: m:ss.mmm
   function fmt(s) {
     const m = Math.floor(s / 60);
     const sec = Math.floor(s % 60);
@@ -535,7 +513,6 @@ ${downloadLinks}
     return m + ':' + String(sec).padStart(2, '0') + '.' + String(ms).padStart(3, '0');
   }
 
-  // Calculate frame number from time
   function getFrame(t) {
     return Math.floor(t * FPS);
   }
@@ -558,7 +535,7 @@ ${downloadLinks}
     if (primary) {
       primary.addEventListener('ended', function() {
         playing = false;
-        playBtn.innerHTML = '▶';
+        playBtn.innerHTML = '\\u25B6';
       });
       primary.addEventListener('timeupdate', function() {
         if (duration > 0) {
@@ -571,7 +548,6 @@ ${downloadLinks}
 
   attachVideoListeners();
 
-  // Mode switching
   const modeRace = document.getElementById('modeRace');
   const modeFull = document.getElementById('modeFull');
   const modeMerged = document.getElementById('modeMerged');
@@ -582,7 +558,7 @@ ${downloadLinks}
   }
 
   function switchToRace() {
-    if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.innerHTML = '▶'; }
+    if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.innerHTML = '\\u25B6'; }
     raceVideos.forEach((v, i) => v.src = raceVideoPaths[i]);
     videos = raceVideos;
     primary = videos[0];
@@ -595,7 +571,7 @@ ${downloadLinks}
 
   function switchToFull() {
     if (!fullVideoPaths) return;
-    if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.innerHTML = '▶'; }
+    if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.innerHTML = '\\u25B6'; }
     raceVideos.forEach((v, i) => v.src = fullVideoPaths[i]);
     videos = raceVideos;
     primary = videos[0];
@@ -608,7 +584,7 @@ ${downloadLinks}
 
   function switchToMerged() {
     if (!mergedVideo) return;
-    if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.innerHTML = '▶'; }
+    if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.innerHTML = '\\u25B6'; }
     videos = [mergedVideo];
     primary = mergedVideo;
     playerContainer.style.display = 'none';
@@ -631,10 +607,10 @@ ${downloadLinks}
   playBtn.addEventListener('click', function() {
     if (playing) {
       videos.forEach(v => v && v.pause());
-      playBtn.innerHTML = '▶';
+      playBtn.innerHTML = '\\u25B6';
     } else {
       videos.forEach(v => v && v.play());
-      playBtn.innerHTML = '⏸';
+      playBtn.innerHTML = '\\u23F8';
     }
     playing = !playing;
   });
@@ -650,7 +626,7 @@ ${downloadLinks}
   });
 
   function stepFrame(delta) {
-    if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.innerHTML = '▶'; }
+    if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.innerHTML = '\\u25B6'; }
     const t = Math.max(0, Math.min(duration, primary.currentTime + delta));
     videos.forEach(v => v && (v.currentTime = t));
   }
@@ -664,7 +640,132 @@ ${downloadLinks}
     else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(FRAME); }
     else if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
   });
-})();
+})();`;
+}
+
+// ---------------------------------------------------------------------------
+// Main Export
+// ---------------------------------------------------------------------------
+
+export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, options = {}) {
+  const { fullVideoFiles, mergedVideoFile, traceFiles } = options;
+  const racers = summary.racers;
+  const count = racers.length;
+
+  // Layout dimensions
+  const maxWidth = count <= 2 ? 680 : count === 3 ? 450 : 340;
+  const containerMaxWidth = count <= 2 ? 1400 : count === 3 ? 1400 : 1440;
+  const layoutCss = `\n  .player-container { max-width: ${containerMaxWidth}px; }\n  .racer { max-width: ${maxWidth}px; }`;
+
+  // Title
+  const title = count === 2
+    ? `Race: ${racers[0]} vs ${racers[1]}`
+    : `Race: ${racers.join(' vs ')}`;
+
+  // Winner banner
+  const winnerBanner = summary.overallWinner === 'tie'
+    ? `<span class="trophy">&#129309;</span> It's a Tie!`
+    : summary.overallWinner
+      ? `<span class="trophy">&#127942;</span> ${summary.overallWinner.toUpperCase()} wins!`
+      : '';
+
+  // Video elements
+  const videoElements = racers.map((racer, i) => {
+    const color = RACER_CSS_COLORS[i % RACER_CSS_COLORS.length];
+    return `  <div class="racer">
+    <div class="racer-label" style="color: ${color}">${racer}</div>
+    <video id="v${i}" src="${videoFiles[i]}" preload="auto" muted></video>
+  </div>`;
+  }).join('\n');
+
+  const mergedVideoElement = mergedVideoFile ? `
+<div class="merged-container" id="mergedContainer" style="display: none;">
+  <video id="mergedVideo" src="${mergedVideoFile}" preload="auto" muted></video>
+</div>` : '';
+
+  // Mode toggle
+  const hasFullVideos = fullVideoFiles && fullVideoFiles.length > 0;
+  const hasMergedVideo = !!mergedVideoFile;
+  const modeToggle = (hasFullVideos || hasMergedVideo) ? `
+  <div class="mode-toggle">
+    <button class="mode-btn active" id="modeRace" title="Race segments only">Race</button>
+    ${hasFullVideos ? '<button class="mode-btn" id="modeFull" title="Full recordings">Full</button>' : ''}
+    ${hasMergedVideo ? '<button class="mode-btn" id="modeMerged" title="Side-by-side merged video">Merged</button>' : ''}
+  </div>` : '';
+
+  // Player script config
+  const videoIds = racers.map((_, i) => `v${i}`);
+  const scriptConfig = {
+    videoVars: videoIds.map(id => `const ${id} = document.getElementById('${id}');`).join('\n  '),
+    videoArray: `[${videoIds.join(', ')}]`,
+    raceVideoPaths: `[${videoFiles.map(f => `'${f}'`).join(', ')}]`,
+    fullVideoPaths: fullVideoFiles
+      ? `[${fullVideoFiles.map(f => `'${f}'`).join(', ')}]`
+      : 'null',
+  };
+
+  // Build sections
+  const raceInfoHtml = buildRaceInfoHtml(summary);
+  const errorsHtml = buildErrorsHtml(summary.errors);
+  const resultsHtml = buildResultsHtml(summary.comparisons || [], racers, summary.clickCounts);
+  const profileHtml = buildProfileHtml(summary.profileComparison || null, racers);
+  const filesHtml = buildFilesHtml(racers, videoFiles, {
+    fullVideoFiles, mergedVideoFile, traceFiles, altFormat, altFiles,
+  });
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${title}</title>
+<style>${PAGE_CSS}${layoutCss}</style>
+</head>
+<body>
+
+<div class="checkered-bar"></div>
+
+<h1>Race for the Prize</h1>
+<div class="winner-banner">${winnerBanner}</div>
+${raceInfoHtml}
+${errorsHtml}
+${modeToggle}
+
+<div class="player-container" id="playerContainer">
+${videoElements}
+</div>
+${mergedVideoElement}
+
+<div class="controls">
+  <div class="controls-row">
+    <button class="frame-btn" id="prevFrame" title="Previous frame (\\u2190)">◀◀</button>
+    <button class="play-btn" id="playBtn">▶</button>
+    <button class="frame-btn" id="nextFrame" title="Next frame (\\u2192)">▶▶</button>
+    <input type="range" class="scrubber" id="scrubber" min="0" max="1000" value="0">
+  </div>
+  <span class="time-display" id="timeDisplay">0:00.000 / 0:00.000</span>
+  <span class="frame-display" id="frameDisplay">Frame: 0</span>
+  <select class="speed-select" id="speedSelect">
+    <option value="0.25">0.25x</option>
+    <option value="0.5">0.5x</option>
+    <option value="1" selected>1x</option>
+    <option value="2">2x</option>
+  </select>
+</div>
+
+<div class="section">
+  <h2>Results</h2>
+${resultsHtml}
+</div>
+
+${profileHtml}
+
+${filesHtml}
+
+<div class="checkered-bar"></div>
+
+<script>
+${buildPlayerScript(scriptConfig)}
 </script>
 </body>
 </html>`;

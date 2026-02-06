@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSummary } from '../cli/summary.js';
+import { buildSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown } from '../cli/summary.js';
 
 describe('buildSummary', () => {
   const names = ['lauda', 'hunt'];
@@ -236,5 +236,238 @@ describe('buildSummary with 5 racers', () => {
     expect(summary.comparisons[0].racers[1]).toBeNull(); // b has no data
     expect(summary.comparisons[0].racers[3]).toBeNull(); // d has no data
     expect(summary.comparisons[0].rankings).toEqual(['c', 'a', 'e']);
+  });
+});
+
+// --- buildMarkdownSummary tests ---
+
+describe('buildMarkdownSummary', () => {
+  function makeSummary(overrides = {}) {
+    return {
+      timestamp: '2025-01-15T12:00:00.000Z',
+      racers: ['lauda', 'hunt'],
+      settings: {},
+      comparisons: [
+        { name: 'Load', racers: [{ duration: 1.0 }, { duration: 2.0 }], winner: 'lauda', diff: 1.0, diffPercent: 100.0 },
+      ],
+      overallWinner: 'lauda',
+      wins: { lauda: 1, hunt: 0 },
+      errors: [],
+      videos: { lauda: '/tmp/r/lauda/lauda.race.webm', hunt: '/tmp/r/hunt/hunt.race.webm', lauda_full: null, hunt_full: null },
+      clickCounts: { lauda: 0, hunt: 0 },
+      profileComparison: { measured: { comparisons: [] }, total: { comparisons: [] }, comparisons: [], wins: {} },
+      ...overrides,
+    };
+  }
+
+  it('includes ASCII art header', () => {
+    const md = buildMarkdownSummary(makeSummary(), null);
+    expect(md).toContain('```');
+    expect(md).toContain('/_/ |_|');
+  });
+
+  it('shows winner announcement', () => {
+    const md = buildMarkdownSummary(makeSummary(), null);
+    expect(md).toContain('## Winner: lauda (1 - 0)');
+  });
+
+  it('shows tie announcement', () => {
+    const md = buildMarkdownSummary(makeSummary({
+      overallWinner: 'tie',
+      wins: { lauda: 1, hunt: 1 },
+    }), null);
+    expect(md).toContain("## It's a Tie! lauda 1 - hunt 1");
+  });
+
+  it('includes Race Info section', () => {
+    const md = buildMarkdownSummary(makeSummary(), null);
+    expect(md).toContain('### Race Info');
+    expect(md).toContain('**Racer 1**');
+    expect(md).toContain('**Racer 2**');
+    expect(md).toContain('lauda');
+    expect(md).toContain('hunt');
+  });
+
+  it('includes settings in Race Info', () => {
+    const md = buildMarkdownSummary(makeSummary({
+      settings: { network: 'fast-3g', cpuThrottle: 4, parallel: false },
+    }), null);
+    expect(md).toContain('**Network**');
+    expect(md).toContain('fast-3g');
+    expect(md).toContain('**CPU Throttle**');
+    expect(md).toContain('4x');
+    expect(md).toContain('**Mode**');
+    expect(md).toContain('sequential');
+  });
+
+  it('includes Results table', () => {
+    const md = buildMarkdownSummary(makeSummary(), null);
+    expect(md).toContain('### Results');
+    expect(md).toContain('| Load |');
+    expect(md).toContain('1.000s');
+    expect(md).toContain('2.000s');
+    expect(md).toContain('lauda');
+    expect(md).toContain('100.0%');
+  });
+
+  it('includes click counts in results table', () => {
+    const md = buildMarkdownSummary(makeSummary({
+      clickCounts: { lauda: 5, hunt: 3 },
+    }), null);
+    expect(md).toContain('| Clicks |');
+    expect(md).toContain('5');
+    expect(md).toContain('3');
+  });
+
+  it('includes errors section when present', () => {
+    const md = buildMarkdownSummary(makeSummary({
+      errors: ['lauda: timeout', 'hunt: crash'],
+    }), null);
+    expect(md).toContain('### Errors');
+    expect(md).toContain('- lauda: timeout');
+    expect(md).toContain('- hunt: crash');
+  });
+
+  it('omits errors section when no errors', () => {
+    const md = buildMarkdownSummary(makeSummary(), null);
+    expect(md).not.toContain('### Errors');
+  });
+
+  it('includes Files section with video links', () => {
+    const md = buildMarkdownSummary(makeSummary(), null);
+    expect(md).toContain('### Files');
+    expect(md).toContain('lauda.race.webm');
+    expect(md).toContain('hunt.race.webm');
+  });
+
+  it('includes side-by-side link in Files', () => {
+    const md = buildMarkdownSummary(makeSummary(), 'lauda-vs-hunt.webm');
+    expect(md).toContain('**side-by-side**');
+    expect(md).toContain('lauda-vs-hunt.webm');
+  });
+
+  it('handles empty comparisons', () => {
+    const md = buildMarkdownSummary(makeSummary({ comparisons: [] }), null);
+    expect(md).toContain('### Race Info');
+    expect(md).not.toContain('### Results');
+  });
+
+  it('defaults mode to parallel', () => {
+    const md = buildMarkdownSummary(makeSummary(), null);
+    expect(md).toContain('parallel');
+  });
+});
+
+// --- buildMedianSummary tests ---
+
+describe('buildMedianSummary', () => {
+  function makeSingleSummary(duration1, duration2) {
+    return {
+      racers: ['a', 'b'],
+      settings: { network: 'none' },
+      comparisons: [{
+        name: 'Load',
+        racers: [{ duration: duration1 }, { duration: duration2 }],
+        winner: duration1 < duration2 ? 'a' : 'b',
+        diff: Math.abs(duration1 - duration2),
+        diffPercent: 50,
+        rankings: duration1 < duration2 ? ['a', 'b'] : ['b', 'a'],
+      }],
+      overallWinner: duration1 < duration2 ? 'a' : 'b',
+      wins: duration1 < duration2 ? { a: 1, b: 0 } : { a: 0, b: 1 },
+      errors: [],
+    };
+  }
+
+  it('computes median from odd number of runs', () => {
+    const summaries = [
+      makeSingleSummary(1.0, 2.0),
+      makeSingleSummary(1.5, 2.5),
+      makeSingleSummary(1.2, 2.2),
+    ];
+    const median = buildMedianSummary(summaries, '/tmp/results');
+
+    // Median of [1.0, 1.2, 1.5] = 1.2
+    expect(median.comparisons[0].racers[0].duration).toBeCloseTo(1.2);
+    // Median of [2.0, 2.2, 2.5] = 2.2
+    expect(median.comparisons[0].racers[1].duration).toBeCloseTo(2.2);
+    expect(median.runs).toBe(3);
+  });
+
+  it('computes median from even number of runs', () => {
+    const summaries = [
+      makeSingleSummary(1.0, 2.0),
+      makeSingleSummary(2.0, 3.0),
+    ];
+    const median = buildMedianSummary(summaries, '/tmp/results');
+
+    // Median of [1.0, 2.0] = 1.5
+    expect(median.comparisons[0].racers[0].duration).toBeCloseTo(1.5);
+  });
+
+  it('preserves racer names and settings', () => {
+    const summaries = [makeSingleSummary(1.0, 2.0)];
+    const median = buildMedianSummary(summaries, '/tmp/results');
+
+    expect(median.racers).toEqual(['a', 'b']);
+    expect(median.settings).toEqual({ network: 'none' });
+  });
+});
+
+// --- buildMultiRunMarkdown tests ---
+
+describe('buildMultiRunMarkdown', () => {
+  function makeSingleSummary(duration1, duration2) {
+    return {
+      racers: ['a', 'b'],
+      settings: { network: 'none' },
+      comparisons: [{
+        name: 'Load',
+        racers: [{ duration: duration1 }, { duration: duration2 }],
+        winner: 'a',
+        diff: duration2 - duration1,
+        diffPercent: ((duration2 - duration1) / duration1) * 100,
+        rankings: ['a', 'b'],
+      }],
+      overallWinner: 'a',
+      wins: { a: 1, b: 0 },
+      errors: [],
+    };
+  }
+
+  it('includes Median Results header', () => {
+    const summaries = [makeSingleSummary(1.0, 2.0), makeSingleSummary(1.5, 2.5)];
+    const median = buildMedianSummary(summaries, '/tmp/results');
+    const md = buildMultiRunMarkdown(median, summaries);
+
+    expect(md).toContain('Median Results (2 runs)');
+  });
+
+  it('includes Individual Runs section', () => {
+    const summaries = [makeSingleSummary(1.0, 2.0), makeSingleSummary(1.5, 2.5)];
+    const median = buildMedianSummary(summaries, '/tmp/results');
+    const md = buildMultiRunMarkdown(median, summaries);
+
+    expect(md).toContain('## Individual Runs');
+    expect(md).toContain('### Run 1');
+    expect(md).toContain('### Run 2');
+  });
+
+  it('includes results table for each run', () => {
+    const summaries = [makeSingleSummary(1.0, 2.0), makeSingleSummary(1.5, 2.5)];
+    const median = buildMedianSummary(summaries, '/tmp/results');
+    const md = buildMultiRunMarkdown(median, summaries);
+
+    expect(md).toContain('1.000s');
+    expect(md).toContain('1.500s');
+  });
+
+  it('includes links to individual run results', () => {
+    const summaries = [makeSingleSummary(1.0, 2.0), makeSingleSummary(1.5, 2.5)];
+    const median = buildMedianSummary(summaries, '/tmp/results');
+    const md = buildMultiRunMarkdown(median, summaries);
+
+    expect(md).toContain('[run/1](./1/)');
+    expect(md).toContain('[run/2](./2/)');
   });
 });
