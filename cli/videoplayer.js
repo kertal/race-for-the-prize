@@ -15,7 +15,8 @@ const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f', '#9b59b6']
  * @param {function} formatDelta - Formats the delta value as string
  */
 function buildMetricRowsHtml(entries, winner, formatDelta) {
-  const maxVal = Math.max(...entries.filter(e => e.val !== null).map(e => e.val));
+  const nonNullVals = entries.filter(e => e.val !== null).map(e => e.val);
+  const maxVal = nonNullVals.length > 0 ? Math.max(...nonNullVals) : 0;
   const bestVal = entries[0]?.val;
   let html = '';
   for (const entry of entries) {

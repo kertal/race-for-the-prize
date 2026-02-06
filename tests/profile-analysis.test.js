@@ -211,7 +211,7 @@ describe('buildProfileComparison percentage calculations', () => {
 
     const comp = result.total.comparisons.find(c => c.key === 'total.networkTransferSize');
     expect(comp.winner).toBe('a');
-    expect(comp.diffPercent).toBe(0); // Division by zero guard
+    expect(comp.diffPercent).toBeNull(); // Division by zero — percentage is meaningless
   });
 });
 

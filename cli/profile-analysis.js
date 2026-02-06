@@ -120,7 +120,7 @@ export function buildProfileComparison(racerNames, profileData) {
         comp.diff = worstVal - bestVal;
         comp.diffPercent = bestVal > 0
           ? (comp.diff / bestVal * 100)
-          : 0;
+          : null;
 
         if (metric.scope === 'measured') {
           measuredWins[racerNames[winIdx]]++;

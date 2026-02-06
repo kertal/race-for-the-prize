@@ -371,6 +371,7 @@ async function setupMetricsCollection(page, id) {
       for (const m of perfMetrics.metrics) {
         metricsMap[m.name] = m.value;
       }
+      // CDP Performance.getMetrics returns durations in seconds; convert to ms
       return {
         jsHeapUsedSize: metricsMap.JSHeapUsedSize || 0,
         scriptDuration: (metricsMap.ScriptDuration || 0) * 1000,
@@ -456,7 +457,11 @@ async function setupMetricsCollection(page, id) {
 
           // Compute deltas for measurement period
           if (startSnapshot) {
-            const computeDelta = (metric) => Math.max(0, endMetrics[metric] - startSnapshot[metric]);
+            const computeDelta = (metric) => {
+              const delta = endMetrics[metric] - startSnapshot[metric];
+              if (delta < 0) console.warn(`[${id}] Negative delta for "${metric}" (${startSnapshot[metric]} → ${endMetrics[metric]}), clamping to 0`);
+              return Math.max(0, delta);
+            };
             result.measured.scriptDuration = computeDelta('scriptDuration');
             result.measured.layoutDuration = computeDelta('layoutDuration');
             result.measured.recalcStyleDuration = computeDelta('recalcStyleDuration');
