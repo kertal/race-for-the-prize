@@ -618,6 +618,10 @@ ${hasVideos ? `<script>
     frameDisplay.textContent = 'Frame: ' + getFrame(t);
   }
 
+  function seekAll(t) {
+    videos.forEach(v => v && (v.currentTime = Math.min(t, v.duration || t)));
+  }
+
   function onMeta() {
     duration = Math.max(...videos.filter(v => v).map(v => v.duration || 0));
     updateTimeDisplay();
@@ -713,7 +717,7 @@ ${hasVideos ? `<script>
 
   scrubber.addEventListener('input', function() {
     const t = (scrubber.value / 1000) * duration;
-    videos.forEach(v => v && (v.currentTime = t));
+    seekAll(t);
   });
 
   speedSelect.addEventListener('change', function() {
@@ -724,7 +728,7 @@ ${hasVideos ? `<script>
   function stepFrame(delta) {
     if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.innerHTML = '▶'; }
     const t = Math.max(0, Math.min(duration, primary.currentTime + delta));
-    videos.forEach(v => v && (v.currentTime = t));
+    seekAll(t);
   }
 
   document.getElementById('prevFrame').addEventListener('click', function() { stepFrame(-FRAME); });

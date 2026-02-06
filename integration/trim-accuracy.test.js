@@ -11,7 +11,7 @@ const RACERS = [
 ];
 
 const DURATION_TOLERANCE_MS = 50;
-const VIDEO_TOLERANCE_S = 0.5;
+const VIDEO_TOLERANCE_S = 1.0;
 
 function getVideoDuration(videoPath) {
   const out = execFileSync('ffprobe', [

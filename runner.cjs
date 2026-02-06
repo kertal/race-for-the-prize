@@ -635,7 +635,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
         document.body.appendChild(el);
       });
     }
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(500);
   };
 
   const startRecording = async () => {
