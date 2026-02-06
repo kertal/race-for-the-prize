@@ -92,7 +92,13 @@ node race.js <dir> --profile             Capture Chrome performance traces
 node race.js <dir> --no-overlay          Record without timer overlays
 ```
 
-CLI flags override `settings.json` values.
+CLI flags override `settings.json` values. Where names differ, the mapping is:
+
+| CLI Flag | settings.json Key |
+|----------|-------------------|
+| `--cpu` | `cpuThrottle` |
+| `--sequential` | `parallel` (inverted) |
+| `--no-overlay` | `noOverlay` |
 
 ### settings.json
 
