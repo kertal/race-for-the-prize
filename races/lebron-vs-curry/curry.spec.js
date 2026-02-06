@@ -2,7 +2,7 @@
 // Four-time NBA Champion. Greatest shooter of all time.
 // Race: Dribble 3 times at the bottom (800px bounce), then scroll to the top.
 
-await page.goto('https://en.wikipedia.org/wiki/Stephen_Curry', { waitUntil: 'domcontentloaded' });
+await page.goto('https://en.wikipedia.org/wiki/Stephen_Curry', { waitUntil: 'load' });
 
 // Scroll to a fixed absolute position (same for both racers so dribbles stay in sync)
 const fixedStart = 10000;

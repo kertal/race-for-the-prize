@@ -6,7 +6,7 @@ await page.raceRecordingStart();
 await page.waitForTimeout(500);
 await page.raceStart('Load Framework');
 
-await page.goto('https://svelte.dev/', { waitUntil: 'domcontentloaded' });
+await page.goto('https://svelte.dev/', { waitUntil: 'load' });
 
 // Wait for the main hero content to be visible
 await page.waitForSelector('h1', { state: 'visible' });

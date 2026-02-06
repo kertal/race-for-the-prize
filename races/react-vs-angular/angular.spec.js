@@ -6,7 +6,7 @@ await page.raceRecordingStart();
 await page.waitForTimeout(500);
 await page.raceStart('Load Framework');
 
-await page.goto('https://angular.dev/', { waitUntil: 'domcontentloaded' });
+await page.goto('https://angular.dev/', { waitUntil: 'load' });
 
 // Wait for the main content to be visible and interactive
 await page.waitForSelector('a[href="/tutorials"]', { state: 'visible' });

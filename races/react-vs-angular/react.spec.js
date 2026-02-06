@@ -6,7 +6,7 @@ await page.raceRecordingStart();
 await page.waitForTimeout(500);
 await page.raceStart('Load Framework');
 
-await page.goto('https://react.dev/', { waitUntil: 'domcontentloaded' });
+await page.goto('https://react.dev/', { waitUntil: 'load' });
 
 // Wait for the main hero content to be visible
 await page.waitForSelector('h1', { state: 'visible' });
