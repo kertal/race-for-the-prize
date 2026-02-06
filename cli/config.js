@@ -48,7 +48,7 @@ export function discoverRacers(raceDir) {
 
 export function applyOverrides(settings, boolFlags, kvFlags) {
   const s = { ...settings };
-  if (boolFlags.has('sequential')) s.parallel = false;
+  if (boolFlags.has('parallel')) s.parallel = true;
   if (boolFlags.has('headless')) s.headless = true;
   if (boolFlags.has('profile')) s.profile = true;
   if (boolFlags.has('no-overlay')) s.noOverlay = true;

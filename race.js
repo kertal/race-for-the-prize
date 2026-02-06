@@ -9,7 +9,7 @@
  * Usage:
  *   node race.js ./races/my-race              Run a race
  *   node race.js ./races/my-race --results    View recent results
- *   node race.js ./races/my-race --sequential Run sequentially
+ *   node race.js ./races/my-race --parallel   Run both browsers simultaneously
  *   node race.js ./races/my-race --headless   Run headless
  *   node race.js ./races/my-race --network=fast-3g --cpu=4
  */
@@ -93,7 +93,7 @@ ${c.bold}  Commands:${c.reset}
 ${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
   node race.js ${c.cyan}<dir>${c.reset}                       Run a race
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--results${c.reset}            View recent results
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--sequential${c.reset}         Run one after the other
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--parallel${c.reset}           Run both browsers simultaneously
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--headless${c.reset}           Hide browsers
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--network${c.reset}=${c.green}slow-3g${c.reset}   Network: none, slow-3g, fast-3g, 4g
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}4${c.reset}              CPU throttle multiplier (1=none)
@@ -155,7 +155,9 @@ const totalRuns = settings.runs || 1;
 
 // --- Build runner config ---
 
-const isParallel = settings.parallel ?? true;
+// Parallel mode is more spectacular (side-by-side race), but sequential is more
+// accurate since browsers don't compete for CPU/memory/network resources.
+const isParallel = settings.parallel ?? false;
 const executionMode = isParallel ? 'parallel' : 'sequential';
 const throttle = { network: settings.network || 'none', cpu: settings.cpuThrottle || 1 };
 
