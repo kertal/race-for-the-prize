@@ -310,28 +310,38 @@ function printProfileSection(title, section, racers, w, write) {
 
     for (const comp of comps) {
       const maxVal = Math.max(...comp.values.filter(v => v !== null));
+      const metricDef = PROFILE_METRICS[comp.key];
+
+      // Sort racers by value ascending (best first), nulls last
+      const sorted = racers
+        .map((name, i) => ({ name, index: i, val: comp.values[i], formatted: comp.formatted[i] }))
+        .sort((a, b) => {
+          if (a.val === null) return 1;
+          if (b.val === null) return -1;
+          return a.val - b.val;
+        });
+      const bestVal = sorted[0].val;
 
       write(`  ${c.dim}${comp.name}${c.reset}\n`);
-      for (let i = 0; i < racers.length; i++) {
-        const color = RACER_COLORS[i % RACER_COLORS.length];
-        const val = comp.values[i];
-        const formatted = comp.formatted[i];
-        const isWinner = comp.winner === racers[i];
+      for (const entry of sorted) {
+        const color = RACER_COLORS[entry.index % RACER_COLORS.length];
+        const isWinner = comp.winner === entry.name;
         const medal = isWinner ? ' 🏆' : '';
 
         const barWidth = 20;
-        const filled = val !== null && maxVal > 0
-          ? Math.round((val / maxVal) * barWidth)
+        const filled = entry.val !== null && maxVal > 0
+          ? Math.round((entry.val / maxVal) * barWidth)
           : 0;
         const bar = '▓'.repeat(filled) + '░'.repeat(barWidth - filled);
 
-        write(`    ${color}${c.bold}${racers[i].padEnd(12)}${c.reset} ${color}${bar}${c.reset}  ${formatted}${medal}\n`);
-      }
+        // Show delta from best for non-best racers
+        let delta = '';
+        if (entry.val !== null && bestVal !== null && entry.val !== bestVal) {
+          const deltaVal = entry.val - bestVal;
+          delta = ` ${c.dim}(+${metricDef.format(deltaVal)})${c.reset}`;
+        }
 
-      if (comp.winner && comp.diffPercent !== null) {
-        const winnerIdx = racers.indexOf(comp.winner);
-        const winColor = RACER_COLORS[winnerIdx % RACER_COLORS.length];
-        write(`    ${winColor}${c.bold}${comp.winner}${c.reset} is ${c.bold}${comp.diffPercent.toFixed(1)}%${c.reset} better\n`);
+        write(`    ${color}${c.bold}${entry.name.padEnd(12)}${c.reset} ${color}${bar}${c.reset}  ${entry.formatted}${delta}${medal}\n`);
       }
     }
     write('\n');
