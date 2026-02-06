@@ -133,20 +133,30 @@ export function printSummary(summary) {
   } else {
     for (const comp of comparisons) {
       const maxDur = Math.max(...comp.racers.map(r => r?.duration || 0));
+
+      // Sort racers by duration ascending (best/fastest first), nulls last
+      const sorted = racers
+        .map((name, i) => ({ name, index: i, racer: comp.racers[i] }))
+        .sort((a, b) => {
+          if (!a.racer) return 1;
+          if (!b.racer) return -1;
+          return a.racer.duration - b.racer.duration;
+        });
+      const bestDur = sorted[0].racer ? sorted[0].racer.duration : null;
+
       write(`  ${c.dim}⏱ ${comp.name}${c.reset}\n`);
-      for (let i = 0; i < racers.length; i++) {
-        const color = RACER_COLORS[i % RACER_COLORS.length];
-        if (comp.racers[i]) {
-          const isWinner = comp.winner === racers[i];
-          write(`${printBar(racers[i], comp.racers[i].duration, maxDur, color, isWinner)}\n`);
+      for (const entry of sorted) {
+        const color = RACER_COLORS[entry.index % RACER_COLORS.length];
+        if (entry.racer) {
+          const isWinner = comp.winner === entry.name;
+          let delta = '';
+          if (bestDur !== null && entry.racer.duration !== bestDur) {
+            delta = ` ${c.dim}(+${(entry.racer.duration - bestDur).toFixed(3)}s)${c.reset}`;
+          }
+          write(`${printBar(entry.name, entry.racer.duration, maxDur, color, isWinner)}${delta}\n`);
         } else {
-          write(`    ${color}${c.bold}${racers[i].padEnd(12)}${c.reset} ${c.dim}(no data)${c.reset}\n`);
+          write(`    ${color}${c.bold}${entry.name.padEnd(12)}${c.reset} ${c.dim}(no data)${c.reset}\n`);
         }
-      }
-      if (comp.diffPercent !== null && comp.diff >= 0) {
-        const winnerIdx = racers.indexOf(comp.winner);
-        const winColor = RACER_COLORS[winnerIdx % RACER_COLORS.length];
-        write(`    ${winColor}${c.bold}${comp.winner}${c.reset} is ${c.bold}${comp.diffPercent.toFixed(1)}%${c.reset} faster ${c.dim}(Δ ${comp.diff.toFixed(3)}s)${c.reset}\n`);
       }
     }
   }
