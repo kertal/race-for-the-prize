@@ -2,307 +2,28 @@
  * Generates a self-contained HTML file with a retro Grand Prix styled
  * video player for race results. Supports 2-5 racers.
  *
- * Structure: CSS template + section builders + JS template + main assembler.
- * Each section builder returns an HTML string or '' if nothing to render.
+ * The HTML structure and CSS live in player.html (a real HTML template).
+ * This module builds the dynamic sections and injects them via {{placeholder}}
+ * replacement, keeping presentation separate from data logic.
  */
 
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { PROFILE_METRICS } from './profile-analysis.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const TEMPLATE = fs.readFileSync(path.join(__dirname, 'player.html'), 'utf-8');
 
 const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f', '#9b59b6'];
 
 // ---------------------------------------------------------------------------
-// CSS Template
+// Template renderer — replaces {{key}} placeholders with values
 // ---------------------------------------------------------------------------
 
-const PAGE_CSS = `
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: #1a1a1a;
-    color: #e8e0d0;
-    font-family: 'Courier New', monospace;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-  .checkered-bar {
-    width: 100%;
-    height: 20px;
-    background: repeating-conic-gradient(#222 0% 25%, #d4af37 0% 50%) 0 0 / 20px 20px;
-  }
-  h1 {
-    font-family: Georgia, 'Times New Roman', serif;
-    font-size: 1.8rem;
-    color: #d4af37;
-    text-align: center;
-    padding: 1.2rem 0 0.3rem;
-    text-transform: uppercase;
-    letter-spacing: 0.15em;
-  }
-  .winner-banner {
-    text-align: center;
-    font-family: Georgia, serif;
-    font-size: 1.2rem;
-    color: #e8e0d0;
-    padding-bottom: 0.5rem;
-  }
-  .trophy { font-size: 1.4rem; }
-  .race-info {
-    max-width: 900px;
-    width: 100%;
-    padding: 0.3rem 1.5rem 0.8rem;
-  }
-  .race-info table {
-    border-collapse: collapse;
-    font-size: 0.85rem;
-  }
-  .race-info td {
-    padding: 0.15rem 0.8rem 0.15rem 0;
-  }
-  .race-info td:first-child {
-    color: #888;
-  }
-  .errors {
-    max-width: 900px;
-    width: 100%;
-    padding: 0.3rem 1.5rem;
-  }
-  .errors ul {
-    list-style: none;
-    font-size: 0.85rem;
-    color: #e74c3c;
-  }
-  .errors li::before { content: "\\26A0  "; }
-  .mode-toggle {
-    display: flex;
-    gap: 0.5rem;
-    padding: 0.5rem 0 1rem;
-    justify-content: center;
-  }
-  .mode-btn {
-    background: #2a2a2a;
-    color: #999;
-    border: 1px solid #555;
-    border-radius: 4px;
-    padding: 0.4rem 1rem;
-    font-size: 0.85rem;
-    cursor: pointer;
-    font-family: 'Courier New', monospace;
-    transition: all 0.2s;
-  }
-  .mode-btn:hover {
-    background: #3a3a3a;
-    border-color: #d4af37;
-    color: #e8e0d0;
-  }
-  .mode-btn.active {
-    background: #d4af37;
-    color: #1a1a1a;
-    border-color: #d4af37;
-    font-weight: bold;
-  }
-  .player-container {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1rem;
-    padding: 0 1.5rem;
-    width: 100%;
-    justify-content: center;
-  }
-  .racer {
-    flex: 1;
-    min-width: 280px;
-    text-align: center;
-  }
-  .racer-label {
-    font-family: Georgia, serif;
-    font-size: 1.1rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    padding: 0.5rem 0;
-  }
-  video {
-    width: 100%;
-    border: 2px solid #333;
-    border-radius: 4px;
-    background: #000;
-  }
-  .merged-container {
-    max-width: 1200px;
-    width: 100%;
-    padding: 0 1.5rem;
-  }
-  .merged-container video { width: 100%; }
-  .controls {
-    max-width: 900px;
-    width: 100%;
-    padding: 1rem 1.5rem;
-    display: flex;
-    align-items: center;
-    gap: 0.8rem;
-    flex-wrap: wrap;
-  }
-  .controls-row {
-    display: flex;
-    align-items: center;
-    gap: 0.8rem;
-    flex: 1;
-    min-width: 300px;
-  }
-  .play-btn {
-    background: #d4af37;
-    color: #1a1a1a;
-    border: none;
-    border-radius: 4px;
-    width: 44px;
-    height: 34px;
-    font-size: 1.1rem;
-    cursor: pointer;
-    font-weight: bold;
-    flex-shrink: 0;
-  }
-  .play-btn:hover { background: #e8c445; }
-  .frame-btn {
-    background: #2a2a2a;
-    color: #d4af37;
-    border: 1px solid #555;
-    border-radius: 4px;
-    width: 34px;
-    height: 34px;
-    font-size: 0.7rem;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  .frame-btn:hover { background: #3a3a3a; border-color: #d4af37; }
-  .scrubber {
-    flex: 1;
-    accent-color: #d4af37;
-    height: 6px;
-    cursor: pointer;
-  }
-  .time-display {
-    font-size: 0.75rem;
-    color: #999;
-    min-width: 140px;
-    text-align: center;
-    flex-shrink: 0;
-  }
-  .frame-display {
-    font-size: 0.75rem;
-    color: #777;
-    min-width: 80px;
-    text-align: center;
-    flex-shrink: 0;
-  }
-  .speed-select {
-    background: #2a2a2a;
-    color: #e8e0d0;
-    border: 1px solid #555;
-    border-radius: 4px;
-    padding: 0.3rem 0.4rem;
-    font-size: 0.8rem;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  .section {
-    max-width: 900px;
-    width: 100%;
-    padding: 0.5rem 1.5rem 1rem;
-  }
-  .section h2 {
-    font-family: Georgia, serif;
-    color: #d4af37;
-    font-size: 1.1rem;
-    margin-bottom: 0.3rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-  }
-  .profile-note {
-    color: #777;
-    font-size: 0.8rem;
-    margin-bottom: 1rem;
-  }
-  .section h3 {
-    color: #e8e0d0;
-    font-size: 0.95rem;
-    margin: 1rem 0 0.5rem;
-    border-bottom: 1px solid #444;
-    padding-bottom: 0.3rem;
-  }
-  .section h4 {
-    color: #999;
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin: 0.8rem 0 0.4rem;
-  }
-  .profile-metric { margin-bottom: 0.6rem; }
-  .profile-metric-name {
-    color: #888;
-    font-size: 0.8rem;
-    margin-bottom: 0.2rem;
-  }
-  .profile-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.15rem 0;
-    font-size: 0.82rem;
-  }
-  .profile-racer {
-    font-weight: bold;
-    min-width: 90px;
-    flex-shrink: 0;
-  }
-  .profile-bar-track {
-    flex: 1;
-    height: 10px;
-    background: #2a2a2a;
-    border-radius: 3px;
-    overflow: hidden;
-    max-width: 200px;
-  }
-  .profile-bar-fill {
-    display: block;
-    height: 100%;
-    border-radius: 3px;
-    opacity: 0.8;
-  }
-  .profile-value {
-    min-width: 120px;
-    flex-shrink: 0;
-    text-align: right;
-    color: #ccc;
-  }
-  .profile-delta {
-    color: #888;
-    font-size: 0.75rem;
-    margin-left: 0.3rem;
-  }
-  .profile-medal { font-size: 0.85rem; }
-  .profile-winner {
-    font-size: 0.9rem;
-    font-weight: bold;
-    margin-top: 0.2rem;
-  }
-  .file-links {
-    display: flex;
-    gap: 0.6rem;
-    flex-wrap: wrap;
-  }
-  .file-links a {
-    color: #e8e0d0;
-    background: #2a2a2a;
-    border: 1px solid #555;
-    border-radius: 4px;
-    padding: 0.4rem 0.8rem;
-    text-decoration: none;
-    font-size: 0.85rem;
-  }
-  .file-links a:hover {
-    background: #3a3a3a;
-    border-color: #d4af37;
-  }`;
+function render(template, data) {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => data[key] ?? '');
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -415,7 +136,7 @@ function buildProfileHtml(profileComparison, racers) {
   <p class="profile-note">Lower values are better for all metrics</p>\n`;
 
   const scopes = [
-    ['During Measurement (raceStart → raceEnd)', measured],
+    ['During Measurement (raceStart \u2192 raceEnd)', measured],
     ['Total Session', total],
   ];
   for (const [title, section] of scopes) {
@@ -535,7 +256,7 @@ function buildPlayerScript(config) {
     if (primary) {
       primary.addEventListener('ended', function() {
         playing = false;
-        playBtn.innerHTML = '\\u25B6';
+        playBtn.textContent = '\\u25B6';
       });
       primary.addEventListener('timeupdate', function() {
         if (duration > 0) {
@@ -558,7 +279,7 @@ function buildPlayerScript(config) {
   }
 
   function switchToRace() {
-    if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.innerHTML = '\\u25B6'; }
+    if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.textContent = '\\u25B6'; }
     raceVideos.forEach((v, i) => v.src = raceVideoPaths[i]);
     videos = raceVideos;
     primary = videos[0];
@@ -571,7 +292,7 @@ function buildPlayerScript(config) {
 
   function switchToFull() {
     if (!fullVideoPaths) return;
-    if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.innerHTML = '\\u25B6'; }
+    if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.textContent = '\\u25B6'; }
     raceVideos.forEach((v, i) => v.src = fullVideoPaths[i]);
     videos = raceVideos;
     primary = videos[0];
@@ -584,7 +305,7 @@ function buildPlayerScript(config) {
 
   function switchToMerged() {
     if (!mergedVideo) return;
-    if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.innerHTML = '\\u25B6'; }
+    if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.textContent = '\\u25B6'; }
     videos = [mergedVideo];
     primary = mergedVideo;
     playerContainer.style.display = 'none';
@@ -607,10 +328,10 @@ function buildPlayerScript(config) {
   playBtn.addEventListener('click', function() {
     if (playing) {
       videos.forEach(v => v && v.pause());
-      playBtn.innerHTML = '\\u25B6';
+      playBtn.textContent = '\\u25B6';
     } else {
       videos.forEach(v => v && v.play());
-      playBtn.innerHTML = '\\u23F8';
+      playBtn.textContent = '\\u23F8';
     }
     playing = !playing;
   });
@@ -626,7 +347,7 @@ function buildPlayerScript(config) {
   });
 
   function stepFrame(delta) {
-    if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.innerHTML = '\\u25B6'; }
+    if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.textContent = '\\u25B6'; }
     const t = Math.max(0, Math.min(duration, primary.currentTime + delta));
     videos.forEach(v => v && (v.currentTime = t));
   }
@@ -655,7 +376,6 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   // Layout dimensions
   const maxWidth = count <= 2 ? 680 : count === 3 ? 450 : 340;
   const containerMaxWidth = count <= 2 ? 1400 : count === 3 ? 1400 : 1440;
-  const layoutCss = `\n  .player-container { max-width: ${containerMaxWidth}px; }\n  .racer { max-width: ${maxWidth}px; }`;
 
   // Title
   const title = count === 2
@@ -678,7 +398,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   </div>`;
   }).join('\n');
 
-  const mergedVideoElement = mergedVideoFile ? `
+  const mergedVideo = mergedVideoFile ? `
 <div class="merged-container" id="mergedContainer" style="display: none;">
   <video id="mergedVideo" src="${mergedVideoFile}" preload="auto" muted></video>
 </div>` : '';
@@ -704,69 +424,21 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
       : 'null',
   };
 
-  // Build sections
-  const raceInfoHtml = buildRaceInfoHtml(summary);
-  const errorsHtml = buildErrorsHtml(summary.errors);
-  const resultsHtml = buildResultsHtml(summary.comparisons || [], racers, summary.clickCounts);
-  const profileHtml = buildProfileHtml(summary.profileComparison || null, racers);
-  const filesHtml = buildFilesHtml(racers, videoFiles, {
-    fullVideoFiles, mergedVideoFile, traceFiles, altFormat, altFiles,
+  // Render template with all sections
+  return render(TEMPLATE, {
+    title,
+    layoutCss: `.player-container { max-width: ${containerMaxWidth}px; }\n  .racer { max-width: ${maxWidth}px; }`,
+    winnerBanner,
+    raceInfo: buildRaceInfoHtml(summary),
+    errors: buildErrorsHtml(summary.errors),
+    modeToggle,
+    videoElements,
+    mergedVideo,
+    results: buildResultsHtml(summary.comparisons || [], racers, summary.clickCounts),
+    profile: buildProfileHtml(summary.profileComparison || null, racers),
+    files: buildFilesHtml(racers, videoFiles, {
+      fullVideoFiles, mergedVideoFile, traceFiles, altFormat, altFiles,
+    }),
+    playerScript: buildPlayerScript(scriptConfig),
   });
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${title}</title>
-<style>${PAGE_CSS}${layoutCss}</style>
-</head>
-<body>
-
-<div class="checkered-bar"></div>
-
-<h1>Race for the Prize</h1>
-<div class="winner-banner">${winnerBanner}</div>
-${raceInfoHtml}
-${errorsHtml}
-${modeToggle}
-
-<div class="player-container" id="playerContainer">
-${videoElements}
-</div>
-${mergedVideoElement}
-
-<div class="controls">
-  <div class="controls-row">
-    <button class="frame-btn" id="prevFrame" title="Previous frame (\\u2190)">◀◀</button>
-    <button class="play-btn" id="playBtn">▶</button>
-    <button class="frame-btn" id="nextFrame" title="Next frame (\\u2192)">▶▶</button>
-    <input type="range" class="scrubber" id="scrubber" min="0" max="1000" value="0">
-  </div>
-  <span class="time-display" id="timeDisplay">0:00.000 / 0:00.000</span>
-  <span class="frame-display" id="frameDisplay">Frame: 0</span>
-  <select class="speed-select" id="speedSelect">
-    <option value="0.25">0.25x</option>
-    <option value="0.5">0.5x</option>
-    <option value="1" selected>1x</option>
-    <option value="2">2x</option>
-  </select>
-</div>
-
-<div class="section">
-  <h2>Results</h2>
-${resultsHtml}
-</div>
-
-${profileHtml}
-
-${filesHtml}
-
-<div class="checkered-bar"></div>
-
-<script>
-${buildPlayerScript(scriptConfig)}
-</script>
-</body>
-</html>`;
 }
