@@ -9,7 +9,7 @@
  * Usage:
  *   node race.js ./races/my-race              Run a race
  *   node race.js ./races/my-race --results    View recent results
- *   node race.js ./races/my-race --sequential Run sequentially
+ *   node race.js ./races/my-race --parallel   Run both browsers simultaneously
  *   node race.js ./races/my-race --headless   Run headless
  *   node race.js ./races/my-race --network=fast-3g --cpu=4
  */
@@ -21,7 +21,7 @@ import { fileURLToPath } from 'url';
 import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c, FORMAT_EXTENSIONS } from './cli/colors.js';
 import { parseArgs, discoverRacers, applyOverrides } from './cli/config.js';
-import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces } from './cli/summary.js';
+import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos } from './cli/results.js';
 import { buildPlayerHtml } from './cli/videoplayer.js';
@@ -36,10 +36,9 @@ export function formatTimestamp(date) {
  * Build the paths for results output display.
  * Returns { relResults, relHtml } relative to cwd.
  */
-export function buildResultsPaths(resultsDir, totalRuns, cwd = process.cwd()) {
+export function buildResultsPaths(resultsDir, cwd = process.cwd()) {
   const relResults = path.relative(cwd, resultsDir);
-  const firstRunSubdir = totalRuns === 1 ? '' : '1';
-  const relHtml = path.relative(cwd, path.join(resultsDir, firstRunSubdir, 'index.html'));
+  const relHtml = path.relative(cwd, path.join(resultsDir, 'index.html'));
   return { relResults, relHtml };
 }
 
@@ -94,7 +93,7 @@ ${c.bold}  Commands:${c.reset}
 ${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
   node race.js ${c.cyan}<dir>${c.reset}                       Run a race
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--results${c.reset}            View recent results
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--sequential${c.reset}         Run one after the other
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--parallel${c.reset}           Run both browsers simultaneously
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--headless${c.reset}           Hide browsers
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--network${c.reset}=${c.green}slow-3g${c.reset}   Network: none, slow-3g, fast-3g, 4g
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}4${c.reset}              CPU throttle multiplier (1=none)
@@ -156,7 +155,9 @@ const totalRuns = settings.runs || 1;
 
 // --- Build runner config ---
 
-const isParallel = settings.parallel ?? true;
+// Parallel mode is more spectacular (side-by-side race), but sequential is more
+// accurate since browsers don't compete for CPU/memory/network resources.
+const isParallel = settings.parallel ?? false;
 const executionMode = isParallel ? 'parallel' : 'sequential';
 const throttle = { network: settings.network || 'none', cpu: settings.cpuThrottle || 1 };
 
@@ -237,7 +238,7 @@ function runRace() {
 }
 
 /** Run one race, collect results into runDir, return summary. */
-async function runSingleRace(runDir) {
+async function runSingleRace(runDir, runNavigation = null) {
   const format = settings.format || 'webm';
   const racerRunDirs = racerNames.map(name => path.join(runDir, name));
   racerRunDirs.forEach(d => fs.mkdirSync(d, { recursive: true }));
@@ -256,7 +257,9 @@ async function runSingleRace(runDir) {
 
   const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
   const sideBySideName = `${racerNames.join('-vs-')}${ext}`;
-  const videoPaths = results.map(r => r.videoPath).filter(Boolean);
+  // Order videos by placement (winner first) for side-by-side
+  const placementOrder = getPlacementOrder(summary);
+  const videoPaths = placementOrder.map(i => results[i].videoPath).filter(Boolean);
   const sideBySidePath = createSideBySide(videoPaths, path.join(runDir, sideBySideName), format, settings.slowmo || 0);
 
   if (format !== 'webm') {
@@ -270,7 +273,8 @@ async function runSingleRace(runDir) {
   const altFiles = format !== 'webm' ? racerNames.map(name => `${name}/${name}.race${ext}`) : null;
   const playerOptions = {
     fullVideoFiles,
-    mergedVideoFile: sideBySidePath ? sideBySideName : null
+    mergedVideoFile: sideBySidePath ? sideBySideName : null,
+    runNavigation,
   };
   fs.writeFileSync(path.join(runDir, 'index.html'), buildPlayerHtml(summary, videoFiles, format !== 'webm' ? format : null, altFiles, playerOptions));
 
@@ -289,16 +293,42 @@ async function main() {
     } else {
       fs.mkdirSync(resultsDir, { recursive: true });
       const summaries = [];
+      const sideBySideNames = [];
 
       for (let i = 0; i < totalRuns; i++) {
         console.error(`\n  ${c.bold}${c.cyan}── Run ${i + 1} of ${totalRuns} ──${c.reset}`);
-        const { summary } = await runSingleRace(path.join(resultsDir, String(i + 1)));
+        const runNav = { currentRun: i + 1, totalRuns, pathPrefix: '../' };
+        const { summary, sideBySidePath, sideBySideName } = await runSingleRace(path.join(resultsDir, String(i + 1)), runNav);
         printSummary(summary);
         summaries.push(summary);
+        sideBySideNames.push(sideBySidePath ? sideBySideName : null);
       }
 
       const medianSummary = buildMedianSummary(summaries, resultsDir);
       fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(medianSummary, null, 2));
+
+      // Find the run closest to median to use its videos on the median page
+      const medianRunIdx = findMedianRunIndex(summaries, medianSummary);
+      const medianRunDir = String(medianRunIdx + 1);
+      const format = settings.format || 'webm';
+      const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
+      const medianVideoFiles = racerNames.map(name => `${medianRunDir}/${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
+      const medianFullVideoFiles = racerNames.map(name => `${medianRunDir}/${name}/${name}.full${FORMAT_EXTENSIONS.webm}`);
+      const medianAltFiles = format !== 'webm' ? racerNames.map(name => `${medianRunDir}/${name}/${name}.race${ext}`) : null;
+      const medianMergedFile = sideBySideNames[medianRunIdx] ? `${medianRunDir}/${sideBySideNames[medianRunIdx]}` : null;
+
+      // Create top-level median index.html with navigation and videos from median run
+      const medianNav = { currentRun: 'median', totalRuns, pathPrefix: '' };
+      const medianPlayerOptions = {
+        fullVideoFiles: medianFullVideoFiles,
+        mergedVideoFile: medianMergedFile,
+        runNavigation: medianNav,
+        medianRunLabel: `Run ${medianRunIdx + 1}`,
+      };
+      fs.writeFileSync(
+        path.join(resultsDir, 'index.html'),
+        buildPlayerHtml(medianSummary, medianVideoFiles, format !== 'webm' ? format : null, medianAltFiles, medianPlayerOptions)
+      );
 
       console.error(`\n  ${c.bold}${c.cyan}── Median Results (${totalRuns} runs) ──${c.reset}`);
       printSummary(medianSummary);
@@ -307,7 +337,7 @@ async function main() {
       fs.writeFileSync(path.join(resultsDir, 'README.md'), md);
     }
 
-    const { relResults, relHtml } = buildResultsPaths(resultsDir, totalRuns);
+    const { relResults, relHtml } = buildResultsPaths(resultsDir);
     console.error(`  ${c.dim}📂 ${relResults}${c.reset}`);
     console.error(`  ${c.cyan}${c.bold}open ${relHtml}${c.reset}`);
   } catch (e) {

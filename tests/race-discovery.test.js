@@ -126,15 +126,15 @@ describe('racer file discovery', () => {
 
 describe('argument parsing', () => {
   it('separates positional args from flags', () => {
-    const { positional, boolFlags, kvFlags } = parseArgs(['./races/test', '--sequential', '--network=slow-3g']);
+    const { positional, boolFlags, kvFlags } = parseArgs(['./races/test', '--parallel', '--network=slow-3g']);
     expect(positional).toEqual(['./races/test']);
-    expect(boolFlags.has('sequential')).toBe(true);
+    expect(boolFlags.has('parallel')).toBe(true);
     expect(kvFlags.network).toBe('slow-3g');
   });
 
   it('handles multiple boolean flags', () => {
-    const { boolFlags } = parseArgs(['dir', '--sequential', '--headless', '--results']);
-    expect(boolFlags.has('sequential')).toBe(true);
+    const { boolFlags } = parseArgs(['dir', '--parallel', '--headless', '--results']);
+    expect(boolFlags.has('parallel')).toBe(true);
     expect(boolFlags.has('headless')).toBe(true);
     expect(boolFlags.has('results')).toBe(true);
   });
@@ -164,9 +164,9 @@ describe('argument parsing', () => {
 });
 
 describe('settings override', () => {
-  it('CLI --sequential overrides parallel setting', () => {
-    const s = applyOverrides({ parallel: true }, new Set(['sequential']), {});
-    expect(s.parallel).toBe(false);
+  it('CLI --parallel overrides sequential default', () => {
+    const s = applyOverrides({}, new Set(['parallel']), {});
+    expect(s.parallel).toBe(true);
   });
 
   it('CLI --headless sets headless', () => {
@@ -206,8 +206,8 @@ describe('settings override', () => {
   });
 
   it('does not mutate original settings', () => {
-    const orig = { parallel: true };
-    applyOverrides(orig, new Set(['sequential']), {});
-    expect(orig.parallel).toBe(true);
+    const orig = { parallel: false };
+    applyOverrides(orig, new Set(['parallel']), {});
+    expect(orig.parallel).toBe(false);
   });
 });

@@ -19,25 +19,19 @@ describe('formatTimestamp', () => {
 });
 
 describe('buildResultsPaths', () => {
-  it('returns correct paths for single run', () => {
-    const { relResults, relHtml } = buildResultsPaths('/project/races/test/results-2024', 1, '/project');
+  it('returns relative paths from cwd', () => {
+    const { relResults, relHtml } = buildResultsPaths('/project/races/test/results-2024', '/project');
     expect(relResults).toBe('races/test/results-2024');
     expect(relHtml).toBe('races/test/results-2024/index.html');
   });
 
-  it('returns correct paths for multiple runs', () => {
-    const { relResults, relHtml } = buildResultsPaths('/project/races/test/results-2024', 3, '/project');
-    expect(relResults).toBe('races/test/results-2024');
-    expect(relHtml).toBe('races/test/results-2024/1/index.html');
-  });
-
-  it('includes subdirectory 1 for 2 runs', () => {
-    const { relHtml } = buildResultsPaths('/project/results', 2, '/project');
-    expect(relHtml).toBe('results/1/index.html');
+  it('always points to top-level index.html', () => {
+    const { relHtml } = buildResultsPaths('/project/results', '/project');
+    expect(relHtml).toBe('results/index.html');
   });
 
   it('handles same directory as cwd', () => {
-    const { relResults, relHtml } = buildResultsPaths('/project/results', 1, '/project/results');
+    const { relResults, relHtml } = buildResultsPaths('/project/results', '/project/results');
     expect(relResults).toBe('');
     expect(relHtml).toBe('index.html');
   });

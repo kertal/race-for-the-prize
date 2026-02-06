@@ -174,7 +174,7 @@ The `--runs` flag takes the median, smoothing out noise and giving you a number 
 ```bash
 node race.js <dir>                        # Green light — run the race
 node race.js <dir> --results              # Check the scoreboard
-node race.js <dir> --sequential           # One at a time, no drafting
+node race.js <dir> --parallel             # Side by side — more spectacular, less accurate
 node race.js <dir> --headless             # Lights out — no visible browsers
 node race.js <dir> --network=slow-3g      # Wet track conditions
 node race.js <dir> --network=fast-3g      # Damp track
