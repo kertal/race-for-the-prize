@@ -2,6 +2,8 @@
 // Created by Google in 2016. Full-featured framework.
 // Race: Load the official Angular documentation and measure time to interactive.
 
+page.setRacerName('Angular');
+
 await page.raceRecordingStart();
 await page.waitForTimeout(500);
 await page.raceStart('Load Framework');

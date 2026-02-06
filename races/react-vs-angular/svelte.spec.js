@@ -2,6 +2,8 @@
 // Created by Rich Harris in 2016. Compiles away the framework.
 // Race: Load the official Svelte documentation and measure time to interactive.
 
+page.setRacerName('Svelte');
+
 await page.raceRecordingStart();
 await page.waitForTimeout(500);
 await page.raceStart('Load Framework');

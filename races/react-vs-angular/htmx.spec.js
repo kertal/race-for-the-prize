@@ -2,6 +2,8 @@
 // Created by Big Sky Software. HTML over the wire, minimal JavaScript.
 // Race: Load the official HTMX documentation and measure time to interactive.
 
+page.setRacerName('HTMX');
+
 await page.raceRecordingStart();
 await page.waitForTimeout(500);
 await page.raceStart('Load Framework');

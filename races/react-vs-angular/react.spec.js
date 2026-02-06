@@ -2,6 +2,8 @@
 // Created by Facebook in 2013. Virtual DOM pioneer.
 // Race: Load the official React documentation and measure time to interactive.
 
+page.setRacerName('React');
+
 await page.raceRecordingStart();
 await page.waitForTimeout(500);
 await page.raceStart('Load Framework');
