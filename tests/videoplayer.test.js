@@ -196,8 +196,8 @@ describe('buildPlayerHtml', () => {
   it('includes full video paths in JavaScript', () => {
     const fullVideos = ['lauda/lauda.full.webm', 'hunt/hunt.full.webm'];
     const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { fullVideoFiles: fullVideos });
-    expect(html).toContain("'lauda/lauda.full.webm'");
-    expect(html).toContain("'hunt/hunt.full.webm'");
+    expect(html).toContain('"lauda/lauda.full.webm"');
+    expect(html).toContain('"hunt/hunt.full.webm"');
   });
 
   it('omits profile section when no profileComparison', () => {

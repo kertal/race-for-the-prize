@@ -59,7 +59,8 @@ function getMostRecentVideo(dir) {
 function detectCueFrames(videoPath) {
   try {
     // Crop 30x30 top-left corner where the cue square lives, then analyze color
-    const escaped = videoPath.replace(/\\/g, '/').replace(/'/g, "'\\''").replace(/ /g, '\\ ');
+    // Percent-encode characters that are special in FFmpeg lavfi filter syntax
+    const escaped = videoPath.replace(/\\/g, '/').replace(/[';,\[\]=\\ ]/g, ch => '%' + ch.charCodeAt(0).toString(16).padStart(2, '0'));
     const result = execFileSync('ffprobe', [
       '-f', 'lavfi',
       '-i', 'movie=' + escaped + ',crop=30:30:0:0,signalstats',
@@ -725,6 +726,8 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
 
   if (!raceScript || raceScript.trim() === '') return { segments: [], measurements: [] };
 
+  // SECURITY: Race scripts execute with the full privileges of this Node.js
+  // process. Only run scripts you trust — this is equivalent to `node <file>`.
   const sanitized = sanitizeScript(raceScript);
   try {
     const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;

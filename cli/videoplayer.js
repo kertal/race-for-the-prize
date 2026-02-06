@@ -9,6 +9,11 @@ import { getPlacementOrder } from './summary.js';
 // Racer label colors matching RACER_COLORS from colors.js
 const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f', '#9b59b6'];
 
+/** Escape a string for safe embedding in HTML text/attribute contexts. */
+function escHtml(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 /**
  * Build sorted bar-chart HTML rows for a single metric.
  * @param {Object[]} entries - Array of { name, index, val, formatted } sorted best-first
@@ -29,11 +34,11 @@ function buildMetricRowsHtml(entries, winner, formatDelta) {
     }
     html += `
         <div class="profile-row">
-          <span class="profile-racer" style="color: ${color}">${entry.name}</span>
+          <span class="profile-racer" style="color: ${color}">${escHtml(entry.name)}</span>
           <span class="profile-bar-track">
             <span class="profile-bar-fill" style="width: ${barPct}%; background: ${color}"></span>
           </span>
-          <span class="profile-value">${entry.formatted}${delta}</span>
+          <span class="profile-value">${escHtml(entry.formatted)}${delta}</span>
           ${winner === entry.name ? '<span class="profile-medal">&#127942;</span>' : ''}
         </div>`;
   }
@@ -66,21 +71,21 @@ function buildProfileHtml(profileComparison, racers) {
   ];
   for (const [title, section] of scopes) {
     if (section.comparisons.length === 0) continue;
-    html += `<h3>${title}</h3>\n`;
+    html += `<h3>${escHtml(title)}</h3>\n`;
     for (const [category, comps] of Object.entries(section.byCategory)) {
       html += `<h4>${category[0].toUpperCase() + category.slice(1)}</h4>\n`;
       for (const comp of comps) {
         const sorted = sortByValue(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }));
         const formatDelta = PROFILE_METRICS[comp.key].format;
         html += `<div class="profile-metric">
-        <div class="profile-metric-name">${comp.name}</div>${buildMetricRowsHtml(sorted, comp.winner, formatDelta)}</div>\n`;
+        <div class="profile-metric-name">${escHtml(comp.name)}</div>${buildMetricRowsHtml(sorted, comp.winner, formatDelta)}</div>\n`;
       }
     }
     if (section.overallWinner === 'tie') {
       html += `<div class="profile-winner">&#129309; Tie!</div>`;
     } else if (section.overallWinner) {
       const idx = racers.indexOf(section.overallWinner);
-      html += `<div class="profile-winner">&#127942; <span style="color: ${RACER_CSS_COLORS[idx % RACER_CSS_COLORS.length]}">${section.overallWinner}</span> wins!</div>`;
+      html += `<div class="profile-winner">&#127942; <span style="color: ${RACER_CSS_COLORS[idx % RACER_CSS_COLORS.length]}">${escHtml(section.overallWinner)}</span> wins!</div>`;
     }
   }
 
@@ -98,7 +103,7 @@ function buildRunNavHtml(runNav) {
     if (isCurrent) {
       html += `<span class="${cls}" aria-current="page">Run ${i}</span>`;
     } else {
-      html += `<a class="${cls}" href="${pathPrefix}${i}/index.html">Run ${i}</a>`;
+      html += `<a class="${cls}" href="${escHtml(pathPrefix)}${i}/index.html">Run ${i}</a>`;
     }
   }
   const isMedianCurrent = currentRun === 'median';
@@ -106,7 +111,7 @@ function buildRunNavHtml(runNav) {
   if (isMedianCurrent) {
     html += `<span class="${medianCls}" aria-current="page">Median</span>`;
   } else {
-    html += `<a class="${medianCls}" href="${pathPrefix}index.html">Median</a>`;
+    html += `<a class="${medianCls}" href="${escHtml(pathPrefix)}index.html">Median</a>`;
   }
   html += `</div>`;
   return html;
@@ -128,13 +133,13 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
       return { val: r ? r.duration : null, formatted: r ? `${r.duration.toFixed(3)}s` : '-' };
     });
     resultsHtml += `<div class="profile-metric">
-        <div class="profile-metric-name">${comp.name}</div>${buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`)}</div>\n`;
+        <div class="profile-metric-name">${escHtml(comp.name)}</div>${buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`)}</div>\n`;
   }
 
   const winnerBanner = overallWinner === 'tie'
     ? `<span class="trophy">&#129309;</span> It's a Tie!`
     : overallWinner
-      ? `<span class="trophy">&#127942;</span> ${overallWinner.toUpperCase()} wins!`
+      ? `<span class="trophy">&#127942;</span> ${escHtml(overallWinner.toUpperCase())} wins!`
       : '';
 
   // Generate video elements for race videos (empty when no videos, e.g. median page)
@@ -145,15 +150,15 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
     const racer = racers[origIdx];
     return `  <div class="racer">
-    <div class="racer-label" style="color: ${color}">${racer}</div>
-    <video id="v${displayIdx}" src="${videoFiles[origIdx]}" preload="auto" muted></video>
+    <div class="racer-label" style="color: ${color}">${escHtml(racer)}</div>
+    <video id="v${displayIdx}" src="${escHtml(videoFiles[origIdx])}" preload="auto" muted></video>
   </div>`;
   }).join('\n') : '';
 
   // Generate merged video element
   const mergedVideoElement = mergedVideoFile ? `
 <div class="merged-container" id="mergedContainer" style="display: none;">
-  <video id="mergedVideo" src="${mergedVideoFile}" preload="auto" muted></video>
+  <video id="mergedVideo" src="${escHtml(mergedVideoFile)}" preload="auto" muted></video>
 </div>` : '';
 
   // Generate download links (in placement order)
@@ -161,7 +166,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     ? `<div class="downloads">
   <h2>Downloads</h2>
   <div class="download-links">
-    ${placementOrder.map(i => `<a href="${altFiles[i]}" download>${racers[i]} (.${altFormat})</a>`).join('\n    ')}
+    ${placementOrder.map(i => `<a href="${escHtml(altFiles[i])}" download>${escHtml(racers[i])} (.${escHtml(altFormat)})</a>`).join('\n    ')}
   </div>
 </div>` : '';
 
@@ -175,10 +180,10 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     videoVars = videoIds.map(id => `const ${id} = document.getElementById('${id}');`).join('\n  ');
     videoArray = `[${videoIds.join(', ')}]`;
     const orderedVideoFiles = placementOrder.map(i => videoFiles[i]);
-    raceVideoPaths = `[${orderedVideoFiles.map(f => `'${f}'`).join(', ')}]`;
+    raceVideoPaths = JSON.stringify(orderedVideoFiles);
     const orderedFullVideoFiles = fullVideoFiles ? placementOrder.map(i => fullVideoFiles[i]) : null;
     fullVideoPaths = orderedFullVideoFiles
-      ? `[${orderedFullVideoFiles.map(f => `'${f}'`).join(', ')}]`
+      ? JSON.stringify(orderedFullVideoFiles)
       : 'null';
   }
 
@@ -188,8 +193,8 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
 
   // Title based on racer count
   const title = count === 2
-    ? `Race: ${racers[0]} vs ${racers[1]}`
-    : `Race: ${racers.join(' vs ')}`;
+    ? `Race: ${escHtml(racers[0])} vs ${escHtml(racers[1])}`
+    : `Race: ${racers.map(escHtml).join(' vs ')}`;
 
   // Video mode toggle buttons
   const hasFullVideos = fullVideoFiles && fullVideoFiles.length > 0;
@@ -540,7 +545,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
 ${runNavHtml}
 <h1>Race for the Prize</h1>
 <div class="winner-banner">${winnerBanner}</div>
-${medianRunLabel ? `<div class="video-source-note">Videos from ${medianRunLabel} (closest to median)</div>` : ''}
+${medianRunLabel ? `<div class="video-source-note">Videos from ${escHtml(medianRunLabel)} (closest to median)</div>` : ''}
 ${modeToggle}
 
 ${hasVideos ? `<div class="player-container" id="playerContainer">
