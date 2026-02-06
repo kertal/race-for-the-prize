@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildPlayerHtml } from '../cli/videoplayer.js';
+import { buildProfileComparison } from '../cli/profile-analysis.js';
 
 const makeSummary = (overrides = {}) => ({
   racers: ['lauda', 'hunt'],
@@ -196,5 +197,56 @@ describe('buildPlayerHtml', () => {
     const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { fullVideoFiles: fullVideos });
     expect(html).toContain("'lauda/lauda.full.webm'");
     expect(html).toContain("'hunt/hunt.full.webm'");
+  });
+
+  it('omits profile section when no profileComparison', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles);
+    expect(html).not.toContain('Performance Profile');
+  });
+
+  it('includes profile section when profileComparison provided', () => {
+    const metrics1 = { total: { networkTransferSize: 1000, scriptDuration: 100 }, measured: { networkTransferSize: 500 } };
+    const metrics2 = { total: { networkTransferSize: 2000, scriptDuration: 200 }, measured: { networkTransferSize: 800 } };
+    const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
+    const html = buildPlayerHtml(makeSummary({ profileComparison }), videoFiles);
+
+    expect(html).toContain('Performance Profile');
+    expect(html).toContain('Lower values are better');
+    expect(html).toContain('During Measurement');
+    expect(html).toContain('Total Session');
+  });
+
+  it('shows profile racers sorted by value with deltas', () => {
+    const metrics1 = { total: { networkTransferSize: 2000 }, measured: {} };
+    const metrics2 = { total: { networkTransferSize: 1000 }, measured: {} };
+    const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
+    const html = buildPlayerHtml(makeSummary({ profileComparison }), videoFiles);
+
+    // hunt (1000) should appear before lauda (2000) in the sorted output
+    const huntPos = html.indexOf('class="profile-racer" style="color: #3498db">hunt');
+    const laudaPos = html.indexOf('class="profile-racer" style="color: #e74c3c">lauda');
+    expect(huntPos).toBeLessThan(laudaPos);
+
+    // lauda should show a delta
+    expect(html).toContain('(+');
+  });
+
+  it('shows profile with 3+ racers', () => {
+    const data = [
+      { total: { networkTransferSize: 3000 }, measured: {} },
+      { total: { networkTransferSize: 1000 }, measured: {} },
+      { total: { networkTransferSize: 2000 }, measured: {} },
+    ];
+    const racers = ['angular', 'htmx', 'react'];
+    const profileComparison = buildProfileComparison(racers, data);
+    const summary = { racers, comparisons: [], overallWinner: null, profileComparison };
+    const videos = ['a/a.webm', 'h/h.webm', 'r/r.webm'];
+    const html = buildPlayerHtml(summary, videos);
+
+    expect(html).toContain('angular');
+    expect(html).toContain('htmx');
+    expect(html).toContain('react');
+    expect(html).toContain('profile-bar-fill');
+    expect(html).toContain('Score:');
   });
 });
