@@ -123,10 +123,30 @@ results-2026-02-06_14-30-00/
   lauda-vs-hunt.webm        # Side-by-side composition
 ```
 
+With `--runs=3`, each run gets its own numbered subdirectory, plus a top-level median page:
+
+```
+results-2026-02-06_14-30-00/
+  index.html                # Median results with navigation to each run
+  1/                        # Individual run results
+  2/
+  3/
+```
+
 - **Video trimming** is frame-accurate — it uses injected visual cues and FFmpeg to cut exactly at measurement boundaries.
 - **Side-by-side videos** are generated automatically when FFmpeg is available. Supports layouts for 2-5 racers (horizontal, grid, or asymmetric).
-- **Multiple runs** (`--runs=3`) compute the median across iterations to reduce noise.
+- **Multiple runs** (`--runs=3`) run the race N times and compute the median to reduce noise. The HTML player lets you navigate between individual runs and the median summary.
 - **Performance profiling** (`--profile`) captures Chrome DevTools traces, heap usage, script duration, layout costs, and network transfer sizes.
+
+### HTML Video Player
+
+The generated `index.html` is a self-contained interactive player:
+
+- **Video modes** — Switch between Race (trimmed), Full (complete recording), and Merged (side-by-side) views
+- **Winner-ordered** — Videos are displayed in placement order, winner first
+- **Frame-by-frame** — Step through videos with arrow keys or on-screen controls
+- **Playback speed** — 0.25x, 0.5x, 1x, 2x
+- **Multi-run navigation** — Jump between individual runs and the median summary page
 
 ## How It Works
 
@@ -141,7 +161,8 @@ results-2026-02-06_14-30-00/
 ## Tests
 
 ```bash
-npm test                              # Run all tests
+npm test                              # Run all tests (unit)
+npm run test:integration              # Run integration tests (requires Playwright + FFmpeg)
 npx vitest run tests/summary.test.js  # Run a single test file
 ```
 
