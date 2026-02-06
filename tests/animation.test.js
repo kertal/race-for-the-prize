@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { RaceAnimation } from '../cli/animation.js';
+import { RaceAnimation, startProgress } from '../cli/animation.js';
 import { c } from '../cli/colors.js';
 
 describe('c (ANSI color codes)', () => {
@@ -70,6 +70,22 @@ describe('RaceAnimation', () => {
     expect(() => anim.stop()).not.toThrow();
   });
 
+  it('shows info line when provided', () => {
+    const anim = new RaceAnimation(['a', 'b'], 'test info');
+    anim.start();
+    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).toContain('test info');
+    anim.stop();
+  });
+
+  it('racerFinished is idempotent', () => {
+    const anim = new RaceAnimation(['a', 'b']);
+    anim.racerFinished(0);
+    anim.racerFinished(0);
+    expect(anim.finished[0]).toBe(true);
+    expect(anim.finished[1]).toBe(false);
+  });
+
   it('initializes finished array for 3 racers', () => {
     const anim = new RaceAnimation(['a', 'b', 'c']);
     expect(anim.finished).toEqual([false, false, false]);
@@ -104,5 +120,59 @@ describe('RaceAnimation', () => {
     expect(output).toContain('beta');
     expect(output).toContain('gamma');
     expect(output).toContain('vs');
+  });
+});
+
+describe('startProgress', () => {
+  let stderrSpy;
+
+  beforeEach(() => {
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    stderrSpy.mockRestore();
+  });
+
+  it('writes initial message to stderr', () => {
+    const p = startProgress('Loading...');
+    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).toContain('Loading...');
+    p.done();
+  });
+
+  it('done() clears interval and writes completion message', () => {
+    const p = startProgress('Working');
+    p.done('Done!');
+    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).toContain('Done!');
+    expect(output).toContain('✓');
+  });
+
+  it('done() uses original message when no doneMsg provided', () => {
+    const p = startProgress('Working');
+    p.done();
+    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).toContain('Working');
+  });
+
+  it('update() changes the message', async () => {
+    const p = startProgress('Step 1');
+    stderrSpy.mockClear(); // Clear initial write
+    p.update('Step 2');
+
+    // Wait for at least one interval tick (100ms interval + 50ms buffer)
+    await new Promise(resolve => setTimeout(resolve, 150));
+
+    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).toContain('Step 2');
+    p.done('Finished');
+  });
+
+  it('fail() writes failure message', () => {
+    const p = startProgress('Working');
+    p.fail('Something went wrong');
+    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).toContain('Something went wrong');
   });
 });
