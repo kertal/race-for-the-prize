@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{title}}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a1a;
+    color: #e8e0d0;
+    font-family: 'Courier New', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .checkered-bar {
+    width: 100%;
+    height: 20px;
+    background: repeating-conic-gradient(#222 0% 25%, #d4af37 0% 50%) 0 0 / 20px 20px;
+  }
+  .run-nav {
+    display: flex;
+    gap: 0.4rem;
+    padding: 0.7rem 1rem 0;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .run-nav-btn {
+    background: #2a2a2a;
+    color: #999;
+    border: 1px solid #444;
+    border-radius: 4px;
+    padding: 0.3rem 0.8rem;
+    font-size: 0.8rem;
+    text-decoration: none;
+    font-family: 'Courier New', monospace;
+    transition: all 0.2s;
+  }
+  .run-nav-btn:hover {
+    background: #3a3a3a;
+    border-color: #d4af37;
+    color: #e8e0d0;
+  }
+  .run-nav-btn.active {
+    background: #d4af37;
+    color: #1a1a1a;
+    border-color: #d4af37;
+    font-weight: bold;
+    cursor: default;
+  }
+  h1 {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 1.8rem;
+    color: #d4af37;
+    text-align: center;
+    padding: 1.2rem 0 0.3rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+  }
+  .winner-banner {
+    text-align: center;
+    font-family: Georgia, serif;
+    font-size: 1.2rem;
+    color: #e8e0d0;
+    padding-bottom: 1rem;
+  }
+  .trophy { font-size: 1.4rem; }
+  .video-source-note {
+    text-align: center;
+    font-size: 0.8rem;
+    color: #777;
+    padding-bottom: 0.5rem;
+  }
+  .race-info {
+    max-width: 900px;
+    width: 100%;
+    padding: 0.3rem 1.5rem 0.8rem;
+  }
+  .race-info table {
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+  .race-info td {
+    padding: 0.15rem 0.8rem 0.15rem 0;
+  }
+  .race-info td:first-child {
+    color: #888;
+  }
+  .errors {
+    max-width: 900px;
+    width: 100%;
+    padding: 0.3rem 1.5rem;
+  }
+  .errors ul {
+    list-style: none;
+    font-size: 0.85rem;
+    color: #e74c3c;
+  }
+  .errors li::before { content: "\26A0  "; }
+  .mode-toggle {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.5rem 0 1rem;
+    justify-content: center;
+  }
+  .mode-btn {
+    background: #2a2a2a;
+    color: #999;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 0.4rem 1rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    transition: all 0.2s;
+  }
+  .mode-btn:hover {
+    background: #3a3a3a;
+    border-color: #d4af37;
+    color: #e8e0d0;
+  }
+  .mode-btn.active {
+    background: #d4af37;
+    color: #1a1a1a;
+    border-color: #d4af37;
+    font-weight: bold;
+  }
+  .player-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 0 1.5rem;
+    width: 100%;
+    justify-content: center;
+  }
+  .racer {
+    flex: 1;
+    min-width: 280px;
+    text-align: center;
+  }
+  .racer-label {
+    font-family: Georgia, serif;
+    font-size: 1.1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 0.5rem 0;
+  }
+  video {
+    width: 100%;
+    border: 2px solid #333;
+    border-radius: 4px;
+    background: #000;
+  }
+  .merged-container {
+    max-width: 1200px;
+    width: 100%;
+    padding: 0 1.5rem;
+  }
+  .merged-container video { width: 100%; }
+  .controls {
+    max-width: 900px;
+    width: 100%;
+    padding: 1rem 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    flex-wrap: wrap;
+  }
+  .controls-row {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    flex: 1;
+    min-width: 300px;
+  }
+  .play-btn {
+    background: #d4af37;
+    color: #1a1a1a;
+    border: none;
+    border-radius: 4px;
+    width: 44px;
+    height: 34px;
+    font-size: 1.1rem;
+    cursor: pointer;
+    font-weight: bold;
+    flex-shrink: 0;
+  }
+  .play-btn:hover { background: #e8c445; }
+  .frame-btn {
+    background: #2a2a2a;
+    color: #d4af37;
+    border: 1px solid #555;
+    border-radius: 4px;
+    width: 34px;
+    height: 34px;
+    font-size: 0.7rem;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .frame-btn:hover { background: #3a3a3a; border-color: #d4af37; }
+  .scrubber {
+    flex: 1;
+    accent-color: #d4af37;
+    height: 6px;
+    cursor: pointer;
+  }
+  .time-display {
+    font-size: 0.75rem;
+    color: #999;
+    min-width: 140px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .frame-display {
+    font-size: 0.75rem;
+    color: #777;
+    min-width: 80px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .speed-select {
+    background: #2a2a2a;
+    color: #e8e0d0;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 0.3rem 0.4rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .section {
+    max-width: 900px;
+    width: 100%;
+    padding: 0.5rem 1.5rem 1rem;
+  }
+  .section h2 {
+    font-family: Georgia, serif;
+    color: #d4af37;
+    font-size: 1.1rem;
+    margin-bottom: 0.3rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .profile-note {
+    color: #777;
+    font-size: 0.8rem;
+    margin-bottom: 1rem;
+  }
+  .section h3 {
+    color: #e8e0d0;
+    font-size: 0.95rem;
+    margin: 1rem 0 0.5rem;
+    border-bottom: 1px solid #444;
+    padding-bottom: 0.3rem;
+  }
+  .section h4 {
+    color: #999;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 0.8rem 0 0.4rem;
+  }
+  .profile-metric { margin-bottom: 0.6rem; }
+  .profile-metric-name {
+    color: #888;
+    font-size: 0.8rem;
+    margin-bottom: 0.2rem;
+  }
+  .profile-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.15rem 0;
+    font-size: 0.82rem;
+  }
+  .profile-racer {
+    font-weight: bold;
+    min-width: 90px;
+    flex-shrink: 0;
+  }
+  .profile-bar-track {
+    flex: 1;
+    height: 10px;
+    background: #2a2a2a;
+    border-radius: 3px;
+    overflow: hidden;
+    max-width: 200px;
+  }
+  .profile-bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    opacity: 0.8;
+  }
+  .profile-value {
+    min-width: 120px;
+    flex-shrink: 0;
+    text-align: right;
+    color: #ccc;
+  }
+  .profile-delta {
+    color: #888;
+    font-size: 0.75rem;
+    margin-left: 0.3rem;
+  }
+  .profile-medal { font-size: 0.85rem; }
+  .profile-winner {
+    font-size: 0.9rem;
+    font-weight: bold;
+    margin-top: 0.2rem;
+  }
+  .file-links {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .file-links a {
+    color: #e8e0d0;
+    background: #2a2a2a;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 0.4rem 0.8rem;
+    text-decoration: none;
+    font-size: 0.85rem;
+  }
+  .file-links a:hover {
+    background: #3a3a3a;
+    border-color: #d4af37;
+  }
+  {{layoutCss}}
+</style>
+</head>
+<body>
+
+<div class="checkered-bar"></div>
+{{runNav}}
+<h1>Race for the Prize</h1>
+<div class="winner-banner">{{winnerBanner}}</div>
+{{videoSourceNote}}
+{{raceInfo}}
+{{errors}}
+{{modeToggle}}
+
+{{playerSection}}
+
+<div class="section">
+  <h2>Results</h2>
+{{results}}
+</div>
+
+{{profile}}
+
+{{files}}
+
+<div class="checkered-bar"></div>
+
+{{scriptTag}}
+</body>
+</html>
