@@ -54,6 +54,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('parallel')) s.parallel = true;
   if (boolFlags.has('headless')) s.headless = true;
   if (boolFlags.has('profile')) s.profile = true;
+  if (boolFlags.has('no-profile')) s.profile = false;
   if (boolFlags.has('no-overlay')) s.noOverlay = true;
   if (kvFlags.network !== undefined) {
     if (!VALID_NETWORKS.includes(kvFlags.network)) {

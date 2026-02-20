@@ -100,7 +100,7 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--format${c.reset}=${c.green}mov${c.reset}          Output format: webm (default), mov, gif
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--runs${c.reset}=${c.green}3${c.reset}            Run multiple times, report median
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--slowmo${c.reset}=${c.green}2${c.reset}           Slow-motion side-by-side replay (2x, 3x, etc.)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--profile${c.reset}            Capture Chrome performance traces
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-profile${c.reset}         Disable performance profiling (on by default)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-overlay${c.reset}         Record videos without overlays
 
 ${c.dim}  CLI flags override settings.json values.${c.reset}
@@ -166,7 +166,7 @@ const runnerConfig = {
   executionMode,
   throttle,
   headless: settings.headless || false,
-  profile: settings.profile || false,
+  profile: settings.profile !== false,
   slowmo: settings.slowmo || 0,
   noOverlay: settings.noOverlay || false,
 };
@@ -182,7 +182,7 @@ function runRace() {
   if (throttle.network !== 'none') flags.push(`net:${throttle.network}`);
   if (throttle.cpu > 1) flags.push(`cpu:${throttle.cpu}x`);
   if (settings.slowmo) flags.push(`slowmo:${settings.slowmo}x`);
-  if (settings.profile) flags.push('profile');
+  if (settings.profile === false) flags.push('no-profile');
   if (settings.headless) flags.push('headless');
   if (settings.noOverlay) flags.push('no-overlay');
 

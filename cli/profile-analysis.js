@@ -17,15 +17,15 @@ import { c, RACER_COLORS } from './colors.js';
  * Keys use "scope.metric" format; scope/category are derived from the key structure.
  */
 const metricDefs = {
-  networkTransferSize: { name: 'Network Transfer', format: formatBytes, category: 'network' },
-  networkRequestCount: { name: 'Network Requests', format: (v) => `${v} req`, category: 'network' },
-  scriptDuration:      { name: 'Script Execution', format: formatMs, category: 'computation' },
-  taskDuration:        { name: 'Task Duration', format: formatMs, category: 'computation' },
-  layoutDuration:      { name: 'Layout Time', format: formatMs, category: 'rendering' },
-  recalcStyleDuration: { name: 'Style Recalculation', format: formatMs, category: 'rendering' },
-  domContentLoaded:    { name: 'DOM Content Loaded', format: formatMs, category: 'loading' },
-  domComplete:         { name: 'DOM Complete', format: formatMs, category: 'loading' },
-  jsHeapUsedSize:      { name: 'JS Heap Used', format: formatBytes, category: 'memory' },
+  networkTransferSize: { name: 'Network Transfer', format: formatBytes, category: 'network', description: 'Total bytes transferred over the network (compressed). Less data means faster loads on slow connections.' },
+  networkRequestCount: { name: 'Network Requests', format: (v) => `${v} req`, category: 'network', description: 'Number of HTTP requests made. Fewer requests reduce connection overhead and latency.' },
+  scriptDuration:      { name: 'Script Execution', format: formatMs, category: 'computation', description: 'Time spent executing JavaScript. High values indicate CPU-heavy scripts that may block the main thread.' },
+  taskDuration:        { name: 'Task Duration', format: formatMs, category: 'computation', description: 'Total time spent on all browser tasks including script, layout, and rendering. Reflects overall main-thread busyness.' },
+  layoutDuration:      { name: 'Layout Time', format: formatMs, category: 'rendering', description: 'Time spent computing element positions and sizes. Frequent layout recalculations ("layout thrashing") hurt performance.' },
+  recalcStyleDuration: { name: 'Style Recalculation', format: formatMs, category: 'rendering', description: 'Time spent recalculating CSS styles. Complex selectors or frequent DOM changes increase this cost.' },
+  domContentLoaded:    { name: 'DOM Content Loaded', format: formatMs, category: 'loading', description: 'Time until the HTML document is fully parsed and all deferred scripts have executed (DOMContentLoaded event).' },
+  domComplete:         { name: 'DOM Complete', format: formatMs, category: 'loading', description: 'Time until the page and all sub-resources (images, stylesheets, etc.) have finished loading.' },
+  jsHeapUsedSize:      { name: 'JS Heap Used', format: formatBytes, category: 'memory', description: 'JavaScript memory currently in use. High usage can trigger garbage collection pauses and indicates memory-heavy code.' },
 };
 
 // Measured metrics (between raceStart/raceEnd)
@@ -186,6 +186,14 @@ const categoryLabels = {
   memory: '🧠 Memory',
   computation: '⚡ Computation',
   rendering: '🎨 Rendering'
+};
+
+export const categoryDescriptions = {
+  network: 'Network activity: data transferred and requests made. Fewer bytes and requests mean faster page loads.',
+  loading: 'Page loading milestones measured from navigation start. Indicates how quickly the page becomes usable.',
+  memory: 'JavaScript memory usage. Lower memory consumption reduces garbage collection pauses and improves stability.',
+  computation: 'CPU time spent on JavaScript execution and browser tasks. Less computation means a more responsive page.',
+  rendering: 'Time spent on visual layout and style calculations. Less rendering work means smoother interactions.',
 };
 
 /**

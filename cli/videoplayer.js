@@ -10,7 +10,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { PROFILE_METRICS } from './profile-analysis.js';
+import { PROFILE_METRICS, categoryDescriptions } from './profile-analysis.js';
 import { getPlacementOrder } from './summary.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -163,22 +163,31 @@ function buildProfileHtml(profileComparison, racers) {
 
   let html = `<div class="section">
   <h2>Performance Profile</h2>
-  <p class="profile-note">Lower values are better for all metrics</p>\n`;
+  <p class="profile-note">Lower values are better for all metrics. Hover over metric names for details.</p>\n`;
 
   const scopes = [
-    ['During Measurement (raceStart \u2192 raceEnd)', measured],
-    ['Total Session', total],
+    ['During Measurement (raceStart \u2192 raceEnd)', 'Metrics captured only between raceStart() and raceEnd() calls — isolates the code being tested.', measured],
+    ['Total Session', 'Metrics for the entire browser session from launch to close — includes page load, setup, and teardown.', total],
   ];
-  for (const [title, section] of scopes) {
+  for (const [title, scopeDesc, section] of scopes) {
     if (section.comparisons.length === 0) continue;
     html += `<h3>${escHtml(title)}</h3>\n`;
+    html += `<p class="profile-scope-desc">${escHtml(scopeDesc)}</p>\n`;
     for (const [category, comps] of Object.entries(section.byCategory)) {
-      html += `<h4>${category[0].toUpperCase() + category.slice(1)}</h4>\n`;
+      const catLabel = category[0].toUpperCase() + category.slice(1);
+      const catDesc = categoryDescriptions[category] || '';
+      html += `<h4 ${catDesc ? `title="${escHtml(catDesc)}"` : ''}>${escHtml(catLabel)}</h4>\n`;
+      if (catDesc) {
+        html += `<p class="profile-category-desc">${escHtml(catDesc)}</p>\n`;
+      }
       for (const comp of comps) {
         const sorted = sortByValue(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }));
-        const formatDelta = PROFILE_METRICS[comp.key].format;
+        const metricDef = PROFILE_METRICS[comp.key];
+        const formatDelta = metricDef.format;
+        const desc = metricDef.description || '';
         html += `<div class="profile-metric">
-        <div class="profile-metric-name">${escHtml(comp.name)}</div>${buildMetricRowsHtml(sorted, comp.winner, formatDelta)}</div>\n`;
+        <div class="profile-metric-name" ${desc ? `title="${escHtml(desc)}"` : ''}>${escHtml(comp.name)} ${desc ? '<span class="profile-info-icon">&#9432;</span>' : ''}</div>
+        ${desc ? `<div class="profile-metric-desc">${escHtml(desc)}</div>` : ''}${buildMetricRowsHtml(sorted, comp.winner, formatDelta)}</div>\n`;
       }
     }
     if (section.overallWinner === 'tie') {
