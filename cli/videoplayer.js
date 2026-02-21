@@ -240,7 +240,7 @@ function buildDebugPanelHtml(racers, placementOrder, clipTimes) {
   placementOrder.forEach((origIdx, displayIdx) => {
     const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
     const clip = orderedClipTimes[displayIdx];
-    const startVal = clip ? clip.start.toFixed(3) : '0.000';
+    const startVal = clip && Number.isFinite(clip.start) ? clip.start.toFixed(3) : '0.000';
     rows += `
     <div class="debug-row" data-debug-idx="${displayIdx}">
       <span class="racer-name" style="color: ${color}">${escHtml(racers[origIdx])}</span>
@@ -370,7 +370,7 @@ function buildPlayerScript(config) {
       if (!v) return;
       let target = t;
       // In clip mode, clamp each video to its own clip range
-      if (activeClip && ct && ct[i]) {
+      if (activeClip && ct && isValidClipEntry(ct[i])) {
         target = Math.max(ct[i].start, Math.min(ct[i].end, t));
       }
       v.currentTime = Math.min(target, v.duration || target);
@@ -423,12 +423,16 @@ function buildPlayerScript(config) {
     btn && btn.classList.add('active');
   }
 
+  function isValidClipEntry(c) {
+    return c != null && Number.isFinite(c.start) && Number.isFinite(c.end) && c.start <= c.end;
+  }
+
   function resolveClip() {
     // Compute union range across all racers so the scrubber covers all recordings
     if (!clipTimes) return null;
     let minStart = Infinity, maxEnd = -Infinity, found = false;
     for (let i = 0; i < clipTimes.length; i++) {
-      if (clipTimes[i]) {
+      if (isValidClipEntry(clipTimes[i])) {
         minStart = Math.min(minStart, clipTimes[i].start);
         maxEnd = Math.max(maxEnd, clipTimes[i].end);
         found = true;
@@ -459,7 +463,7 @@ function buildPlayerScript(config) {
     if (fullVideoPaths) {
       raceVideos.forEach((v, i) => v.src = fullVideoPaths[i]);
     }
-    // If clipTimes mode (no-ffmpeg), same src already loaded — just remove clip constraint
+    // If clipTimes mode (default, without --ffmpeg), same src already loaded — just remove clip constraint
     videos = raceVideos;
     primary = videos[0];
     playerContainer.style.display = 'flex';
@@ -535,7 +539,7 @@ function buildPlayerScript(config) {
     if (!adj) return resolveClip();
     var minStart = Infinity, maxEnd = -Infinity, found = false;
     for (var i = 0; i < adj.length; i++) {
-      if (adj[i]) {
+      if (isValidClipEntry(adj[i])) {
         minStart = Math.min(minStart, adj[i].start);
         maxEnd = Math.max(maxEnd, adj[i].end);
         found = true;
@@ -827,11 +831,13 @@ function buildPlayerScript(config) {
       function tick() {
         if (cancelled) return;
         drawExportFrame(ctx, layout);
-        var cur = primary.currentTime || 0;
+        // Use max currentTime across all videos for progress (not just primary)
+        var cur = Math.max.apply(null, raceVideos.map(function(v) { return (v && v.currentTime) || 0; }));
         var progress = totalDur > 0 ? Math.min(1, (cur - startTime) / totalDur) : 0;
         progressFill.style.width = (progress * 100).toFixed(1) + '%';
         statusEl.textContent = 'Recording' + speedLabel + '... ' + Math.round(progress * 100) + '%';
-        if (cur >= endTime || primary.ended) {
+        var allDone = raceVideos.every(function(v) { return !v || v.currentTime >= endTime || v.ended; });
+        if (allDone) {
           raceVideos.forEach(function(v) { v && v.pause(); });
           if (recorder.state !== 'inactive') recorder.stop();
           return;
@@ -881,7 +887,8 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   const placementOrder = getPlacementOrder(summary);
 
   const hasFullVideos = fullVideoFiles && fullVideoFiles.length > 0;
-  const hasClipTimes = clipTimes && clipTimes.some(c => c !== null);
+  const isValidClip = (c) => c != null && Number.isFinite(c.start) && Number.isFinite(c.end) && c.start <= c.end;
+  const hasClipTimes = clipTimes && clipTimes.some(isValidClip);
   const hasMergedVideo = !!mergedVideoFile;
 
   let playerSection = '';
@@ -935,7 +942,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   }
 
   // Mode toggle — show Full button when separate full videos exist OR when clip times
-  // provide virtual trimming (no-ffmpeg mode, same file but different playback range)
+  // provide virtual trimming (default mode without --ffmpeg, same file but different playback range)
   const modeToggle = (hasFullVideos || hasClipTimes || hasMergedVideo) ? `
   <div class="mode-toggle">
     <button class="mode-btn active" id="modeRace" title="Race segments only">Race</button>

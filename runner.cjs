@@ -823,7 +823,7 @@ function calculateWindowLayout(index, total) {
  * Launch one browser, run the race script, record video, collect results.
  * Called N times (once per racer) by runParallel or runSequential.
  */
-async function runBrowserRecording(config, barriers, isParallel, sharedState, browserIndex = 0, totalBrowsers = 2, throttle = null, profile = false, slowmo = 0, noOverlay = false, noFfmpeg = false) {
+async function runBrowserRecording(config, barriers, isParallel, sharedState, browserIndex = 0, totalBrowsers = 2, throttle = null, profile = false, slowmo = 0, noOverlay = false, ffmpeg = false) {
   const { id, headless } = config;
   const outputDir = path.join(__dirname, 'recordings', id);
   let browser = null;
@@ -897,7 +897,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
 
     let fullVideoFile = null;
     let recordingSegments = markerSegments;
-    if (markerSegments.length > 0 && !noFfmpeg) {
+    if (markerSegments.length > 0 && ffmpeg) {
       const videoFile = getMostRecentVideo(outputDir);
       if (videoFile) {
         const videoPath = path.join(outputDir, videoFile);
@@ -911,8 +911,8 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
         const res = extractSegments(videoPath, trimSegments, id);
         fullVideoFile = path.basename(res.fullPath);
       }
-    } else if (markerSegments.length > 0 && noFfmpeg) {
-      console.error(`[${id}] Skipping video trimming (--no-ffmpeg mode)`);
+    } else if (markerSegments.length > 0 && !ffmpeg) {
+      console.error(`[${id}] Skipping video trimming (no --ffmpeg)`);
     }
 
     await browser.close();
@@ -960,7 +960,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
 
 // --- Execution modes ---
 
-async function runParallel(browserConfigs, throttle, profile, slowmo, noOverlay, noFfmpeg) {
+async function runParallel(browserConfigs, throttle, profile, slowmo, noOverlay, ffmpeg) {
   const count = browserConfigs.length;
   const sharedState = { hasError: false, errorMessage: null, finishOrder: [] };
   const barriers = {
@@ -970,7 +970,7 @@ async function runParallel(browserConfigs, throttle, profile, slowmo, noOverlay,
   };
 
   const promises = browserConfigs.map((config, i) =>
-    runBrowserRecording(config, barriers, true, sharedState, i, count, throttle, profile, slowmo, noOverlay, noFfmpeg)
+    runBrowserRecording(config, barriers, true, sharedState, i, count, throttle, profile, slowmo, noOverlay, ffmpeg)
   );
 
   const results = await Promise.allSettled(promises);
@@ -981,11 +981,11 @@ async function runParallel(browserConfigs, throttle, profile, slowmo, noOverlay,
   });
 }
 
-async function runSequential(browserConfigs, throttle, profile, slowmo, noOverlay, noFfmpeg) {
+async function runSequential(browserConfigs, throttle, profile, slowmo, noOverlay, ffmpeg) {
   const sharedState = { hasError: false, errorMessage: null, finishOrder: [] };
   const results = [];
   for (let i = 0; i < browserConfigs.length; i++) {
-    const result = await runBrowserRecording(browserConfigs[i], null, false, sharedState, i, browserConfigs.length, throttle, profile, slowmo, noOverlay, noFfmpeg);
+    const result = await runBrowserRecording(browserConfigs[i], null, false, sharedState, i, browserConfigs.length, throttle, profile, slowmo, noOverlay, ffmpeg);
     results.push(result);
   }
   return results;
@@ -1004,7 +1004,7 @@ async function main() {
   try { config = JSON.parse(configJson); }
   catch (e) { console.error('Error: Invalid JSON:', e.message); process.exit(1); }
 
-  const { browsers, executionMode, throttle, headless, profile, slowmo, noOverlay, noFfmpeg } = config;
+  const { browsers, executionMode, throttle, headless, profile, slowmo, noOverlay, ffmpeg } = config;
 
   // Set headless flag on all browser configs
   for (const browser of browsers) {
@@ -1016,8 +1016,8 @@ async function main() {
   let results;
   try {
     results = executionMode === 'parallel'
-      ? await runParallel(browsers, throttle, profile, slowmo, noOverlay, noFfmpeg)
-      : await runSequential(browsers, throttle, profile, slowmo, noOverlay, noFfmpeg);
+      ? await runParallel(browsers, throttle, profile, slowmo, noOverlay, ffmpeg)
+      : await runSequential(browsers, throttle, profile, slowmo, noOverlay, ffmpeg);
   } catch (error) {
     results = browsers.map(b => ({ id: b.id, videoPath: null, error: error.message }));
   }

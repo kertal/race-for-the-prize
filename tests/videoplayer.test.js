@@ -457,7 +457,7 @@ describe('buildPlayerHtml click counts', () => {
   });
 });
 
-// --- Clip times (no-ffmpeg mode) ---
+// --- Clip times (default mode, without --ffmpeg) ---
 
 describe('buildPlayerHtml clipTimes', () => {
   const videoFiles = ['lauda/lauda.race.webm', 'hunt/hunt.race.webm'];
