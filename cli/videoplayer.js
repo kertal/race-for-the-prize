@@ -316,7 +316,15 @@ function buildPlayerScript(config) {
   }
 
   function seekAll(t) {
-    videos.forEach(v => v && (v.currentTime = Math.min(t, v.duration || t)));
+    videos.forEach((v, i) => {
+      if (!v) return;
+      let target = t;
+      // In clip mode, clamp each video to its own clip range
+      if (activeClip && clipTimes && clipTimes[i]) {
+        target = Math.max(clipTimes[i].start, Math.min(clipTimes[i].end, t));
+      }
+      v.currentTime = Math.min(target, v.duration || target);
+    });
   }
 
   function onMeta() {

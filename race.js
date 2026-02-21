@@ -253,7 +253,7 @@ async function runSingleRace(runDir, runNavigation = null) {
   const progress = startProgress('Processing recordings…');
   const recordingsBase = path.join(__dirname, 'recordings');
   const results = racerNames.map((name, i) =>
-    moveResults(recordingsBase, name, racerRunDirs[i], result.browsers[i])
+    moveResults(recordingsBase, name, racerRunDirs[i], result.browsers?.[i] || {})
   );
 
   const summary = buildSummary(racerNames, results, settings, runDir);
