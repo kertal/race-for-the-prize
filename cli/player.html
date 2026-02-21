@@ -537,6 +537,32 @@
     color: #999;
     font-size: 0.85rem;
   }
+  .export-convert-row {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .export-convert-row button {
+    background: #2a2a2a;
+    color: #d4af37;
+    border: 1px solid #d4af37;
+    border-radius: 4px;
+    padding: 0.4rem 1rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    transition: all 0.2s;
+  }
+  .export-convert-row button:hover { background: #d4af37; color: #1a1a1a; }
+  .export-convert-row button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: #2a2a2a;
+    color: #999;
+    border-color: #555;
+  }
   {{layoutCss}}
 </style>
 </head>

@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { buildPlayerHtml } from '../cli/videoplayer.js';
 import { buildProfileComparison } from '../cli/profile-analysis.js';
+import { copyFFmpegFiles } from '../cli/results.js';
 
 const makeSummary = (overrides = {}) => ({
   racers: ['lauda', 'hunt'],
@@ -476,3 +480,125 @@ describe('buildPlayerHtml export', () => {
     expect(buildPlayerHtml(makeSummary(), [])).not.toContain('id="exportBtn"');
   });
 });
+
+// --- Browser-based conversion (ffmpeg.wasm) ---
+
+describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
+  it('includes convertWithFFmpeg function in player script', () => {
+    expect(defaultHtml).toContain('convertWithFFmpeg');
+  });
+
+  it('includes loadFFmpeg function with local paths', () => {
+    expect(defaultHtml).toContain('loadFFmpeg');
+    expect(defaultHtml).toContain("import('./ffmpeg/index.js')");
+    expect(defaultHtml).toContain('./ffmpeg/ffmpeg-core.js');
+    expect(defaultHtml).toContain('./ffmpeg/ffmpeg-core.wasm');
+  });
+
+  it('includes file:// protocol check with helpful error message', () => {
+    expect(defaultHtml).toContain("location.protocol === 'file:'");
+    expect(defaultHtml).toContain('npx serve');
+  });
+
+  it('revokes blob URLs after ffmpeg load to prevent memory leak', () => {
+    expect(defaultHtml).toContain('revokeObjectURL(urls[0])');
+    expect(defaultHtml).toContain('revokeObjectURL(urls[1])');
+  });
+
+  it('includes toBlobURL helper for CORS-safe loading', () => {
+    expect(defaultHtml).toContain('toBlobURL');
+  });
+
+  it('renders Convert dropdown in controls', () => {
+    expect(defaultHtml).toContain('id="convertSelect"');
+    expect(defaultHtml).toContain('to GIF');
+    expect(defaultHtml).toContain('to MOV');
+  });
+
+  it('includes GIF conversion args with palette optimization', () => {
+    expect(defaultHtml).toContain('palettegen');
+    expect(defaultHtml).toContain('paletteuse=dither=bayer');
+  });
+
+  it('includes MOV conversion args with H.264', () => {
+    expect(defaultHtml).toContain('libx264');
+    expect(defaultHtml).toContain('yuv420p');
+  });
+
+  it('does not render Convert dropdown when no videos', () => {
+    expect(buildPlayerHtml(makeSummary(), [])).not.toContain('id="convertSelect"');
+  });
+
+  it('includes conversion progress UI CSS', () => {
+    expect(defaultHtml).toContain('export-convert-row');
+  });
+
+  it('uses unique filenames per conversion to prevent conflicts', () => {
+    expect(defaultHtml).toContain('convertCounter');
+    expect(defaultHtml).toContain("'input_' + runId");
+    expect(defaultHtml).toContain("'output_' + runId");
+  });
+
+  it('logs cleanup failures instead of silently catching', () => {
+    expect(defaultHtml).toContain("console.warn('ffmpeg cleanup:'");
+  });
+
+  it('keeps a dismiss button available during conversion', () => {
+    expect(defaultHtml).toContain('dismissBtn');
+  });
+
+  it('checks response.ok when fetching video for conversion', () => {
+    expect(defaultHtml).toContain('!response.ok');
+    expect(defaultHtml).toContain('Failed to fetch video');
+  });
+
+  it('passes clip range for trimming during conversion', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, {
+      clipTimes: [{ start: 1, end: 3 }, { start: 1, end: 3 }],
+    });
+    expect(html).toContain('clipRange');
+    expect(html).toContain("'-ss'");
+    expect(html).toContain("'-t'");
+  });
+
+  it('hides Convert dropdown when no videos', () => {
+    expect(defaultHtml).toContain("raceVideos.length < 1");
+  });
+});
+
+// --- copyFFmpegFiles ---
+
+describe('copyFFmpegFiles', () => {
+  it('copies ffmpeg.wasm files to ffmpeg/ subdirectory', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'race-test-'));
+    try {
+      const result = copyFFmpegFiles(tmpDir);
+      expect(result).toBe(true);
+
+      const ffmpegDir = path.join(tmpDir, 'ffmpeg');
+      expect(fs.existsSync(ffmpegDir)).toBe(true);
+      for (const file of ['index.js', 'classes.js', 'worker.js', 'ffmpeg-core.js', 'ffmpeg-core.wasm']) {
+        expect(fs.existsSync(path.join(ffmpegDir, file))).toBe(true);
+      }
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('logs specific source/destination on copy failure', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'race-test-'));
+    const readOnlyDir = path.join(tmpDir, 'readonly');
+    fs.mkdirSync(readOnlyDir);
+    fs.chmodSync(readOnlyDir, 0o444);
+    try {
+      const result = copyFFmpegFiles(readOnlyDir);
+      if (!result) {
+        expect(fs.existsSync(path.join(readOnlyDir, 'ffmpeg'))).toBe(false);
+      }
+    } finally {
+      fs.chmodSync(readOnlyDir, 0o755);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+

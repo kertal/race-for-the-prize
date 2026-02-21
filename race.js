@@ -23,7 +23,7 @@ import { c, FORMAT_EXTENSIONS } from './cli/colors.js';
 import { parseArgs, discoverRacers, applyOverrides } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
-import { moveResults, convertVideos } from './cli/results.js';
+import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
 import { buildPlayerHtml } from './cli/videoplayer.js';
 
 /** Format a Date as YYYY-MM-DD_HH-MM-SS for directory naming. */
@@ -311,6 +311,7 @@ async function runSingleRace(runDir, runNavigation = null) {
     clipTimes,
   };
   fs.writeFileSync(path.join(runDir, 'index.html'), buildPlayerHtml(summary, videoFiles, ffmpeg && format !== 'webm' ? format : null, altFiles, playerOptions));
+  copyFFmpegFiles(runDir);
 
   return { summary, sideBySidePath, sideBySideName, clipTimes };
 }
@@ -367,6 +368,7 @@ async function main() {
         path.join(resultsDir, 'index.html'),
         buildPlayerHtml(medianSummary, medianVideoFiles, ffmpeg && format !== 'webm' ? format : null, medianAltFiles, medianPlayerOptions)
       );
+      copyFFmpegFiles(resultsDir);
 
       console.error(`\n  ${c.bold}${c.cyan}── Median Results (${totalRuns} runs) ──${c.reset}`);
       printSummary(medianSummary);

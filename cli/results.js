@@ -5,6 +5,7 @@
 import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
+import { createRequire } from 'module';
 import { c, FORMAT_EXTENSIONS, VIDEO_DEFAULTS } from './colors.js';
 
 /** Move recordings from the runner's temp dir to the results folder. */
@@ -68,6 +69,46 @@ export function compressGif(filePath) {
     execFileSync('gifsicle', ['-O3', '--lossy=80', '--colors', '128', '-b', filePath], { timeout: 300000, stdio: 'pipe' });
   } catch {
     // gifsicle not available — ffmpeg output is already optimised
+  }
+}
+
+/** Files from @ffmpeg/ffmpeg ESM dist needed for browser-side conversion. */
+const FFMPEG_ESM_FILES = ['index.js', 'classes.js', 'const.js', 'errors.js', 'types.js', 'utils.js', 'worker.js'];
+
+/** Files from @ffmpeg/core ESM dist needed for browser-side conversion. */
+const FFMPEG_CORE_FILES = ['ffmpeg-core.js', 'ffmpeg-core.wasm'];
+
+/**
+ * Copy ffmpeg.wasm files to a `ffmpeg/` subdirectory alongside the output HTML.
+ * Uses the locally installed @ffmpeg/ffmpeg and @ffmpeg/core packages.
+ * Returns true if files were copied successfully, false otherwise.
+ */
+export function copyFFmpegFiles(destDir) {
+  const ffmpegDir = path.join(destDir, 'ffmpeg');
+  try {
+    const require = createRequire(import.meta.url);
+    const ffmpegEntry = require.resolve('@ffmpeg/ffmpeg');
+    const ffmpegEsmDir = path.join(path.dirname(ffmpegEntry), '..', 'esm');
+    const coreEntry = require.resolve('@ffmpeg/core');
+    const coreEsmDir = path.join(path.dirname(coreEntry), '..', 'esm');
+
+    fs.mkdirSync(ffmpegDir, { recursive: true });
+
+    for (const file of FFMPEG_ESM_FILES) {
+      const src = path.join(ffmpegEsmDir, file);
+      const dest = path.join(ffmpegDir, file);
+      fs.copyFileSync(src, dest);
+    }
+    for (const file of FFMPEG_CORE_FILES) {
+      const src = path.join(coreEsmDir, file);
+      const dest = path.join(ffmpegDir, file);
+      fs.copyFileSync(src, dest);
+    }
+    return true;
+  } catch (e) {
+    console.error(`${c.dim}Warning: Could not copy ffmpeg.wasm files: ${e.message}${c.reset}`);
+    try { fs.rmSync(ffmpegDir, { recursive: true, force: true }); } catch {}
+    return false;
   }
 }
 
