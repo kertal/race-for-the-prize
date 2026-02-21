@@ -615,3 +615,132 @@ describe('buildPlayerHtml files section', () => {
     expect(html).not.toContain('.trace.json');
   });
 });
+
+// --- Debug mode ---
+
+describe('buildPlayerHtml debug mode', () => {
+  const videoFiles = ['lauda/lauda.race.webm', 'hunt/hunt.race.webm'];
+  const clipTimes = [{ start: 1.52, end: 3.0 }, { start: 1.2, end: 2.8 }];
+
+  it('shows Debug button when clipTimes provided', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
+    expect(html).toContain('id="modeDebug"');
+    expect(html).toContain('>Debug<');
+  });
+
+  it('hides Debug button when no clipTimes', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles);
+    expect(html).not.toContain('id="modeDebug"');
+  });
+
+  it('hides Debug button when all clipTimes are null', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, {
+      clipTimes: [null, null],
+    });
+    expect(html).not.toContain('id="modeDebug"');
+  });
+
+  it('renders debug panel with per-racer rows', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
+    expect(html).toContain('id="debugPanel"');
+    expect(html).toContain('DEBUG: Clip Start Calibration');
+    expect(html).toContain('data-debug-idx="0"');
+    expect(html).toContain('data-debug-idx="1"');
+  });
+
+  it('debug panel has frame adjustment buttons', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
+    expect(html).toContain('data-delta="-5"');
+    expect(html).toContain('data-delta="-1"');
+    expect(html).toContain('data-delta="1"');
+    expect(html).toContain('data-delta="5"');
+  });
+
+  it('debug panel has Copy JSON and Reset All buttons', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
+    expect(html).toContain('id="debugCopyJson"');
+    expect(html).toContain('Copy JSON');
+    expect(html).toContain('id="debugResetAll"');
+    expect(html).toContain('Reset All');
+  });
+
+  it('debug panel shows frame step info', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
+    expect(html).toContain('1 frame = 0.040s (25fps)');
+  });
+
+  it('script includes debug functions', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
+    expect(html).toContain('FRAME_STEP');
+    expect(html).toContain('switchToDebug');
+    expect(html).toContain('adjustDebugOffset');
+    expect(html).toContain('debugOffsets');
+    expect(html).toContain('getAdjustedClipTimes');
+    expect(html).toContain('resolveAdjustedClip');
+  });
+
+  it('debug panel contains stats container', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
+    expect(html).toContain('id="debugStats"');
+  });
+
+  it('debug stats section has VIDEO INFO header', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
+    expect(html).toContain('VIDEO INFO');
+    expect(html).toContain('debug-stats-header');
+  });
+
+  it('script includes updateDebugStats function', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
+    expect(html).toContain('updateDebugStats');
+    expect(html).toContain('getVideoPlaybackQuality');
+  });
+
+  it('debug rows ordered by placement (winner first)', () => {
+    const summary = makeSummary({
+      overallWinner: 'hunt',
+      comparisons: [
+        { name: 'Load', racers: [{ duration: 2.0 }, { duration: 1.0 }], winner: 'hunt', rankings: ['hunt', 'lauda'] },
+      ],
+    });
+    const html = buildPlayerHtml(summary, videoFiles, null, null, { clipTimes });
+    const panelStart = html.indexOf('id="debugPanel"');
+    const panelSection = html.slice(panelStart);
+    const huntPos = panelSection.indexOf('>hunt<');
+    const laudaPos = panelSection.indexOf('>lauda<');
+    expect(huntPos).toBeLessThan(laudaPos);
+  });
+});
+
+// --- Export (client-side side-by-side stitching) ---
+
+describe('buildPlayerHtml export', () => {
+  const videoFiles = ['lauda/lauda.race.webm', 'hunt/hunt.race.webm'];
+
+  it('renders Export button when videos exist', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles);
+    expect(html).toContain('id="exportBtn"');
+    expect(html).toContain('Export');
+  });
+
+  it('script contains startExport function', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles);
+    expect(html).toContain('startExport');
+  });
+
+  it('script contains MediaRecorder and captureStream', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles);
+    expect(html).toContain('MediaRecorder');
+    expect(html).toContain('captureStream');
+  });
+
+  it('script contains getExportLayout function', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles);
+    expect(html).toContain('getExportLayout');
+  });
+
+  it('does not render Export button when no videos', () => {
+    const html = buildPlayerHtml(makeSummary(), []);
+    expect(html).not.toContain('id="exportBtn"');
+  });
+});

@@ -231,14 +231,59 @@ function buildFilesHtml(racers, videoFiles, options) {
 }
 
 // ---------------------------------------------------------------------------
+// Debug Panel Builder — per-racer clip start calibration controls
+// ---------------------------------------------------------------------------
+
+function buildDebugPanelHtml(racers, placementOrder, clipTimes) {
+  const orderedClipTimes = placementOrder.map(i => clipTimes[i] || null);
+  let rows = '';
+  placementOrder.forEach((origIdx, displayIdx) => {
+    const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
+    const clip = orderedClipTimes[displayIdx];
+    const startVal = clip ? clip.start.toFixed(3) : '0.000';
+    rows += `
+    <div class="debug-row" data-debug-idx="${displayIdx}">
+      <span class="racer-name" style="color: ${color}">${escHtml(racers[origIdx])}</span>
+      <span class="start-info" id="debugStart${displayIdx}">start: ${startVal}s (+0f)</span>
+      <button class="debug-frame-btn" data-idx="${displayIdx}" data-delta="-5">-5f</button>
+      <button class="debug-frame-btn" data-idx="${displayIdx}" data-delta="-1">-1f</button>
+      <button class="debug-frame-btn" data-idx="${displayIdx}" data-delta="1">+1f</button>
+      <button class="debug-frame-btn" data-idx="${displayIdx}" data-delta="5">+5f</button>
+    </div>`;
+  });
+
+  return `<div class="debug-panel" id="debugPanel">
+  <h3>DEBUG: Clip Start Calibration</h3>${rows}
+  <div class="debug-stats" id="debugStats">
+    <div class="debug-stats-header">VIDEO INFO</div>
+${placementOrder.map((origIdx, displayIdx) => {
+    const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
+    return `    <div class="debug-stats-row" id="debugStatsRow${displayIdx}">
+      <span class="racer-name" style="color: ${color}">${escHtml(racers[origIdx])}</span>
+      <span>duration: \u2014</span>
+      <span>frames: \u2014 dropped: \u2014</span>
+      <span>resolution: \u2014</span>
+    </div>`;
+  }).join('\n')}
+  </div>
+  <div class="debug-footer">
+    <span>1 frame = 0.040s (25fps)</span>
+    <button class="debug-action-btn" id="debugCopyJson">Copy JSON</button>
+    <button class="debug-action-btn" id="debugResetAll">Reset All</button>
+  </div>
+</div>`;
+}
+
+// ---------------------------------------------------------------------------
 // Player Section Builder — returns player container + controls (or '' if no videos)
 // ---------------------------------------------------------------------------
 
-function buildPlayerSectionHtml(videoElements, mergedVideoElement) {
+function buildPlayerSectionHtml(videoElements, mergedVideoElement, debugPanelHtml) {
   return `<div class="player-container" id="playerContainer">
 ${videoElements}
 </div>
 ${mergedVideoElement}
+${debugPanelHtml || ''}
 
 <div class="controls">
   <div class="controls-row">
@@ -255,6 +300,7 @@ ${mergedVideoElement}
     <option value="1" selected>1x</option>
     <option value="2">2x</option>
   </select>
+  <button class="export-btn" id="exportBtn" title="Export side-by-side video">Export</button>
 </div>`;
 }
 
@@ -263,7 +309,7 @@ ${mergedVideoElement}
 // ---------------------------------------------------------------------------
 
 function buildPlayerScript(config) {
-  const { videoVars, videoArray, raceVideoPaths, fullVideoPaths, clipTimesJson } = config;
+  const { videoVars, videoArray, raceVideoPaths, fullVideoPaths, clipTimesJson, hasDebug, racerNamesJson, racerColorsJson, hasMergedVideo } = config;
   return `<script>
 (function() {
   ${videoVars}
@@ -271,6 +317,8 @@ function buildPlayerScript(config) {
   const raceVideoPaths = ${raceVideoPaths};
   const fullVideoPaths = ${fullVideoPaths};
   const clipTimes = ${clipTimesJson};
+  const racerNames = ${racerNamesJson || '[]'};
+  const racerColors = ${racerColorsJson || '[]'};
   const mergedVideo = document.getElementById('mergedVideo');
   const playerContainer = document.getElementById('playerContainer');
   const mergedContainer = document.getElementById('mergedContainer');
@@ -316,12 +364,14 @@ function buildPlayerScript(config) {
   }
 
   function seekAll(t) {
+    var adj = getAdjustedClipTimes();
+    var ct = adj || clipTimes;
     videos.forEach((v, i) => {
       if (!v) return;
       let target = t;
       // In clip mode, clamp each video to its own clip range
-      if (activeClip && clipTimes && clipTimes[i]) {
-        target = Math.max(clipTimes[i].start, Math.min(clipTimes[i].end, t));
+      if (activeClip && ct && ct[i]) {
+        target = Math.max(ct[i].start, Math.min(ct[i].end, t));
       }
       v.currentTime = Math.min(target, v.duration || target);
     });
@@ -330,6 +380,7 @@ function buildPlayerScript(config) {
   function onMeta() {
     duration = Math.max(...videos.filter(v => v).map(v => v.duration || 0));
     updateTimeDisplay();
+    updateDebugStats();
   }
 
   function attachVideoListeners() {
@@ -364,9 +415,11 @@ function buildPlayerScript(config) {
   const modeRace = document.getElementById('modeRace');
   const modeFull = document.getElementById('modeFull');
   const modeMerged = document.getElementById('modeMerged');
+  const modeDebug = document.getElementById('modeDebug');
+  const debugPanel = document.getElementById('debugPanel');
 
   function setActiveMode(btn) {
-    [modeRace, modeFull, modeMerged].forEach(b => b && b.classList.remove('active'));
+    [modeRace, modeFull, modeMerged, modeDebug].forEach(b => b && b.classList.remove('active'));
     btn && btn.classList.add('active');
   }
 
@@ -391,8 +444,9 @@ function buildPlayerScript(config) {
     primary = videos[0];
     playerContainer.style.display = 'flex';
     if (mergedContainer) mergedContainer.style.display = 'none';
+    if (debugPanel) debugPanel.style.display = 'none';
     setActiveMode(modeRace);
-    activeClip = resolveClip();
+    activeClip = resolveAdjustedClip();
     duration = 0;
     onMeta();
     seekAll(activeClip ? activeClip.start : 0);
@@ -410,6 +464,7 @@ function buildPlayerScript(config) {
     primary = videos[0];
     playerContainer.style.display = 'flex';
     if (mergedContainer) mergedContainer.style.display = 'none';
+    if (debugPanel) debugPanel.style.display = 'none';
     setActiveMode(modeFull);
     activeClip = null;
     duration = 0;
@@ -425,15 +480,146 @@ function buildPlayerScript(config) {
     primary = mergedVideo;
     playerContainer.style.display = 'none';
     mergedContainer.style.display = 'block';
+    if (debugPanel) debugPanel.style.display = 'none';
     setActiveMode(modeMerged);
     activeClip = null;
     duration = mergedVideo.duration || 0;
     onMeta();
   }
 
+  // --- Debug: video stats ---
+  function updateDebugStats() {
+    var statsEl = document.getElementById('debugStats');
+    if (!statsEl || statsEl.offsetParent === null) return;
+    for (var i = 0; i < raceVideos.length; i++) {
+      var row = document.getElementById('debugStatsRow' + i);
+      if (!row) continue;
+      var v = raceVideos[i];
+      if (!v || !v.duration) continue;
+      var dur = v.duration.toFixed(2) + 's';
+      var res = v.videoWidth + 'x' + v.videoHeight;
+      var framesText = '\\u2014';
+      var droppedText = '\\u2014';
+      if (typeof v.getVideoPlaybackQuality === 'function') {
+        var q = v.getVideoPlaybackQuality();
+        framesText = String(q.totalVideoFrames);
+        droppedText = String(q.droppedVideoFrames);
+      }
+      var clipDur = '';
+      if (clipTimes && clipTimes[i]) {
+        clipDur = ' (clip: ' + (clipTimes[i].end - clipTimes[i].start).toFixed(2) + 's)';
+      }
+      var nameSpan = row.querySelector('.racer-name');
+      var nameHtml = nameSpan ? nameSpan.outerHTML : '';
+      row.innerHTML = nameHtml +
+        '<span>duration: ' + dur + clipDur + '</span>' +
+        '<span>frames: ' + framesText + ' dropped: ' + droppedText + '</span>' +
+        '<span>resolution: ' + res + '</span>';
+    }
+  }
+
+  // --- Debug mode: per-racer clip start calibration ---
+  const FRAME_STEP = 0.04;
+  const debugOffsets = raceVideos.map(function() { return 0; });
+
+  function getAdjustedClipTimes() {
+    if (!clipTimes) return null;
+    return clipTimes.map(function(ct, i) {
+      if (!ct) return null;
+      return { start: ct.start + debugOffsets[i], end: ct.end };
+    });
+  }
+
+  function resolveAdjustedClip() {
+    var adj = getAdjustedClipTimes();
+    if (!adj) return resolveClip();
+    var minStart = Infinity, maxEnd = -Infinity, found = false;
+    for (var i = 0; i < adj.length; i++) {
+      if (adj[i]) {
+        minStart = Math.min(minStart, adj[i].start);
+        maxEnd = Math.max(maxEnd, adj[i].end);
+        found = true;
+      }
+    }
+    return found ? { start: minStart, end: maxEnd } : null;
+  }
+
+  function updateDebugDisplay() {
+    var adj = getAdjustedClipTimes();
+    for (var i = 0; i < raceVideos.length; i++) {
+      var el = document.getElementById('debugStart' + i);
+      if (!el) continue;
+      var frames = Math.round(debugOffsets[i] / FRAME_STEP);
+      var sign = frames >= 0 ? '+' : '';
+      var startVal = adj && adj[i] ? adj[i].start.toFixed(3) : '0.000';
+      el.textContent = 'start: ' + startVal + 's (' + sign + frames + 'f)';
+    }
+  }
+
+  function adjustDebugOffset(idx, frameDelta) {
+    if (!clipTimes || !clipTimes[idx]) return;
+    var newOffset = debugOffsets[idx] + frameDelta * FRAME_STEP;
+    // Guard: don't let adjusted start go below 0 or past clip end
+    var newStart = clipTimes[idx].start + newOffset;
+    if (newStart < 0) newOffset = -clipTimes[idx].start;
+    if (newStart >= clipTimes[idx].end) return;
+    debugOffsets[idx] = newOffset;
+    updateDebugDisplay();
+    // Update active clip and seek
+    activeClip = resolveAdjustedClip();
+    seekAll(activeClip ? activeClip.start : 0);
+    scrubber.value = 0;
+    updateTimeDisplay();
+  }
+
+  function switchToDebug() {
+    if (playing) { videos.forEach(function(v) { v && v.pause(); }); playing = false; playBtn.textContent = '\\u25B6'; }
+    raceVideos.forEach(function(v, i) { v.src = raceVideoPaths[i]; });
+    videos = raceVideos;
+    primary = videos[0];
+    playerContainer.style.display = 'flex';
+    if (mergedContainer) mergedContainer.style.display = 'none';
+    if (debugPanel) debugPanel.style.display = 'block';
+    setActiveMode(modeDebug);
+    activeClip = resolveAdjustedClip();
+    duration = 0;
+    onMeta();
+    updateDebugDisplay();
+    updateDebugStats();
+    seekAll(activeClip ? activeClip.start : 0);
+    scrubber.value = 0;
+  }
+
+  if (debugPanel) {
+    debugPanel.addEventListener('click', function(e) {
+      var btn = e.target.closest('.debug-frame-btn');
+      if (btn) {
+        var idx = parseInt(btn.getAttribute('data-idx'), 10);
+        var delta = parseInt(btn.getAttribute('data-delta'), 10);
+        adjustDebugOffset(idx, delta);
+        return;
+      }
+      if (e.target.id === 'debugCopyJson') {
+        var adj = getAdjustedClipTimes();
+        var out = { clipTimes: adj, offsets: debugOffsets.slice() };
+        navigator.clipboard.writeText(JSON.stringify(out, null, 2));
+        return;
+      }
+      if (e.target.id === 'debugResetAll') {
+        for (var i = 0; i < debugOffsets.length; i++) debugOffsets[i] = 0;
+        updateDebugDisplay();
+        activeClip = resolveAdjustedClip();
+        seekAll(activeClip ? activeClip.start : 0);
+        scrubber.value = 0;
+        updateTimeDisplay();
+      }
+    });
+  }
+
   if (modeRace) modeRace.addEventListener('click', switchToRace);
   if (modeFull) modeFull.addEventListener('click', switchToFull);
   if (modeMerged) modeMerged.addEventListener('click', switchToMerged);
+  if (modeDebug) modeDebug.addEventListener('click', switchToDebug);
   if (mergedVideo) mergedVideo.addEventListener('loadedmetadata', function() {
     if (videos.includes(mergedVideo)) {
       duration = mergedVideo.duration;
@@ -471,7 +657,9 @@ function buildPlayerScript(config) {
     if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.textContent = '\\u25B6'; }
     const minT = clipOffset();
     const maxT = activeClip ? activeClip.end : duration;
-    const t = Math.max(minT, Math.min(maxT, primary.currentTime + delta));
+    // Use max currentTime across all videos so stepping works past shorter videos
+    const cur = Math.max.apply(null, videos.filter(function(v) { return v; }).map(function(v) { return v.currentTime || 0; }));
+    const t = Math.max(minT, Math.min(maxT, cur + delta));
     seekAll(t);
   }
 
@@ -487,7 +675,7 @@ function buildPlayerScript(config) {
 
   // If clip times are active on initial load, seek to clip start
   if (clipTimes) {
-    activeClip = resolveClip();
+    activeClip = resolveAdjustedClip();
     if (activeClip) {
       var initSeek = function() {
         seekAll(activeClip.start);
@@ -496,6 +684,168 @@ function buildPlayerScript(config) {
       if (primary.readyState >= 1) initSeek();
       else primary.addEventListener('loadedmetadata', initSeek);
     }
+  }
+
+  // --- Export: client-side side-by-side video stitching ---
+  var exportBtn = document.getElementById('exportBtn');
+
+  function getExportLayout(count) {
+    var LABEL_H = 30;
+    var targetW = count <= 3 ? 640 : 480;
+    // Use first video's aspect ratio, fallback to 16:9
+    var sample = raceVideos.find(function(v) { return v && v.videoWidth; });
+    var aspect = sample ? sample.videoHeight / sample.videoWidth : 9/16;
+    var cellH = Math.round(targetW * aspect);
+    var slotH = cellH + LABEL_H;
+    var cols, rows, positions = [];
+    if (count <= 3) {
+      cols = count; rows = 1;
+      for (var i = 0; i < count; i++) positions.push({ x: i * targetW, y: 0 });
+    } else if (count === 4) {
+      cols = 2; rows = 2;
+      for (var i = 0; i < 4; i++) positions.push({ x: (i % 2) * targetW, y: Math.floor(i / 2) * slotH });
+    } else {
+      cols = 3; rows = 2;
+      for (var i = 0; i < 3; i++) positions.push({ x: i * targetW, y: 0 });
+      var bottomOffset = Math.floor(targetW / 2);
+      for (var i = 0; i < 2; i++) positions.push({ x: bottomOffset + i * targetW, y: slotH });
+    }
+    var canvasW = (count === 5 ? 3 : cols) * targetW;
+    var canvasH = rows * slotH;
+    return { canvasW: canvasW, canvasH: canvasH, targetW: targetW, cellH: cellH, labelH: LABEL_H, positions: positions };
+  }
+
+  function drawExportFrame(ctx, layout) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, layout.canvasW, layout.canvasH);
+    for (var i = 0; i < raceVideos.length; i++) {
+      var v = raceVideos[i];
+      if (!v) continue;
+      var pos = layout.positions[i];
+      // Draw label
+      ctx.fillStyle = racerColors[i] || '#e8e0d0';
+      ctx.font = 'bold 16px Georgia, serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(racerNames[i] || '', pos.x + layout.targetW / 2, pos.y + layout.labelH - 8);
+      // Draw video frame
+      try { ctx.drawImage(v, pos.x, pos.y + layout.labelH, layout.targetW, layout.cellH); } catch(e) {}
+    }
+  }
+
+  function startExport() {
+    if (!HTMLCanvasElement.prototype.captureStream || !window.MediaRecorder) {
+      alert('Export requires a browser that supports Canvas.captureStream and MediaRecorder (Chrome, Firefox, or Edge).');
+      return;
+    }
+    // Pause current playback
+    if (playing) { videos.forEach(function(v) { v && v.pause(); }); playing = false; playBtn.textContent = '\\u25B6'; }
+
+    var layout = getExportLayout(raceVideos.length);
+
+    // Create overlay
+    var overlay = document.createElement('div');
+    overlay.className = 'export-overlay';
+    overlay.innerHTML = '<div class="export-modal">' +
+      '<h3>Exporting Side-by-Side</h3>' +
+      '<canvas id="exportCanvas" width="' + layout.canvasW + '" height="' + layout.canvasH + '"></canvas>' +
+      '<div class="export-progress-bar"><div class="export-progress-fill" id="exportProgressFill"></div></div>' +
+      '<div class="export-status" id="exportStatus">Preparing...</div>' +
+      '<div class="export-actions"><button id="exportCancel">Cancel</button></div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+
+    var canvas = document.getElementById('exportCanvas');
+    var ctx = canvas.getContext('2d');
+    var progressFill = document.getElementById('exportProgressFill');
+    var statusEl = document.getElementById('exportStatus');
+    var actionsEl = overlay.querySelector('.export-actions');
+
+    // Determine time range
+    var startTime = activeClip ? activeClip.start : 0;
+    var endTime = activeClip ? activeClip.end : duration;
+    var totalDur = endTime - startTime;
+
+    // Seek all to start and wait for seeked events
+    var seekPromises = raceVideos.map(function(v, i) {
+      if (!v) return Promise.resolve();
+      return new Promise(function(resolve) {
+        var adj = getAdjustedClipTimes();
+        var ct = adj || clipTimes;
+        var target = startTime;
+        if (activeClip && ct && ct[i]) target = Math.max(ct[i].start, Math.min(ct[i].end, startTime));
+        v.currentTime = Math.min(target, v.duration || target);
+        v.onseeked = function() { v.onseeked = null; resolve(); };
+      });
+    });
+
+    var cancelled = false;
+    var recorder = null;
+    var rafId = null;
+
+    document.getElementById('exportCancel').addEventListener('click', function() {
+      cancelled = true;
+      if (recorder && recorder.state !== 'inactive') recorder.stop();
+      if (rafId) cancelAnimationFrame(rafId);
+      raceVideos.forEach(function(v) { v && v.pause(); });
+      overlay.remove();
+    });
+
+    Promise.all(seekPromises).then(function() {
+      if (cancelled) return;
+      statusEl.textContent = 'Recording...';
+
+      var stream = canvas.captureStream(30);
+      var mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm';
+      recorder = new MediaRecorder(stream, { mimeType: mimeType });
+      var chunks = [];
+      recorder.ondataavailable = function(e) { if (e.data.size > 0) chunks.push(e.data); };
+      recorder.onstop = function() {
+        if (cancelled) return;
+        var blob = new Blob(chunks, { type: mimeType });
+        var url = URL.createObjectURL(blob);
+        statusEl.textContent = 'Export complete!';
+        progressFill.style.width = '100%';
+        var downloadLink = document.createElement('a');
+        downloadLink.href = url;
+        downloadLink.download = 'race-side-by-side.webm';
+        downloadLink.textContent = 'Download';
+        downloadLink.className = '';
+        var closeBtn = document.createElement('button');
+        closeBtn.textContent = 'Close';
+        closeBtn.addEventListener('click', function() { URL.revokeObjectURL(url); overlay.remove(); });
+        actionsEl.innerHTML = '';
+        actionsEl.appendChild(downloadLink);
+        actionsEl.appendChild(closeBtn);
+      };
+
+      recorder.start();
+      // Play all videos at user-selected speed
+      var exportRate = parseFloat(speedSelect.value) || 1;
+      raceVideos.forEach(function(v) { if (v) { v.playbackRate = exportRate; v.play(); } });
+      var speedLabel = exportRate !== 1 ? ' (' + exportRate + 'x)' : '';
+
+      function tick() {
+        if (cancelled) return;
+        drawExportFrame(ctx, layout);
+        var cur = primary.currentTime || 0;
+        var progress = totalDur > 0 ? Math.min(1, (cur - startTime) / totalDur) : 0;
+        progressFill.style.width = (progress * 100).toFixed(1) + '%';
+        statusEl.textContent = 'Recording' + speedLabel + '... ' + Math.round(progress * 100) + '%';
+        if (cur >= endTime || primary.ended) {
+          raceVideos.forEach(function(v) { v && v.pause(); });
+          if (recorder.state !== 'inactive') recorder.stop();
+          return;
+        }
+        rafId = requestAnimationFrame(tick);
+      }
+      rafId = requestAnimationFrame(tick);
+    });
+  }
+
+  if (exportBtn) {
+    // Hide export button for single video or merged-only mode
+    if (raceVideos.length < 2) exportBtn.style.display = 'none';
+    exportBtn.addEventListener('click', startExport);
   }
 })();
 </script>`;
@@ -530,6 +880,10 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   const hasVideos = videoFiles && videoFiles.length > 0;
   const placementOrder = getPlacementOrder(summary);
 
+  const hasFullVideos = fullVideoFiles && fullVideoFiles.length > 0;
+  const hasClipTimes = clipTimes && clipTimes.some(c => c !== null);
+  const hasMergedVideo = !!mergedVideoFile;
+
   let playerSection = '';
   let scriptTag = '';
 
@@ -548,7 +902,8 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   <video id="mergedVideo" src="${escHtml(mergedVideoFile)}" preload="auto" muted></video>
 </div>` : '';
 
-    playerSection = buildPlayerSectionHtml(videoElements, mergedVideoElement);
+    const debugPanelHtml = hasClipTimes ? buildDebugPanelHtml(racers, placementOrder, clipTimes) : '';
+    playerSection = buildPlayerSectionHtml(videoElements, mergedVideoElement, debugPanelHtml);
 
     // Player script config — use JSON.stringify for safe path embedding
     const videoIds = placementOrder.map((_, i) => `v${i}`);
@@ -557,6 +912,10 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
 
     // Order clip times to match placement order
     const orderedClipTimes = clipTimes ? placementOrder.map(i => clipTimes[i] || null) : null;
+
+    // Racer names/colors in placement order for export labels
+    const orderedRacerNames = placementOrder.map(i => racers[i]);
+    const orderedRacerColors = placementOrder.map(i => RACER_CSS_COLORS[i % RACER_CSS_COLORS.length]);
 
     scriptTag = buildPlayerScript({
       videoVars: videoIds.map(id => `const ${id} = document.getElementById('${id}');`).join('\n  '),
@@ -568,19 +927,21 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
       clipTimesJson: orderedClipTimes
         ? JSON.stringify(orderedClipTimes)
         : 'null',
+      hasDebug: hasClipTimes,
+      racerNamesJson: JSON.stringify(orderedRacerNames),
+      racerColorsJson: JSON.stringify(orderedRacerColors),
+      hasMergedVideo: hasMergedVideo,
     });
   }
 
   // Mode toggle — show Full button when separate full videos exist OR when clip times
   // provide virtual trimming (no-ffmpeg mode, same file but different playback range)
-  const hasFullVideos = fullVideoFiles && fullVideoFiles.length > 0;
-  const hasClipTimes = clipTimes && clipTimes.some(c => c !== null);
-  const hasMergedVideo = !!mergedVideoFile;
   const modeToggle = (hasFullVideos || hasClipTimes || hasMergedVideo) ? `
   <div class="mode-toggle">
     <button class="mode-btn active" id="modeRace" title="Race segments only">Race</button>
     ${hasFullVideos || hasClipTimes ? '<button class="mode-btn" id="modeFull" title="Full recordings">Full</button>' : ''}
     ${hasMergedVideo ? '<button class="mode-btn" id="modeMerged" title="Side-by-side merged video">Merged</button>' : ''}
+    ${hasClipTimes ? '<button class="mode-btn" id="modeDebug" title="Debug clip start calibration">Debug</button>' : ''}
   </div>` : '';
 
   // Render template with all sections
