@@ -189,6 +189,16 @@ describe('settings override', () => {
     expect(s.profile).toBe(true);
   });
 
+  it('CLI --no-profile disables profile', () => {
+    const s = applyOverrides({ profile: true }, new Set(['no-profile']), {});
+    expect(s.profile).toBe(false);
+  });
+
+  it('CLI --profile and --no-profile together warns and disables profile', () => {
+    const s = applyOverrides({}, new Set(['profile', 'no-profile']), {});
+    expect(s.profile).toBe(false);
+  });
+
   it('CLI --no-overlay sets noOverlay', () => {
     const s = applyOverrides({}, new Set(['no-overlay']), {});
     expect(s.noOverlay).toBe(true);

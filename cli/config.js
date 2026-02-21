@@ -53,7 +53,14 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   const s = { ...settings };
   if (boolFlags.has('parallel')) s.parallel = true;
   if (boolFlags.has('headless')) s.headless = true;
-  if (boolFlags.has('profile')) s.profile = true;
+  if (boolFlags.has('profile') && boolFlags.has('no-profile')) {
+    console.error('Warning: Both --profile and --no-profile specified, using --no-profile');
+    s.profile = false;
+  } else if (boolFlags.has('profile')) {
+    s.profile = true;
+  } else if (boolFlags.has('no-profile')) {
+    s.profile = false;
+  }
   if (boolFlags.has('no-overlay')) s.noOverlay = true;
   if (boolFlags.has('ffmpeg')) s.ffmpeg = true;
   if (kvFlags.network !== undefined) {
