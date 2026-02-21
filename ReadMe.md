@@ -213,7 +213,7 @@ races/my-race/results-2026-01-31_14-30-00/
 By default, videos are untrimmed and the HTML player handles virtual trimming via clip times. With `--ffmpeg`, videos are frame-accurately trimmed, a side-by-side merged video is created, and format conversion (mov/gif) is available.
 
 Disclaimer: Due to the nature of the way the video is transformed, the aim here is not accuracy, it's to showcase, to visualize performance. To compare between different network and browser settings.
-Do double check and question the metrics and findigs. It should be a helpful tool supporting performance related narratives, but don't assume 100% accuracy. However, this generally applys to many 
+Do double check and question the metrics and findings. It should be a helpful tool supporting performance related narratives, but don't assume 100% accuracy. However, this generally applies to many 
 browser gained performance metrics. There are many side effects. And screen recording, plus video cutting is another one.
 
 ## The Podium Ceremony

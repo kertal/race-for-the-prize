@@ -277,18 +277,19 @@ async function runSingleRace(runDir, runNavigation = null) {
     }
   }
 
-  // Without --ffmpeg, there's no trimmed video — the single video IS the full recording.
-  // The player handles virtual trimming via clip times from recordingSegments.
+  // With --ffmpeg, videos are trimmed and separate full recordings exist.
+  // Without --ffmpeg, the single video IS the full recording — the player handles
+  // virtual trimming via clip times from recordingSegments.
   let videoFiles, fullVideoFiles, altFiles;
-  if (!ffmpeg) {
+  if (ffmpeg) {
+    videoFiles = racerNames.map(name => `${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
+    fullVideoFiles = racerNames.map(name => `${name}/${name}.full${FORMAT_EXTENSIONS.webm}`);
+    altFiles = format !== 'webm' ? racerNames.map(name => `${name}/${name}.race${ext}`) : null;
+  } else {
     // Only the full (untrimmed) video exists — use it for both race and full views
     videoFiles = racerNames.map(name => `${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
     fullVideoFiles = null; // same file, no separate full video
     altFiles = null;       // no format conversion without ffmpeg
-  } else {
-    videoFiles = racerNames.map(name => `${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
-    fullVideoFiles = racerNames.map(name => `${name}/${name}.full${FORMAT_EXTENSIONS.webm}`);
-    altFiles = format !== 'webm' ? racerNames.map(name => `${name}/${name}.race${ext}`) : null;
   }
 
   const traceFiles = settings.profile ? racerNames.map(name => `${name}/${name}.trace.json`) : null;
@@ -296,11 +297,11 @@ async function runSingleRace(runDir, runNavigation = null) {
   // Collect clip times from recording segments for player-level trimming (default mode).
   // Uses only the first segment per racer — multiple non-contiguous segments are not
   // supported in player-level trimming (--ffmpeg mode concatenates them into one video).
-  const clipTimes = !ffmpeg ? racerNames.map((_, i) => {
+  const clipTimes = ffmpeg ? null : racerNames.map((_, i) => {
     const segs = result.browsers?.[i]?.recordingSegments;
     if (!segs || segs.length === 0) return null;
     return { start: segs[0].start, end: segs[0].end };
-  }) : null;
+  });
 
   const playerOptions = {
     fullVideoFiles,
@@ -349,7 +350,7 @@ async function main() {
       const format = settings.format || 'webm';
       const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
       const medianVideoFiles = racerNames.map(name => `${medianRunDir}/${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
-      const medianFullVideoFiles = !ffmpeg ? null : racerNames.map(name => `${medianRunDir}/${name}/${name}.full${FORMAT_EXTENSIONS.webm}`);
+      const medianFullVideoFiles = ffmpeg ? racerNames.map(name => `${medianRunDir}/${name}/${name}.full${FORMAT_EXTENSIONS.webm}`) : null;
       const medianAltFiles = ffmpeg && format !== 'webm' ? racerNames.map(name => `${medianRunDir}/${name}/${name}.race${ext}`) : null;
       const medianMergedFile = sideBySideNames[medianRunIdx] ? `${medianRunDir}/${sideBySideNames[medianRunIdx]}` : null;
 

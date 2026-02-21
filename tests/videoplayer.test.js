@@ -5,7 +5,7 @@ import { buildProfileComparison } from '../cli/profile-analysis.js';
 const makeSummary = (overrides = {}) => ({
   racers: ['lauda', 'hunt'],
   comparisons: [
-    { name: 'Load', racers: [{ duration: 1.0 }, { duration: 2.0 }], winner: 'lauda', diff: 1.0, diffPercent: 100.0, rankings: ['lauda', 'hunt'] },
+    { name: 'Load', racers: [{ duration: 1 }, { duration: 2 }], winner: 'lauda', diff: 1, diffPercent: 100, rankings: ['lauda', 'hunt'] },
   ],
   overallWinner: 'lauda',
   timestamp: '2025-01-15T12:00:00.000Z',
@@ -20,7 +20,7 @@ const makeSummary = (overrides = {}) => ({
 const huntWinsSummary = () => makeSummary({
   overallWinner: 'hunt',
   comparisons: [
-    { name: 'Load', racers: [{ duration: 2.0 }, { duration: 1.0 }], winner: 'hunt', rankings: ['hunt', 'lauda'] },
+    { name: 'Load', racers: [{ duration: 2 }, { duration: 1 }], winner: 'hunt', rankings: ['hunt', 'lauda'] },
   ],
 });
 
@@ -100,7 +100,7 @@ describe('buildPlayerHtml', () => {
     const summary = makeSummary({
       racers: ['alpha', 'beta', 'gamma'],
       comparisons: [
-        { name: 'Load', racers: [{ duration: 1.0 }, { duration: 1.5 }, { duration: 2.0 }], winner: 'alpha', diff: 1.0, diffPercent: 100.0 },
+        { name: 'Load', racers: [{ duration: 1 }, { duration: 1.5 }, { duration: 2 }], winner: 'alpha', diff: 1, diffPercent: 100 },
       ],
       overallWinner: 'alpha',
     });
@@ -317,13 +317,13 @@ describe('buildPlayerHtml clipTimes', () => {
   const withClips = (clips, opts = {}) => buildPlayerHtml(opts.summary || makeSummary(), videoFiles, null, null, { clipTimes: clips, ...opts });
 
   it('shows mode toggle with Full button when clipTimes provided', () => {
-    const html = withClips([{ start: 1.5, end: 3.0 }, { start: 1.5, end: 3.0 }]);
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.5, end: 3 }]);
     expect(html).toContain('id="modeRace"');
     expect(html).toContain('id="modeFull"');
   });
 
   it('embeds clipTimes data in player script', () => {
-    const html = withClips([{ start: 1.5, end: 3.0 }, { start: 1.2, end: 2.8 }]);
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
     expect(html).toContain('const clipTimes =');
     expect(html).toContain('"start":');
     expect(html).toContain('"end":');
@@ -334,7 +334,7 @@ describe('buildPlayerHtml clipTimes', () => {
   });
 
   it('handles clipTimes with null entries', () => {
-    const html = withClips([{ start: 1.0, end: 2.0 }, null]);
+    const html = withClips([{ start: 1, end: 2 }, null]);
     expect(html).toContain('id="modeFull"');
     expect(html).toContain('const clipTimes =');
   });
@@ -344,7 +344,7 @@ describe('buildPlayerHtml clipTimes', () => {
   });
 
   it('includes clip constraint logic in player script', () => {
-    const html = withClips([{ start: 1.0, end: 5.0 }, { start: 1.0, end: 5.0 }]);
+    const html = withClips([{ start: 1, end: 5 }, { start: 1, end: 5 }]);
     expect(html).toContain('activeClip');
     expect(html).toContain('clipOffset');
     expect(html).toContain('clipDuration');
@@ -352,16 +352,16 @@ describe('buildPlayerHtml clipTimes', () => {
   });
 
   it('orders clipTimes by placement (winner first)', () => {
-    const html = withClips([{ start: 1.0, end: 3.0 }, { start: 0.5, end: 2.5 }], { summary: huntWinsSummary() });
+    const html = withClips([{ start: 1, end: 3 }, { start: 0.5, end: 2.5 }], { summary: huntWinsSummary() });
     const clipMatch = html.match(/const clipTimes = (\[.*?\]);/);
     expect(clipMatch).toBeTruthy();
     const parsed = JSON.parse(clipMatch[1]);
     expect(parsed[0].start).toBe(0.5); // hunt's clip first (winner)
-    expect(parsed[1].start).toBe(1.0); // lauda's clip second
+    expect(parsed[1].start).toBe(1); // lauda's clip second
   });
 
   it('does not show Merged button without mergedVideoFile', () => {
-    expect(withClips([{ start: 1.0, end: 3.0 }, { start: 1.0, end: 3.0 }])).not.toContain('id="modeMerged"');
+    expect(withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }])).not.toContain('id="modeMerged"');
   });
 });
 
@@ -404,7 +404,7 @@ describe('buildPlayerHtml files section', () => {
 // --- Debug mode ---
 
 describe('buildPlayerHtml debug mode', () => {
-  const clipTimes = [{ start: 1.52, end: 3.0 }, { start: 1.2, end: 2.8 }];
+  const clipTimes = [{ start: 1.52, end: 3 }, { start: 1.2, end: 2.8 }];
   const debugHtml = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
 
   it('shows Debug button when clipTimes provided', () => {
@@ -436,7 +436,7 @@ describe('buildPlayerHtml debug mode', () => {
     expect(debugHtml).toContain('Copy JSON');
     expect(debugHtml).toContain('id="debugResetAll"');
     expect(debugHtml).toContain('Reset All');
-    expect(debugHtml).toContain('1 frame = 0.040s (25fps)');
+    expect(debugHtml).toContain('0.040s (assuming 25fps recording)');
   });
 
   it('script includes debug functions', () => {

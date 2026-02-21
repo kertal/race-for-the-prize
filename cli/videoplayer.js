@@ -267,7 +267,7 @@ ${placementOrder.map((origIdx, displayIdx) => {
   }).join('\n')}
   </div>
   <div class="debug-footer">
-    <span>1 frame = 0.040s (25fps)</span>
+    <span>1 frame &#8776; 0.040s (assuming 25fps recording)</span>
     <button class="debug-action-btn" id="debugCopyJson">Copy JSON</button>
     <button class="debug-action-btn" id="debugResetAll">Reset All</button>
   </div>
@@ -309,7 +309,7 @@ ${debugPanelHtml || ''}
 // ---------------------------------------------------------------------------
 
 function buildPlayerScript(config) {
-  const { videoVars, videoArray, raceVideoPaths, fullVideoPaths, clipTimesJson, hasDebug, racerNamesJson, racerColorsJson, hasMergedVideo } = config;
+  const { videoVars, videoArray, raceVideoPaths, fullVideoPaths, clipTimesJson, racerNamesJson, racerColorsJson } = config;
   return `<script>
 (function() {
   ${videoVars}
@@ -693,6 +693,7 @@ function buildPlayerScript(config) {
   // --- Export: client-side side-by-side video stitching ---
   var exportBtn = document.getElementById('exportBtn');
 
+  // Layout for export canvas. Supports 1–5 racers (max enforced by racer discovery).
   function getExportLayout(count) {
     var LABEL_H = 30;
     var targetW = count <= 3 ? 640 : 480;
@@ -709,12 +710,13 @@ function buildPlayerScript(config) {
       cols = 2; rows = 2;
       for (var i = 0; i < 4; i++) positions.push({ x: (i % 2) * targetW, y: Math.floor(i / 2) * slotH });
     } else {
+      // 5 racers: 3 on top, 2 centered on bottom
       cols = 3; rows = 2;
       for (var i = 0; i < 3; i++) positions.push({ x: i * targetW, y: 0 });
       var bottomOffset = Math.floor(targetW / 2);
-      for (var i = 0; i < 2; i++) positions.push({ x: bottomOffset + i * targetW, y: slotH });
+      for (var i = 0; i < count - 3; i++) positions.push({ x: bottomOffset + i * targetW, y: slotH });
     }
-    var canvasW = (count === 5 ? 3 : cols) * targetW;
+    var canvasW = (count >= 5 ? 3 : cols) * targetW;
     var canvasH = rows * slotH;
     return { canvasW: canvasW, canvasH: canvasH, targetW: targetW, cellH: cellH, labelH: LABEL_H, positions: positions };
   }
@@ -769,12 +771,18 @@ function buildPlayerScript(config) {
     var endTime = activeClip ? activeClip.end : duration;
     var totalDur = endTime - startTime;
 
+    // Per-video clip end times for accurate completion detection
+    var adj = getAdjustedClipTimes();
+    var ct = adj || clipTimes;
+    var perVideoEnd = raceVideos.map(function(v, i) {
+      if (!v) return endTime;
+      return (activeClip && ct && ct[i]) ? ct[i].end : endTime;
+    });
+
     // Seek all to start and wait for seeked events
     var seekPromises = raceVideos.map(function(v, i) {
       if (!v) return Promise.resolve();
       return new Promise(function(resolve) {
-        var adj = getAdjustedClipTimes();
-        var ct = adj || clipTimes;
         var target = startTime;
         if (activeClip && ct && ct[i]) target = Math.max(ct[i].start, Math.min(ct[i].end, startTime));
         v.currentTime = Math.min(target, v.duration || target);
@@ -836,7 +844,7 @@ function buildPlayerScript(config) {
         var progress = totalDur > 0 ? Math.min(1, (cur - startTime) / totalDur) : 0;
         progressFill.style.width = (progress * 100).toFixed(1) + '%';
         statusEl.textContent = 'Recording' + speedLabel + '... ' + Math.round(progress * 100) + '%';
-        var allDone = raceVideos.every(function(v) { return !v || v.currentTime >= endTime || v.ended; });
+        var allDone = raceVideos.every(function(v, i) { return !v || v.currentTime >= perVideoEnd[i] || v.ended; });
         if (allDone) {
           raceVideos.forEach(function(v) { v && v.pause(); });
           if (recorder.state !== 'inactive') recorder.stop();
@@ -886,7 +894,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   const hasVideos = videoFiles && videoFiles.length > 0;
   const placementOrder = getPlacementOrder(summary);
 
-  const hasFullVideos = fullVideoFiles && fullVideoFiles.length > 0;
+  const hasFullVideos = fullVideoFiles?.length > 0;
   const isValidClip = (c) => c != null && Number.isFinite(c.start) && Number.isFinite(c.end) && c.start <= c.end;
   const hasClipTimes = clipTimes && clipTimes.some(isValidClip);
   const hasMergedVideo = !!mergedVideoFile;
@@ -934,21 +942,23 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
       clipTimesJson: orderedClipTimes
         ? JSON.stringify(orderedClipTimes)
         : 'null',
-      hasDebug: hasClipTimes,
       racerNamesJson: JSON.stringify(orderedRacerNames),
       racerColorsJson: JSON.stringify(orderedRacerColors),
-      hasMergedVideo: hasMergedVideo,
     });
   }
 
   // Mode toggle — show Full button when separate full videos exist OR when clip times
   // provide virtual trimming (default mode without --ffmpeg, same file but different playback range)
-  const modeToggle = (hasFullVideos || hasClipTimes || hasMergedVideo) ? `
+  const hasToggle = hasFullVideos || hasClipTimes || hasMergedVideo;
+  const fullBtn = (hasFullVideos || hasClipTimes) ? '<button class="mode-btn" id="modeFull" title="Full recordings">Full</button>' : '';
+  const mergedBtn = hasMergedVideo ? '<button class="mode-btn" id="modeMerged" title="Side-by-side merged video">Merged</button>' : '';
+  const debugBtn = hasClipTimes ? '<button class="mode-btn" id="modeDebug" title="Debug clip start calibration">Debug</button>' : '';
+  const modeToggle = hasToggle ? `
   <div class="mode-toggle">
     <button class="mode-btn active" id="modeRace" title="Race segments only">Race</button>
-    ${hasFullVideos || hasClipTimes ? '<button class="mode-btn" id="modeFull" title="Full recordings">Full</button>' : ''}
-    ${hasMergedVideo ? '<button class="mode-btn" id="modeMerged" title="Side-by-side merged video">Merged</button>' : ''}
-    ${hasClipTimes ? '<button class="mode-btn" id="modeDebug" title="Debug clip start calibration">Debug</button>' : ''}
+    ${fullBtn}
+    ${mergedBtn}
+    ${debugBtn}
   </div>` : '';
 
   // Render template with all sections
