@@ -766,7 +766,10 @@ function buildPlayerScript(config) {
           toBlobURL(CORE_CDN + '/ffmpeg-core.js', 'text/javascript'),
           toBlobURL(CORE_CDN + '/ffmpeg-core.wasm', 'application/wasm'),
         ]).then(function(urls) {
-          return ff.load({ coreURL: urls[0], wasmURL: urls[1] });
+          return ff.load({ coreURL: urls[0], wasmURL: urls[1] }).then(function() {
+            URL.revokeObjectURL(urls[0]);
+            URL.revokeObjectURL(urls[1]);
+          });
         }).then(function() {
           ffmpegInstance = ff;
           return ff;
@@ -774,10 +777,20 @@ function buildPlayerScript(config) {
       });
   }
 
-  function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, overlay, downloadName) {
+  var convertCounter = 0;
+
+  function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, overlay, downloadName, clipRange) {
+    var runId = ++convertCounter;
+    var inFile = 'input_' + runId + '.webm';
+    var outFile = 'output_' + runId + '.' + format;
     var outFilename = (downloadName || 'race-side-by-side') + '.' + format;
     var buttons = actionsEl.querySelectorAll('button');
     buttons.forEach(function(b) { b.disabled = true; });
+    // Keep a dismiss button available during conversion
+    var dismissBtn = document.createElement('button');
+    dismissBtn.textContent = 'Cancel';
+    dismissBtn.addEventListener('click', function() { overlay.remove(); });
+    actionsEl.appendChild(dismissBtn);
     statusEl.textContent = 'Loading ffmpeg.wasm (~25 MB)...';
     progressFill.style.width = '0%';
 
@@ -786,22 +799,25 @@ function buildPlayerScript(config) {
       progressFill.style.width = '30%';
 
       return blob.arrayBuffer().then(function(buf) {
-        return ff.writeFile('input.webm', new Uint8Array(buf));
+        return ff.writeFile(inFile, new Uint8Array(buf));
       }).then(function() {
+        var trimArgs = [];
+        if (clipRange) {
+          trimArgs = ['-ss', clipRange.start.toFixed(3), '-t', (clipRange.end - clipRange.start).toFixed(3)];
+        }
         var args;
         if (format === 'gif') {
-          args = ['-i', 'input.webm', '-filter_complex',
+          args = trimArgs.concat(['-i', inFile, '-filter_complex',
             'fps=10,scale=640:-2,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3',
-            'output.' + format];
+            outFile]);
         } else {
-          // MOV with H.264
-          args = ['-i', 'input.webm', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', 'output.' + format];
+          args = trimArgs.concat(['-i', inFile, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', outFile]);
         }
         progressFill.style.width = '50%';
         return ff.exec(args);
       }).then(function() {
         progressFill.style.width = '90%';
-        return ff.readFile('output.' + format);
+        return ff.readFile(outFile);
       }).then(function(data) {
         var mType = format === 'gif' ? 'image/gif' : 'video/quicktime';
         var outBlob = new Blob([data], { type: mType });
@@ -824,13 +840,14 @@ function buildPlayerScript(config) {
         actionsEl.appendChild(dlLink);
         actionsEl.appendChild(closeBtn);
 
-        // Clean up ffmpeg files
-        ff.deleteFile('input.webm').catch(function() {});
-        ff.deleteFile('output.' + format).catch(function() {});
+        // Clean up ffmpeg virtual FS
+        ff.deleteFile(inFile).catch(function(e) { console.warn('ffmpeg cleanup:', e.message); });
+        ff.deleteFile(outFile).catch(function(e) { console.warn('ffmpeg cleanup:', e.message); });
       });
     }).catch(function(err) {
       statusEl.textContent = 'Conversion failed: ' + err.message;
       buttons.forEach(function(b) { b.disabled = false; });
+      if (dismissBtn.parentNode) dismissBtn.remove();
     });
   }
 
@@ -974,6 +991,7 @@ function buildPlayerScript(config) {
   // --- Convert current video(s) to GIF or MOV via ffmpeg.wasm ---
   var convertSelect = document.getElementById('convertSelect');
   if (convertSelect) {
+    if (raceVideos.length < 1) convertSelect.style.display = 'none';
     convertSelect.addEventListener('change', function() {
       var format = convertSelect.value;
       if (!format) return;
@@ -1010,13 +1028,25 @@ function buildPlayerScript(config) {
       // Derive download name from video source
       var srcName = activeVideo.src.split('/').pop().replace(/\\.webm$/i, '') || 'race-video';
 
+      // Derive clip range from active clip for the primary video
+      var clipRange = null;
+      if (activeClip) {
+        var adj = getAdjustedClipTimes();
+        var ct = adj || clipTimes;
+        var pIdx = raceVideos.indexOf(primary);
+        if (pIdx >= 0 && ct && ct[pIdx] && ct[pIdx].start < ct[pIdx].end) {
+          clipRange = { start: ct[pIdx].start, end: ct[pIdx].end };
+        }
+      }
+
       // Fetch the video file and convert
       fetch(activeVideo.src).then(function(response) {
         if (convertCancelled) return;
+        if (!response.ok) throw new Error('Failed to fetch video (' + response.status + ')');
         return response.blob();
       }).then(function(videoBlob) {
         if (convertCancelled || !videoBlob) return;
-        convertWithFFmpeg(videoBlob, format, convertStatusEl, convertProgressFill, convertActionsEl, overlay, srcName);
+        convertWithFFmpeg(videoBlob, format, convertStatusEl, convertProgressFill, convertActionsEl, overlay, srcName, clipRange);
       }).catch(function(err) {
         if (!convertCancelled) {
           convertStatusEl.textContent = 'Error: ' + err.message;

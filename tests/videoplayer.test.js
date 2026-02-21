@@ -490,6 +490,11 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
     expect(defaultHtml).toContain('unpkg.com/@ffmpeg/core@0.12.10/dist/esm');
   });
 
+  it('revokes blob URLs after ffmpeg load to prevent memory leak', () => {
+    expect(defaultHtml).toContain('revokeObjectURL(urls[0])');
+    expect(defaultHtml).toContain('revokeObjectURL(urls[1])');
+  });
+
   it('includes toBlobURL helper for CORS-safe loading', () => {
     expect(defaultHtml).toContain('toBlobURL');
   });
@@ -516,6 +521,38 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
 
   it('includes conversion progress UI CSS', () => {
     expect(defaultHtml).toContain('export-convert-row');
+  });
+
+  it('uses unique filenames per conversion to prevent conflicts', () => {
+    expect(defaultHtml).toContain('convertCounter');
+    expect(defaultHtml).toContain("'input_' + runId");
+    expect(defaultHtml).toContain("'output_' + runId");
+  });
+
+  it('logs cleanup failures instead of silently catching', () => {
+    expect(defaultHtml).toContain("console.warn('ffmpeg cleanup:'");
+  });
+
+  it('keeps a dismiss button available during conversion', () => {
+    expect(defaultHtml).toContain('dismissBtn');
+  });
+
+  it('checks response.ok when fetching video for conversion', () => {
+    expect(defaultHtml).toContain('!response.ok');
+    expect(defaultHtml).toContain('Failed to fetch video');
+  });
+
+  it('passes clip range for trimming during conversion', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, {
+      clipTimes: [{ start: 1, end: 3 }, { start: 1, end: 3 }],
+    });
+    expect(html).toContain('clipRange');
+    expect(html).toContain("'-ss'");
+    expect(html).toContain("'-t'");
+  });
+
+  it('hides Convert dropdown when no videos', () => {
+    expect(defaultHtml).toContain("raceVideos.length < 1");
   });
 });
 
