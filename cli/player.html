@@ -329,6 +329,192 @@
     background: #3a3a3a;
     border-color: #d4af37;
   }
+  .debug-panel {
+    max-width: 900px;
+    width: 100%;
+    padding: 0.8rem 1.5rem;
+    background: #2a2218;
+    border: 1px solid #e67e22;
+    border-radius: 6px;
+    margin: 0 auto;
+    display: none;
+  }
+  .debug-panel h3 {
+    color: #e67e22;
+    font-family: Georgia, serif;
+    font-size: 0.95rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.6rem;
+  }
+  .debug-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.3rem 0;
+    font-size: 0.85rem;
+    flex-wrap: wrap;
+  }
+  .debug-row .racer-name {
+    font-weight: bold;
+    min-width: 90px;
+  }
+  .debug-row .start-info {
+    color: #999;
+    min-width: 150px;
+  }
+  .debug-frame-btn {
+    background: #2a2a2a;
+    color: #e67e22;
+    border: 1px solid #e67e22;
+    border-radius: 3px;
+    padding: 0.2rem 0.5rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    transition: all 0.2s;
+  }
+  .debug-frame-btn:hover {
+    background: #e67e22;
+    color: #1a1a1a;
+  }
+  .debug-footer {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-top: 0.6rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid #444;
+    font-size: 0.75rem;
+    color: #777;
+    flex-wrap: wrap;
+  }
+  .debug-action-btn {
+    background: #2a2a2a;
+    color: #e67e22;
+    border: 1px solid #e67e22;
+    border-radius: 4px;
+    padding: 0.3rem 0.8rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    transition: all 0.2s;
+  }
+  .debug-action-btn:hover {
+    background: #e67e22;
+    color: #1a1a1a;
+  }
+  .debug-stats {
+    margin-top: 0.6rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid #444;
+  }
+  .debug-stats-header {
+    color: #e67e22;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.3rem;
+  }
+  .debug-stats-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.15rem 0;
+    font-size: 0.8rem;
+    color: #999;
+    flex-wrap: wrap;
+  }
+  .debug-stats-row .racer-name {
+    font-weight: bold;
+    min-width: 90px;
+  }
+  .export-btn {
+    background: #2a2a2a;
+    color: #d4af37;
+    border: 1px solid #d4af37;
+    border-radius: 4px;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    flex-shrink: 0;
+    transition: all 0.2s;
+  }
+  .export-btn:hover { background: #d4af37; color: #1a1a1a; }
+  .export-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .export-modal {
+    background: #1a1a1a;
+    border: 2px solid #d4af37;
+    border-radius: 8px;
+    padding: 1.5rem;
+    max-width: 90vw;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+  }
+  .export-modal h3 {
+    font-family: Georgia, serif;
+    color: #d4af37;
+    font-size: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin: 0;
+  }
+  .export-modal canvas {
+    border: 1px solid #333;
+    border-radius: 4px;
+    max-width: 100%;
+  }
+  .export-progress-bar {
+    width: 100%;
+    height: 8px;
+    background: #2a2a2a;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .export-progress-fill {
+    height: 100%;
+    background: #d4af37;
+    border-radius: 4px;
+    width: 0%;
+    transition: width 0.2s;
+  }
+  .export-actions {
+    display: flex;
+    gap: 0.8rem;
+    align-items: center;
+  }
+  .export-actions button, .export-actions a {
+    background: #2a2a2a;
+    color: #e8e0d0;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 0.4rem 1rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    text-decoration: none;
+    transition: all 0.2s;
+  }
+  .export-actions button:hover, .export-actions a:hover {
+    background: #3a3a3a;
+    border-color: #d4af37;
+  }
+  .export-status {
+    color: #999;
+    font-size: 0.85rem;
+  }
   {{layoutCss}}
 </style>
 </head>
