@@ -6,8 +6,14 @@ import fs from 'fs';
 import path from 'path';
 import { c, RACER_COLORS } from './colors.js';
 import { buildProfileComparison, printProfileAnalysis, buildProfileMarkdown } from './profile-analysis.js';
+import { determineOverallWinner } from './race-utils.js';
 
 // --- Helper functions to eliminate duplication ---
+
+/** Count wins per racer from comparisons. Returns { racerName: winCount, ... }. */
+function computeWins(racerNames, comparisons) {
+  return Object.fromEntries(racerNames.map(name => [name, comparisons.filter(x => x.winner === name).length]));
+}
 
 /**
  * Compute comparison stats for a single measurement across racers.
@@ -60,18 +66,6 @@ export function getPlacementOrder(summary) {
   return indices;
 }
 
-/**
- * Determine overall winner from win counts.
- * Returns racer name, 'tie', or null (no data).
- */
-function determineOverallWinner(wins, racerNames, comparisons) {
-  if (comparisons.length === 0) return null;
-  const maxWins = Math.max(...wins);
-  const winnersWithMaxWins = racerNames.filter((_, i) => wins[i] === maxWins);
-  if (winnersWithMaxWins.length === 1) return winnersWithMaxWins[0];
-  if (winnersWithMaxWins.length === racerNames.length && maxWins === 0) return null;
-  return 'tie';
-}
 
 /**
  * Build markdown results table rows.
@@ -112,7 +106,7 @@ export function buildSummary(racerNames, results, settings, resultsDir) {
     return computeComparison(name, vals, racerNames);
   });
 
-  const wins = racerNames.map(name => comparisons.filter(x => x.winner === name).length);
+  const wins = computeWins(racerNames, comparisons);
   const overallWinner = determineOverallWinner(wins, racerNames, comparisons);
 
   return {
@@ -122,7 +116,7 @@ export function buildSummary(racerNames, results, settings, resultsDir) {
     settings: settings || {},
     comparisons,
     overallWinner,
-    wins: Object.fromEntries(racerNames.map((n, i) => [n, wins[i]])),
+    wins,
     errors: results.flatMap((r, i) => r.error ? [`${racerNames[i]}: ${r.error}`] : []),
     videos: Object.fromEntries(results.flatMap((r, i) => [
       [racerNames[i], r.videoPath || null],
@@ -347,7 +341,7 @@ export function buildMedianSummary(summaries, resultsDir) {
     return computeComparison(name, vals, racers);
   });
 
-  const wins = racers.map(name => comparisons.filter(x => x.winner === name).length);
+  const wins = computeWins(racers, comparisons);
   const overallWinner = determineOverallWinner(wins, racers, comparisons);
 
   return {
@@ -357,7 +351,7 @@ export function buildMedianSummary(summaries, resultsDir) {
     settings: summaries[0].settings,
     comparisons,
     overallWinner,
-    wins: Object.fromEntries(racers.map((n, i) => [n, wins[i]])),
+    wins,
     errors: summaries.flatMap(s => s.errors || []),
     videos: {},
     clickCounts: Object.fromEntries(racers.map(n => [n, 0])),

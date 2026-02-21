@@ -11,6 +11,7 @@
  */
 
 import { c, RACER_COLORS } from './colors.js';
+import { determineOverallWinner } from './race-utils.js';
 
 /**
  * Performance metric definitions.
@@ -160,14 +161,6 @@ export function buildProfileComparison(racerNames, profileData) {
   };
 }
 
-function determineOverallWinner(wins, racerNames, comparisons) {
-  if (comparisons.length === 0) return null;
-  const maxWins = Math.max(...racerNames.map(n => wins[n]));
-  const winnersWithMax = racerNames.filter(n => wins[n] === maxWins);
-  if (winnersWithMax.length === 1) return winnersWithMax[0];
-  if (maxWins === 0) return null;
-  return 'tie';
-}
 
 function groupByCategory(comparisons) {
   const groups = {};

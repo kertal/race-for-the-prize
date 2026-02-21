@@ -33,6 +33,17 @@ export const VIDEO_DEFAULTS = {
   gifBayerScale: 3        // GIF Bayer dithering scale
 };
 
+/**
+ * FFmpeg codec arguments by output format.
+ * Shared by sidebyside.js and results.js to avoid duplication.
+ */
+export function codecArgs(format) {
+  if (format === 'mov') return ['-c:v', 'libx264', '-pix_fmt', 'yuv420p'];
+  if (format === 'gif') return [];  // GIF uses filter_complex pipelines instead
+  if (format === 'webm') return ['-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0'];
+  return [];  // Unknown format — let ffmpeg infer from extension
+}
+
 // Visual cue detection thresholds for frame-accurate trimming
 export const CUE_DETECTION = {
   startHueMin: 130,       // Green cue min hue

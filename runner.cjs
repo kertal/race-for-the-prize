@@ -23,6 +23,15 @@ const { execFileSync } = require('child_process');
 let activeBrowsers = [];
 let activeContexts = [];
 
+// --- Named constants (previously magic numbers) ---
+
+const OLD_VIDEO_CLEANUP_MS = 5000;      // Age threshold for deleting stale recordings
+const MEDAL_DISPLAY_MS = 500;           // How long to show the placement medal overlay
+const POST_RACE_WAIT_MS = 500;          // Pause after race finishes for final video frames
+const SLOWMO_MULTIPLIER = 20;           // Playwright slowMo factor per slowmo unit
+const PAGE_TIMEOUT_MS = 90000;          // Default page action/navigation timeout
+const FFMPEG_TIMEOUT_MS = 120000;       // Timeout for ffmpeg/ffprobe operations
+
 // --- Constants (loaded from shared ESM module) ---
 
 // These will be populated by loadConstants() before main() runs
@@ -149,7 +158,7 @@ function extractSegments(videoPath, segments, browserId) {
         '-ss', seg.start.toFixed(3), '-t', (seg.end - seg.start).toFixed(3),
         '-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0',
         trimmedPath
-      ], { timeout: 120000, stdio: 'pipe' });
+      ], { timeout: FFMPEG_TIMEOUT_MS, stdio: 'pipe' });
       fs.unlinkSync(videoPath);
       fs.renameSync(trimmedPath, videoPath);
       return { trimmedPath: videoPath, fullPath };
@@ -168,7 +177,7 @@ function extractSegments(videoPath, segments, browserId) {
         '-ss', seg.start.toFixed(3), '-t', (seg.end - seg.start).toFixed(3),
         '-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0',
         segPath
-      ], { timeout: 120000, stdio: 'pipe' });
+      ], { timeout: FFMPEG_TIMEOUT_MS, stdio: 'pipe' });
     }
 
     fs.writeFileSync(concatListPath, segmentFiles.map(f => `file '${f}'`).join('\n'));
@@ -176,10 +185,10 @@ function extractSegments(videoPath, segments, browserId) {
     execFileSync('ffmpeg', [
       '-y', '-f', 'concat', '-safe', '0',
       '-i', concatListPath, '-c', 'copy', outputPath
-    ], { timeout: 120000, stdio: 'pipe' });
+    ], { timeout: FFMPEG_TIMEOUT_MS, stdio: 'pipe' });
 
-    for (const f of segmentFiles) { try { fs.unlinkSync(f); } catch {} }
-    try { fs.unlinkSync(concatListPath); } catch {}
+    for (const f of segmentFiles) { try { fs.unlinkSync(f); } catch (e) { console.error(`[extractSegments] Cleanup warning: ${e.message}`); } }
+    try { fs.unlinkSync(concatListPath); } catch (e) { console.error(`[extractSegments] Cleanup warning: ${e.message}`); }
     fs.unlinkSync(videoPath);
     fs.renameSync(outputPath, videoPath);
 
@@ -204,11 +213,13 @@ function cleanupOldVideos(dir) {
     const now = Date.now();
     for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.webm'))) {
       const filepath = path.join(dir, file);
-      if (now - fs.statSync(filepath).mtime.getTime() > 5000) {
+      if (now - fs.statSync(filepath).mtime.getTime() > OLD_VIDEO_CLEANUP_MS) {
         fs.unlinkSync(filepath);
       }
     }
-  } catch {}
+  } catch (e) {
+    console.error(`[cleanupOldVideos] Warning: ${e.message}`);
+  }
 }
 
 // --- Signal handling ---
@@ -227,54 +238,7 @@ process.on('SIGINT', cleanup);
 
 // --- Sync barrier for parallel mode ---
 
-/**
- * Blocks until `count` callers have called wait(), then releases all.
- * Used to synchronize two browsers at key moments (ready, recording start, stop).
- */
-class SyncBarrier {
-  constructor(count, sharedState = null) {
-    this.count = count;
-    this.waiting = 0;
-    this.resolvers = [];
-    this.sharedState = sharedState;
-    this.released = false;
-    this.checkIntervals = [];
-  }
-
-  releaseAll() {
-    if (this.released) return;
-    this.released = true;
-    // Clean up all polling intervals
-    this.checkIntervals.forEach(clearInterval);
-    this.checkIntervals = [];
-    this.resolvers.forEach(r => r({ aborted: true }));
-    this.resolvers = [];
-  }
-
-  async wait(label = '') {
-    if (this.released || this.sharedState?.hasError) return { aborted: true };
-
-    this.waiting++;
-    if (this.waiting >= this.count) {
-      this.resolvers.forEach(r => r({ aborted: false }));
-      this.waiting = 0;
-      this.resolvers = [];
-      return { aborted: false };
-    }
-
-    return new Promise(resolve => {
-      this.resolvers.push(resolve);
-      const check = setInterval(() => {
-        if (this.sharedState?.hasError || this.released) {
-          clearInterval(check);
-          this.checkIntervals = this.checkIntervals.filter(i => i !== check);
-          resolve({ aborted: true });
-        }
-      }, 100);
-      this.checkIntervals.push(check);
-    });
-  }
-}
+const { SyncBarrier } = require('./sync-barrier.cjs');
 
 // --- Click event tracker (injected into browser pages) ---
 
@@ -636,7 +600,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
         document.body.appendChild(el);
       });
     }
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(MEDAL_DISPLAY_MS);
   };
 
   const startRecording = async () => {
@@ -745,7 +709,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     await barriers.stop.wait(`${id} finished`);
   }
 
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(POST_RACE_WAIT_MS);
   return { segments, measurements };
 }
 
@@ -876,7 +840,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
 
   try {
     const launchOpts = { headless: headless || false, args: windowArgs };
-    if (slowmo > 0) launchOpts.slowMo = slowmo * 20;
+    if (slowmo > 0) launchOpts.slowMo = slowmo * SLOWMO_MULTIPLIER;
     browser = await chromium.launch(launchOpts);
     activeBrowsers.push(browser);
 
@@ -891,8 +855,8 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     activeContexts.push(context);
 
     const page = await context.newPage();
-    page.setDefaultTimeout(90000);
-    page.setDefaultNavigationTimeout(90000);
+    page.setDefaultTimeout(PAGE_TIMEOUT_MS);
+    page.setDefaultNavigationTimeout(PAGE_TIMEOUT_MS);
 
     await setupClickTracker(context, recordingStartTime);
     await applyThrottling(page, throttle, id);
@@ -915,7 +879,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     const adjustedClicks = remapClickTimestamps(clickEvents, markerSegments);
 
     await context.close();
-    activeContexts = activeContexts.filter(c => c !== context);
+    activeContexts = activeContexts.filter(ctx => ctx !== context);
     context = null;
     console.error(`[${id}] Context closed`);
 
