@@ -118,6 +118,23 @@ function buildRaceInfoHtml(summary) {
   return `<div class="race-info"><table>${rows.join('')}</table></div>`;
 }
 
+function buildMachineInfoHtml(machineInfo) {
+  if (!machineInfo) return '';
+  const rows = [];
+  const platformNames = { darwin: 'macOS', linux: 'Linux', win32: 'Windows' };
+  const platform = platformNames[machineInfo.platform] || machineInfo.platform;
+  rows.push(`<tr><td>OS</td><td>${escHtml(platform)} ${escHtml(machineInfo.osRelease)} (${escHtml(machineInfo.arch)})</td></tr>`);
+  rows.push(`<tr><td>CPU</td><td>${escHtml(machineInfo.cpuModel)} (${machineInfo.cpuCores} cores)</td></tr>`);
+  if (machineInfo.totalMemoryMB) {
+    const memGB = (machineInfo.totalMemoryMB / 1024).toFixed(1);
+    rows.push(`<tr><td>Memory</td><td>${memGB} GB</td></tr>`);
+  }
+  if (machineInfo.nodeVersion) {
+    rows.push(`<tr><td>Node.js</td><td>${escHtml(machineInfo.nodeVersion)}</td></tr>`);
+  }
+  return `<div class="machine-info"><table>${rows.join('')}</table></div>`;
+}
+
 function buildErrorsHtml(errors) {
   if (!errors || errors.length === 0) return '';
   return `<div class="errors"><ul>${errors.map(e => `<li>${escHtml(e)}</li>`).join('')}</ul></div>`;
@@ -978,6 +995,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     winnerBanner,
     videoSourceNote: medianRunLabel ? `<div class="video-source-note">Videos from ${escHtml(medianRunLabel)} (closest to median)</div>` : '',
     raceInfo: buildRaceInfoHtml(summary),
+    machineInfo: buildMachineInfoHtml(summary.machineInfo),
     errors: buildErrorsHtml(summary.errors),
     modeToggle,
     playerSection,

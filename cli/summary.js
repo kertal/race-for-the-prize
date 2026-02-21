@@ -3,9 +3,27 @@
  */
 
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { c, RACER_COLORS } from './colors.js';
 import { buildProfileComparison, printProfileAnalysis, buildProfileMarkdown } from './profile-analysis.js';
+
+/**
+ * Collect machine information about the host running the race.
+ */
+export function getMachineInfo() {
+  const cpus = os.cpus();
+  const cpuModel = cpus.length > 0 ? cpus[0].model.trim() : 'Unknown';
+  return {
+    platform: os.platform(),
+    arch: os.arch(),
+    osRelease: os.release(),
+    cpuModel,
+    cpuCores: cpus.length,
+    totalMemoryMB: Math.round(os.totalmem() / (1024 * 1024)),
+    nodeVersion: process.version,
+  };
+}
 
 // --- Helper functions to eliminate duplication ---
 
@@ -131,6 +149,7 @@ export function buildSummary(racerNames, results, settings, resultsDir) {
     clickCounts: Object.fromEntries(racerNames.map((n, i) => [n, (results[i].clickEvents || []).length])),
     profileMetrics: results.map(r => r.profileMetrics || null),
     profileComparison: buildProfileComparison(racerNames, results.map(r => r.profileMetrics || null)),
+    machineInfo: getMachineInfo(),
   };
 }
 
@@ -217,7 +236,7 @@ export function printSummary(summary) {
 }
 
 export function buildMarkdownSummary(summary, sideBySideName) {
-  const { racers, comparisons, overallWinner, wins, errors, videos, clickCounts, settings, timestamp, profileComparison } = summary;
+  const { racers, comparisons, overallWinner, wins, errors, videos, clickCounts, settings, timestamp, profileComparison, machineInfo } = summary;
   const lines = [];
 
   // ASCII art header
@@ -256,6 +275,18 @@ export function buildMarkdownSummary(summary, sideBySideName) {
     if (settings.format && settings.format !== 'webm') lines.push(`| **Format** | ${settings.format} |`);
     if (settings.headless) lines.push(`| **Headless** | yes |`);
     if (settings.runs && settings.runs > 1) lines.push(`| **Runs** | ${settings.runs} |`);
+  }
+  if (machineInfo) {
+    const platformNames = { darwin: 'macOS', linux: 'Linux', win32: 'Windows' };
+    const platform = platformNames[machineInfo.platform] || machineInfo.platform;
+    lines.push(`| **Machine** | ${platform} ${machineInfo.osRelease} (${machineInfo.arch}) |`);
+    lines.push(`| **CPU** | ${machineInfo.cpuModel} (${machineInfo.cpuCores} cores) |`);
+    if (machineInfo.totalMemoryMB) {
+      lines.push(`| **Memory** | ${(machineInfo.totalMemoryMB / 1024).toFixed(1)} GB |`);
+    }
+    if (machineInfo.nodeVersion) {
+      lines.push(`| **Node.js** | ${machineInfo.nodeVersion} |`);
+    }
   }
   lines.push('');
 
@@ -362,6 +393,7 @@ export function buildMedianSummary(summaries, resultsDir) {
     videos: {},
     clickCounts: Object.fromEntries(racers.map(n => [n, 0])),
     runs: summaries.length,
+    machineInfo: summaries[0].machineInfo || getMachineInfo(),
   };
 }
 
