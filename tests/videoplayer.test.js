@@ -1,10 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
 import { buildPlayerHtml } from '../cli/videoplayer.js';
 import { buildProfileComparison } from '../cli/profile-analysis.js';
-import { copyFFmpegFiles } from '../cli/results.js';
 
 const makeSummary = (overrides = {}) => ({
   racers: ['lauda', 'hunt'],
@@ -488,20 +484,14 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
     expect(defaultHtml).toContain('convertWithFFmpeg');
   });
 
-  it('includes loadFFmpeg function with local paths', () => {
+  it('includes loadFFmpeg function with CDN URLs', () => {
     expect(defaultHtml).toContain('loadFFmpeg');
-    expect(defaultHtml).toContain("import('./ffmpeg/index.js')");
-    expect(defaultHtml).toContain('./ffmpeg/ffmpeg-core.js');
-    expect(defaultHtml).toContain('./ffmpeg/ffmpeg-core.wasm');
+    expect(defaultHtml).toContain('unpkg.com/@ffmpeg/ffmpeg@0.12.15/dist/esm');
+    expect(defaultHtml).toContain('unpkg.com/@ffmpeg/core@0.12.10/dist/esm');
   });
 
   it('includes toBlobURL helper for CORS-safe loading', () => {
     expect(defaultHtml).toContain('toBlobURL');
-  });
-
-  it('includes file:// protocol check with helpful error message', () => {
-    expect(defaultHtml).toContain("location.protocol === 'file:'");
-    expect(defaultHtml).toContain('npx serve');
   });
 
   it('renders Convert dropdown in controls', () => {
@@ -529,42 +519,3 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
   });
 });
 
-// --- copyFFmpegFiles ---
-
-describe('copyFFmpegFiles', () => {
-  it('copies ffmpeg.wasm files to ffmpeg/ subdirectory', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'race-test-'));
-    try {
-      const result = copyFFmpegFiles(tmpDir);
-      expect(result).toBe(true);
-
-      const ffmpegDir = path.join(tmpDir, 'ffmpeg');
-      expect(fs.existsSync(ffmpegDir)).toBe(true);
-      // Check key files exist
-      for (const file of ['index.js', 'classes.js', 'worker.js', 'ffmpeg-core.js', 'ffmpeg-core.wasm']) {
-        expect(fs.existsSync(path.join(ffmpegDir, file))).toBe(true);
-      }
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  it('returns false when packages are not resolvable', () => {
-    // Mock by temporarily breaking the module resolution — test the catch path
-    // by providing a read-only destination that prevents mkdir
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'race-test-'));
-    const readOnlyDir = path.join(tmpDir, 'readonly');
-    fs.mkdirSync(readOnlyDir);
-    fs.chmodSync(readOnlyDir, 0o444);
-    try {
-      const result = copyFFmpegFiles(readOnlyDir);
-      // On systems where root can write anywhere, this may still succeed
-      if (!result) {
-        expect(fs.existsSync(path.join(readOnlyDir, 'ffmpeg'))).toBe(false);
-      }
-    } finally {
-      fs.chmodSync(readOnlyDir, 0o755);
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-});

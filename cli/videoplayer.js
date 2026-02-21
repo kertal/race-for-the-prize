@@ -757,15 +757,14 @@ function buildPlayerScript(config) {
 
   function loadFFmpeg() {
     if (ffmpegInstance) return Promise.resolve(ffmpegInstance);
-    if (location.protocol === 'file:') {
-      return Promise.reject(new Error('Conversion requires HTTP(S) — serve this file via a local server (e.g. npx serve)'));
-    }
-    return import('./ffmpeg/index.js')
+    var FFMPEG_CDN = 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.15/dist/esm';
+    var CORE_CDN = 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm';
+    return import(FFMPEG_CDN + '/index.js')
       .then(function(mod) {
         var ff = new mod.FFmpeg();
         return Promise.all([
-          toBlobURL('./ffmpeg/ffmpeg-core.js', 'text/javascript'),
-          toBlobURL('./ffmpeg/ffmpeg-core.wasm', 'application/wasm'),
+          toBlobURL(CORE_CDN + '/ffmpeg-core.js', 'text/javascript'),
+          toBlobURL(CORE_CDN + '/ffmpeg-core.wasm', 'application/wasm'),
         ]).then(function(urls) {
           return ff.load({ coreURL: urls[0], wasmURL: urls[1] });
         }).then(function() {
