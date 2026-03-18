@@ -63,12 +63,12 @@ describe('buildPlayerHtml', () => {
     expect(defaultHtml).toContain('profile-bar-fill');
   });
 
-  it('shows winner banner', () => {
-    expect(defaultHtml).toContain('LAUDA wins the prize!');
+  it('shows winner trophy on racer label', () => {
+    expect(defaultHtml).toContain('&#127942;');
   });
 
-  it('shows tie banner when tied', () => {
-    expect(withSummary({ overallWinner: 'tie' })).toContain("It's a Tie!");
+  it('shows tie trophy on racer labels when tied', () => {
+    expect(withSummary({ overallWinner: 'tie' })).toContain('&#129309;');
   });
 
   it('includes playback controls', () => {
@@ -159,13 +159,11 @@ describe('buildPlayerHtml', () => {
     expect(defaultHtml).toContain('getTime');
   });
 
-  it('shows mode toggle when full videos provided', () => {
+  it('embeds full video paths when full videos provided', () => {
     const fullVideos = ['lauda/lauda.full.webm', 'hunt/hunt.full.webm'];
     const html = withOptions({ fullVideoFiles: fullVideos });
-    expect(html).toContain('id="modeRace"');
-    expect(html).toContain('id="modeFull"');
-    expect(html).toContain('class="mode-btn active"');
-    expect(html).toContain('switchToFull');
+    expect(html).not.toContain('id="modeRace"');
+    expect(html).not.toContain('id="modeFull"');
     expect(html).toContain('"lauda/lauda.full.webm"');
     expect(html).toContain('"hunt/hunt.full.webm"');
   });
@@ -178,11 +176,11 @@ describe('buildPlayerHtml', () => {
     expect(html).toContain('switchToMerged');
   });
 
-  it('shows all mode buttons when both full and merged provided', () => {
+  it('shows merged button when both full and merged provided', () => {
     const fullVideos = ['lauda/lauda.full.webm', 'hunt/hunt.full.webm'];
     const html = withOptions({ fullVideoFiles: fullVideos, mergedVideoFile: 'merged.webm' });
-    expect(html).toContain('id="modeRace"');
-    expect(html).toContain('id="modeFull"');
+    expect(html).not.toContain('id="modeRace"');
+    expect(html).not.toContain('id="modeFull"');
     expect(html).toContain('id="modeMerged"');
   });
 
@@ -364,10 +362,10 @@ describe('buildPlayerHtml click counts', () => {
 describe('buildPlayerHtml clipTimes', () => {
   const withClips = (clips, opts = {}) => withOptions({ clipTimes: clips, ...opts }, opts.summary);
 
-  it('shows mode toggle with Full button when clipTimes provided', () => {
+  it('does not show Race/Full mode buttons when clipTimes provided', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.5, end: 3 }]);
-    expect(html).toContain('id="modeRace"');
-    expect(html).toContain('id="modeFull"');
+    expect(html).not.toContain('id="modeRace"');
+    expect(html).not.toContain('id="modeFull"');
   });
 
   it('embeds clipTimes data in player script', () => {
@@ -383,7 +381,7 @@ describe('buildPlayerHtml clipTimes', () => {
 
   it('handles clipTimes with null entries', () => {
     const html = withClips([{ start: 1, end: 2 }, null]);
-    expect(html).toContain('id="modeFull"');
+    expect(html).not.toContain('id="modeFull"');
     expect(html).toContain('const clipTimes =');
   });
 

@@ -171,10 +171,8 @@ export function buildResultsHtml(comparisons, racers, clickCounts) {
   return html;
 }
 
-export function buildProfileSummaryHtml(profileComparison, racers) {
-  if (!profileComparison) return '';
-
-  function buildRows(winsMap) {
+export function buildProfileSummaryHtml(profileComparison, racers, comparisons) {
+  function buildWinRows(winsMap) {
     if (!racers.some(n => winsMap[n] > 0)) return '';
     return racers
       .map((name, i) => ({ name, i, count: winsMap[name] || 0 }))
@@ -185,17 +183,31 @@ export function buildProfileSummaryHtml(profileComparison, racers) {
       }).join('');
   }
 
-  const measuredWins = profileComparison.measured?.wins || {};
-  const totalWins = profileComparison.total?.wins || {};
-  const measuredRows = buildRows(measuredWins);
-  const totalRows = buildRows(totalWins);
+  const timingRows = (comparisons || []).map(comp => {
+    const sorted = sortByValue(racers, i => {
+      const r = comp.racers[i];
+      return { val: r ? r.duration : null, formatted: r ? `${r.duration.toFixed(3)}s` : '-' };
+    });
+    return render(T['profile-metric'], {
+      titleAttr: '',
+      name: escHtml(comp.name),
+      desc: '',
+      rows: buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`),
+    });
+  }).join('\n');
 
-  if (!measuredRows && !totalRows) return '';
+  const measuredWins = profileComparison?.measured?.wins || {};
+  const totalWins = profileComparison?.total?.wins || {};
+  const measuredRows = buildWinRows(measuredWins);
+  const totalRows = buildWinRows(totalWins);
+
+  if (!timingRows && !measuredRows && !totalRows) return '';
 
   let html = `<details class="section" open>
   <summary><h2>Performance Summary</h2></summary>
   <div class="section-body">`;
 
+  if (timingRows) html += timingRows;
   if (measuredRows) {
     html += render(T['profile-metric'], { titleAttr: '', name: 'During Measurement', desc: '', rows: measuredRows });
   }
