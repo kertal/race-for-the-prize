@@ -82,6 +82,13 @@ export function buildRunNavHtml(runNav) {
   if (!runNav) return '';
   const { currentRun, totalRuns, pathPrefix } = runNav;
   let html = '<div class="run-nav">';
+  const isMedianCurrent = currentRun === 'median';
+  const medianCls = isMedianCurrent ? 'run-nav-btn active' : 'run-nav-btn';
+  if (isMedianCurrent) {
+    html += `<span class="${medianCls}" aria-current="page">Median</span>`;
+  } else {
+    html += `<a class="${medianCls}" href="${escHtml(pathPrefix)}index.html">Median</a>`;
+  }
   for (let i = 1; i <= totalRuns; i++) {
     const isCurrent = currentRun === i;
     const cls = isCurrent ? 'run-nav-btn active' : 'run-nav-btn';
@@ -90,13 +97,6 @@ export function buildRunNavHtml(runNav) {
     } else {
       html += `<a class="${cls}" href="${escHtml(pathPrefix)}${i}/index.html">Run ${i}</a>`;
     }
-  }
-  const isMedianCurrent = currentRun === 'median';
-  const medianCls = isMedianCurrent ? 'run-nav-btn active' : 'run-nav-btn';
-  if (isMedianCurrent) {
-    html += `<span class="${medianCls}" aria-current="page">Median</span>`;
-  } else {
-    html += `<a class="${medianCls}" href="${escHtml(pathPrefix)}index.html">Median</a>`;
   }
   html += '</div>';
   return html;
@@ -171,7 +171,7 @@ export function buildResultsHtml(comparisons, racers, clickCounts) {
   return html;
 }
 
-export function buildProfileSummaryHtml(profileComparison, racers, comparisons) {
+export function buildProfileSummaryHtml(profileComparison, racers) {
   function buildWinRows(winsMap) {
     if (!racers.some(n => winsMap[n] > 0)) return '';
     return racers
@@ -183,31 +183,17 @@ export function buildProfileSummaryHtml(profileComparison, racers, comparisons) 
       }).join('');
   }
 
-  const timingRows = (comparisons || []).map(comp => {
-    const sorted = sortByValue(racers, i => {
-      const r = comp.racers[i];
-      return { val: r ? r.duration : null, formatted: r ? `${r.duration.toFixed(3)}s` : '-' };
-    });
-    return render(T['profile-metric'], {
-      titleAttr: '',
-      name: escHtml(comp.name),
-      desc: '',
-      rows: buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`),
-    });
-  }).join('\n');
-
   const measuredWins = profileComparison?.measured?.wins || {};
   const totalWins = profileComparison?.total?.wins || {};
   const measuredRows = buildWinRows(measuredWins);
   const totalRows = buildWinRows(totalWins);
 
-  if (!timingRows && !measuredRows && !totalRows) return '';
+  if (!measuredRows && !totalRows) return '';
 
   let html = `<details class="section" open>
   <summary><h2>Performance Summary</h2></summary>
   <div class="section-body">`;
 
-  if (timingRows) html += timingRows;
   if (measuredRows) {
     html += render(T['profile-metric'], { titleAttr: '', name: 'During Measurement', desc: '', rows: measuredRows });
   }

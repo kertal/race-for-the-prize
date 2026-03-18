@@ -1,4 +1,4 @@
-// Bravo — Recording delay: 200ms, Race duration: ~800ms
+// Bravo — Recording delay: 200ms, Render: ~800ms, Reload: ~500ms
 // The timer on screen shows elapsed ms since page load, making it easy
 // to verify that the trimmed video starts/ends at the right timestamps.
 
@@ -23,6 +23,16 @@ await page.raceStart('Render');
 await page.evaluate(() => window.__setPhase('racing', 800));
 await page.waitForTimeout(800);
 page.raceEnd('Render');
+
+// Gap between measurements
+await page.evaluate(() => window.__setPhase('recording'));
+await page.waitForTimeout(200);
+
+// --- Race measurement 2: ~500ms ---
+await page.raceStart('Reload');
+await page.evaluate(() => window.__setPhase('racing', 500));
+await page.waitForTimeout(500);
+page.raceEnd('Reload');
 
 // Padding after measurement
 await page.evaluate(() => window.__setPhase('done'));

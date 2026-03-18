@@ -247,14 +247,13 @@ describe('buildPlayerHtml', () => {
     expect(html).toContain('Results');
   });
 
-  it('shows median page with videos and source note', () => {
+  it('shows median page with videos', () => {
     const html = buildPlayerHtml(makeSummary(), ['2/lauda/lauda.race.webm', '2/hunt/hunt.race.webm'], null, null, {
       runNavigation: { currentRun: 'median', totalRuns: 3, pathPrefix: '' },
-      medianRunLabel: 'Run 2',
     });
     expect(html).toContain('<script>');
     expect(html).toContain('src="2/lauda/lauda.race.webm"');
-    expect(html).toContain('Videos from Run 2 (closest to median)');
+    expect(html).not.toContain('closest to median');
   });
 
   it('shows run navigation bar', () => {

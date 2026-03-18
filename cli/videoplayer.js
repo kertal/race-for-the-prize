@@ -61,7 +61,7 @@ function buildPlayerScript(config) {
 // ---------------------------------------------------------------------------
 
 export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, options = {}) {
-  const { fullVideoFiles, mergedVideoFile, traceFiles, raceScriptFiles, settingsFileCopied, runNavigation, medianRunLabel, clipTimes, ffmpegPathPrefix } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, raceScriptFiles, settingsFileCopied, runNavigation, clipTimes, ffmpegPathPrefix } = options;
   const ffmpegDir = (ffmpegPathPrefix || './') + 'ffmpeg/';
   const racers = summary.racers;
   const count = racers.length;
@@ -147,7 +147,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     layoutCss: `.player-container { max-width: ${containerMaxWidth}px; }\n  .racer { max-width: ${maxWidth}px; }`,
     runNav: buildRunNavHtml(runNavigation),
     winnerBanner,
-    videoSourceNote: medianRunLabel ? `<div class="video-source-note">Videos from ${escHtml(medianRunLabel)} (closest to median)</div>` : '',
+    videoSourceNote: '',
     raceInfo: buildRaceInfoHtml(summary),
     machineInfo: buildMachineInfoHtml(summary.machineInfo),
     errors: buildErrorsHtml(summary.errors),
@@ -155,7 +155,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     playerSection,
     debugPanel: debugPanelOut,
     results: buildResultsHtml(summary.comparisons || [], racers, summary.clickCounts),
-    profileSummary: buildProfileSummaryHtml(summary.profileComparison || null, racers, summary.comparisons || []),
+    profileSummary: buildProfileSummaryHtml(summary.profileComparison || null, racers),
     profile: buildProfileHtml(summary.profileComparison || null, racers),
     files: buildFilesHtml(racers, videoFiles, {
       fullVideoFiles, mergedVideoFile, traceFiles, raceScriptFiles, settingsFileCopied, altFormat, altFiles, placementOrder,

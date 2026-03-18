@@ -103,8 +103,8 @@ function canApplyTraceCalibration(ct) {
 }
 
 function traceTsToClipPts(ct, traceTs) {
-  if (!hasTraceCalibration(ct) || !Number.isFinite(traceTs) || !Number.isFinite(ct.start)) return null;
-  return ct.start + ((traceTs - ct.traceCalibration.recordingStartTs) / 1e6);
+  if (!hasTraceCalibration(ct) || !Number.isFinite(traceTs)) return null;
+  return (traceTs - ct.traceCalibration.recordingStartTs) / 1e6;
 }
 
 function seekAll(t) {
