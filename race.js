@@ -793,6 +793,7 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
   fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMultiRunMarkdown(medianSummary, summaries));
 }
 
-main().then(() => { if (kvFlags.serve === 'false' || settings.noRecording) process.exit(0); });
+await main();
+if (kvFlags.serve === 'false' || settings.noRecording) process.exit(0);
 
 } // end isMainModule

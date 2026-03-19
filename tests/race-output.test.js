@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { formatTimestamp, buildResultsPaths, waitForEnter } from '../race.js';
-import { EventEmitter } from 'events';
 
 describe('formatTimestamp', () => {
   it('formats date as YYYY-MM-DD_HH-MM-SS', () => {
@@ -38,6 +37,17 @@ describe('buildResultsPaths', () => {
   });
 });
 
+function setupTTYStdin() {
+  Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true, configurable: true });
+  Object.defineProperty(process.stdin, 'readableEnded', { value: false, writable: true, configurable: true });
+  if (!process.stdin.setRawMode) process.stdin.setRawMode = () => {};
+  const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => {});
+  const setRawModeSpy = vi.spyOn(process.stdin, 'setRawMode').mockImplementation(() => {});
+  const pauseSpy = vi.spyOn(process.stdin, 'pause').mockImplementation(() => {});
+  const resumeSpy = vi.spyOn(process.stdin, 'resume').mockImplementation(() => {});
+  return { stderrSpy, setRawModeSpy, pauseSpy, resumeSpy };
+}
+
 describe('waitForEnter', () => {
   let origIsTTY;
 
@@ -49,13 +59,6 @@ describe('waitForEnter', () => {
     Object.defineProperty(process.stdin, 'isTTY', { value: origIsTTY, writable: true, configurable: true });
   });
 
-  function setupTTYStdin() {
-    Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true, configurable: true });
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => {});
-    const pauseSpy = vi.spyOn(process.stdin, 'pause').mockImplementation(() => {});
-    const resumeSpy = vi.spyOn(process.stdin, 'resume').mockImplementation(() => {});
-    return { stderrSpy, pauseSpy, resumeSpy };
-  }
 
   it('resolves immediately in non-TTY environments', async () => {
     Object.defineProperty(process.stdin, 'isTTY', { value: false, writable: true, configurable: true });
