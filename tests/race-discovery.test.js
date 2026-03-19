@@ -122,6 +122,24 @@ describe('racer file discovery', () => {
     const { racerFiles } = discoverRacers(tmpDir);
     expect(racerFiles).toEqual([]);
   });
+
+  it('does not throw when racer names are unique', () => {
+    fs.writeFileSync(path.join(tmpDir, 'alpha.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'beta.spec.js'), '');
+
+    const { racerNames } = discoverRacers(tmpDir);
+    expect(racerNames).toEqual(['alpha', 'beta']);
+  });
+
+  it('throws on duplicate racer names in .js fallback mode', () => {
+    // alpha.spec.js stripped to "alpha", alpha.js stripped to "alpha"
+    // When fewer than 2 .spec.js, falls back to .js which includes .spec.js files
+    fs.writeFileSync(path.join(tmpDir, 'alpha.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'alpha.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'beta.js'), '');
+
+    expect(() => discoverRacers(tmpDir)).toThrow('Duplicate racer names detected: alpha');
+  });
 });
 
 describe('argument parsing', () => {
@@ -169,6 +187,14 @@ describe('argument parsing', () => {
     expect(positional).toEqual(['./races/test']);
   });
 
+  it('handles space-separated --cpu, --network, --format, --slowmo', () => {
+    const { kvFlags } = parseArgs(['dir', '--cpu', '4', '--network', 'slow-3g', '--format', 'mov', '--slowmo', '2']);
+    expect(kvFlags.cpu).toBe('4');
+    expect(kvFlags.network).toBe('slow-3g');
+    expect(kvFlags.format).toBe('mov');
+    expect(kvFlags.slowmo).toBe('2');
+  });
+
   it('treats unknown flags followed by a value as bool flags', () => {
     const { boolFlags, positional } = parseArgs(['--unknown', 'somevalue']);
     expect(boolFlags.has('unknown')).toBe(true);
@@ -210,6 +236,11 @@ describe('settings override', () => {
   it('CLI --pause sets pauseBetweenRuns', () => {
     const s = applyOverrides({}, new Set(['pause']), {});
     expect(s.pauseBetweenRuns).toBe(true);
+  });
+
+  it('CLI --no-recording sets noRecording', () => {
+    const s = applyOverrides({}, new Set(['no-recording']), {});
+    expect(s.noRecording).toBe(true);
   });
 
   it('preserves settings when no overrides', () => {

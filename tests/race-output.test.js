@@ -91,6 +91,31 @@ describe('waitForEnter', () => {
     expect(stderrSpy).toHaveBeenCalledWith('prompt ');
   });
 
+  it('ignores type-ahead data emitted before the drain timeout', async () => {
+    vi.useFakeTimers();
+    const { stderrSpy } = setupTTYStdin();
+
+    const promise = waitForEnter('prompt ');
+    // Emit data immediately (before drain timeout) — should be discarded
+    process.stdin.emit('data', '\n');
+
+    // Advance past the drain timeout
+    await vi.runAllTimersAsync();
+
+    // Promise should NOT have resolved yet (the early data was drained)
+    let resolved = false;
+    promise.then(() => { resolved = true; });
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+
+    // Now emit data after drain — should resolve
+    process.stdin.emit('data', '\n');
+    await promise;
+
+    vi.useRealTimers();
+    stderrSpy.mockRestore();
+  });
+
   it('resolves when stdin emits error event', async () => {
     vi.useFakeTimers();
     setupTTYStdin();
