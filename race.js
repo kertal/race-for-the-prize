@@ -45,6 +45,37 @@ export function buildResultsPaths(resultsDir, cwd = process.cwd()) {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+/** Wait for the user to press Enter, displaying a prompt message. Resolves immediately in non-TTY environments. */
+export async function waitForEnter(message) {
+  if (!process.stdin.isTTY) {
+    process.stderr.write(message + ' (skipped — non-interactive)\n');
+    return;
+  }
+
+  process.stderr.write(message);
+
+  // Drain any type-ahead input that accumulated during the previous run:
+  // resume() starts flowing, a tick with no listeners discards buffered data.
+  process.stdin.resume();
+  await new Promise(r => setTimeout(r, 50));
+
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      process.stdin.removeListener('data', onData);
+      process.stdin.removeListener('end', onDone);
+      process.stdin.removeListener('error', onDone);
+      process.stdin.pause();
+    };
+
+    const onData = () => { cleanup(); resolve(); };
+    const onDone = () => { cleanup(); resolve(); };
+
+    process.stdin.once('data', onData);
+    process.stdin.once('end', onDone);
+    process.stdin.once('error', onDone);
+  });
+}
+
 // --- Race execution (module-scope functions with explicit context) ---
 
 /** Spawn the runner process, show animation, return parsed JSON result. */
@@ -433,6 +464,49 @@ ${c.bold}Run it:${c.reset}
   process.exit(0);
 }
 
+// Helper: load race config for a given directory (discovers racers, loads settings, builds ctx)
+function loadRaceDir(raceDir) {
+  if (!fs.existsSync(raceDir)) {
+    console.error(`${c.red}Error: Race directory not found: ${raceDir}${c.reset}`);
+    process.exit(1);
+  }
+
+  const { racerFiles, racerNames } = discoverRacers(raceDir);
+  if (racerFiles.length < 2) {
+    console.error(`${c.red}Error: Need at least 2 .spec.js (or .js) script files in ${raceDir}, found ${racerFiles.length}${c.reset}`);
+    process.exit(1);
+  }
+  if (racerFiles.length > 5) {
+    console.error(`${c.yellow}Warning: Found ${racerFiles.length} script files, using first five: ${racerFiles.slice(0, 5).join(', ')}${c.reset}`);
+  }
+  const scripts = racerFiles.map(f => fs.readFileSync(path.join(raceDir, f), 'utf-8'));
+
+  let settings = {};
+  const settingsPath = path.join(raceDir, 'settings.json');
+  if (fs.existsSync(settingsPath)) {
+    try {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    } catch (e) {
+      console.error(`${c.yellow}Warning: Could not parse settings.json: ${e.message}${c.reset}`);
+    }
+  }
+  settings = applyOverrides(settings, boolFlags, kvFlags);
+  settings.parallel    = settings.parallel    ?? false;
+  settings.headless    = settings.headless    ?? false;
+  settings.noOverlay   = settings.noOverlay   ?? false;
+  settings.noRecording = settings.noRecording ?? false;
+  settings.ffmpeg      = settings.ffmpeg      ?? false;
+  settings.noWasm      = settings.noWasm      ?? false;
+  settings.format      = settings.format      ?? 'webm';
+  settings.network     = settings.network     ?? 'none';
+  settings.cpuThrottle = settings.cpuThrottle ?? 1;
+  settings.slowmo      = settings.slowmo      ?? 0;
+  settings.runs        = settings.runs        ?? 1;
+
+  const ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir, racerFiles });
+  return { ctx, settings, racerNames };
+}
+
 if (positional.length === 0) {
   console.error(`
 ${c.yellow}    ____                   ____              _   _            ____       _          ${c.reset}
@@ -480,6 +554,7 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}4${c.reset}              CPU throttle multiplier (1=none)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--format${c.reset}=${c.green}mov${c.reset}          Output format: webm (default), mov, gif
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--runs${c.reset}=${c.green}3${c.reset}            Run multiple times, report median
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--pause${c.reset}              Pause between runs (press Enter to continue)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--slowmo${c.reset}=${c.green}2${c.reset}           Slow-motion side-by-side replay (2x, 3x, etc.)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-overlay${c.reset}         Record videos without overlays
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-recording${c.reset}      Skip video recording, just measure
@@ -503,126 +578,154 @@ if (boolFlags.has('results')) {
   process.exit(0);
 }
 
-// --- Discover racers ---
-
-const { racerFiles, racerNames } = discoverRacers(raceDir);
-
-if (racerFiles.length < 2) {
-  console.error(`${c.red}Error: Need at least 2 .spec.js (or .js) script files in ${raceDir}, found ${racerFiles.length}${c.reset}`);
-  process.exit(1);
-}
-if (racerFiles.length > 5) {
-  console.error(`${c.yellow}Warning: Found ${racerFiles.length} script files, using first five: ${racerFiles.slice(0, 5).join(', ')}${c.reset}`);
-}
-const scripts = racerFiles.map(f => fs.readFileSync(path.join(raceDir, f), 'utf-8'));
-
-// --- Settings (settings.json, overridden by CLI flags) ---
-
-let settings = {};
-const settingsPath = path.join(raceDir, 'settings.json');
-if (fs.existsSync(settingsPath)) {
-  try {
-    settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-  } catch (e) {
-    console.error(`${c.yellow}Warning: Could not parse settings.json: ${e.message}${c.reset}`);
-  }
-}
-
-settings = applyOverrides(settings, boolFlags, kvFlags);
-
-// --- Resolve settings defaults once (avoid repeated `|| false` everywhere) ---
-
-settings.parallel = settings.parallel ?? false;
-settings.headless = settings.headless ?? false;
-settings.noOverlay = settings.noOverlay ?? false;
-settings.noRecording = settings.noRecording ?? false;
-settings.ffmpeg = settings.ffmpeg ?? false;
-settings.noWasm = settings.noWasm ?? false;
-settings.format = settings.format ?? 'webm';
-settings.network = settings.network ?? 'none';
-settings.cpuThrottle = settings.cpuThrottle ?? 1;
-settings.slowmo = settings.slowmo ?? 0;
-settings.runs = settings.runs ?? 1;
-
-// --- Build race context ---
-
-const ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir, racerFiles });
-const resultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}`);
+const { ctx, settings, racerNames } = loadRaceDir(raceDir);
 const totalRuns = settings.runs;
+const resultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}`);
 
 // --- Main ---
 
+/**
+ * Run a single racer (by index) alone for one iteration.
+ * Returns { rawResult, movedResult } with recordings moved into racerRunDir.
+ */
+async function runRacerAlone(browserIdx, racerRunDir) {
+  const recordingsDir = path.join(ctx.raceDir || resultsDir, `tmp-r${browserIdx}`);
+  fs.mkdirSync(recordingsDir, { recursive: true });
+  fs.mkdirSync(racerRunDir, { recursive: true });
+
+  const singleCtx = {
+    ...ctx,
+    racerNames: [racerNames[browserIdx]],
+    runnerConfig: { ...ctx.runnerConfig, browsers: [ctx.runnerConfig.browsers[browserIdx]], recordingsDir },
+  };
+
+  const rawResult = await spawnRunner(singleCtx);
+  const movedResult = moveResults(recordingsDir, racerNames[browserIdx], racerRunDir, rawResult.browsers?.[0] || {});
+  fs.rmSync(recordingsDir, { recursive: true, force: true });
+  return { rawResult, movedResult };
+}
+
+/**
+ * Build the per-run output (summary.json + index.html) after all racers' recordings
+ * for run `i` are already moved into their run directories.
+ */
+function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts = {}) {
+  const { format, ffmpeg, noWasm } = settings;
+
+  const progress = startProgress('Processing recordings…');
+  const summary = buildSummary(racerNames, runMovedResults, settings, runDir);
+  fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
+
+  const raceScriptFiles = [];
+  let settingsFileCopied = false;
+  if (ctx.raceDir && ctx.racerFiles) {
+    for (const f of ctx.racerFiles) {
+      try { fs.copyFileSync(path.join(ctx.raceDir, f), path.join(runDir, f)); raceScriptFiles.push(f); } catch (e) {}
+    }
+    const srcSettings = path.join(ctx.raceDir, 'settings.json');
+    if (fs.existsSync(srcSettings)) {
+      try { fs.copyFileSync(srcSettings, path.join(runDir, 'settings.json')); settingsFileCopied = true; } catch (e) {}
+    }
+  }
+
+  progress.done('Recordings processed');
+
+  const clipTimes = ffmpeg ? null : racerNames.map((_, ri) => {
+    const b = runRawResults[ri].browsers?.[0];
+    const segs = b?.recordingSegments;
+    if (!segs || segs.length === 0) return null;
+    return {
+      start: segs[0].start, end: segs[0].end,
+      recordingOffset: b?.recordingOffset || 0,
+      wallClockDuration: b?.wallClockDuration || 0,
+      measurements: b?.measurements || [],
+      calibratedStart: b?.calibratedStart ?? null,
+      traceCalibration: b?.traceCalibration || null,
+    };
+  });
+
+  const videoFiles = racerNames.map(name => `${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
+  const traceFiles = racerNames.map(name => `${name}/${name}.trace.json`);
+  const playerOptions = {
+    traceFiles, raceScriptFiles, settingsFileCopied,
+    runNavigation: runNav, clipTimes,
+    ffmpegPathPrefix: raceOpts.ffmpegPathPrefix || './',
+  };
+  fs.writeFileSync(path.join(runDir, 'index.html'), buildPlayerHtml(summary, videoFiles, null, null, playerOptions));
+  if (!raceOpts.skipCopyFFmpeg && !noWasm) copyFFmpegFiles(runDir);
+
+  return { summary, clipTimes };
+}
+
 async function main() {
   try {
-    if (totalRuns === 1) {
-      const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir);
-      printSummary(summary);
-      const md = buildMarkdownSummary(summary, sideBySidePath ? sideBySideName : null);
-      fs.writeFileSync(path.join(resultsDir, 'README.md'), md);
-    } else {
-      fs.mkdirSync(resultsDir, { recursive: true });
-      const summaries = [];
-      const sideBySideNames = [];
-      const allClipTimes = [];
+    if (!settings.pauseBetweenRuns) {
+      // --- Normal mode: both racers run together per run ---
+      if (totalRuns === 1) {
+        const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir);
+        printSummary(summary);
+        fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summary, sideBySidePath ? sideBySideName : null));
+      } else {
+        fs.mkdirSync(resultsDir, { recursive: true });
+        const summaries = [], sideBySideNames = [], allClipTimes = [];
 
+        for (let i = 0; i < totalRuns; i++) {
+          console.error(`\n  ${c.bold}${c.cyan}── Run ${i + 1} of ${totalRuns} ──${c.reset}`);
+          const runNav = { currentRun: i + 1, totalRuns, pathPrefix: '../' };
+          const { summary, sideBySidePath, sideBySideName, clipTimes: runClipTimes } = await runSingleRace(ctx, path.join(resultsDir, String(i + 1)), runNav, { skipCopyFFmpeg: true, ffmpegPathPrefix: '../' });
+          printSummary(summary);
+          summaries.push(summary);
+          sideBySideNames.push(sideBySidePath ? sideBySideName : null);
+          allClipTimes.push(runClipTimes);
+        }
+
+        buildMedianOutput(summaries, sideBySideNames, allClipTimes);
+      }
+    } else {
+      // --- Split mode: all runs of each racer in sequence, pause between racers ---
+      // A₁ → A₂ → … → Aₙ → [PAUSE] → B₁ → B₂ → … → Bₙ
+      fs.mkdirSync(resultsDir, { recursive: true });
+      const multiRun = totalRuns > 1;
+
+      // rawResults[racerIdx][runIdx], movedResults[racerIdx][runIdx]
+      const rawResults  = racerNames.map(() => Array(totalRuns).fill(null));
+      const movedResults = racerNames.map(() => Array(totalRuns).fill(null));
+
+      for (let ri = 0; ri < racerNames.length; ri++) {
+        if (ri > 0) {
+          await waitForEnter(`\n  ${c.bold}${c.yellow}⏸  Paused — press Enter to start ${racerNames[ri]}...${c.reset} `);
+        }
+        for (let i = 0; i < totalRuns; i++) {
+          const label = multiRun ? `${racerNames[ri]}: Run ${i + 1} of ${totalRuns}` : racerNames[ri];
+          console.error(`\n  ${c.bold}${c.cyan}── ${label} ──${c.reset}`);
+          const runDir = multiRun ? path.join(resultsDir, String(i + 1)) : resultsDir;
+          const { rawResult, movedResult } = await runRacerAlone(ri, path.join(runDir, racerNames[ri]));
+          rawResults[ri][i] = rawResult;
+          movedResults[ri][i] = movedResult;
+        }
+      }
+
+      const summaries = [], allClipTimes = [];
       for (let i = 0; i < totalRuns; i++) {
-        console.error(`\n  ${c.bold}${c.cyan}── Run ${i + 1} of ${totalRuns} ──${c.reset}`);
-        const runNav = { currentRun: i + 1, totalRuns, pathPrefix: '../' };
-        const { summary, sideBySidePath, sideBySideName, clipTimes: runClipTimes } = await runSingleRace(ctx, path.join(resultsDir, String(i + 1)), runNav, { skipCopyFFmpeg: true, ffmpegPathPrefix: '../' });
+        const runDir = multiRun ? path.join(resultsDir, String(i + 1)) : resultsDir;
+        const runNav = multiRun ? { currentRun: i + 1, totalRuns, pathPrefix: '../' } : null;
+        const { summary, clipTimes } = buildRunOutput(
+          runDir,
+          racerNames.map((_, ri) => rawResults[ri][i]),
+          racerNames.map((_, ri) => movedResults[ri][i]),
+          runNav,
+          { skipCopyFFmpeg: multiRun, ffmpegPathPrefix: multiRun ? '../' : './' }
+        );
         printSummary(summary);
         summaries.push(summary);
-        sideBySideNames.push(sideBySidePath ? sideBySideName : null);
-        allClipTimes.push(runClipTimes);
+        allClipTimes.push(clipTimes);
       }
 
-      const medianSummary = buildMedianSummary(summaries, resultsDir);
-      fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(medianSummary, null, 2));
-
-      if (!settings.noRecording) {
-        // For each racer independently, pick the run closest to their median
-        const perRacerRunIdx = findMedianRunIndexPerRacer(summaries, medianSummary);
-        // For merged video and shared assets, use the overall best-fit run
-        const overallMedianRunIdx = findMedianRunIndex(summaries, medianSummary);
-        const overallMedianRunDir = String(overallMedianRunIdx + 1);
-        const { ffmpeg, format } = settings;
-        const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
-        const medianVideoFiles = racerNames.map((name, i) => `${perRacerRunIdx[i] + 1}/${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
-        const medianFullVideoFiles = ffmpeg ? racerNames.map((name, i) => `${perRacerRunIdx[i] + 1}/${name}/${name}.full${FORMAT_EXTENSIONS.webm}`) : null;
-        const medianAltFiles = ffmpeg && format !== 'webm' ? racerNames.map((name, i) => `${perRacerRunIdx[i] + 1}/${name}/${name}.race${ext}`) : null;
-        const medianMergedFile = sideBySideNames[overallMedianRunIdx] ? `${overallMedianRunDir}/${sideBySideNames[overallMedianRunIdx]}` : null;
-        // Clip times: each racer takes their own best run's clip entry
-        const medianClipTimes = allClipTimes.some(ct => ct != null)
-          ? racerNames.map((_, i) => allClipTimes[perRacerRunIdx[i]]?.[i] ?? null)
-          : null;
-        // Label showing which runs were selected (e.g. "Run 2" or "Runs 1, 2, 3")
-        const uniqueRunNums = [...new Set(perRacerRunIdx.map(idx => idx + 1))].sort((a, b) => a - b);
-        const medianRunLabel = uniqueRunNums.length === 1
-          ? `Run ${uniqueRunNums[0]}`
-          : `Runs ${uniqueRunNums.join(', ')}`;
-
-        // Create top-level median index.html with navigation and per-racer best videos
-        const medianNav = { currentRun: 'median', totalRuns, pathPrefix: '' };
-        const medianPlayerOptions = {
-          fullVideoFiles: medianFullVideoFiles,
-          mergedVideoFile: medianMergedFile,
-          raceScriptFiles: ctx.racerFiles ? ctx.racerFiles.map(f => `${overallMedianRunDir}/${f}`) : null,
-          settingsFileCopied: fs.existsSync(path.join(resultsDir, overallMedianRunDir, 'settings.json')),
-          runNavigation: medianNav,
-          medianRunLabel,
-          clipTimes: medianClipTimes,
-        };
-        fs.writeFileSync(
-          path.join(resultsDir, 'index.html'),
-          buildPlayerHtml(medianSummary, medianVideoFiles, ffmpeg && format !== 'webm' ? format : null, medianAltFiles, medianPlayerOptions)
-        );
-        if (!settings.noWasm) copyFFmpegFiles(resultsDir);
+      if (!multiRun) {
+        fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summaries[0], null));
+      } else {
+        buildMedianOutput(summaries, summaries.map(() => null), allClipTimes);
       }
-
-      console.error(`\n  ${c.bold}${c.cyan}── Median Results (${totalRuns} runs) ──${c.reset}`);
-      printSummary(medianSummary);
-
-      const md = buildMultiRunMarkdown(medianSummary, summaries);
-      fs.writeFileSync(path.join(resultsDir, 'README.md'), md);
     }
 
     const { relResults, relHtml } = buildResultsPaths(resultsDir);
@@ -642,6 +745,55 @@ async function main() {
   }
 }
 
-main().then(() => { if (kvFlags.serve === 'false' || settings.noRecording) process.exit(0); });
+function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
+  const medianSummary = buildMedianSummary(summaries, resultsDir);
+  fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(medianSummary, null, 2));
+
+  if (!settings.noRecording) {
+    // For each racer independently, pick the run closest to their median
+    const perRacerRunIdx = findMedianRunIndexPerRacer(summaries, medianSummary);
+    // For merged video and shared assets, use the overall best-fit run
+    const overallMedianRunIdx = findMedianRunIndex(summaries, medianSummary);
+    const overallMedianRunDir = String(overallMedianRunIdx + 1);
+    const { ffmpeg, format } = settings;
+    const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
+    const medianVideoFiles = racerNames.map((name, i) => `${perRacerRunIdx[i] + 1}/${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
+    const medianFullVideoFiles = ffmpeg ? racerNames.map((name, i) => `${perRacerRunIdx[i] + 1}/${name}/${name}.full${FORMAT_EXTENSIONS.webm}`) : null;
+    const medianAltFiles = ffmpeg && format !== 'webm' ? racerNames.map((name, i) => `${perRacerRunIdx[i] + 1}/${name}/${name}.race${ext}`) : null;
+    const medianMergedFile = sideBySideNames?.[overallMedianRunIdx] ? `${overallMedianRunDir}/${sideBySideNames[overallMedianRunIdx]}` : null;
+    // Clip times: each racer takes their own best run's clip entry
+    const medianClipTimes = allClipTimes.some(ct => ct != null)
+      ? racerNames.map((_, i) => allClipTimes[perRacerRunIdx[i]]?.[i] ?? null)
+      : null;
+    // Label showing which runs were selected (e.g. "Run 2" or "Runs 1, 2, 3")
+    const uniqueRunNums = [...new Set(perRacerRunIdx.map(idx => idx + 1))].sort((a, b) => a - b);
+    const medianRunLabel = uniqueRunNums.length === 1
+      ? `Run ${uniqueRunNums[0]}`
+      : `Runs ${uniqueRunNums.join(', ')}`;
+
+    const medianNav = { currentRun: 'median', totalRuns, pathPrefix: '' };
+    const medianPlayerOptions = {
+      fullVideoFiles: medianFullVideoFiles,
+      mergedVideoFile: medianMergedFile,
+      raceScriptFiles: ctx.racerFiles ? ctx.racerFiles.map(f => `${overallMedianRunDir}/${f}`) : null,
+      settingsFileCopied: fs.existsSync(path.join(resultsDir, overallMedianRunDir, 'settings.json')),
+      runNavigation: medianNav,
+      medianRunLabel,
+      clipTimes: medianClipTimes,
+    };
+    fs.writeFileSync(
+      path.join(resultsDir, 'index.html'),
+      buildPlayerHtml(medianSummary, medianVideoFiles, ffmpeg && format !== 'webm' ? format : null, medianAltFiles, medianPlayerOptions)
+    );
+    if (!settings.noWasm) copyFFmpegFiles(resultsDir);
+  }
+
+  console.error(`\n  ${c.bold}${c.cyan}── Median Results (${totalRuns} runs) ──${c.reset}`);
+  printSummary(medianSummary);
+  fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMultiRunMarkdown(medianSummary, summaries));
+}
+
+await main();
+if (kvFlags.serve === 'false' || settings.noRecording) process.exit(0);
 
 } // end isMainModule
