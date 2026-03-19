@@ -67,14 +67,21 @@ function extractFromScripts(fn) {
 }
 
 describe('calibration integration', () => {
+  let setupError = null;
+
   beforeAll(async () => {
     tmpDir = path.join(__dirname, '..', 'test-results', 'calibration-' + Date.now());
     fs.mkdirSync(tmpDir, { recursive: true });
     try {
-      browser = await launchPlaywright();
+      // Some CI/sandbox environments can hang while launching Chromium.
+      // Bound setup time so the suite can skip cleanly instead of timing out.
+      browser = await Promise.race([
+        launchPlaywright(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Playwright launch timeout')), 20_000)),
+      ]);
       page = await browser.newPage();
     } catch (e) {
-      console.error('Skipping calibration test: could not launch Playwright:', e.message);
+      setupError = new Error(`Calibration integration setup failed: ${e.message}`);
     }
   });
 
@@ -86,8 +93,8 @@ describe('calibration integration', () => {
     }
   });
 
-  it('embeds trace calibration metadata in clipTimes JSON', async () => {
-    if (!page) return;
+  it('embeds trace calibration metadata in clipTimes JSON', async ({ skip }) => {
+    if (setupError) skip(setupError.message);
 
     buildAndWrite(traceCalibratedClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
@@ -105,8 +112,8 @@ describe('calibration integration', () => {
     expect(parsed[1].traceCalibration.recordingStartTs).toBe(3_000_000);
   });
 
-  it('onMeta applies trace calibration via applyCalibrationToClip', async () => {
-    if (!page) return;
+  it('onMeta applies trace calibration via applyCalibrationToClip', async ({ skip }) => {
+    if (setupError) skip(setupError.message);
 
     buildAndWrite(traceCalibratedClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
@@ -130,8 +137,8 @@ describe('calibration integration', () => {
     expect(result.hasContinue).toBe(true);
   });
 
-  it('does not include canvas calibration fallback in runtime', async () => {
-    if (!page) return;
+  it('does not include canvas calibration fallback in runtime', async ({ skip }) => {
+    if (setupError) skip(setupError.message);
 
     buildAndWrite(traceCalibratedClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
@@ -166,8 +173,8 @@ describe('calibration integration', () => {
     expect(result.needsCalibration).toBe(false);
   });
 
-  it('throws strict manual calibration error when trace metadata is missing', async () => {
-    if (!page) return;
+  it('throws strict manual calibration error when trace metadata is missing', async ({ skip }) => {
+    if (setupError) skip(setupError.message);
 
     buildAndWrite(uncalibratedClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
@@ -191,8 +198,8 @@ describe('calibration integration', () => {
     expect(result.hasThrow).toBe(true);
   });
 
-  it('does not include blob/security canvas fallback helpers', async () => {
-    if (!page) return;
+  it('does not include blob/security canvas fallback helpers', async ({ skip }) => {
+    if (setupError) skip(setupError.message);
 
     buildAndWrite(baseClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
@@ -214,8 +221,8 @@ describe('calibration integration', () => {
     expect(result.hasCanvasDetect).toBe(false);
   });
 
-  it('applyCalibrationToClip computes correct clip range from PTS start', async () => {
-    if (!page) return;
+  it('applyCalibrationToClip computes correct clip range from PTS start', async ({ skip }) => {
+    if (setupError) skip(setupError.message);
 
     buildAndWrite(traceCalibratedClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);

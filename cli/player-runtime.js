@@ -108,8 +108,8 @@ function canApplyTraceCalibration(ct) {
 }
 
 function traceTsToClipPts(ct, traceTs) {
-  if (!hasTraceCalibration(ct) || !Number.isFinite(traceTs) || !Number.isFinite(ct.start)) return null;
-  return ct.start + ((traceTs - ct.traceCalibration.recordingStartTs) / 1e6);
+  if (!hasTraceCalibration(ct) || !Number.isFinite(traceTs)) return null;
+  return (traceTs - ct.traceCalibration.recordingStartTs) / 1e6;
 }
 
 function seekAll(t) {
@@ -718,28 +718,95 @@ function buildSegmentNav() {
   if (names.length < 1) return;
   segmentNavBuilt = true;
   segmentNav.innerHTML = '';
-  function makeSegBtn(label, name) {
-    const btn = document.createElement('button');
-    btn.className = 'segment-btn' + (name === null ? ' active' : '');
-    btn.textContent = label;
-    btn.dataset.segment = name === null ? '__all__' : name;
-    btn.addEventListener('click', () => {
-      segmentNav.querySelectorAll('.segment-btn').forEach((b) => {
-        b.classList.remove('active');
-      });
-      btn.classList.add('active');
-      if (playing) { videos.forEach((v) => { v?.pause(); }); playing = false; playBtn.textContent = '\u25B6'; }
-      activeSegmentName = name;
-      activeSegmentClipTimes = name !== null ? getSegmentClipTimes(name) : null;
+
+  function setActiveSegBtn(btn) {
+    segmentNav.querySelectorAll('.segment-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+
+  // Switch to race-clip videos if we were in whole-recording (full) mode
+  function ensureRaceMode(callback) {
+    if (fullVideoPaths && loadedSrcSet === 'full') {
+      if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
+      detachVideoListeners();
+      raceVideos.forEach((v, i) => { v.src = raceVideoPaths[i]; });
+      loadedSrcSet = 'race';
+      videos = raceVideos;
+      primary = videos[0];
+      attachVideoListeners();
+      duration = 0;
+      pendingSeek = callback;
+    } else {
+      callback();
+    }
+  }
+
+  // "Whole Recording" — shows full unclipped recording
+  const fullBtn = document.createElement('button');
+  fullBtn.className = 'segment-btn';
+  fullBtn.textContent = 'Whole Recording';
+  fullBtn.dataset.segment = '__full__';
+  fullBtn.addEventListener('click', () => {
+    setActiveSegBtn(fullBtn);
+    activeSegmentName = '__full__';
+    activeSegmentClipTimes = null;
+    const doSeek = () => { activeClip = null; seekAll(0); scrubber.value = 0; updateTimeDisplay(); };
+    if (fullVideoPaths && loadedSrcSet !== 'full') {
+      if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
+      detachVideoListeners();
+      raceVideos.forEach((v, i) => { v.src = fullVideoPaths[i]; });
+      loadedSrcSet = 'full';
+      videos = raceVideos;
+      primary = videos[0];
+      attachVideoListeners();
+      duration = 0;
+      pendingSeek = doSeek;
+    } else {
+      doSeek();
+    }
+  });
+  segmentNav.appendChild(fullBtn);
+
+  // "All" — shows all measurements combined
+  const allBtn = document.createElement('button');
+  allBtn.className = 'segment-btn active';
+  allBtn.textContent = 'Race Recording';
+  allBtn.dataset.segment = '__all__';
+  allBtn.addEventListener('click', () => {
+    setActiveSegBtn(allBtn);
+    activeSegmentName = null;
+    activeSegmentClipTimes = null;
+    ensureRaceMode(() => {
       activeClip = resolveAdjustedClip();
       seekAll(activeClip ? activeClip.start : 0);
       scrubber.value = 0;
       updateTimeDisplay();
     });
-    return btn;
+  });
+  segmentNav.appendChild(allBtn);
+
+  // Individual measurement buttons — only shown when there are multiple measurements
+  if (names.length > 1) {
+    for (const name of names) {
+      const btn = document.createElement('button');
+      btn.className = 'segment-btn';
+      btn.textContent = name;
+      btn.dataset.segment = name;
+      btn.addEventListener('click', () => {
+        setActiveSegBtn(btn);
+        activeSegmentName = name;
+        activeSegmentClipTimes = getSegmentClipTimes(name);
+        ensureRaceMode(() => {
+          activeClip = resolveAdjustedClip();
+          seekAll(activeClip ? activeClip.start : 0);
+          scrubber.value = 0;
+          updateTimeDisplay();
+        });
+      });
+      segmentNav.appendChild(btn);
+    }
   }
-  segmentNav.appendChild(makeSegBtn('All', null));
-  for (const name of names) segmentNav.appendChild(makeSegBtn(name, name));
+
   segmentNav.style.display = 'flex';
   buildSyncSegments();
 }
@@ -1096,14 +1163,14 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
   const outFilename = (downloadName || 'race-side-by-side') + '.' + format;
   const buttons = actionsEl.querySelectorAll('button');
   buttons.forEach(b => { b.disabled = true; });
-  const controller = new AbortController();
+  let cancelled = false;
   let outUrl = null;
 
   function revokeOutUrl() { if (outUrl) { URL.revokeObjectURL(outUrl); outUrl = null; } }
 
   const dismissBtn = document.createElement('button');
   dismissBtn.textContent = 'Cancel';
-  dismissBtn.addEventListener('click', () => { controller.abort(); revokeOutUrl(); overlay.remove(); });
+  dismissBtn.addEventListener('click', () => { cancelled = true; revokeOutUrl(); overlay.remove(); });
   actionsEl.appendChild(dismissBtn);
   statusEl.textContent = 'Loading ffmpeg.wasm (~25 MB)...';
   progressFill.style.width = '0%';
@@ -1111,12 +1178,15 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
   window.addEventListener('pagehide', revokeOutUrl, { once: true });
 
   loadFFmpeg().then(ff => {
+    if (cancelled) return;
     statusEl.textContent = 'Converting to ' + format.toUpperCase() + '...';
     progressFill.style.width = '30%';
 
     return blob.arrayBuffer().then(buf => {
+      if (cancelled) return;
       return ff.writeFile(inFile, new Uint8Array(buf));
     }).then(() => {
+      if (cancelled) return;
       let trimArgs = [];
       if (clipRange) {
         trimArgs = ['-ss', clipRange.start.toFixed(3), '-t', (clipRange.end - clipRange.start).toFixed(3)];
@@ -1130,12 +1200,14 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
         args = trimArgs.concat(['-i', inFile, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', outFile]);
       }
       progressFill.style.width = '50%';
-      return ff.exec(args, { signal: controller.signal });
+      return ff.exec(args);
     }).then(exitCode => {
+      if (cancelled || exitCode == null) return;
       if (exitCode !== 0) throw new Error('ffmpeg exited with code ' + exitCode + ' — conversion failed');
       progressFill.style.width = '90%';
       return ff.readFile(outFile);
     }).then(data => {
+      if (cancelled || !data) return;
       const mType = format === 'gif' ? 'image/gif' : 'video/quicktime';
       const outBlob = new Blob([data], { type: mType });
       outUrl = URL.createObjectURL(outBlob);
