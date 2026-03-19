@@ -5,18 +5,27 @@
 
 import fs from 'fs';
 
+const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo']);
+
 export function parseArgs(argv) {
   const positional = [];
   const boolFlags = new Set();
   const kvFlags = {};
 
-  for (const arg of argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
     if (arg.startsWith('--')) {
       const eqIdx = arg.indexOf('=');
       if (eqIdx !== -1) {
         kvFlags[arg.slice(2, eqIdx)] = arg.slice(eqIdx + 1);
       } else {
-        boolFlags.add(arg.slice(2));
+        const name = arg.slice(2);
+        if (KV_FLAG_NAMES.has(name) && argv[i + 1] !== undefined && !argv[i + 1].startsWith('--')) {
+          kvFlags[name] = argv[i + 1];
+          i++;
+        } else {
+          boolFlags.add(name);
+        }
       }
     } else {
       positional.push(arg);

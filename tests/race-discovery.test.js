@@ -161,6 +161,19 @@ describe('argument parsing', () => {
     const { kvFlags } = parseArgs(['--key=a=b=c']);
     expect(kvFlags.key).toBe('a=b=c');
   });
+
+  it('handles space-separated kv flags like --runs 2', () => {
+    const { kvFlags, boolFlags, positional } = parseArgs(['./races/test', '--runs', '2', '--parallel']);
+    expect(kvFlags.runs).toBe('2');
+    expect(boolFlags.has('parallel')).toBe(true);
+    expect(positional).toEqual(['./races/test']);
+  });
+
+  it('treats unknown flags followed by a value as bool flags', () => {
+    const { boolFlags, positional } = parseArgs(['--unknown', 'somevalue']);
+    expect(boolFlags.has('unknown')).toBe(true);
+    expect(positional).toEqual(['somevalue']);
+  });
 });
 
 describe('settings override', () => {
