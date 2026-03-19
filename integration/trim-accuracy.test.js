@@ -16,10 +16,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const RACERS = [
-  { name: 'alpha',   targetMs: 600,  recordingWindow: 1.2 },
-  { name: 'bravo',   targetMs: 800,  recordingWindow: 1.4 },
-  { name: 'charlie', targetMs: 1000, recordingWindow: 1.6 },
-  { name: 'delta',   targetMs: 1200, recordingWindow: 1.8 },
+  { name: 'alpha',   targetMs: 600,  reloadTargetMs: 400,  recordingWindow: 1.8 },
+  { name: 'bravo',   targetMs: 800,  reloadTargetMs: 500,  recordingWindow: 2.1 },
+  { name: 'charlie', targetMs: 1000, reloadTargetMs: 600,  recordingWindow: 2.4 },
+  { name: 'delta',   targetMs: 1200, reloadTargetMs: 700,  recordingWindow: 2.7 },
 ];
 
 const DURATION_TOLERANCE_MS = 50;
@@ -112,7 +112,11 @@ describe('trim-accuracy integration', () => {
 
     const summary = JSON.parse(fs.readFileSync(path.join(resultsDir, 'summary.json'), 'utf-8'));
     expect(summary.overallWinner).toBe('alpha');
+    expect(summary.comparisons.length).toBe(2);
+    expect(summary.comparisons[0].name).toBe('Render');
     expect(summary.comparisons[0].rankings).toEqual(['alpha', 'bravo', 'charlie', 'delta']);
+    expect(summary.comparisons[1].name).toBe('Reload');
+    expect(summary.comparisons[1].rankings).toEqual(['alpha', 'bravo', 'charlie', 'delta']);
 
     for (const racer of RACERS) {
       const racerDir = path.join(resultsDir, racer.name);
@@ -120,9 +124,15 @@ describe('trim-accuracy integration', () => {
         fs.readFileSync(path.join(racerDir, 'measurements.json'), 'utf-8')
       );
 
-      const durationMs = measurements[0].duration * 1000;
-      expect(durationMs).toBeGreaterThan(racer.targetMs - DURATION_TOLERANCE_MS);
-      expect(durationMs).toBeLessThan(racer.targetMs + DURATION_TOLERANCE_MS);
+      expect(measurements.length).toBe(2);
+
+      const renderMs = measurements[0].duration * 1000;
+      expect(renderMs).toBeGreaterThan(racer.targetMs - DURATION_TOLERANCE_MS);
+      expect(renderMs).toBeLessThan(racer.targetMs + DURATION_TOLERANCE_MS);
+
+      const reloadMs = measurements[1].duration * 1000;
+      expect(reloadMs).toBeGreaterThan(racer.reloadTargetMs - DURATION_TOLERANCE_MS);
+      expect(reloadMs).toBeLessThan(racer.reloadTargetMs + DURATION_TOLERANCE_MS);
 
       const raceVideo = path.join(racerDir, `${racer.name}.race.webm`);
       expect(fs.existsSync(raceVideo)).toBe(true);

@@ -22,7 +22,7 @@ import { fileURLToPath } from 'url';
 import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c, FORMAT_EXTENSIONS } from './cli/colors.js';
 import { parseArgs, discoverRacers, applyOverrides } from './cli/config.js';
-import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex } from './cli/summary.js';
+import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex, findMedianRunIndexPerRacer } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
 import { buildPlayerHtml } from './cli/videoplayer.js';
@@ -571,26 +571,37 @@ async function main() {
       fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(medianSummary, null, 2));
 
       if (!settings.noRecording) {
-        // Find the run closest to median to use its videos on the median page
-        const medianRunIdx = findMedianRunIndex(summaries, medianSummary);
-        const medianRunDir = String(medianRunIdx + 1);
+        // For each racer independently, pick the run closest to their median
+        const perRacerRunIdx = findMedianRunIndexPerRacer(summaries, medianSummary);
+        // For merged video and shared assets, use the overall best-fit run
+        const overallMedianRunIdx = findMedianRunIndex(summaries, medianSummary);
+        const overallMedianRunDir = String(overallMedianRunIdx + 1);
         const { ffmpeg, format } = settings;
         const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
-        const medianVideoFiles = racerNames.map(name => `${medianRunDir}/${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
-        const medianFullVideoFiles = ffmpeg ? racerNames.map(name => `${medianRunDir}/${name}/${name}.full${FORMAT_EXTENSIONS.webm}`) : null;
-        const medianAltFiles = ffmpeg && format !== 'webm' ? racerNames.map(name => `${medianRunDir}/${name}/${name}.race${ext}`) : null;
-        const medianMergedFile = sideBySideNames[medianRunIdx] ? `${medianRunDir}/${sideBySideNames[medianRunIdx]}` : null;
+        const medianVideoFiles = racerNames.map((name, i) => `${perRacerRunIdx[i] + 1}/${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
+        const medianFullVideoFiles = ffmpeg ? racerNames.map((name, i) => `${perRacerRunIdx[i] + 1}/${name}/${name}.full${FORMAT_EXTENSIONS.webm}`) : null;
+        const medianAltFiles = ffmpeg && format !== 'webm' ? racerNames.map((name, i) => `${perRacerRunIdx[i] + 1}/${name}/${name}.race${ext}`) : null;
+        const medianMergedFile = sideBySideNames[overallMedianRunIdx] ? `${overallMedianRunDir}/${sideBySideNames[overallMedianRunIdx]}` : null;
+        // Clip times: each racer takes their own best run's clip entry
+        const medianClipTimes = allClipTimes.some(ct => ct != null)
+          ? racerNames.map((_, i) => allClipTimes[perRacerRunIdx[i]]?.[i] ?? null)
+          : null;
+        // Label showing which runs were selected (e.g. "Run 2" or "Runs 1, 2, 3")
+        const uniqueRunNums = [...new Set(perRacerRunIdx.map(idx => idx + 1))].sort((a, b) => a - b);
+        const medianRunLabel = uniqueRunNums.length === 1
+          ? `Run ${uniqueRunNums[0]}`
+          : `Runs ${uniqueRunNums.join(', ')}`;
 
-        // Create top-level median index.html with navigation and videos from median run
+        // Create top-level median index.html with navigation and per-racer best videos
         const medianNav = { currentRun: 'median', totalRuns, pathPrefix: '' };
         const medianPlayerOptions = {
           fullVideoFiles: medianFullVideoFiles,
           mergedVideoFile: medianMergedFile,
-          raceScriptFiles: ctx.racerFiles ? ctx.racerFiles.map(f => `${medianRunDir}/${f}`) : null,
-          settingsFileCopied: fs.existsSync(path.join(resultsDir, medianRunDir, 'settings.json')),
+          raceScriptFiles: ctx.racerFiles ? ctx.racerFiles.map(f => `${overallMedianRunDir}/${f}`) : null,
+          settingsFileCopied: fs.existsSync(path.join(resultsDir, overallMedianRunDir, 'settings.json')),
           runNavigation: medianNav,
-          medianRunLabel: `Run ${medianRunIdx + 1}`,
-          clipTimes: allClipTimes[medianRunIdx] || null,
+          medianRunLabel,
+          clipTimes: medianClipTimes,
         };
         fs.writeFileSync(
           path.join(resultsDir, 'index.html'),

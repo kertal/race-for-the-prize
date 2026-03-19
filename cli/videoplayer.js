@@ -61,7 +61,7 @@ function buildPlayerScript(config) {
 // ---------------------------------------------------------------------------
 
 export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, options = {}) {
-  const { fullVideoFiles, mergedVideoFile, traceFiles, raceScriptFiles, settingsFileCopied, runNavigation, medianRunLabel, clipTimes, ffmpegPathPrefix } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, raceScriptFiles, settingsFileCopied, runNavigation, clipTimes, ffmpegPathPrefix } = options;
   const ffmpegDir = (ffmpegPathPrefix || './') + 'ffmpeg/';
   const racers = summary.racers;
   const count = racers.length;
@@ -73,11 +73,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     ? `Race: ${escHtml(racers[0])} vs ${escHtml(racers[1])}`
     : `Race: ${racers.map(escHtml).join(' vs ')}`;
 
-  const winnerBanner = summary.overallWinner === 'tie'
-    ? `<span class="trophy">&#129309;</span> It's a Tie!`
-    : summary.overallWinner
-      ? `<span class="trophy">&#127942;</span> ${escHtml(summary.overallWinner.toUpperCase())} wins the prize!`
-      : '';
+  const winnerBanner = '';
 
   const hasVideos = videoFiles && videoFiles.length > 0;
   const placementOrder = getPlacementOrder(summary);
@@ -92,11 +88,18 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   let debugPanelOut = '';
 
   if (hasVideos) {
+    const isTie = summary.overallWinner === 'tie';
     const videoElements = placementOrder.map((origIdx, displayIdx) => {
       const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
       const racer = racers[origIdx];
+      const isWinner = isTie
+        ? true
+        : summary.overallWinner && summary.overallWinner.toLowerCase() === racer.toLowerCase();
+      const trophyHtml = isWinner
+        ? `<span class="trophy">${isTie ? '&#129309;' : '&#127942;'}</span> `
+        : '';
       return `  <div class="racer">
-    <div class="racer-label" style="color: ${color}">${escHtml(racer)}</div>
+    <div class="racer-label" style="color: ${color}">${trophyHtml}${escHtml(racer)}</div>
     <video id="v${displayIdx}" src="${escHtml(videoFiles[origIdx])}" preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Race recording for ${escHtml(racer)}" data-racer-name="${escHtml(racer)}"></video>
   </div>`;
     }).join('\n');
@@ -133,13 +136,9 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     });
   }
 
-  const hasToggle = hasFullVideos || hasClipTimes || hasMergedVideo;
-  const fullBtn = (hasFullVideos || hasClipTimes) ? '<button class="mode-btn" id="modeFull" title="Full recordings">Full</button>' : '';
   const mergedBtn = hasMergedVideo ? '<button class="mode-btn" id="modeMerged" title="Side-by-side merged video">Merged</button>' : '';
-  const modeToggle = hasToggle ? `
+  const modeToggle = hasMergedVideo ? `
   <div class="mode-toggle">
-    <button class="mode-btn active" id="modeRace" title="Race segments only">Race</button>
-    ${fullBtn}
     ${mergedBtn}
   </div>` : '';
 
@@ -148,7 +147,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     layoutCss: `.player-container { max-width: ${containerMaxWidth}px; }\n  .racer { max-width: ${maxWidth}px; }`,
     runNav: buildRunNavHtml(runNavigation),
     winnerBanner,
-    videoSourceNote: medianRunLabel ? `<div class="video-source-note">Videos from ${escHtml(medianRunLabel)} (closest to median)</div>` : '',
+    videoSourceNote: '',
     raceInfo: buildRaceInfoHtml(summary),
     machineInfo: buildMachineInfoHtml(summary.machineInfo),
     errors: buildErrorsHtml(summary.errors),
