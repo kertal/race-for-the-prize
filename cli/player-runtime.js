@@ -44,6 +44,8 @@ let calibrationFatalError = null;
 let syncSegments = null;   // [{name, maxDuration, clips: [{start,end,dur}|null per racer]}]
 let syncTotalDuration = 0;
 let syncPlaySection = 0;
+let syncPauseTimer = null;  // timer ID for inter-section pause
+const SYNC_PAUSE_MS = 500;  // freeze-frame gap between sections
 
 function failCalibration(msg) {
   if (calibrationFatalError) return;
@@ -92,7 +94,12 @@ function updateTimeDisplay() {
   const d = clipDuration();
   const t = d > 0 ? (scrubber.value / 1000) * d : 0;
   timeDisplay.textContent = fmt(Math.max(0, t)) + ' / ' + fmt(d);
-  frameDisplay.textContent = getTime(Math.max(0, t));
+  if (isSyncActive() && syncSegments) {
+    var idx = Math.min(syncPlaySection, syncSegments.length - 1);
+    frameDisplay.textContent = syncSegments[idx].name + ' (' + (idx + 1) + '/' + syncSegments.length + ')';
+  } else {
+    frameDisplay.textContent = getTime(Math.max(0, t));
+  }
 }
 
 function isValidClipEntry(c) {
@@ -202,24 +209,31 @@ function onTimeUpdate() {
         allDone = false;
       }
     }
-    if (playing && allDone) {
-      syncPlaySection++;
-      if (syncPlaySection >= syncSegments.length) {
+    if (playing && allDone && !syncPauseTimer) {
+      if (syncPlaySection + 1 >= syncSegments.length) {
+        syncPlaySection++;
         playing = false;
         playBtn.textContent = '\u25B6';
         scrubber.value = 1000;
         updateTimeDisplay();
         return;
       }
-      const nextSeg = syncSegments[syncPlaySection];
-      videos.forEach((v, i) => {
-        if (!v || hiddenRacers.has(i)) return;
-        const clip = nextSeg.clips[i];
-        if (clip) {
-          v.currentTime = clip.start;
-          v.play();
-        }
-      });
+      // Pause between sections — freeze-frame gap
+      syncPauseTimer = setTimeout(function() {
+        syncPauseTimer = null;
+        if (!playing) return;
+        syncPlaySection++;
+        const nextSeg = syncSegments[syncPlaySection];
+        videos.forEach((v, i) => {
+          if (!v || hiddenRacers.has(i)) return;
+          const clip = nextSeg.clips[i];
+          if (clip) {
+            v.currentTime = clip.start;
+            v.play();
+          }
+        });
+        syncUpdateSectionLabel();
+      }, SYNC_PAUSE_MS);
     }
     const ve = syncGetVirtualElapsed();
     const d = syncTotalDuration;
@@ -325,6 +339,7 @@ function resolveClip() {
 }
 
 function switchMode(targetSrcSet, targetVideos, modeBtn, opts) {
+  clearSyncPause();
   pendingSeek = null;
   if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
   detachVideoListeners();
@@ -650,15 +665,26 @@ function buildSyncSegments() {
   }
   if (segs.length < 2) return;
   syncSegments = segs;
-  syncTotalDuration = segs.reduce(function(sum, s) { return sum + s.maxDuration; }, 0);
+  var pauseGaps = (segs.length - 1) * SYNC_PAUSE_MS / 1000;
+  syncTotalDuration = segs.reduce(function(sum, s) { return sum + s.maxDuration; }, 0) + pauseGaps;
 }
 
 function isSyncActive() {
   return !!(syncSegments && !activeSegmentName && activeClip && activeClip._sync);
 }
 
+function syncUpdateSectionLabel() {
+  if (!isSyncActive() || !syncSegments) return;
+  const idx = Math.min(syncPlaySection, syncSegments.length - 1);
+  const seg = syncSegments[idx];
+  if (seg && frameDisplay) {
+    frameDisplay.textContent = seg.name + ' (' + (idx + 1) + '/' + syncSegments.length + ')';
+  }
+}
+
 function syncElapsedToVideo(elapsed, racerIdx) {
   var remaining = Math.max(0, elapsed);
+  var pauseGap = SYNC_PAUSE_MS / 1000;
   for (var s = 0; s < syncSegments.length; s++) {
     var seg = syncSegments[s];
     var clip = seg.clips[racerIdx];
@@ -667,6 +693,11 @@ function syncElapsedToVideo(elapsed, racerIdx) {
       return clip.start + Math.min(remaining, clip.dur);
     }
     remaining -= seg.maxDuration;
+    // During the pause gap between sections, hold at section end
+    if (s < syncSegments.length - 1 && remaining <= pauseGap + 0.001) {
+      return clip ? clip.start + Math.min(clip.dur, seg.maxDuration) : null;
+    }
+    if (s < syncSegments.length - 1) remaining -= pauseGap;
   }
   var lastSeg = syncSegments[syncSegments.length - 1];
   var lastClip = lastSeg.clips[racerIdx];
@@ -675,6 +706,7 @@ function syncElapsedToVideo(elapsed, racerIdx) {
 
 function syncGetVirtualElapsed() {
   var maxElapsed = 0;
+  var pauseGap = SYNC_PAUSE_MS / 1000;
   for (var i = 0; i < videos.length; i++) {
     var v = videos[i];
     if (!v || hiddenRacers.has(i)) continue;
@@ -689,6 +721,7 @@ function syncGetVirtualElapsed() {
         break;
       }
       virtualOffset += seg.maxDuration;
+      if (s < syncSegments.length - 1) virtualOffset += pauseGap;
     }
   }
   return maxElapsed;
@@ -696,9 +729,14 @@ function syncGetVirtualElapsed() {
 
 function syncSectionForElapsed(elapsed) {
   var remaining = elapsed;
+  var pauseGap = SYNC_PAUSE_MS / 1000;
   for (var s = 0; s < syncSegments.length; s++) {
     if (remaining <= syncSegments[s].maxDuration + 0.001) return s;
     remaining -= syncSegments[s].maxDuration;
+    if (s < syncSegments.length - 1) {
+      if (remaining <= pauseGap + 0.001) return s; // in the gap after section s
+      remaining -= pauseGap;
+    }
   }
   return syncSegments.length - 1;
 }
@@ -773,6 +811,7 @@ function buildSegmentNav() {
   allBtn.textContent = 'Race Recording';
   allBtn.dataset.segment = '__all__';
   allBtn.addEventListener('click', () => {
+    clearSyncPause();
     setActiveSegBtn(allBtn);
     activeSegmentName = null;
     activeSegmentClipTimes = null;
@@ -793,6 +832,7 @@ function buildSegmentNav() {
       btn.textContent = name;
       btn.dataset.segment = name;
       btn.addEventListener('click', () => {
+        clearSyncPause();
         setActiveSegBtn(btn);
         activeSegmentName = name;
         activeSegmentClipTimes = getSegmentClipTimes(name);
@@ -952,8 +992,13 @@ if (mergedVideo) mergedVideo.addEventListener('loadedmetadata', () => {
 
 // --- Playback controls ---
 
+function clearSyncPause() {
+  if (syncPauseTimer) { clearTimeout(syncPauseTimer); syncPauseTimer = null; }
+}
+
 playBtn.addEventListener('click', () => {
   if (playing) {
+    clearSyncPause();
     videos.forEach(v => v?.pause());
     playBtn.textContent = '\u25B6';
   } else {
@@ -988,6 +1033,7 @@ playBtn.addEventListener('click', () => {
 });
 
 scrubber.addEventListener('input', () => {
+  clearSyncPause();
   const d = clipDuration();
   const t = (scrubber.value / 1000) * d + clipOffset();
   seekAll(t);
@@ -1000,6 +1046,7 @@ speedSelect.addEventListener('change', () => {
 });
 
 function stepFrame(delta) {
+  clearSyncPause();
   if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
   const minT = clipOffset();
   const maxT = activeClip ? activeClip.end : duration;
