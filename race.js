@@ -494,8 +494,9 @@ function loadRaceDir(raceDir) {
   settings.parallel    = settings.parallel    ?? false;
   settings.headless    = settings.headless    ?? false;
   settings.noOverlay   = settings.noOverlay   ?? false;
-  settings.noRecording = settings.noRecording ?? false;
-  settings.ffmpeg      = settings.ffmpeg      ?? false;
+  settings.noRecording      = settings.noRecording      ?? false;
+  settings.pauseBetweenRuns = settings.pauseBetweenRuns ?? false;
+  settings.ffmpeg           = settings.ffmpeg           ?? false;
   settings.noWasm      = settings.noWasm      ?? false;
   settings.format      = settings.format      ?? 'webm';
   settings.network     = settings.network     ?? 'none';

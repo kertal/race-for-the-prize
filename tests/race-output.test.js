@@ -56,6 +56,7 @@ describe('waitForEnter', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     Object.defineProperty(process.stdin, 'isTTY', { value: origIsTTY, writable: true, configurable: true });
   });
 
