@@ -58,7 +58,8 @@ export function waitForEnter(message) {
 
     const setRawModeSafe = (value) => {
       try { if (typeof process.stdin.setRawMode === 'function') process.stdin.setRawMode(value); }
-      catch (_) { /* stdin may already be destroyed */ }
+      // eslint-disable-next-line no-empty
+      catch { /* stdin may already be destroyed; safe to ignore */ }
     };
 
     const cleanup = () => {
@@ -625,6 +626,7 @@ async function main() {
   }
 }
 
-main().then(() => { if (kvFlags.serve === 'false') process.exit(0); });
+await main();
+if (kvFlags.serve === 'false') process.exit(0);
 
 } // end isMainModule
