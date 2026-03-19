@@ -82,6 +82,13 @@ export function buildRunNavHtml(runNav) {
   if (!runNav) return '';
   const { currentRun, totalRuns, pathPrefix } = runNav;
   let html = '<div class="run-nav">';
+  const isMedianCurrent = currentRun === 'median';
+  const medianCls = isMedianCurrent ? 'run-nav-btn active' : 'run-nav-btn';
+  if (isMedianCurrent) {
+    html += `<span class="${medianCls}" aria-current="page">Median</span>`;
+  } else {
+    html += `<a class="${medianCls}" href="${escHtml(pathPrefix)}index.html">Median</a>`;
+  }
   for (let i = 1; i <= totalRuns; i++) {
     const isCurrent = currentRun === i;
     const cls = isCurrent ? 'run-nav-btn active' : 'run-nav-btn';
@@ -90,13 +97,6 @@ export function buildRunNavHtml(runNav) {
     } else {
       html += `<a class="${cls}" href="${escHtml(pathPrefix)}${i}/index.html">Run ${i}</a>`;
     }
-  }
-  const isMedianCurrent = currentRun === 'median';
-  const medianCls = isMedianCurrent ? 'run-nav-btn active' : 'run-nav-btn';
-  if (isMedianCurrent) {
-    html += `<span class="${medianCls}" aria-current="page">Median</span>`;
-  } else {
-    html += `<a class="${medianCls}" href="${escHtml(pathPrefix)}index.html">Median</a>`;
   }
   html += '</div>';
   return html;
@@ -172,9 +172,7 @@ export function buildResultsHtml(comparisons, racers, clickCounts) {
 }
 
 export function buildProfileSummaryHtml(profileComparison, racers) {
-  if (!profileComparison) return '';
-
-  function buildRows(winsMap) {
+  function buildWinRows(winsMap) {
     if (!racers.some(n => winsMap[n] > 0)) return '';
     return racers
       .map((name, i) => ({ name, i, count: winsMap[name] || 0 }))
@@ -185,10 +183,10 @@ export function buildProfileSummaryHtml(profileComparison, racers) {
       }).join('');
   }
 
-  const measuredWins = profileComparison.measured?.wins || {};
-  const totalWins = profileComparison.total?.wins || {};
-  const measuredRows = buildRows(measuredWins);
-  const totalRows = buildRows(totalWins);
+  const measuredWins = profileComparison?.measured?.wins || {};
+  const totalWins = profileComparison?.total?.wins || {};
+  const measuredRows = buildWinRows(measuredWins);
+  const totalRows = buildWinRows(totalWins);
 
   if (!measuredRows && !totalRows) return '';
 

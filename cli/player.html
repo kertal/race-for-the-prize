@@ -59,6 +59,7 @@
     text-transform: uppercase;
     letter-spacing: 0.15em;
   }
+  .winner-banner:empty { display: none; }
   .winner-banner {
     text-align: center;
     font-family: Georgia, serif;
@@ -66,7 +67,7 @@
     color: #e8e0d0;
     padding-bottom: 1rem;
   }
-  .trophy { font-size: 1.4rem; }
+  .trophy { font-size: 1.1rem; }
   .video-source-note {
     text-align: center;
     font-size: 0.8rem;
@@ -130,7 +131,7 @@
   .racer-filter {
     display: none;
     gap: 0.4rem;
-    padding: 0.5rem 0 0;
+    padding: 0.5rem 0 0.8rem;
     justify-content: center;
     flex-wrap: wrap;
   }
@@ -148,12 +149,28 @@
   .racer-filter-btn.active { opacity: 1; }
   .racer-filter-btn:not(.active):hover { background: #3a3a3a; opacity: 0.6; }
   .racer-filter-btn.active:hover { background: #3a3a3a; }
+  .segment-export-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    max-width: 1440px;
+    padding: 0 1.5rem 0.4rem;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .export-btns {
+    display: flex;
+    gap: 0.5rem;
+    flex-shrink: 0;
+  }
   .segment-nav {
     display: none;
     gap: 0.4rem;
-    padding: 0 0 0.8rem;
-    justify-content: center;
+    padding: 0;
+    justify-content: flex-start;
     flex-wrap: wrap;
+    flex: 1;
   }
   .segment-btn {
     background: #2a2a2a;
@@ -372,7 +389,7 @@
   }
   .profile-racer {
     font-weight: bold;
-    min-width: 90px;
+    min-width: 110px;
     flex-shrink: 0;
   }
   .profile-bar-track {
@@ -381,7 +398,6 @@
     background: #2a2a2a;
     border-radius: 3px;
     overflow: hidden;
-    max-width: 200px;
   }
   .profile-bar-fill {
     display: block;
@@ -390,10 +406,11 @@
     opacity: 0.8;
   }
   .profile-value {
-    min-width: 120px;
+    min-width: 140px;
     flex-shrink: 0;
     text-align: right;
     color: #ccc;
+    white-space: nowrap;
   }
   .profile-delta {
     color: #888;
@@ -768,7 +785,13 @@
 </div>
 {{mergedVideoElement}}
 
-<div id="segmentNav" class="segment-nav"></div>
+<div class="segment-export-row">
+  <div id="segmentNav" class="segment-nav"></div>
+  <div class="export-btns">
+    <button class="export-btn" id="exportBtn" title="Export side-by-side video">Export Recording</button>
+    <button class="export-btn" id="exportHtmlBtn" title="Export as self-contained HTML zip">Export Zip</button>
+  </div>
+</div>
 <div class="controls">
   <div class="controls-row">
     <button class="frame-btn" id="goStart" title="Go to start (Home)">&#x23EE;</button>
@@ -787,8 +810,6 @@
     <option value="2">2x</option>
   </select>
   {{calibrationBtn}}
-  <button class="export-btn" id="exportBtn" title="Export side-by-side video">Export Movie</button>
-  <button class="export-btn" id="exportHtmlBtn" title="Export as self-contained HTML zip">Export Zip</button>
 </div>
 </template>
 
