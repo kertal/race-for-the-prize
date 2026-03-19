@@ -92,12 +92,12 @@ This is `lauda.spec.js` — one of the two racers in the built-in Lauda vs Hunt 
 - `raceStart('Scroll to Bottom')` — starts the stopwatch for a named measurement
 - The scroll loop in the middle is standard Playwright — mouse wheel events, `waitForTimeout`, `page.evaluate` to check scroll position
 - `raceEnd('Scroll to Bottom')` — stops the stopwatch
-- `raceMessage()` — sends a live message to the terminal animation
+- `raceMessage()` — sends a live message to the terminal animation (optional)
 - `raceRecordingEnd()` — finishes the recording
 
-That's it. Four injected methods. The rest is normal Playwright code. If you have an existing spec file, you can turn it into a racer by adding those four calls.
+That's it. Five injected methods — six if you count `raceWaitForVisualStability`, an advanced helper for ensuring the page has settled before timing begins. The rest is normal Playwright code.
 
-*[Emphasise:]* Any existing Playwright test can become a racer with four lines of code.
+*[Emphasise:]* Any existing Playwright test can become a racer in minutes.
 
 ---
 
@@ -127,7 +127,7 @@ After every race, a timestamped results folder is created. Let me walk you throu
 
 `index.html` is an interactive HTML player — open it in a browser, and you get the race video with a timeline, calibrated timestamps, and trace analysis. You can scrub to any point in the race and see exactly what was happening.
 
-The `recording.webm` files are the raw browser videos. The `trace/` directories are Chrome DevTools performance traces — if you want to go deep on what caused the timing difference, the data is there.
+The `<racer>.race.webm` files are the trimmed race videos and `<racer>.full.webm` is the full uncut recording. The `<racer>.trace.json` files are Chrome DevTools performance traces — if you want to go deep on what caused the timing difference, the data is there.
 
 *[Beat:]* You're not just getting a number. You're getting full forensic evidence.
 
@@ -245,7 +245,7 @@ Every race produces `summary.json`. You can read it in a post-race script, check
 
 *[Walk through the JSON.]*
 
-The `winner` field tells you who won. `measurements` gives you times and placements per racer per measurement name. `medianRun` tells you which of the N runs is being reported as the representative result.
+The `overallWinner` field tells you who won. `comparisons` gives you an array of per-measurement results — name, winner, and timings for each racer. `wins` maps each racer's name to how many individual measurements they won. `runs` records how many times the race was repeated.
 
 You can write a ten-line Node script that reads this JSON and sets your exit code. Or you can pipe it into a dashboard, a Slack notification, a database — whatever your observability stack looks like.
 
@@ -277,7 +277,7 @@ With RaceForThePrize, you can answer that question in minutes, with video eviden
 
 *[Walk through the table.]*
 
-It's Playwright-native — no extra instrumentation, no SDK to wrap your app in. The race API is four methods. Frame-accurate video means the evidence is unambiguous. Real-world throttling means your numbers reflect actual user conditions. And `summary.json` means performance can be a quality gate in your pipeline.
+It's Playwright-native — no extra instrumentation, no SDK to wrap your app in. The race API is five core methods. Frame-accurate video means the evidence is unambiguous. Real-world throttling means your numbers reflect actual user conditions. And `summary.json` means performance can be a quality gate in your pipeline.
 
 The last line of the README says it best:
 
@@ -317,7 +317,7 @@ I'm happy to take questions — on the tool, the architecture, use cases, or any
 - *For DevOps/platform:* Focus on Slides 9, 15, and 10 (conditions, CI, architecture).
 
 **Key phrases to land:**
-- "Any existing Playwright test can become a racer with four lines of code."
+- "Any existing Playwright test can become a racer in minutes."
 - "The video shows exactly what was measured."
 - "Performance is now a pass/fail criterion, just like your unit tests."
 - "No judges, no bias — just cold, hard milliseconds on the clock."

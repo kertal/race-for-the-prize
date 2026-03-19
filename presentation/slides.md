@@ -28,7 +28,7 @@ style: |
 <!-- Slide 1: Title -->
 # 🏆 RaceForThePrize
 
-### *Browser Performance. Head-to-Head. No Judges.*
+## *Browser Performance. Head-to-Head. No Judges.*
 
 <br>
 
@@ -78,7 +78,7 @@ A **CLI tool** that runs two Playwright scripts side-by-side and declares a winn
 
 <br>
 
-```
+```text
 ┌─────────────────────────────────────────────────────┐
 │                                                     │
 │   Racer A ──► Browser 1 ──► 🏁 Finish              │
@@ -134,7 +134,7 @@ node race.js ./races/lauda-vs-hunt
 
 <br>
 
-A script is just **Playwright + four injected methods**:
+A script is just **Playwright + five injected methods**:
 
 ```javascript
 // lauda.spec.js — Niki Lauda's Wikipedia scroll race
@@ -156,7 +156,7 @@ await page.raceRecordingEnd();       // 📹 Stop recording
 
 <br>
 
-*Any existing Playwright script can become a racer with 4 lines.*
+*Any existing Playwright script can become a racer in minutes.*
 
 ---
 
@@ -180,17 +180,19 @@ Two Wikipedia pages. Two scroll strategies. Cold, hard milliseconds.
 
 <br>
 
-```
-races/lauda-vs-hunt/results/2026-03-15T14-32-00/
-├── README.md          # 📄 Full race report (markdown)
-├── summary.json       # 📊 Structured results + timings
-├── index.html         # 🎬 Interactive HTML player
+```text
+races/lauda-vs-hunt/results-2026-03-15_14-32-00/
+├── README.md              # 📄 Full race report (markdown)
+├── summary.json           # 📊 Structured results + timings
+├── index.html             # 🎬 Interactive HTML player
 ├── lauda/
-│   ├── recording.webm # 📹 Browser video
-│   └── trace/         # 🔍 Chrome DevTools trace
+│   ├── lauda.race.webm    # 📹 Trimmed race video
+│   ├── lauda.full.webm    # 📹 Full uncut recording
+│   └── lauda.trace.json   # 🔍 Chrome DevTools trace
 └── hunt/
-    ├── recording.webm
-    └── trace/
+    ├── hunt.race.webm
+    ├── hunt.full.webm
+    └── hunt.trace.json
 ```
 
 <br>
@@ -269,7 +271,7 @@ node race.js ./races/grafana-vs-kibana \
 
 <br>
 
-```
+```text
 race.js  (ESM)                runner.cjs  (CommonJS)
    │                                │
    ├─ Parse CLI args                ├─ Launch 2× Chromium
@@ -330,7 +332,7 @@ races/grafana-vs-kibana/    # Which dashboard loads first?
 
 <br>
 
-```
+```text
 races/
 ├── lauda-vs-hunt/           # 🏎  F1 scroll race — Wikipedia
 ├── lebron-vs-curry/         # 🏀  Basketball physics + scroll
@@ -362,7 +364,7 @@ Run both browsers **simultaneously** and watch them race in real time.
 
 <br>
 
-```
+```text
     🔴 LAUDA      🔵 HUNT
     ─────────     ──────────
     ████░░░░░     ██████░░░░
@@ -423,15 +425,20 @@ Every race outputs `summary.json` — machine-readable, pipeline-ready:
 
 ```json
 {
-  "winner": "lauda",
-  "measurements": {
-    "Scroll to Bottom": {
-      "lauda": { "time": 4823, "place": 1 },
-      "hunt":  { "time": 5107, "place": 2 }
+  "overallWinner": "lauda",
+  "wins": { "lauda": 1, "hunt": 0 },
+  "comparisons": [
+    {
+      "name": "Scroll to Bottom",
+      "winner": "lauda",
+      "rankings": ["lauda", "hunt"],
+      "racers": [
+        { "name": "lauda", "time": 4823 },
+        { "name": "hunt",  "time": 5107 }
+      ]
     }
-  },
-  "runs": 3,
-  "medianRun": 2
+  ],
+  "runs": 3
 }
 ```
 
@@ -441,8 +448,9 @@ Every race outputs `summary.json` — machine-readable, pipeline-ready:
 # In your CI pipeline:
 node race.js ./races/main-vs-branch --runs=3 --headless
 node -e "
+  const fs = require('node:fs');
   const r = JSON.parse(fs.readFileSync('results/summary.json'));
-  if (r.winner !== 'main') process.exit(1); // fail if branch regressed
+  if (r.overallWinner !== 'main') process.exit(1); // fail if branch regressed
 "
 ```
 
@@ -464,7 +472,7 @@ npx race-for-the-prize --init my-first-race
 npx race-for-the-prize my-first-race
 
 # Option 3: Clone and run built-in races
-git clone https://github.com/nicktindall/race-for-the-prize
+git clone https://github.com/kertal/race-for-the-prize
 cd race-for-the-prize
 npm install && npx playwright install chromium
 node race.js ./races/lauda-vs-hunt
@@ -484,7 +492,7 @@ node race.js ./races/lauda-vs-hunt
 | Feature | Benefit |
 |---|---|
 | **Playwright-native** | Works with any web app — no instrumentation needed |
-| **4-line race API** | Any Playwright script becomes a racer |
+| **Minimal race API** | Any Playwright script becomes a racer |
 | **Frame-accurate video** | See exactly what was measured |
 | **Real-world throttling** | Test slow networks and weak devices |
 | **CI-ready JSON output** | Catch regressions before they ship |
@@ -505,14 +513,14 @@ node race.js ./races/lauda-vs-hunt
 
 <br>
 
-### RaceForThePrize
+## RaceForThePrize
 
 *Browser Performance. Head-to-Head. No Judges.*
 
 <br>
 
 ```bash
-npx race-for-the-prize --init my-race && race-for-the-prize my-race
+npx race-for-the-prize --init my-race && npx race-for-the-prize my-race
 ```
 
 <br>
