@@ -40,6 +40,13 @@ let loadedSrcSet = 'race';
 let pendingSeek = null;
 let calibrationFatalError = null;
 
+// --- Sync playback: pause faster racers between measurement sections ---
+let syncSegments = null;   // [{name, maxDuration, clips: [{start,end,dur}|null per racer]}]
+let syncTotalDuration = 0;
+let syncPlaySection = 0;
+let syncPauseTimer = null;  // timer ID for inter-section pause
+const SYNC_PAUSE_MS = 500;  // freeze-frame gap between sections
+
 function failCalibration(msg) {
   if (calibrationFatalError) return;
   calibrationFatalError = msg;
@@ -87,7 +94,12 @@ function updateTimeDisplay() {
   const d = clipDuration();
   const t = d > 0 ? (scrubber.value / 1000) * d : 0;
   timeDisplay.textContent = fmt(Math.max(0, t)) + ' / ' + fmt(d);
-  frameDisplay.textContent = getTime(Math.max(0, t));
+  if (isSyncActive() && syncSegments) {
+    var idx = Math.min(syncPlaySection, syncSegments.length - 1);
+    frameDisplay.textContent = syncSegments[idx].name + ' (' + (idx + 1) + '/' + syncSegments.length + ')';
+  } else {
+    frameDisplay.textContent = getTime(Math.max(0, t));
+  }
 }
 
 function isValidClipEntry(c) {
@@ -108,6 +120,16 @@ function traceTsToClipPts(ct, traceTs) {
 }
 
 function seekAll(t) {
+  if (isSyncActive()) {
+    syncPlaySection = syncSectionForElapsed(t);
+    videos.forEach((v, i) => {
+      if (!v) return;
+      const target = syncElapsedToVideo(t, i);
+      if (target != null) v.currentTime = Math.min(target, v.duration || target);
+    });
+    updateFramePositions();
+    return;
+  }
   const adj = getAdjustedClipTimes();
   const ct = adj || clipTimes;
   videos.forEach((v, i) => {
@@ -171,6 +193,55 @@ function onMeta() {
 // --- Playback event handlers ---
 
 function onTimeUpdate() {
+  if (isSyncActive()) {
+    if (syncPlaySection >= syncSegments.length) return;
+    const seg = syncSegments[syncPlaySection];
+    let allDone = true;
+    for (let i = 0; i < videos.length; i++) {
+      const v = videos[i];
+      if (!v || hiddenRacers.has(i)) continue;
+      const clip = seg.clips[i];
+      if (!clip) continue;
+      if (v.currentTime >= clip.end - 0.02) {
+        v.currentTime = clip.end;
+        if (!v.paused && playing) v.pause();
+      } else {
+        allDone = false;
+      }
+    }
+    if (playing && allDone && !syncPauseTimer) {
+      if (syncPlaySection + 1 >= syncSegments.length) {
+        syncPlaySection++;
+        playing = false;
+        playBtn.textContent = '\u25B6';
+        scrubber.value = 1000;
+        updateTimeDisplay();
+        return;
+      }
+      // Pause between sections — freeze-frame gap
+      syncPauseTimer = setTimeout(function() {
+        syncPauseTimer = null;
+        if (!playing) return;
+        syncPlaySection++;
+        const nextSeg = syncSegments[syncPlaySection];
+        videos.forEach((v, i) => {
+          if (!v || hiddenRacers.has(i)) return;
+          const clip = nextSeg.clips[i];
+          if (clip) {
+            v.currentTime = clip.start;
+            v.play();
+          }
+        });
+        syncUpdateSectionLabel();
+      }, SYNC_PAUSE_MS);
+    }
+    const ve = syncGetVirtualElapsed();
+    const d = syncTotalDuration;
+    scrubber.value = d > 0 ? (Math.max(0, ve) / d) * 1000 : 0;
+    updateTimeDisplay();
+    updateFramePositions();
+    return;
+  }
   const adj = getAdjustedClipTimes();
   const ct = adj || clipTimes;
   let elapsed = 0;
@@ -268,6 +339,7 @@ function resolveClip() {
 }
 
 function switchMode(targetSrcSet, targetVideos, modeBtn, opts) {
+  clearSyncPause();
   pendingSeek = null;
   if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
   detachVideoListeners();
@@ -563,6 +635,112 @@ function getSegmentClipTimes(name) {
   });
 }
 
+function buildSyncSegments() {
+  syncSegments = null;
+  syncTotalDuration = 0;
+  syncPlaySection = 0;
+  if (!clipTimes) return;
+  const names = [];
+  const seen = new Set();
+  for (const ct of clipTimes) {
+    if (!ct || !ct.measurements) continue;
+    for (const m of ct.measurements) {
+      if (m.name && !seen.has(m.name)) { seen.add(m.name); names.push(m.name); }
+    }
+  }
+  if (names.length < 2) return;
+  const segs = [];
+  for (const name of names) {
+    const clips = getSegmentClipTimes(name);
+    if (!clips) continue;
+    let maxDur = 0;
+    const racerClips = clips.map((c, i) => {
+      if (hiddenRacers.has(i)) return null;
+      if (!c || !isValidClipEntry(c)) return null;
+      const dur = c.end - c.start;
+      if (dur > maxDur) maxDur = dur;
+      return { start: c.start, end: c.end, dur: dur };
+    });
+    if (maxDur > 0) segs.push({ name: name, maxDuration: maxDur, clips: racerClips });
+  }
+  if (segs.length < 2) return;
+  syncSegments = segs;
+  var pauseGaps = (segs.length - 1) * SYNC_PAUSE_MS / 1000;
+  syncTotalDuration = segs.reduce(function(sum, s) { return sum + s.maxDuration; }, 0) + pauseGaps;
+}
+
+function isSyncActive() {
+  return !!(syncSegments && !activeSegmentName && activeClip && activeClip._sync);
+}
+
+function syncUpdateSectionLabel() {
+  if (!isSyncActive() || !syncSegments) return;
+  const idx = Math.min(syncPlaySection, syncSegments.length - 1);
+  const seg = syncSegments[idx];
+  if (seg && frameDisplay) {
+    frameDisplay.textContent = seg.name + ' (' + (idx + 1) + '/' + syncSegments.length + ')';
+  }
+}
+
+function syncElapsedToVideo(elapsed, racerIdx) {
+  var remaining = Math.max(0, elapsed);
+  var pauseGap = SYNC_PAUSE_MS / 1000;
+  for (var s = 0; s < syncSegments.length; s++) {
+    var seg = syncSegments[s];
+    var clip = seg.clips[racerIdx];
+    if (remaining <= seg.maxDuration + 0.001) {
+      if (!clip) return null;
+      return clip.start + Math.min(remaining, clip.dur);
+    }
+    remaining -= seg.maxDuration;
+    // During the pause gap between sections, hold at section end
+    if (s < syncSegments.length - 1 && remaining <= pauseGap + 0.001) {
+      return clip ? clip.start + Math.min(clip.dur, seg.maxDuration) : null;
+    }
+    if (s < syncSegments.length - 1) remaining -= pauseGap;
+  }
+  var lastSeg = syncSegments[syncSegments.length - 1];
+  var lastClip = lastSeg.clips[racerIdx];
+  return lastClip ? lastClip.end : null;
+}
+
+function syncGetVirtualElapsed() {
+  var maxElapsed = 0;
+  var pauseGap = SYNC_PAUSE_MS / 1000;
+  for (var i = 0; i < videos.length; i++) {
+    var v = videos[i];
+    if (!v || hiddenRacers.has(i)) continue;
+    var curTime = v.currentTime;
+    var virtualOffset = 0;
+    for (var s = 0; s < syncSegments.length; s++) {
+      var seg = syncSegments[s];
+      var clip = seg.clips[i];
+      if (clip && curTime >= clip.start - 0.05 && curTime <= clip.end + 0.05) {
+        var e = virtualOffset + Math.min(curTime - clip.start, seg.maxDuration);
+        if (e > maxElapsed) maxElapsed = e;
+        break;
+      }
+      virtualOffset += seg.maxDuration;
+      if (s < syncSegments.length - 1) virtualOffset += pauseGap;
+    }
+  }
+  return maxElapsed;
+}
+
+function syncSectionForElapsed(elapsed) {
+  var remaining = elapsed;
+  var pauseGap = SYNC_PAUSE_MS / 1000;
+  for (var s = 0; s < syncSegments.length; s++) {
+    if (remaining <= syncSegments[s].maxDuration + 0.001) return s;
+    remaining -= syncSegments[s].maxDuration;
+    if (s < syncSegments.length - 1) {
+      if (remaining <= pauseGap + 0.001) return s; // in the gap after section s
+      remaining -= pauseGap;
+    }
+  }
+  return syncSegments.length - 1;
+}
+
 function buildSegmentNav() {
   if (segmentNavBuilt || !clipTimes) return;
   if (!segmentNav) return;
@@ -633,6 +811,7 @@ function buildSegmentNav() {
   allBtn.textContent = 'Race Recording';
   allBtn.dataset.segment = '__all__';
   allBtn.addEventListener('click', () => {
+    clearSyncPause();
     setActiveSegBtn(allBtn);
     activeSegmentName = null;
     activeSegmentClipTimes = null;
@@ -653,6 +832,7 @@ function buildSegmentNav() {
       btn.textContent = name;
       btn.dataset.segment = name;
       btn.addEventListener('click', () => {
+        clearSyncPause();
         setActiveSegBtn(btn);
         activeSegmentName = name;
         activeSegmentClipTimes = getSegmentClipTimes(name);
@@ -668,6 +848,7 @@ function buildSegmentNav() {
   }
 
   segmentNav.style.display = 'flex';
+  buildSyncSegments();
 }
 
 function buildRacerFilter() {
@@ -699,6 +880,7 @@ function buildRacerFilter() {
       btn.classList.remove('active');
       if (racerDivs[idx]) racerDivs[idx].style.display = 'none';
     }
+    buildSyncSegments();
     activeClip = resolveAdjustedClip();
     seekAll(activeClip ? activeClip.start : 0);
     scrubber.value = 0;
@@ -707,6 +889,9 @@ function buildRacerFilter() {
 }
 
 function resolveAdjustedClip() {
+  if (!activeSegmentName && syncSegments) {
+    return { start: 0, end: syncTotalDuration, _sync: true };
+  }
   const adj = getAdjustedClipTimes();
   if (!adj) return resolveClip();
   let minStart = Infinity, maxDuration = 0, found = false;
@@ -807,22 +992,48 @@ if (mergedVideo) mergedVideo.addEventListener('loadedmetadata', () => {
 
 // --- Playback controls ---
 
+function clearSyncPause() {
+  if (syncPauseTimer) { clearTimeout(syncPauseTimer); syncPauseTimer = null; }
+}
+
 playBtn.addEventListener('click', () => {
   if (playing) {
+    clearSyncPause();
     videos.forEach(v => v?.pause());
     playBtn.textContent = '\u25B6';
   } else {
-    if (activeClip && Number(scrubber.value) >= 999) {
-      seekAll(activeClip.start);
-      scrubber.value = 0;
+    if (isSyncActive()) {
+      if (Number(scrubber.value) >= 999) {
+        syncPlaySection = 0;
+        seekAll(0);
+        scrubber.value = 0;
+      } else {
+        const ve = (scrubber.value / 1000) * syncTotalDuration;
+        syncPlaySection = syncSectionForElapsed(ve);
+      }
+      const seg = syncSegments[syncPlaySection];
+      if (seg) {
+        videos.forEach((v, i) => {
+          if (!v || hiddenRacers.has(i)) return;
+          const clip = seg.clips[i];
+          if (!clip) return;
+          if (v.currentTime < clip.end - 0.02) v.play();
+        });
+      }
+    } else {
+      if (activeClip && Number(scrubber.value) >= 999) {
+        seekAll(activeClip.start);
+        scrubber.value = 0;
+      }
+      videos.forEach(v => v?.play());
     }
-    videos.forEach(v => v?.play());
     playBtn.textContent = '\u23F8';
   }
   playing = !playing;
 });
 
 scrubber.addEventListener('input', () => {
+  clearSyncPause();
   const d = clipDuration();
   const t = (scrubber.value / 1000) * d + clipOffset();
   seekAll(t);
@@ -835,6 +1046,7 @@ speedSelect.addEventListener('change', () => {
 });
 
 function stepFrame(delta) {
+  clearSyncPause();
   if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
   const minT = clipOffset();
   const maxT = activeClip ? activeClip.end : duration;
