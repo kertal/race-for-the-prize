@@ -4,6 +4,7 @@ import path from 'path';
 import os from 'os';
 import http from 'http';
 import net from 'net';
+import { createStaticHandler } from '../race.js';
 
 let tmpDir;
 
@@ -16,37 +17,6 @@ beforeEach(() => {
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
-
-/**
- * Create a minimal HTTP server replicating the serveResults request handler
- * (imported logic extracted for testability).
- */
-function createTestServer(dir) {
-  const MIME_TYPES = { '.html': 'text/html', '.json': 'application/json' };
-  const server = http.createServer((req, res) => {
-    let urlPath;
-    try {
-      urlPath = decodeURIComponent(req.url === '/' ? '/index.html' : req.url.split('?')[0]);
-    } catch {
-      res.writeHead(400);
-      res.end('Bad request');
-      return;
-    }
-    const filePath = path.resolve(path.join(dir, urlPath));
-    if (!filePath.startsWith(dir + path.sep) && filePath !== dir) {
-      res.writeHead(403);
-      res.end('Forbidden');
-      return;
-    }
-    const ext = path.extname(filePath).toLowerCase();
-    fs.readFile(filePath, (err, data) => {
-      if (err) { res.writeHead(404); res.end('Not found'); return; }
-      res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' });
-      res.end(data);
-    });
-  });
-  return server;
-}
 
 function rawRequest(port, raw) {
   return new Promise((resolve) => {
@@ -74,8 +44,8 @@ function fetch(server, urlPath) {
 describe('serveResults path traversal protection', () => {
   let server;
 
-  beforeEach((ctx) => {
-    server = createTestServer(tmpDir);
+  beforeEach(() => {
+    server = http.createServer(createStaticHandler(tmpDir));
     return new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   });
 

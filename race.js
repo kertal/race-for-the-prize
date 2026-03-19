@@ -302,11 +302,11 @@ const MIME_TYPES = {
 };
 
 /**
- * Serve `dir` over HTTP on a random free port, open `index.html` in the
- * browser, and keep running until the process is killed.
+ * Create an HTTP request handler that serves static files from `dir`.
+ * Exported for testing.
  */
-export function serveResults(dir) {
-  const server = http.createServer((req, res) => {
+export function createStaticHandler(dir) {
+  return (req, res) => {
     let urlPath;
     try {
       urlPath = decodeURIComponent(req.url === '/' ? '/index.html' : req.url.split('?')[0]);
@@ -335,7 +335,15 @@ export function serveResults(dir) {
       });
       res.end(data);
     });
-  });
+  };
+}
+
+/**
+ * Serve `dir` over HTTP on a random free port, open `index.html` in the
+ * browser, and keep running until the process is killed.
+ */
+export function serveResults(dir) {
+  const server = http.createServer(createStaticHandler(dir));
 
   server.listen(0, '127.0.0.1', () => {
     const { port } = server.address();
