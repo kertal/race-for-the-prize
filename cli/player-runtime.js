@@ -31,110 +31,23 @@ const speedSelect = document.getElementById('speedSelect');
 let playing = false;
 let duration = 0;
 let activeClip = null;
+let activeSegmentClipTimes = null;
+let activeSegmentName = null;
+let segmentNavBuilt = false;
+const hiddenRacers = new Set();
 const STEP = 0.1;
 let loadedSrcSet = 'race';
 let pendingSeek = null;
-let canvasCalibrationStarted = false;
+let calibrationFatalError = null;
 
-// --- Canvas calibration cache (localStorage) ---
-const CALIBRATION_CACHE_KEY = 'raceCalibration:' + raceVideoPaths.join('|');
-
-function loadCalibrationCache() {
-  try {
-    const raw = localStorage.getItem(CALIBRATION_CACHE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
-}
-
-function saveCalibrationCache() {
-  if (!clipTimes) return;
-  try {
-    const entries = clipTimes.map(ct => {
-      if (!ct || ct.calibratedStart == null) return null;
-      return { calibratedStart: ct.calibratedStart, calibratedEnd: ct.calibratedEnd };
-    });
-    localStorage.setItem(CALIBRATION_CACHE_KEY, JSON.stringify(entries));
-  } catch {}
-}
-
-// --- Canvas-based PTS calibration ---
-const CUE_DETECT_SIZE = 4;
-const FRAME_DT = 0.04;
-
-function seekVideoTo(video, time) {
-  return new Promise((resolve, reject) => {
-    if (Math.abs(video.currentTime - time) < 0.001) { resolve(); return; }
-    const timer = setTimeout(() => {
-      video.removeEventListener('seeked', onSeeked);
-      reject(new Error('seek timeout'));
-    }, 2000);
-    function onSeeked() { clearTimeout(timer); resolve(); }
-    video.addEventListener('seeked', onSeeked, { once: true });
-    video.currentTime = time;
-  });
-}
-
-function isGreenCue(data) {
-  let greenPx = 0;
-  const total = data.length / 4;
-  for (let j = 0; j < data.length; j += 4) {
-    if (data[j] < 100 && data[j + 1] > 150 && data[j + 2] < 100) greenPx++;
-  }
-  return greenPx > total * 0.4;
-}
-
-async function toBlobVideo(src) {
-  const response = await fetch(src);
-  if (!response.ok) throw new Error('fetch status ' + response.status);
-  const blob = await response.blob();
-  const blobUrl = URL.createObjectURL(blob);
-  const tmp = document.createElement('video');
-  tmp.muted = true;
-  tmp.preload = 'auto';
-  tmp.src = blobUrl;
-  tmp._blobUrl = blobUrl;
-  await new Promise((resolve, reject) => {
-    tmp.addEventListener('loadedmetadata', resolve, { once: true });
-    tmp.addEventListener('error', () => reject(new Error('blob video load failed')));
-    tmp.load();
-  });
-  return tmp;
-}
-
-async function detectGreenCuePts(video, scanTo) {
-  const canvas = document.createElement('canvas');
-  canvas.width = CUE_DETECT_SIZE;
-  canvas.height = CUE_DETECT_SIZE;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const endT = Math.min(video.duration || 0, scanTo || video.duration || 0);
-  const srcOffset = 0;
-
-  async function checkFrame(t) {
-    await seekVideoTo(video, t);
-    ctx.drawImage(video, srcOffset, srcOffset, CUE_DETECT_SIZE, CUE_DETECT_SIZE, 0, 0, CUE_DETECT_SIZE, CUE_DETECT_SIZE);
-    return isGreenCue(ctx.getImageData(0, 0, CUE_DETECT_SIZE, CUE_DETECT_SIZE).data);
-  }
-
-  const coarseStep = FRAME_DT * 2;
-
-  try {
-    let coarseHit = null;
-    for (let t = 0; t <= endT; t += coarseStep) {
-      if (await checkFrame(t)) { coarseHit = t; break; }
-    }
-    if (coarseHit === null) return null;
-
-    const fineStart = Math.max(0, coarseHit - coarseStep);
-    let firstGreen = coarseHit;
-    for (let ft = fineStart; ft < coarseHit; ft += FRAME_DT) {
-      if (await checkFrame(ft)) { firstGreen = ft; break; }
-    }
-    return Math.max(0, firstGreen - FRAME_DT);
-  } catch (e) {
-    if (e.name === 'SecurityError' || (e.message && e.message.indexOf('tainted') !== -1)) throw e;
-    console.warn('Canvas cue detection failed:', e.message);
-    return null;
-  }
+function failCalibration(msg) {
+  if (calibrationFatalError) return;
+  calibrationFatalError = msg;
+  if (timeDisplay) timeDisplay.textContent = msg;
+  if (frameDisplay) frameDisplay.textContent = 'manual calibration required';
+  if (playBtn) playBtn.disabled = true;
+  if (scrubber) scrubber.disabled = true;
+  throw new Error(msg);
 }
 
 function applyCalibrationToClip(ct, ptsStart, videoDuration) {
@@ -145,58 +58,6 @@ function applyCalibrationToClip(ct, ptsStart, videoDuration) {
   ct.start = ptsStart;
   ct.end = Math.min(ptsStart + segDuration, videoDuration);
   ct._converted = true;
-}
-
-function restoreFromCache() {
-  const cached = loadCalibrationCache();
-  if (!cached || !clipTimes) return false;
-  let applied = false;
-  for (let i = 0; i < clipTimes.length; i++) {
-    const ct = clipTimes[i];
-    const entry = cached[i];
-    const v = raceVideos[i];
-    if (!ct || !entry || !v || !v.duration || ct._wcStart == null || ct.calibratedStart != null) continue;
-    if (entry.calibratedStart != null) {
-      applyCalibrationToClip(ct, entry.calibratedStart, v.duration);
-      applied = true;
-    }
-  }
-  return applied;
-}
-
-async function calibrateFromCanvas() {
-  if (!clipTimes) return false;
-  let anyCalibrated = false;
-
-  for (let idx = 0; idx < raceVideos.length; idx++) {
-    const v = raceVideos[idx];
-    const ct = clipTimes[idx];
-    if (!v || !ct || ct._wcStart == null || ct.calibratedStart != null) continue;
-
-    const scanTo = v.duration * 0.6;
-    let ptsStart = null;
-
-    try {
-      ptsStart = await detectGreenCuePts(v, scanTo);
-    } catch {
-      try {
-        const blobVid = await toBlobVideo(v.src);
-        ptsStart = await detectGreenCuePts(blobVid, scanTo);
-        URL.revokeObjectURL(blobVid._blobUrl);
-      } catch (e) {
-        console.warn('Canvas calibration failed for video ' + idx + ':', e.message);
-        continue;
-      }
-    }
-
-    if (ptsStart !== null) {
-      applyCalibrationToClip(ct, ptsStart, v.duration);
-      anyCalibrated = true;
-    }
-  }
-
-  if (anyCalibrated) saveCalibrationCache();
-  return anyCalibrated;
 }
 
 // --- Formatting helpers ---
@@ -233,6 +94,19 @@ function isValidClipEntry(c) {
   return c != null && Number.isFinite(c.start) && Number.isFinite(c.end) && c.start <= c.end;
 }
 
+function hasTraceCalibration(ct) {
+  return !!(ct && ct.traceCalibration && Number.isFinite(ct.traceCalibration.recordingStartTs));
+}
+
+function canApplyTraceCalibration(ct) {
+  return hasTraceCalibration(ct) && Number.isFinite(ct.traceCalibration.firstFrameTs);
+}
+
+function traceTsToClipPts(ct, traceTs) {
+  if (!hasTraceCalibration(ct) || !Number.isFinite(traceTs)) return null;
+  return (traceTs - ct.traceCalibration.recordingStartTs) / 1e6;
+}
+
 function seekAll(t) {
   const adj = getAdjustedClipTimes();
   const ct = adj || clipTimes;
@@ -252,29 +126,31 @@ function seekAll(t) {
 // --- Metadata & calibration ---
 
 function onMeta() {
+  if (calibrationFatalError) return;
   duration = Math.max(...videos.filter(v => v).map(v => v.duration || 0));
+  let convertedAny = false;
   if (clipTimes) {
     for (let i = 0; i < clipTimes.length; i++) {
       if (!isValidClipEntry(clipTimes[i]) || !videos[i] || !videos[i].duration) continue;
       const ct = clipTimes[i];
       if (ct._converted) continue;
+      const wasConverted = !!ct._converted;
       if (ct._wcStart == null) { ct._wcStart = ct.start; ct._wcEnd = ct.end; }
-      if (ct.calibratedStart != null) {
-        applyCalibrationToClip(ct, ct.calibratedStart, videos[i].duration);
-        continue;
+      if (!canApplyTraceCalibration(ct)) {
+        failCalibration('Calibration error: missing trace calibration metadata. Please calibrate manually.');
+        return;
       }
-      const wcd = ct.wallClockDuration;
-      const offset = ct.recordingOffset || 0;
-      if (wcd > 0) {
-        const scale = videos[i].duration / wcd;
-        ct._ptsScale = scale;
-        ct.start = (ct.start + offset) * scale;
-        ct.end = (ct.end + offset) * scale;
-        ct._converted = true;
+      const tracePtsStart = (ct.traceCalibration.recordingStartTs - ct.traceCalibration.firstFrameTs) / 1e6;
+      if (!Number.isFinite(tracePtsStart) || tracePtsStart < 0) {
+        failCalibration('Calibration error: invalid trace timestamps. Please calibrate manually.');
+        return;
       }
+      applyCalibrationToClip(ct, tracePtsStart, videos[i].duration);
+      if (!wasConverted && ct._converted) convertedAny = true;
     }
   }
-  activeClip = resolveClip();
+  activeClip = resolveAdjustedClip();
+  buildSegmentNav();
   updateTimeDisplay();
   updateDebugStats();
 
@@ -282,26 +158,14 @@ function onMeta() {
     const fn = pendingSeek;
     pendingSeek = null;
     fn();
+  } else if (convertedAny && !playing) {
+    // If conversion landed after the initial seek was already consumed,
+    // force one seek to the actual clip start to avoid stale startup frame.
+    seekAll(activeClip ? activeClip.start : 0);
+    scrubber.value = 0;
+    updateTimeDisplay();
   }
 
-  if (!canvasCalibrationStarted && clipTimes &&
-      raceVideos.every(v => !v || v.readyState >= 1)) {
-    const needsCalibration = clipTimes.some(ct => ct && ct.calibratedStart == null);
-    if (needsCalibration) {
-      canvasCalibrationStarted = true;
-      const applyCalibrationResult = () => {
-        activeClip = resolveAdjustedClip();
-        updateTimeDisplay();
-        updateDebugStats();
-        if (activeClip) { seekAll(activeClip.start); scrubber.value = 0; }
-      };
-      if (restoreFromCache()) {
-        applyCalibrationResult();
-      } else {
-        calibrateFromCanvas().then(any => { if (any) applyCalibrationResult(); });
-      }
-    }
-  }
 }
 
 // --- Playback event handlers ---
@@ -382,6 +246,7 @@ const modeFull = document.getElementById('modeFull');
 const modeMerged = document.getElementById('modeMerged');
 const modeDebug = document.getElementById('modeDebug');
 const debugPanel = document.getElementById('debugPanel');
+const segmentNav = document.getElementById('segmentNav');
 
 function setActiveMode(btn) {
   [modeRace, modeFull, modeMerged].forEach(b => b?.classList.remove('active'));
@@ -392,6 +257,7 @@ function resolveClip() {
   if (!clipTimes) return null;
   let minStart = Infinity, maxDuration = 0, found = false;
   for (let i = 0; i < clipTimes.length; i++) {
+    if (hiddenRacers.has(i)) continue;
     if (isValidClipEntry(clipTimes[i])) {
       minStart = Math.min(minStart, clipTimes[i].start);
       maxDuration = Math.max(maxDuration, clipTimes[i].end - clipTimes[i].start);
@@ -431,6 +297,18 @@ function showCalibrationBtn() {
   if (modeDebug) modeDebug.style.display = '';
 }
 
+function resetSegmentState({ hide = false } = {}) {
+  activeSegmentName = null;
+  activeSegmentClipTimes = null;
+  if (!segmentNav) return;
+  segmentNav.querySelectorAll('.segment-btn').forEach((b) => {
+    b.classList.remove('active');
+  });
+  const allBtn = segmentNav.querySelector('.segment-btn[data-segment="__all__"]');
+  if (allBtn) allBtn.classList.add('active');
+  segmentNav.style.display = hide ? 'none' : (segmentNavBuilt ? 'flex' : 'none');
+}
+
 function switchToRace() {
   switchMode('race', raceVideos, modeRace, {
     loadSrc() { raceVideos.forEach((v, i) => { v.src = raceVideoPaths[i]; }); },
@@ -439,6 +317,7 @@ function switchToRace() {
       if (mergedContainer) mergedContainer.style.display = 'none';
       hideCalibration();
       showCalibrationBtn();
+      resetSegmentState({ hide: false });
     },
     doSeek() {
       activeClip = resolveAdjustedClip();
@@ -458,6 +337,7 @@ function switchToFull() {
       playerContainer.style.display = 'flex';
       if (mergedContainer) mergedContainer.style.display = 'none';
       hideCalibration();
+      resetSegmentState({ hide: true });
     },
     doSeek() {
       activeClip = null;
@@ -475,6 +355,7 @@ function switchToMerged() {
       playerContainer.style.display = 'none';
       mergedContainer.style.display = 'block';
       hideCalibration();
+      resetSegmentState({ hide: true });
       activeClip = null;
       duration = mergedVideo.duration || 0;
     },
@@ -555,22 +436,14 @@ function updateDebugStats() {
       eventsEl.appendChild(noData);
       continue;
     }
-    const offset = ct.recordingOffset || 0;
-    const wcd = ct.wallClockDuration || 0;
-    const scale = ct._ptsScale || (wcd > 0 ? v.duration / wcd : 0);
     const wcStart = ct._wcStart != null ? ct._wcStart : ct.start;
     const wcEnd = ct._wcEnd != null ? ct._wcEnd : ct.end;
-    let toPts;
-    if (ct.calibratedStart != null) {
+    const toPts = (wc) => {
       const wcDur = wcEnd - wcStart;
       const ptsDur = ct.end - ct.start;
-      toPts = (wc) => {
-        if (wcDur <= 0) return wc;
-        return ct.start + (wc - wcStart) / wcDur * ptsDur;
-      };
-    } else {
-      toPts = (wc) => scale > 0 ? (wc + offset) * scale : wc;
-    }
+      if (wcDur <= 0) return null;
+      return ct.start + (wc - wcStart) / wcDur * ptsDur;
+    };
     const fmtS = (val) => val != null && isFinite(val) ? val.toFixed(3) + 's' : '\u2014';
     const toFrame = (pts) => pts != null && isFinite(pts) ? Math.round(pts / 0.04) : null;
     const fmtF = (pts) => { const f = toFrame(pts); return f != null ? '#' + f : '\u2014'; };
@@ -581,15 +454,22 @@ function updateDebugStats() {
     const measurements = ct.measurements || [];
     for (let m = 0; m < measurements.length; m++) {
       const meas = measurements[m];
-      if (meas.startTime != null) events.push({ label: 'raceStart("' + (meas.name || '') + '")', wc: meas.startTime, ptsVal: toPts(meas.startTime) });
-      if (meas.endTime != null) events.push({ label: 'raceEnd("' + (meas.name || '') + '")', wc: meas.endTime, ptsVal: toPts(meas.endTime) });
+      const startPts = Number.isFinite(meas.startTraceTs)
+        ? traceTsToClipPts(ct, meas.startTraceTs)
+        : (meas.startTime != null ? toPts(meas.startTime) : null);
+      const endPts = Number.isFinite(meas.endTraceTs)
+        ? traceTsToClipPts(ct, meas.endTraceTs)
+        : (meas.endTime != null ? toPts(meas.endTime) : null);
+      if (meas.startTime != null || Number.isFinite(meas.startTraceTs)) {
+        events.push({ label: 'raceStart("' + (meas.name || '') + '")', wc: meas.startTime, ptsVal: startPts });
+      }
+      if (meas.endTime != null || Number.isFinite(meas.endTraceTs)) {
+        events.push({ label: 'raceEnd("' + (meas.name || '') + '")', wc: meas.endTime, ptsVal: endPts });
+      }
     }
     events.push({ label: 'raceRecordingEnd()', wc: wcEnd, ptsVal: ct.end });
-    events.push({ label: 'Pre-close', wc: wcd > 0 ? wcd - offset : null, ptsVal: v.duration });
-    const scaleInfo = ct.calibratedStart != null
-      ? 'calibrated'
-      : (scale > 0 ? scale.toFixed(4) : '\u2014');
-    events.push({ label: 'Video time scale', wc: scaleInfo, ptsVal: 'vid/wc', frame: '\u2014', bold: true });
+    events.push({ label: 'Pre-close', wc: ct.wallClockDuration || null, ptsVal: v.duration });
+    events.push({ label: 'Calibration mode', wc: 'trace-only', ptsVal: 'trace ts', frame: '\u2014', bold: true });
 
     function buildTimingRow(ev, bold) {
       const div = document.createElement('div');
@@ -662,10 +542,167 @@ const FRAME_STEP = 0.04;
 const debugOffsets = raceVideos.map(() => 0);
 
 function getAdjustedClipTimes() {
-  if (!clipTimes) return null;
-  return clipTimes.map((ct, i) => {
+  const base = activeSegmentClipTimes || clipTimes;
+  if (!base) return null;
+  return base.map((ct, i) => {
     if (!ct) return null;
     return { start: ct.start + debugOffsets[i], end: ct.end };
+  });
+}
+
+function getSegmentClipTimes(name) {
+  if (!clipTimes) return null;
+  return clipTimes.map(ct => {
+    if (!ct || ct._wcStart == null || ct._wcEnd == null) return null;
+    const m = ct.measurements && ct.measurements.find(m => m.name === name);
+    if (!m || !Number.isFinite(m.startTraceTs) || !Number.isFinite(m.endTraceTs)) return null;
+    const startPts = traceTsToClipPts(ct, m.startTraceTs);
+    const endPts = traceTsToClipPts(ct, m.endTraceTs);
+    if (!Number.isFinite(startPts) || !Number.isFinite(endPts) || endPts <= startPts) return null;
+    return { start: startPts, end: endPts };
+  });
+}
+
+function buildSegmentNav() {
+  if (segmentNavBuilt || !clipTimes) return;
+  if (!segmentNav) return;
+  if (!clipTimes.every(ct => !ct || ct._wcStart != null)) return;
+  const seen = new Set();
+  const names = [];
+  for (const ct of clipTimes) {
+    if (!ct || !ct.measurements) continue;
+    for (const m of ct.measurements) {
+      if (m.name && !seen.has(m.name)) { seen.add(m.name); names.push(m.name); }
+    }
+  }
+  if (names.length < 1) return;
+  segmentNavBuilt = true;
+  segmentNav.innerHTML = '';
+
+  function setActiveSegBtn(btn) {
+    segmentNav.querySelectorAll('.segment-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+
+  // Switch to race-clip videos if we were in whole-recording (full) mode
+  function ensureRaceMode(callback) {
+    if (fullVideoPaths && loadedSrcSet === 'full') {
+      if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
+      detachVideoListeners();
+      raceVideos.forEach((v, i) => { v.src = raceVideoPaths[i]; });
+      loadedSrcSet = 'race';
+      videos = raceVideos;
+      primary = videos[0];
+      attachVideoListeners();
+      duration = 0;
+      pendingSeek = callback;
+    } else {
+      callback();
+    }
+  }
+
+  // "Whole Recording" — shows full unclipped recording
+  const fullBtn = document.createElement('button');
+  fullBtn.className = 'segment-btn';
+  fullBtn.textContent = 'Whole Recording';
+  fullBtn.dataset.segment = '__full__';
+  fullBtn.addEventListener('click', () => {
+    setActiveSegBtn(fullBtn);
+    activeSegmentName = '__full__';
+    activeSegmentClipTimes = null;
+    const doSeek = () => { activeClip = null; seekAll(0); scrubber.value = 0; updateTimeDisplay(); };
+    if (fullVideoPaths && loadedSrcSet !== 'full') {
+      if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
+      detachVideoListeners();
+      raceVideos.forEach((v, i) => { v.src = fullVideoPaths[i]; });
+      loadedSrcSet = 'full';
+      videos = raceVideos;
+      primary = videos[0];
+      attachVideoListeners();
+      duration = 0;
+      pendingSeek = doSeek;
+    } else {
+      doSeek();
+    }
+  });
+  segmentNav.appendChild(fullBtn);
+
+  // "All" — shows all measurements combined
+  const allBtn = document.createElement('button');
+  allBtn.className = 'segment-btn active';
+  allBtn.textContent = 'Race Recording';
+  allBtn.dataset.segment = '__all__';
+  allBtn.addEventListener('click', () => {
+    setActiveSegBtn(allBtn);
+    activeSegmentName = null;
+    activeSegmentClipTimes = null;
+    ensureRaceMode(() => {
+      activeClip = resolveAdjustedClip();
+      seekAll(activeClip ? activeClip.start : 0);
+      scrubber.value = 0;
+      updateTimeDisplay();
+    });
+  });
+  segmentNav.appendChild(allBtn);
+
+  // Individual measurement buttons — only shown when there are multiple measurements
+  if (names.length > 1) {
+    for (const name of names) {
+      const btn = document.createElement('button');
+      btn.className = 'segment-btn';
+      btn.textContent = name;
+      btn.dataset.segment = name;
+      btn.addEventListener('click', () => {
+        setActiveSegBtn(btn);
+        activeSegmentName = name;
+        activeSegmentClipTimes = getSegmentClipTimes(name);
+        ensureRaceMode(() => {
+          activeClip = resolveAdjustedClip();
+          seekAll(activeClip ? activeClip.start : 0);
+          scrubber.value = 0;
+          updateTimeDisplay();
+        });
+      });
+      segmentNav.appendChild(btn);
+    }
+  }
+
+  segmentNav.style.display = 'flex';
+}
+
+function buildRacerFilter() {
+  const filterEl = document.getElementById('racerFilter');
+  if (!filterEl) return;
+  const racerDivs = playerContainer ? playerContainer.querySelectorAll('.racer') : [];
+  for (let i = 0; i < raceVideos.length; i++) {
+    const btn = document.createElement('button');
+    btn.className = 'racer-filter-btn active';
+    btn.style.color = racerColors[i];
+    btn.textContent = racerNames[i];
+    btn.dataset.idx = i;
+    filterEl.appendChild(btn);
+  }
+  filterEl.style.display = 'flex';
+  filterEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('.racer-filter-btn');
+    if (!btn) return;
+    const idx = parseInt(btn.dataset.idx, 10);
+    const isHidden = hiddenRacers.has(idx);
+    const visibleCount = raceVideos.length - hiddenRacers.size;
+    if (!isHidden && visibleCount <= 2) return;
+    if (isHidden) {
+      hiddenRacers.delete(idx);
+      btn.classList.add('active');
+      if (racerDivs[idx]) racerDivs[idx].style.display = '';
+    } else {
+      hiddenRacers.add(idx);
+      btn.classList.remove('active');
+      if (racerDivs[idx]) racerDivs[idx].style.display = 'none';
+    }
+    activeClip = resolveAdjustedClip();
+    seekAll(activeClip ? activeClip.start : 0);
+    scrubber.value = 0;
+    updateTimeDisplay();
   });
 }
 
@@ -674,6 +711,7 @@ function resolveAdjustedClip() {
   if (!adj) return resolveClip();
   let minStart = Infinity, maxDuration = 0, found = false;
   for (let i = 0; i < adj.length; i++) {
+    if (hiddenRacers.has(i)) continue;
     if (isValidClipEntry(adj[i])) {
       minStart = Math.min(minStart, adj[i].start);
       maxDuration = Math.max(maxDuration, adj[i].end - adj[i].start);
@@ -843,18 +881,41 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'Escape' && !isFullscreen()) { selectedVideoIdx = -1; updateSelectionUI(); setViewMode('grid'); }
 });
 
+// --- Racer filter (3+ racers only) ---
+
+buildRacerFilter();
+
 // --- Initial clip seek ---
 
 if (clipTimes) {
-  activeClip = resolveAdjustedClip();
-  if (activeClip) {
-    const initSeek = () => {
-      seekAll(activeClip.start);
-      updateTimeDisplay();
-    };
-    if (primary.readyState >= 1) initSeek();
-    else primary.addEventListener('loadedmetadata', initSeek);
+  const initSeek = () => {
+    activeClip = resolveAdjustedClip();
+    seekAll(activeClip ? activeClip.start : 0);
+    scrubber.value = 0;
+    updateTimeDisplay();
+  };
+  pendingSeek = initSeek;
+  if (raceVideos.every(v => !v || v.readyState >= 1)) {
+    // If metadata loaded before listeners attached, run one onMeta() pass
+    // explicitly so clip conversions/calibration are applied on first paint.
+    onMeta();
   }
+}
+
+// Kick an initial metadata pass in case loadedmetadata fired before listeners
+// were attached (e.g. cache-fast loads). Wait until all race videos expose
+// metadata so conversion/calibration can actually run.
+{
+  let attempts = 0;
+  const runInitialMetaPass = () => {
+    if (raceVideos.every(v => !v || v.readyState >= 1)) {
+      onMeta();
+      return;
+    }
+    attempts++;
+    if (attempts < 120) setTimeout(runInitialMetaPass, 50);
+  };
+  runInitialMetaPass();
 }
 
 // --- Export: client-side side-by-side video stitching ---
@@ -942,14 +1003,14 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
   const outFilename = (downloadName || 'race-side-by-side') + '.' + format;
   const buttons = actionsEl.querySelectorAll('button');
   buttons.forEach(b => { b.disabled = true; });
-  const controller = new AbortController();
+  let cancelled = false;
   let outUrl = null;
 
   function revokeOutUrl() { if (outUrl) { URL.revokeObjectURL(outUrl); outUrl = null; } }
 
   const dismissBtn = document.createElement('button');
   dismissBtn.textContent = 'Cancel';
-  dismissBtn.addEventListener('click', () => { controller.abort(); revokeOutUrl(); overlay.remove(); });
+  dismissBtn.addEventListener('click', () => { cancelled = true; revokeOutUrl(); overlay.remove(); });
   actionsEl.appendChild(dismissBtn);
   statusEl.textContent = 'Loading ffmpeg.wasm (~25 MB)...';
   progressFill.style.width = '0%';
@@ -957,12 +1018,15 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
   window.addEventListener('pagehide', revokeOutUrl, { once: true });
 
   loadFFmpeg().then(ff => {
+    if (cancelled) return;
     statusEl.textContent = 'Converting to ' + format.toUpperCase() + '...';
     progressFill.style.width = '30%';
 
     return blob.arrayBuffer().then(buf => {
+      if (cancelled) return;
       return ff.writeFile(inFile, new Uint8Array(buf));
     }).then(() => {
+      if (cancelled) return;
       let trimArgs = [];
       if (clipRange) {
         trimArgs = ['-ss', clipRange.start.toFixed(3), '-t', (clipRange.end - clipRange.start).toFixed(3)];
@@ -976,12 +1040,14 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
         args = trimArgs.concat(['-i', inFile, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', outFile]);
       }
       progressFill.style.width = '50%';
-      return ff.exec(args, { signal: controller.signal });
+      return ff.exec(args);
     }).then(exitCode => {
+      if (cancelled || exitCode == null) return;
       if (exitCode !== 0) throw new Error('ffmpeg exited with code ' + exitCode + ' — conversion failed');
       progressFill.style.width = '90%';
       return ff.readFile(outFile);
     }).then(data => {
+      if (cancelled || !data) return;
       const mType = format === 'gif' ? 'image/gif' : 'video/quicktime';
       const outBlob = new Blob([data], { type: mType });
       outUrl = URL.createObjectURL(outBlob);
@@ -1213,11 +1279,15 @@ function isFullscreen() {
 
 function toggleFullscreen() {
   if (!fullscreenWrapper) return;
-  if (isFullscreen()) {
-    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-  } else {
-    (fullscreenWrapper.requestFullscreen || fullscreenWrapper.webkitRequestFullscreen).call(fullscreenWrapper);
-  }
+  try {
+    if (isFullscreen()) {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exit) exit.call(document)?.catch?.(() => {});
+    } else {
+      const request = fullscreenWrapper.requestFullscreen || fullscreenWrapper.webkitRequestFullscreen;
+      if (request) request.call(fullscreenWrapper)?.catch?.(() => {});
+    }
+  } catch (_) { /* unsupported */ }
 }
 
 function onFullscreenChange() {
@@ -1233,3 +1303,255 @@ if (fullscreenBtn) {
 document.addEventListener('fullscreenchange', onFullscreenChange);
 document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
+// --- Export HTML: self-contained zip with videos, profiles, baked adjustments ---
+
+const _crc32Table = new Uint32Array(256);
+for (let i = 0; i < 256; i++) {
+  let c = i;
+  for (let j = 0; j < 8; j++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+  _crc32Table[i] = c;
+}
+
+function crc32(data) {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < data.length; i++) crc = _crc32Table[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8);
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+function createZipBuilder() {
+  const chunks = [];
+  const entries = [];
+  const encoder = new TextEncoder();
+  let offset = 0;
+
+  function addFile(name, data) {
+    const nameBytes = encoder.encode(name);
+    const crc = crc32(data);
+    const localHeader = new Uint8Array(30 + nameBytes.length);
+    const view = new DataView(localHeader.buffer);
+    let pos = 0;
+    view.setUint32(pos, 0x04034b50, true); pos += 4;
+    view.setUint16(pos, 20, true); pos += 2;
+    view.setUint16(pos, 0x0800, true); pos += 2; // UTF-8 flag
+    view.setUint16(pos, 0, true); pos += 2;
+    view.setUint16(pos, 0, true); pos += 2;
+    view.setUint16(pos, 0x5421, true); pos += 2;
+    view.setUint32(pos, crc, true); pos += 4;
+    view.setUint32(pos, data.length, true); pos += 4;
+    view.setUint32(pos, data.length, true); pos += 4;
+    view.setUint16(pos, nameBytes.length, true); pos += 2;
+    view.setUint16(pos, 0, true); pos += 2;
+    localHeader.set(nameBytes, pos);
+
+    chunks.push(localHeader, data);
+    entries.push({ name: nameBytes, size: data.length, crc, offset });
+    offset += localHeader.length + data.length;
+  }
+
+  function toBlob() {
+    const centralDirOffset = offset;
+    let centralDirSize = 0;
+    entries.forEach(e => { centralDirSize += 46 + e.name.length; });
+
+    const trailerChunks = [];
+    for (const e of entries) {
+      const centralHeader = new Uint8Array(46 + e.name.length);
+      const view = new DataView(centralHeader.buffer);
+      let pos = 0;
+      view.setUint32(pos, 0x02014b50, true); pos += 4;
+      view.setUint16(pos, 20, true); pos += 2;
+      view.setUint16(pos, 20, true); pos += 2;
+      view.setUint16(pos, 0x0800, true); pos += 2; // UTF-8 flag
+      view.setUint16(pos, 0, true); pos += 2;
+      view.setUint16(pos, 0, true); pos += 2;
+      view.setUint16(pos, 0x5421, true); pos += 2;
+      view.setUint32(pos, e.crc, true); pos += 4;
+      view.setUint32(pos, e.size, true); pos += 4;
+      view.setUint32(pos, e.size, true); pos += 4;
+      view.setUint16(pos, e.name.length, true); pos += 2;
+      view.setUint16(pos, 0, true); pos += 2;
+      view.setUint16(pos, 0, true); pos += 2;
+      view.setUint16(pos, 0, true); pos += 2;
+      view.setUint16(pos, 0, true); pos += 2;
+      view.setUint32(pos, 0, true); pos += 4;
+      view.setUint32(pos, e.offset, true); pos += 4;
+      centralHeader.set(e.name, pos);
+      trailerChunks.push(centralHeader);
+    }
+
+    const eocd = new Uint8Array(22);
+    const eocdView = new DataView(eocd.buffer);
+    let p = 0;
+    eocdView.setUint32(p, 0x06054b50, true); p += 4;
+    eocdView.setUint16(p, 0, true); p += 2;
+    eocdView.setUint16(p, 0, true); p += 2;
+    eocdView.setUint16(p, entries.length, true); p += 2;
+    eocdView.setUint16(p, entries.length, true); p += 2;
+    eocdView.setUint32(p, centralDirSize, true); p += 4;
+    eocdView.setUint32(p, centralDirOffset, true); p += 4;
+    eocdView.setUint16(p, 0, true);
+    trailerChunks.push(eocd);
+
+    // Build zip from chunks to avoid creating one giant contiguous ArrayBuffer copy.
+    return new Blob([...chunks, ...trailerChunks], { type: 'application/zip' });
+  }
+
+  return { addFile, toBlob };
+}
+
+function buildExportHtml() {
+  const doc = document.documentElement.cloneNode(true);
+
+  // Defensive cleanup: if runtime state duplicated racer cards, keep one set.
+  const racerCards = Array.from(doc.querySelectorAll('#playerContainer .racer'));
+  const expectedRacers = Array.isArray(raceVideoPaths) ? raceVideoPaths.filter(Boolean).length : 0;
+  if (expectedRacers > 0 && racerCards.length > expectedRacers) {
+    racerCards.slice(expectedRacers).forEach((el) => el.remove());
+  }
+
+  // Remove debug/calibration panel and button
+  const dp = doc.querySelector('#debugPanel');
+  if (dp) dp.remove();
+  const calBtn = doc.querySelector('#modeDebug');
+  if (calBtn) calBtn.remove();
+
+  // Remove export buttons (HTML export already done, video export needs ffmpeg assets not in ZIP)
+  const htmlBtn = doc.querySelector('#exportHtmlBtn');
+  if (htmlBtn) htmlBtn.remove();
+  const expBtn = doc.querySelector('#exportBtn');
+  if (expBtn) expBtn.remove();
+
+  // Remove any active export overlays
+  doc.querySelectorAll('.export-overlay').forEach(el => el.remove());
+
+  // Bake adjusted clip times into the script
+  const scripts = doc.querySelectorAll('script');
+  for (const script of scripts) {
+    let text = script.textContent;
+    if (!text.includes('const clipTimes =')) continue;
+    const adj = getAdjustedClipTimes();
+    if (adj && clipTimes) {
+      const baked = adj.map((ct, i) => {
+        if (!ct) return null;
+        const orig = clipTimes[i] || {};
+        return {
+          start: ct.start,
+          end: ct.end,
+          _converted: true,
+          calibratedStart: ct.start,
+          calibratedEnd: ct.end,
+          _wcStart: orig._wcStart != null ? orig._wcStart : ct.start,
+          _wcEnd: orig._wcEnd != null ? orig._wcEnd : ct.end,
+          wallClockDuration: orig.wallClockDuration || 0,
+          recordingOffset: orig.recordingOffset || 0,
+          measurements: orig.measurements || [],
+        };
+      });
+      text = text.replace(
+        /const clipTimes = [\s\S]+?;\n/,
+        'const clipTimes = ' + JSON.stringify(baked) + ';\n'
+      );
+    }
+    script.textContent = text;
+  }
+
+  return '<!DOCTYPE html>\n' + doc.outerHTML;
+}
+
+async function startHtmlExport() {
+  if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
+
+  const tmpl = document.getElementById('tmpl-export-overlay');
+  const overlay = tmpl.content.cloneNode(true).firstElementChild;
+  const canvas = overlay.querySelector('.export-canvas');
+  canvas.style.display = 'none';
+  const titleEl = overlay.querySelector('h3');
+  titleEl.textContent = 'Exporting HTML';
+  document.body.appendChild(overlay);
+
+  const progressFill = overlay.querySelector('.export-progress-fill');
+  const statusEl = overlay.querySelector('.export-status');
+  const actionsEl = overlay.querySelector('.export-actions');
+
+  const abortCtrl = new AbortController();
+  overlay.querySelector('.export-cancel').addEventListener('click', () => {
+    abortCtrl.abort();
+    overlay.remove();
+  });
+
+  // Collect all file paths to include
+  const filePaths = new Set();
+  const optionalFilePaths = new Set(['summary.json']);
+  raceVideoPaths.forEach(p => { if (p) filePaths.add(p); });
+  if (fullVideoPaths) fullVideoPaths.forEach(p => { if (p) filePaths.add(p); });
+  if (mergedVideo) {
+    const mergedPath = mergedVideo.getAttribute('src');
+    if (mergedPath) filePaths.add(mergedPath);
+  }
+  // Scan file-links section for trace files and other assets
+  document.querySelectorAll('.file-links a').forEach(a => {
+    const href = a.getAttribute('href');
+    if (href && !href.startsWith('http') && !href.startsWith('//') && !href.startsWith('data:')) {
+      filePaths.add(href);
+    }
+  });
+  filePaths.add('summary.json');
+
+  const zipBuilder = createZipBuilder();
+  const failedFiles = [];
+  let fetched = 0;
+  const total = filePaths.size;
+
+  for (const filePath of filePaths) {
+    if (abortCtrl.signal.aborted) return;
+    fetched++;
+    statusEl.textContent = 'Fetching ' + filePath + ' (' + fetched + '/' + total + ')';
+    progressFill.style.width = (fetched / total * 80).toFixed(0) + '%';
+    try {
+      const resp = await fetch(filePath, { signal: abortCtrl.signal });
+      if (resp.ok) {
+        const data = new Uint8Array(await resp.arrayBuffer());
+        zipBuilder.addFile(filePath, data);
+      } else {
+        if (!optionalFilePaths.has(filePath)) failedFiles.push(filePath);
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      if (!optionalFilePaths.has(filePath)) failedFiles.push(filePath);
+    }
+  }
+
+  if (abortCtrl.signal.aborted) return;
+
+  statusEl.textContent = 'Building HTML...';
+  progressFill.style.width = '85%';
+  const html = buildExportHtml();
+  zipBuilder.addFile('index.html', new TextEncoder().encode(html));
+
+  statusEl.textContent = 'Creating ZIP...';
+  progressFill.style.width = '95%';
+  const blob = zipBuilder.toBlob();
+  const url = URL.createObjectURL(blob);
+
+  let statusMsg = 'Export complete! (' + (blob.size / (1024 * 1024)).toFixed(1) + ' MB)';
+  if (failedFiles.length > 0) {
+    statusMsg += '\nSkipped ' + failedFiles.length + ' file(s): ' + failedFiles.join(', ');
+  }
+  statusEl.textContent = statusMsg;
+  progressFill.style.width = '100%';
+
+  const dlLink = document.createElement('a');
+  dlLink.href = url;
+  const zipName = document.title.replace(/[^a-zA-Z0-9-]/g, '_').replace(/_+/g, '_').toLowerCase();
+  dlLink.download = (zipName || 'race-export') + '.zip';
+  dlLink.textContent = 'Download ZIP';
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Close';
+  closeBtn.addEventListener('click', () => { URL.revokeObjectURL(url); overlay.remove(); });
+  actionsEl.replaceChildren(dlLink, closeBtn);
+}
+
+const exportHtmlBtn = document.getElementById('exportHtmlBtn');
+if (exportHtmlBtn) {
+  exportHtmlBtn.addEventListener('click', startHtmlExport);
+}

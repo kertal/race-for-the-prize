@@ -1,6 +1,6 @@
 {
   "name": "race-for-the-prize",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "🏆 Race browsers head-to-head and crown a champion",
   "type": "module",
   "bin": {

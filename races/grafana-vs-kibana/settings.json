@@ -1,7 +1,0 @@
-{
-  "parallel": false,
-  "headless": false,
-  "runs": 3,
-  "network": "none",
-  "cpuThrottle": 1
-}
