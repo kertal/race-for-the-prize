@@ -4,14 +4,14 @@
 
 await page.raceRecordingStart();
 await page.waitForTimeout(500);
-await page.raceStart('Load Framework');
+await page.raceStart('Webpage loaded and stable');
 
 await page.goto('https://react.dev/', { waitUntil: 'load' });
 
-// Wait for the main hero content to be visible
-await page.waitForSelector('h1', { state: 'visible' });
+await page.raceWaitForVisualStability();
 
-page.raceEnd('Load Framework');
+page.raceEnd('Webpage loaded and stable');
+
 page.raceMessage('Components assembled!');
 await page.waitForTimeout(1500);
 await page.raceRecordingEnd();

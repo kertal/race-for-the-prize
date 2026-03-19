@@ -59,6 +59,7 @@
     text-transform: uppercase;
     letter-spacing: 0.15em;
   }
+  .winner-banner:empty { display: none; }
   .winner-banner {
     text-align: center;
     font-family: Georgia, serif;
@@ -66,27 +67,27 @@
     color: #e8e0d0;
     padding-bottom: 1rem;
   }
-  .trophy { font-size: 1.4rem; }
+  .trophy { font-size: 1.1rem; }
   .video-source-note {
     text-align: center;
     font-size: 0.8rem;
     color: #777;
     padding-bottom: 0.5rem;
   }
-  .race-info {
-    max-width: 900px;
-    width: 100%;
-    padding: 0.3rem 1.5rem 0.8rem;
+  .race-info, .machine-info {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: 0.1rem 1.5rem;
+    font-size: 0.8rem;
+    color: #ccc;
+    padding: 0.1rem 0;
   }
-  .race-info table {
-    border-collapse: collapse;
-    font-size: 0.85rem;
+  .info-item {
+    white-space: nowrap;
   }
-  .race-info td {
-    padding: 0.15rem 0.8rem 0.15rem 0;
-  }
-  .race-info td:first-child {
-    color: #888;
+  .info-label {
+    color: #666;
+    margin-right: 0.4rem;
   }
   .errors {
     max-width: 900px;
@@ -125,6 +126,72 @@
     background: #d4af37;
     color: #1a1a1a;
     border-color: #d4af37;
+    font-weight: bold;
+  }
+  .racer-filter {
+    display: none;
+    gap: 0.4rem;
+    padding: 0.5rem 0 0.8rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .racer-filter-btn {
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    padding: 0.3rem 0.9rem;
+    font-size: 0.82rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    background: #2a2a2a;
+    transition: opacity 0.2s, background 0.2s;
+    opacity: 0.35;
+  }
+  .racer-filter-btn.active { opacity: 1; }
+  .racer-filter-btn:not(.active):hover { background: #3a3a3a; opacity: 0.6; }
+  .racer-filter-btn.active:hover { background: #3a3a3a; }
+  .segment-export-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    max-width: 1440px;
+    padding: 0 1.5rem 0.4rem;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .export-btns {
+    display: flex;
+    gap: 0.5rem;
+    flex-shrink: 0;
+  }
+  .segment-nav {
+    display: none;
+    gap: 0.4rem;
+    padding: 0;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    flex: 1;
+  }
+  .segment-btn {
+    background: #2a2a2a;
+    color: #999;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 0.3rem 0.9rem;
+    font-size: 0.82rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    transition: all 0.2s;
+  }
+  .segment-btn:hover {
+    background: #3a3a3a;
+    border-color: #d4af37;
+    color: #e8e0d0;
+  }
+  .segment-btn.active {
+    background: #1a3a1a;
+    color: #7de07d;
+    border-color: #5cb85c;
     font-weight: bold;
   }
   .player-container {
@@ -233,20 +300,65 @@
   .section {
     max-width: 900px;
     width: 100%;
-    padding: 0.5rem 1.5rem 1rem;
+    padding: 0.8rem 1.5rem 0.5rem;
   }
-  .section h2 {
+  .section > summary {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.2rem 0;
+  }
+  .section > summary::-webkit-details-marker { display: none; }
+  .section > summary::before {
+    content: "\25B6";
+    font-size: 0.55rem;
+    color: #666;
+    display: inline-block;
+    transition: transform 0.2s;
+    flex-shrink: 0;
+  }
+  .section[open] > summary::before {
+    transform: rotate(90deg);
+  }
+  .section > summary h2 {
     font-family: Georgia, serif;
     color: #d4af37;
-    font-size: 1.1rem;
-    margin-bottom: 0.3rem;
+    font-size: 1rem;
     text-transform: uppercase;
     letter-spacing: 0.1em;
+    margin: 0;
   }
-  .profile-note {
+  .section-body {
+    padding-top: 0.4rem;
+  }
+.profile-note {
     color: #777;
     font-size: 0.8rem;
     margin-bottom: 1rem;
+  }
+  .profile-scope-desc {
+    color: #888;
+    font-size: 0.78rem;
+    font-style: italic;
+    margin: -0.2rem 0 0.8rem;
+  }
+  .profile-category-desc {
+    color: #777;
+    font-size: 0.75rem;
+    margin: -0.2rem 0 0.5rem;
+  }
+  .profile-metric-desc {
+    color: #777;
+    font-size: 0.73rem;
+    margin: 0 0 0.2rem 0;
+    line-height: 1.4;
+  }
+  .profile-info-icon {
+    color: #666;
+    font-size: 0.7rem;
+    cursor: help;
   }
   .section h3 {
     color: #e8e0d0;
@@ -277,7 +389,7 @@
   }
   .profile-racer {
     font-weight: bold;
-    min-width: 90px;
+    min-width: 110px;
     flex-shrink: 0;
   }
   .profile-bar-track {
@@ -286,7 +398,6 @@
     background: #2a2a2a;
     border-radius: 3px;
     overflow: hidden;
-    max-width: 200px;
   }
   .profile-bar-fill {
     display: block;
@@ -295,10 +406,11 @@
     opacity: 0.8;
   }
   .profile-value {
-    min-width: 120px;
+    min-width: 140px;
     flex-shrink: 0;
     text-align: right;
     color: #ccc;
+    white-space: nowrap;
   }
   .profile-delta {
     color: #888;
@@ -310,6 +422,29 @@
     font-size: 0.9rem;
     font-weight: bold;
     margin-top: 0.2rem;
+  }
+  .profile-collapsible {
+    margin-top: 1rem;
+  }
+  .profile-collapsible summary {
+    cursor: pointer;
+    list-style: none;
+    color: #e8e0d0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .profile-collapsible summary::-webkit-details-marker { display: none; }
+  .profile-collapsible summary::before {
+    content: "\25B6";
+    font-size: 0.55rem;
+    color: #666;
+    transition: transform 0.2s;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+  .profile-collapsible[open] summary::before {
+    transform: rotate(90deg);
   }
   .file-links {
     display: flex;
@@ -329,6 +464,256 @@
     background: #3a3a3a;
     border-color: #d4af37;
   }
+  .debug-panel {
+    max-width: 900px;
+    width: 100%;
+    padding: 0.8rem 1.5rem;
+    background: #2a2218;
+    border: 1px solid #e67e22;
+    border-radius: 6px;
+    margin: 0 auto;
+    display: none;
+  }
+  .debug-panel h3 {
+    color: #e67e22;
+    font-family: Georgia, serif;
+    font-size: 0.95rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.6rem;
+  }
+  .debug-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.3rem 0;
+    font-size: 0.85rem;
+    flex-wrap: wrap;
+  }
+  .debug-row .racer-name {
+    font-weight: bold;
+    min-width: 90px;
+  }
+  .debug-row .start-info {
+    color: #999;
+    min-width: 150px;
+  }
+  .debug-frame-btn {
+    background: #2a2a2a;
+    color: #e67e22;
+    border: 1px solid #e67e22;
+    border-radius: 3px;
+    padding: 0.2rem 0.5rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    transition: all 0.2s;
+  }
+  .debug-frame-btn:hover {
+    background: #e67e22;
+    color: #1a1a1a;
+  }
+  .debug-footer {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-top: 0.6rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid #444;
+    font-size: 0.75rem;
+    color: #777;
+    flex-wrap: wrap;
+  }
+  .debug-action-btn {
+    background: #2a2a2a;
+    color: #e67e22;
+    border: 1px solid #e67e22;
+    border-radius: 4px;
+    padding: 0.3rem 0.8rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    transition: all 0.2s;
+  }
+  .debug-action-btn:hover {
+    background: #e67e22;
+    color: #1a1a1a;
+  }
+  .debug-stats {
+    margin-top: 0.6rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid #444;
+  }
+  .debug-stats-header {
+    color: #e67e22;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.3rem;
+  }
+  .debug-stats-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.15rem 0;
+    font-size: 0.8rem;
+    color: #999;
+    flex-wrap: wrap;
+  }
+  .debug-stats-row .racer-name {
+    font-weight: bold;
+    min-width: 90px;
+  }
+  .debug-frames {
+    margin-top: 0.6rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid #444;
+  }
+  .debug-timing {
+    margin-top: 0.6rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid #444;
+  }
+  .debug-timing-racer {
+    margin-bottom: 0.5rem;
+  }
+  .debug-timing-racer .racer-name {
+    font-weight: bold;
+    font-size: 0.8rem;
+    display: block;
+    margin-bottom: 0.2rem;
+  }
+  .debug-timing-events {
+    font-size: 0.75rem;
+    color: #999;
+  }
+  .debug-timing-event {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.1rem 0;
+    border-bottom: 1px solid #333;
+  }
+  .debug-timing-label {
+    flex: 1;
+    min-width: 150px;
+  }
+  .debug-timing-val {
+    min-width: 70px;
+    text-align: right;
+    color: #bbb;
+  }
+  .export-btn {
+    background: #2a2a2a;
+    color: #d4af37;
+    border: 1px solid #d4af37;
+    border-radius: 4px;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    flex-shrink: 0;
+    transition: all 0.2s;
+  }
+  .export-btn:hover { background: #d4af37; color: #1a1a1a; }
+  .export-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .export-modal {
+    background: #1a1a1a;
+    border: 2px solid #d4af37;
+    border-radius: 8px;
+    padding: 1.5rem;
+    max-width: 90vw;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+  }
+  .export-modal h3 {
+    font-family: Georgia, serif;
+    color: #d4af37;
+    font-size: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin: 0;
+  }
+  .export-modal canvas {
+    border: 1px solid #333;
+    border-radius: 4px;
+    max-width: 100%;
+  }
+  .export-progress-bar {
+    width: 100%;
+    height: 8px;
+    background: #2a2a2a;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .export-progress-fill {
+    height: 100%;
+    background: #d4af37;
+    border-radius: 4px;
+    width: 0%;
+    transition: width 0.2s;
+  }
+  .export-actions {
+    display: flex;
+    gap: 0.8rem;
+    align-items: center;
+  }
+  .export-actions button, .export-actions a {
+    background: #2a2a2a;
+    color: #e8e0d0;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 0.4rem 1rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    text-decoration: none;
+    transition: all 0.2s;
+  }
+  .export-actions button:hover, .export-actions a:hover {
+    background: #3a3a3a;
+    border-color: #d4af37;
+  }
+  .export-status {
+    color: #999;
+    font-size: 0.85rem;
+  }
+  .export-convert-row {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .export-convert-row button {
+    background: #2a2a2a;
+    color: #d4af37;
+    border: 1px solid #d4af37;
+    border-radius: 4px;
+    padding: 0.4rem 1rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    transition: all 0.2s;
+  }
+  .export-convert-row button:hover { background: #d4af37; color: #1a1a1a; }
+  .export-convert-row button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: #2a2a2a;
+    color: #999;
+    border-color: #555;
+  }
   {{layoutCss}}
 </style>
 </head>
@@ -339,22 +724,163 @@
 <h1>Race for the Prize</h1>
 <div class="winner-banner">{{winnerBanner}}</div>
 {{videoSourceNote}}
-{{raceInfo}}
 {{errors}}
 {{modeToggle}}
 
 {{playerSection}}
 
-<div class="section">
-  <h2>Results</h2>
+{{debugPanel}}
+
+<details class="section" open>
+  <summary><h2>Measurement Results</h2></summary>
+  <div class="section-body">
 {{results}}
-</div>
+  </div>
+</details>
+
+{{profileSummary}}
 
 {{profile}}
 
 {{files}}
 
+<details class="section">
+  <summary><h2>Run Info</h2></summary>
+  <div class="section-body">
+    {{raceInfo}}
+    {{machineInfo}}
+  </div>
+</details>
+
 <div class="checkered-bar"></div>
+
+<template id="build-info-item"><span class="info-item"><span class="info-label">{{label}}</span> {{value}}</span></template>
+
+<template id="build-profile-row">
+<div class="profile-row">
+  <span class="profile-racer" style="color: {{color}}">{{name}}</span>
+  <span class="profile-bar-track">
+    <span class="profile-bar-fill" style="width: {{barPct}}%; background: {{color}}"></span>
+  </span>
+  <span class="profile-value">{{value}}</span>
+  {{medal}}
+</div>
+</template>
+
+<template id="build-profile-metric">
+<div class="profile-metric">
+  <div class="profile-metric-name" {{titleAttr}}>{{name}}</div>
+  {{desc}}{{rows}}
+</div>
+</template>
+
+<template id="build-file-link"><a href="{{href}}" {{attrs}}>{{text}}</a></template>
+
+<template id="build-racer-name"><span class="racer-name" style="color: {{color}}">{{name}}</span></template>
+
+<template id="build-player-section">
+<div id="racerFilter" class="racer-filter"></div>
+<div class="player-container" id="playerContainer">
+{{videoElements}}
+</div>
+{{mergedVideoElement}}
+
+<div class="segment-export-row">
+  <div id="segmentNav" class="segment-nav"></div>
+  <div class="export-btns">
+    <button class="export-btn" id="exportBtn" title="Export side-by-side video">Export Recording</button>
+    <button class="export-btn" id="exportHtmlBtn" title="Export as self-contained HTML zip">Export Zip</button>
+  </div>
+</div>
+<div class="controls">
+  <div class="controls-row">
+    <button class="frame-btn" id="goStart" title="Go to start (Home)">&#x23EE;</button>
+    <button class="frame-btn" id="prevFrame" title="-0.1s (&larr;)">&laquo;</button>
+    <button class="play-btn" id="playBtn">&#x25B6;</button>
+    <button class="frame-btn" id="nextFrame" title="+0.1s (&rarr;)">&raquo;</button>
+    <button class="frame-btn" id="goEnd" title="Go to end (End)">&#x23ED;</button>
+    <input type="range" class="scrubber" id="scrubber" min="0" max="1000" value="0">
+  </div>
+  <span class="time-display" id="timeDisplay">0:00.000 / 0:00.000</span>
+  <span class="frame-display" id="frameDisplay">0.0s</span>
+  <select class="speed-select" id="speedSelect">
+    <option value="0.25">0.25x</option>
+    <option value="0.5">0.5x</option>
+    <option value="1" selected>1x</option>
+    <option value="2">2x</option>
+  </select>
+  {{calibrationBtn}}
+</div>
+</template>
+
+<template id="build-debug-row">
+<div class="debug-row" data-debug-idx="{{displayIdx}}">
+  {{racerNameSpan}}
+  <span class="start-info" id="debugStart{{displayIdx}}">start: {{startVal}}s (+0f)</span>
+  <button class="debug-frame-btn" data-idx="{{displayIdx}}" data-delta="-5">-5f</button>
+  <button class="debug-frame-btn" data-idx="{{displayIdx}}" data-delta="-1">-1f</button>
+  <button class="debug-frame-btn" data-idx="{{displayIdx}}" data-delta="1">+1f</button>
+  <button class="debug-frame-btn" data-idx="{{displayIdx}}" data-delta="5">+5f</button>
+</div>
+</template>
+
+<template id="build-debug-stats-row">
+<div class="debug-stats-row" id="debugStatsRow{{displayIdx}}">
+  {{racerNameSpan}}
+  <span>duration: &mdash;</span>
+  <span>frames: &mdash; dropped: &mdash;</span>
+  <span>resolution: &mdash;</span>
+</div>
+</template>
+
+<template id="build-debug-frame-row">
+<div class="debug-stats-row" id="debugFrameRow{{displayIdx}}">
+  {{racerNameSpan}}
+  <span>&mdash;</span>
+</div>
+</template>
+
+<template id="build-debug-timing-racer">
+<div class="debug-timing-racer" id="debugTimingRacer{{displayIdx}}">
+  {{racerNameSpan}}
+  <div class="debug-timing-events" id="debugTimingEvents{{displayIdx}}"></div>
+</div>
+</template>
+
+<template id="build-debug-panel">
+<div class="debug-panel" id="debugPanel">
+  <h3>Calibration</h3>{{debugRows}}
+  <div class="debug-stats" id="debugStats">
+    <div class="debug-stats-header">VIDEO INFO</div>
+{{statsRows}}
+  </div>
+  <div class="debug-frames" id="debugFrames">
+    <div class="debug-stats-header">FRAME POSITIONS</div>
+{{frameRows}}
+  </div>
+  <div class="debug-timing" id="debugTiming">
+    <div class="debug-stats-header">TIMING EVENTS</div>
+{{timingRows}}
+  </div>
+  <div class="debug-footer">
+    <span>1 frame &asymp; 0.040s (assuming 25fps recording)</span>
+    <button class="debug-action-btn" id="debugCopyJson">Copy JSON</button>
+    <button class="debug-action-btn" id="debugResetAll">Reset All</button>
+  </div>
+</div>
+</template>
+
+<template id="tmpl-export-overlay">
+  <div class="export-overlay">
+    <div class="export-modal">
+      <h3>Exporting Side-by-Side</h3>
+      <canvas class="export-canvas"></canvas>
+      <div class="export-progress-bar"><div class="export-progress-fill"></div></div>
+      <div class="export-status">Preparing...</div>
+      <div class="export-actions"><button class="export-cancel">Cancel</button></div>
+    </div>
+  </div>
+</template>
 
 {{scriptTag}}
 </body>

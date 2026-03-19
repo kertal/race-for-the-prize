@@ -6,15 +6,9 @@
 import { execFileSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import { c, VIDEO_DEFAULTS } from './colors.js';
+import { c, VIDEO_DEFAULTS, codecArgs } from './colors.js';
 import { startProgress } from './animation.js';
 import { compressGif } from './results.js';
-
-function codecArgs(format) {
-  if (format === 'mov') return ['-c:v', 'libx264', '-pix_fmt', 'yuv420p'];
-  if (format === 'gif') return [];  // GIF-specific filters are applied in filter_complex
-  return ['-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0'];
-}
 
 /**
  * Build FFmpeg filter_complex for N videos.

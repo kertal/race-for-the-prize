@@ -4,14 +4,17 @@
 
 await page.raceRecordingStart();
 await page.waitForTimeout(500);
-await page.raceStart('Load Framework');
+await page.raceStart('Webpage loaded and stable');
 
 await page.goto('https://angular.dev/', { waitUntil: 'load' });
 
-// Wait for the main content to be visible and interactive
-await page.waitForSelector('a[href="/tutorials"]', { state: 'visible' });
+const stability = await page.raceWaitForVisualStability({ timeout: 10000 });
+if (!stability.stable) {
+  throw new Error(`Angular page did not reach visual stability within ${stability.elapsed}ms`);
+}
 
-page.raceEnd('Load Framework');
+page.raceEnd('Webpage loaded and stable');
+
 page.raceMessage('Modules loaded!');
 await page.waitForTimeout(1500);
 await page.raceRecordingEnd();

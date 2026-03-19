@@ -184,11 +184,6 @@ describe('settings override', () => {
     expect(s.cpuThrottle).toBe(4);
   });
 
-  it('CLI --profile sets profile', () => {
-    const s = applyOverrides({}, new Set(['profile']), {});
-    expect(s.profile).toBe(true);
-  });
-
   it('CLI --no-overlay sets noOverlay', () => {
     const s = applyOverrides({}, new Set(['no-overlay']), {});
     expect(s.noOverlay).toBe(true);

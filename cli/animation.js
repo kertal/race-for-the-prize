@@ -32,7 +32,7 @@ export class RaceAnimation {
     this.names = names;
     this.info = info || null;
     this.finished = new Array(names.length).fill(false);
-    this.messages = [];
+    this.messages = new Array(names.length).fill(null);
     this.interval = null;
     this.frameIdx = 0;
     this.startTime = Date.now();
@@ -67,6 +67,7 @@ export class RaceAnimation {
     process.stderr.write(line + '\x1b[K\n');
 
     for (const msg of this.messages) {
+      if (!msg) continue;
       const nameColor = RACER_COLORS[msg.index % RACER_COLORS.length];
       process.stderr.write(`  ${nameColor}${c.bold}${msg.name}:${c.reset} ${c.dim}"${msg.text}" (${msg.elapsed}s)${c.reset}\x1b[K\n`);
       this.lines++;
@@ -75,10 +76,13 @@ export class RaceAnimation {
 
   racerFinished(index) {
     this.finished[index] = true;
+    this.messages[index] = null;
   }
 
   addMessage(index, name, text, elapsed) {
-    this.messages.push({ index, name, text, elapsed });
+    const prev = this.messages[index];
+    if (prev && prev.text === text && prev.elapsed === elapsed) return;
+    this.messages[index] = { index, name, text, elapsed };
   }
 
   stop() {

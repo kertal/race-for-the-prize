@@ -135,6 +135,25 @@ describe('buildSummary', () => {
 
     expect(summary.settings).toEqual(settings);
   });
+
+  it('includes machineInfo with expected keys', () => {
+    const results = [
+      { measurements: [], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
+    ];
+    const summary = buildSummary(names, results, {}, 'test-results');
+
+    expect(summary.machineInfo).toBeDefined();
+    expect(summary.machineInfo).toHaveProperty('platform');
+    expect(summary.machineInfo).toHaveProperty('arch');
+    expect(summary.machineInfo).toHaveProperty('osRelease');
+    expect(summary.machineInfo).toHaveProperty('cpuModel');
+    expect(summary.machineInfo).toHaveProperty('cpuCores');
+    expect(summary.machineInfo).toHaveProperty('totalMemoryMB');
+    expect(summary.machineInfo).toHaveProperty('nodeVersion');
+    expect(typeof summary.machineInfo.cpuCores).toBe('number');
+    expect(typeof summary.machineInfo.totalMemoryMB).toBe('number');
+  });
 });
 
 describe('buildMarkdownSummary', () => {
@@ -212,6 +231,24 @@ describe('buildMarkdownSummary', () => {
     expect(md).toContain('4x');
   });
 
+  it('includes machine info when provided', () => {
+    const md = buildMarkdownSummary(makeSummary({
+      machineInfo: {
+        platform: 'darwin',
+        arch: 'arm64',
+        osRelease: '24.1.0',
+        cpuModel: 'Apple M2',
+        cpuCores: 8,
+        totalMemoryMB: 16384,
+        nodeVersion: 'v20.11.0',
+      },
+    }));
+    expect(md).toContain('| **Machine** | macOS 24.1.0 (arm64) |');
+    expect(md).toContain('| **CPU** | Apple M2 (8 cores) |');
+    expect(md).toContain('| **Memory** | 16.0 GB |');
+    expect(md).toContain('| **Node.js** | v20.11.0 |');
+  });
+
   it('handles missing measurement for one racer', () => {
     const summary = makeSummary({
       comparisons: [{
@@ -284,6 +321,19 @@ describe('buildMedianSummary', () => {
   it('preserves settings from first run', () => {
     const median = buildMedianSummary(makeSummaries(), '/tmp/results');
     expect(median.settings).toEqual({ parallel: true });
+  });
+
+  it('preserves machineInfo from first summary that has it', () => {
+    const summaries = makeSummaries();
+    const info = { platform: 'darwin', arch: 'arm64', osRelease: '24.1.0', cpuModel: 'M2', cpuCores: 8, totalMemoryMB: 16384, nodeVersion: 'v20.11.0' };
+    summaries[1].machineInfo = info;
+    const median = buildMedianSummary(summaries, 'test-results');
+    expect(median.machineInfo).toEqual(info);
+  });
+
+  it('returns undefined machineInfo when no summary has it', () => {
+    const median = buildMedianSummary(makeSummaries(), 'test-results');
+    expect(median.machineInfo).toBeUndefined();
   });
 
   it('collects errors from all runs', () => {
