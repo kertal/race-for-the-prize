@@ -1,7 +1,7 @@
 /**
- * Integration test: verify that build-time ffprobe calibration values are
- * applied correctly in the HTML player, and that the canvas-based fallback
- * is wired up for when build-time calibration is unavailable.
+ * Integration test: verify that trace-based calibration values are
+ * applied in the HTML player and that missing trace metadata throws a strict
+ * manual-calibration error.
  *
  * Uses Playwright to load generated index.html pages with known clip times
  * and evaluate the player's runtime behavior.
@@ -31,9 +31,9 @@ const makeSummary = (overrides = {}) => ({
 
 const videoFiles = ['alpha/alpha.race.webm', 'bravo/bravo.race.webm'];
 
-const calibratedClipTimes = [
-  { start: 2.0, end: 10.0, recordingOffset: 0.01, wallClockDuration: 12.0, calibratedStart: 3.52 },
-  { start: 1.8, end: 9.5, recordingOffset: 0.02, wallClockDuration: 11.5, calibratedStart: 2.0 },
+const traceCalibratedClipTimes = [
+  { start: 2.0, end: 10.0, recordingOffset: 0.01, wallClockDuration: 12.0, calibratedStart: null, traceCalibration: { recordingStartTs: 2_000_000, firstFrameTs: 1_900_000 } },
+  { start: 1.8, end: 9.5, recordingOffset: 0.02, wallClockDuration: 11.5, calibratedStart: null, traceCalibration: { recordingStartTs: 3_000_000, firstFrameTs: 2_800_000 } },
 ];
 
 const uncalibratedClipTimes = [
@@ -67,14 +67,21 @@ function extractFromScripts(fn) {
 }
 
 describe('calibration integration', () => {
+  let setupError = null;
+
   beforeAll(async () => {
     tmpDir = path.join(__dirname, '..', 'test-results', 'calibration-' + Date.now());
     fs.mkdirSync(tmpDir, { recursive: true });
     try {
-      browser = await launchPlaywright();
+      // Some CI/sandbox environments can hang while launching Chromium.
+      // Bound setup time so the suite can skip cleanly instead of timing out.
+      browser = await Promise.race([
+        launchPlaywright(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Playwright launch timeout')), 20_000)),
+      ]);
       page = await browser.newPage();
     } catch (e) {
-      console.error('Skipping calibration test: could not launch Playwright:', e.message);
+      setupError = new Error(`Calibration integration setup failed: ${e.message}`);
     }
   });
 
@@ -86,10 +93,10 @@ describe('calibration integration', () => {
     }
   });
 
-  it('embeds build-time calibratedStart in clipTimes JSON', async () => {
-    if (!page) return;
+  it('embeds trace calibration metadata in clipTimes JSON', async ({ skip }) => {
+    if (setupError) skip(setupError.message);
 
-    buildAndWrite(calibratedClipTimes);
+    buildAndWrite(traceCalibratedClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
     const parsed = await extractFromScripts(() => {
@@ -101,22 +108,22 @@ describe('calibration integration', () => {
     });
 
     expect(parsed).toHaveLength(2);
-    expect(parsed[0].calibratedStart).toBe(3.52);
-    expect(parsed[1].calibratedStart).toBe(2.0);
+    expect(parsed[0].traceCalibration.recordingStartTs).toBe(2_000_000);
+    expect(parsed[1].traceCalibration.recordingStartTs).toBe(3_000_000);
   });
 
-  it('onMeta applies calibratedStart via applyCalibrationToClip, not linear scaling', async () => {
-    if (!page) return;
+  it('onMeta applies trace calibration via applyCalibrationToClip', async ({ skip }) => {
+    if (setupError) skip(setupError.message);
 
-    buildAndWrite(calibratedClipTimes);
+    buildAndWrite(traceCalibratedClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
     const result = await extractFromScripts(() => {
       for (const s of document.querySelectorAll('script')) {
         if (s.textContent.includes('applyCalibrationToClip')) {
           return {
-            hasBuildTimePath: s.textContent.includes('ct.calibratedStart != null'),
-            hasApplyCall: s.textContent.includes('applyCalibrationToClip(ct, ct.calibratedStart'),
+            hasTracePath: s.textContent.includes('hasTraceCalibration(ct)'),
+            hasApplyCall: s.textContent.includes('applyCalibrationToClip(ct, tracePtsStart'),
             hasContinue: s.textContent.includes('continue;'),
           };
         }
@@ -125,66 +132,34 @@ describe('calibration integration', () => {
     });
 
     expect(result).toBeTruthy();
-    expect(result.hasBuildTimePath).toBe(true);
+    expect(result.hasTracePath).toBe(true);
     expect(result.hasApplyCall).toBe(true);
     expect(result.hasContinue).toBe(true);
   });
 
-  it('skips canvas calibration when all clips have build-time calibratedStart', async () => {
-    if (!page) return;
+  it('does not include canvas calibration fallback in runtime', async ({ skip }) => {
+    if (setupError) skip(setupError.message);
 
-    buildAndWrite(calibratedClipTimes);
+    buildAndWrite(traceCalibratedClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
     const result = await extractFromScripts(() => {
+      const clipTimesMatch = [...document.querySelectorAll('script')]
+        .map(s => s.textContent.match(/const clipTimes = (\[.*?\]);/))
+        .find(Boolean);
+      const parsedClipTimes = clipTimesMatch ? JSON.parse(clipTimesMatch[1]) : null;
+      const hasTraceCalibration = ct => !!(ct && ct.traceCalibration && Number.isFinite(ct.traceCalibration.recordingStartTs));
+      const needsCalibration = parsedClipTimes
+        ? parsedClipTimes.some(ct => ct && ct.calibratedStart == null && !hasTraceCalibration(ct))
+        : null;
+
       for (const s of document.querySelectorAll('script')) {
-        if (s.textContent.includes('needsCalibration')) {
-          return { hasCheck: s.textContent.includes("clipTimes.some(ct => ct && ct.calibratedStart == null)") };
-        }
-      }
-      return null;
-    });
-
-    expect(result).toBeTruthy();
-    expect(result.hasCheck).toBe(true);
-  });
-
-  it('falls back to canvas calibration when calibratedStart is null', async () => {
-    if (!page) return;
-
-    buildAndWrite(uncalibratedClipTimes);
-    await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
-
-    const parsed = await extractFromScripts(() => {
-      for (const s of document.querySelectorAll('script')) {
-        const match = s.textContent.match(/const clipTimes = (\[.*?\]);/);
-        if (match) return JSON.parse(match[1]);
-      }
-      return null;
-    });
-
-    expect(parsed).toHaveLength(2);
-    expect(parsed[0].calibratedStart).toBeNull();
-    expect(parsed[1].calibratedStart).toBeNull();
-  });
-
-  it('includes SecurityError re-throw for blob fallback on file://', async () => {
-    if (!page) return;
-
-    buildAndWrite(baseClipTimes);
-    await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
-
-    const result = await extractFromScripts(() => {
-      for (const s of document.querySelectorAll('script')) {
-        if (s.textContent.includes('toBlobVideo')) {
+        if (s.textContent.includes('applyCalibrationToClip')) {
           return {
-            hasSecurityCheck: s.textContent.includes("e.name === 'SecurityError'"),
-            hasTaintedCheck: s.textContent.includes("e.message.indexOf('tainted')"),
-            hasThrow: s.textContent.includes('throw e'),
-            hasBlobFn: s.textContent.includes('async function toBlobVideo'),
-            hasFetchFallback: s.textContent.includes('fetch('),
-            hasBlobUrl: s.textContent.includes('_blobUrl'),
-            hasCreateObjectURL: s.textContent.includes('createObjectURL'),
+            hasNoCanvasFallback: !s.textContent.includes('calibrateFromCanvas'),
+            hasNoLocalStorageFallback: !s.textContent.includes('localStorage'),
+            hasTraceFixtures: Array.isArray(parsedClipTimes) && parsedClipTimes.every(ct => !!ct.traceCalibration),
+            needsCalibration,
           };
         }
       }
@@ -192,19 +167,64 @@ describe('calibration integration', () => {
     });
 
     expect(result).toBeTruthy();
-    expect(result.hasSecurityCheck).toBe(true);
-    expect(result.hasTaintedCheck).toBe(true);
-    expect(result.hasThrow).toBe(true);
-    expect(result.hasBlobFn).toBe(true);
-    expect(result.hasFetchFallback).toBe(true);
-    expect(result.hasBlobUrl).toBe(true);
-    expect(result.hasCreateObjectURL).toBe(true);
+    expect(result.hasNoCanvasFallback).toBe(true);
+    expect(result.hasNoLocalStorageFallback).toBe(true);
+    expect(result.hasTraceFixtures).toBe(true);
+    expect(result.needsCalibration).toBe(false);
   });
 
-  it('applyCalibrationToClip computes correct clip range from PTS start', async () => {
-    if (!page) return;
+  it('throws strict manual calibration error when trace metadata is missing', async ({ skip }) => {
+    if (setupError) skip(setupError.message);
 
-    buildAndWrite(calibratedClipTimes);
+    buildAndWrite(uncalibratedClipTimes);
+    await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
+
+    const result = await extractFromScripts(() => {
+      for (const s of document.querySelectorAll('script')) {
+        if (s.textContent.includes('failCalibration(')) {
+          return {
+            hasStrictMessage: s.textContent.includes('Please calibrate manually.'),
+            hasDisablePlay: s.textContent.includes('playBtn.disabled = true'),
+            hasThrow: s.textContent.includes('throw new Error(msg)'),
+          };
+        }
+      }
+      return null;
+    });
+
+    expect(result).toBeTruthy();
+    expect(result.hasStrictMessage).toBe(true);
+    expect(result.hasDisablePlay).toBe(true);
+    expect(result.hasThrow).toBe(true);
+  });
+
+  it('does not include blob/security canvas fallback helpers', async ({ skip }) => {
+    if (setupError) skip(setupError.message);
+
+    buildAndWrite(baseClipTimes);
+    await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
+
+    const result = await extractFromScripts(() => {
+      for (const s of document.querySelectorAll('script')) {
+        if (s.textContent.includes('applyCalibrationToClip')) {
+          return {
+            hasBlobFn: s.textContent.includes('toBlobVideo'),
+            hasCanvasDetect: s.textContent.includes('detectGreenCuePts'),
+          };
+        }
+      }
+      return null;
+    });
+
+    expect(result).toBeTruthy();
+    expect(result.hasBlobFn).toBe(false);
+    expect(result.hasCanvasDetect).toBe(false);
+  });
+
+  it('applyCalibrationToClip computes correct clip range from PTS start', async ({ skip }) => {
+    if (setupError) skip(setupError.message);
+
+    buildAndWrite(traceCalibratedClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
     const result = await extractFromScripts(() => {
@@ -215,8 +235,8 @@ describe('calibration integration', () => {
             const segDuration = ct.end - ct.start;
             return {
               wcStart: ct.start, wcEnd: ct.end, segDuration,
-              expectedStart: ct.calibratedStart,
-              expectedEnd: ct.calibratedStart + segDuration,
+              expectedStart: (ct.traceCalibration.recordingStartTs - ct.traceCalibration.firstFrameTs) / 1e6,
+              expectedEnd: ((ct.traceCalibration.recordingStartTs - ct.traceCalibration.firstFrameTs) / 1e6) + segDuration,
             };
           });
         }
@@ -226,12 +246,12 @@ describe('calibration integration', () => {
 
     expect(result).toHaveLength(2);
 
-    // alpha: wcStart=2.0, wcEnd=10.0 → segDuration=8.0, calibratedStart=3.52
-    expect(result[0].expectedStart).toBeCloseTo(3.52, 5);
-    expect(result[0].expectedEnd).toBeCloseTo(3.52 + 8.0, 5);
+    // alpha: recordingStartTs-firstFrameTs=0.1s, segDuration=8.0
+    expect(result[0].expectedStart).toBeCloseTo(0.1, 5);
+    expect(result[0].expectedEnd).toBeCloseTo(8.1, 5);
 
-    // bravo: wcStart=1.8, wcEnd=9.5 → segDuration=7.7, calibratedStart=2.0
-    expect(result[1].expectedStart).toBeCloseTo(2.0, 5);
-    expect(result[1].expectedEnd).toBeCloseTo(2.0 + 7.7, 5);
+    // bravo: recordingStartTs-firstFrameTs=0.2s, segDuration=7.7
+    expect(result[1].expectedStart).toBeCloseTo(0.2, 5);
+    expect(result[1].expectedEnd).toBeCloseTo(7.9, 5);
   });
 });

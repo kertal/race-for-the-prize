@@ -6,7 +6,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { c, RACER_COLORS } from './colors.js';
-import { buildProfileComparison, printProfileAnalysis, buildProfileMarkdown } from './profile-analysis.js';
+import { buildProfileComparison, printProfileAnalysis, buildProfileMarkdown, PROFILE_METRICS } from './profile-analysis.js';
 import { determineOverallWinner } from './race-utils.js';
 
 const PLATFORM_NAMES = { darwin: 'macOS', linux: 'Linux', win32: 'Windows' };
@@ -33,6 +33,14 @@ export function getMachineInfo() {
 }
 
 // --- Helper functions to eliminate duplication ---
+
+/** Compute the median of a numeric array, ignoring null/undefined values. Returns null if empty. */
+function medianOf(values) {
+  const vals = values.filter(v => v != null).sort((a, b) => a - b);
+  if (vals.length === 0) return null;
+  const mid = Math.floor(vals.length / 2);
+  return vals.length % 2 === 1 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
+}
 
 /** Count wins per racer from comparisons. Returns { racerName: winCount, ... }. */
 function computeWins(racerNames, comparisons) {
@@ -358,6 +366,55 @@ export function findMedianRunIndex(summaries, medianSummary) {
   return bestIdx;
 }
 
+/**
+ * For each racer independently, find the run whose durations are closest to
+ * that racer's median values. Returns an array of 0-based run indices, one per racer.
+ */
+export function findMedianRunIndexPerRacer(summaries, medianSummary) {
+  return medianSummary.racers.map((_, racerIdx) => {
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    for (let runIdx = 0; runIdx < summaries.length; runIdx++) {
+      let totalDist = 0;
+      for (const medComp of medianSummary.comparisons) {
+        const runComp = summaries[runIdx].comparisons.find(comp => comp.name === medComp.name);
+        if (!runComp) continue;
+        const medDur = medComp.racers[racerIdx]?.duration;
+        const runDur = runComp.racers[racerIdx]?.duration;
+        if (medDur != null && runDur != null) {
+          totalDist += Math.abs(runDur - medDur);
+        }
+      }
+      if (totalDist < bestDist) {
+        bestDist = totalDist;
+        bestIdx = runIdx;
+      }
+    }
+    return bestIdx;
+  });
+}
+
+/**
+ * For each racer, compute the median value of each profile metric across runs.
+ * Returns an array (one per racer) of profile metric objects { total: {...}, measured: {...} }.
+ */
+function buildMedianProfileMetrics(summaries) {
+  const racers = summaries[0].racers;
+  const hasAny = summaries.some(s => s.profileMetrics?.some(Boolean));
+  if (!hasAny) return null;
+
+  return racers.map((_, racerIdx) => {
+    const result = { total: {}, measured: {} };
+    for (const key of Object.keys(PROFILE_METRICS)) {
+      const [scope, metric] = key.split('.');
+      const values = summaries.map(s => s.profileMetrics?.[racerIdx]?.[scope]?.[metric] ?? null);
+      const med = medianOf(values);
+      if (med !== null) result[scope][metric] = med;
+    }
+    return (Object.keys(result.total).length || Object.keys(result.measured).length) ? result : null;
+  });
+}
+
 /** Compute median of each measurement across multiple runs. */
 export function buildMedianSummary(summaries, resultsDir) {
   const racers = summaries[0].racers;
@@ -366,19 +423,18 @@ export function buildMedianSummary(summaries, resultsDir) {
   const comparisons = [...allNames].map(name => {
     const vals = racers.map((_, i) => {
       const durations = summaries
-        .map(s => s.comparisons.find(c => c.name === name)?.racers[i]?.duration)
-        .filter(d => d != null)
-        .sort((a, b) => a - b);
-      if (durations.length === 0) return null;
-      const mid = Math.floor(durations.length / 2);
-      const median = durations.length % 2 === 1 ? durations[mid] : (durations[mid - 1] + durations[mid]) / 2;
-      return { duration: median };
+        .map(s => s.comparisons.find(comp => comp.name === name)?.racers[i]?.duration)
+        .filter(d => d != null);
+      const median = medianOf(durations);
+      return median != null ? { duration: median } : null;
     });
     return computeComparison(name, vals, racers);
   });
 
   const wins = computeWins(racers, comparisons);
   const overallWinner = determineOverallWinner(wins, racers, comparisons);
+
+  const medianProfileMetrics = buildMedianProfileMetrics(summaries);
 
   return {
     timestamp: new Date().toISOString(),
@@ -393,6 +449,8 @@ export function buildMedianSummary(summaries, resultsDir) {
     clickCounts: Object.fromEntries(racers.map(n => [n, 0])),
     runs: summaries.length,
     machineInfo: summaries.find(s => s.machineInfo)?.machineInfo,
+    profileMetrics: medianProfileMetrics,
+    profileComparison: medianProfileMetrics ? buildProfileComparison(racers, medianProfileMetrics) : null,
   };
 }
 

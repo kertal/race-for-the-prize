@@ -1,0 +1,6 @@
+{
+  "headless": true,
+  "network": "none",
+  "parallel": false,
+  "cpuThrottle": 1
+}

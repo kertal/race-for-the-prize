@@ -16,7 +16,12 @@ let T = {};
 /** Store build-time templates extracted from player.html. */
 export function setTemplates(templates) { T = templates; }
 
-/** Replace {{key}} placeholders in a template string with data values. */
+/**
+ * Replace {{key}} placeholders in a template string with data values.
+ * IMPORTANT: This does NOT auto-escape values. Callers MUST use escHtml() on
+ * any user-supplied strings before passing them as data values. Pre-built HTML
+ * snippets (e.g. nested template output) should be passed without escaping.
+ */
 export function render(tmpl, data) {
   return tmpl.replace(/\{\{(\w+)\}\}/g, (_, key) => data[key] ?? '');
 }
@@ -82,6 +87,13 @@ export function buildRunNavHtml(runNav) {
   if (!runNav) return '';
   const { currentRun, totalRuns, pathPrefix } = runNav;
   let html = '<div class="run-nav">';
+  const isMedianCurrent = currentRun === 'median';
+  const medianCls = isMedianCurrent ? 'run-nav-btn active' : 'run-nav-btn';
+  if (isMedianCurrent) {
+    html += `<span class="${medianCls}" aria-current="page">Median</span>`;
+  } else {
+    html += `<a class="${medianCls}" href="${escHtml(pathPrefix)}index.html">Median</a>`;
+  }
   for (let i = 1; i <= totalRuns; i++) {
     const isCurrent = currentRun === i;
     const cls = isCurrent ? 'run-nav-btn active' : 'run-nav-btn';
@@ -90,13 +102,6 @@ export function buildRunNavHtml(runNav) {
     } else {
       html += `<a class="${cls}" href="${escHtml(pathPrefix)}${i}/index.html">Run ${i}</a>`;
     }
-  }
-  const isMedianCurrent = currentRun === 'median';
-  const medianCls = isMedianCurrent ? 'run-nav-btn active' : 'run-nav-btn';
-  if (isMedianCurrent) {
-    html += `<span class="${medianCls}" aria-current="page">Median</span>`;
-  } else {
-    html += `<a class="${medianCls}" href="${escHtml(pathPrefix)}index.html">Median</a>`;
   }
   html += '</div>';
   return html;
@@ -172,9 +177,7 @@ export function buildResultsHtml(comparisons, racers, clickCounts) {
 }
 
 export function buildProfileSummaryHtml(profileComparison, racers) {
-  if (!profileComparison) return '';
-
-  function buildRows(winsMap) {
+  function buildWinRows(winsMap) {
     if (!racers.some(n => winsMap[n] > 0)) return '';
     return racers
       .map((name, i) => ({ name, i, count: winsMap[name] || 0 }))
@@ -185,10 +188,10 @@ export function buildProfileSummaryHtml(profileComparison, racers) {
       }).join('');
   }
 
-  const measuredWins = profileComparison.measured?.wins || {};
-  const totalWins = profileComparison.total?.wins || {};
-  const measuredRows = buildRows(measuredWins);
-  const totalRows = buildRows(totalWins);
+  const measuredWins = profileComparison?.measured?.wins || {};
+  const totalWins = profileComparison?.total?.wins || {};
+  const measuredRows = buildWinRows(measuredWins);
+  const totalRows = buildWinRows(totalWins);
 
   if (!measuredRows && !totalRows) return '';
 
@@ -266,7 +269,7 @@ export function buildProfileHtml(profileComparison, racers) {
 }
 
 export function buildFilesHtml(racers, videoFiles, options) {
-  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, altFormat, altFiles, placementOrder } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, altFormat, altFiles, placementOrder } = options;
   const links = [];
   const order = placementOrder || racers.map((_, i) => i);
 
@@ -295,6 +298,14 @@ export function buildFilesHtml(racers, videoFiles, options) {
     order.forEach(i => {
       if (harFiles[i]) links.push(render(T['file-link'], { href: escHtml(harFiles[i]), attrs: 'download title="HTTP Archive — open in browser DevTools or har.tech"', text: `${escHtml(racers[i])} (HAR)` }));
     });
+  }
+  if (raceScriptFiles && raceScriptFiles.length > 0) {
+    for (const f of raceScriptFiles) {
+      links.push(render(T['file-link'], { href: escHtml(f), attrs: 'title="Race script \u2014 rerun with: node race.js &lt;dir&gt;"', text: `${escHtml(f)} (script)` }));
+    }
+  }
+  if (settingsFileCopied) {
+    links.push(render(T['file-link'], { href: 'settings.json', attrs: '', text: 'settings.json' }));
   }
 
   if (links.length === 0) return '';

@@ -43,6 +43,11 @@ export function discoverRacers(raceDir) {
   }
 
   const racerNames = racerFiles.map(f => f.replace(/\.spec\.js$/, '').replace(/\.js$/, ''));
+  const dupes = racerNames.filter((n, i) => racerNames.indexOf(n) !== i);
+  if (dupes.length > 0) {
+    const unique = [...new Set(dupes)].join(', ');
+    throw new Error(`Duplicate racer names detected: ${unique}. Rename files so each racer has a unique name.`);
+  }
   return { racerFiles, racerNames };
 }
 
@@ -54,7 +59,9 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('parallel')) s.parallel = true;
   if (boolFlags.has('headless')) s.headless = true;
   if (boolFlags.has('no-overlay')) s.noOverlay = true;
+  if (boolFlags.has('no-recording')) s.noRecording = true;
   if (boolFlags.has('ffmpeg')) s.ffmpeg = true;
+  if (boolFlags.has('har')) s.har = true;
   if (boolFlags.has('no-wasm')) s.noWasm = true;
   if (kvFlags.network !== undefined) {
     if (!VALID_NETWORKS.includes(kvFlags.network)) {

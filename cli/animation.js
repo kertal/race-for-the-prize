@@ -5,6 +5,8 @@
 import { c, RACER_COLORS } from './colors.js';
 
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const SPINNER_INTERVAL_MS = 100;
+const TICK_INTERVAL_MS = 120;
 
 export function startProgress(msg) {
   let idx = 0;
@@ -13,7 +15,7 @@ export function startProgress(msg) {
     idx = (idx + 1) % SPINNER.length;
   };
   write();
-  const interval = setInterval(write, 100);
+  const interval = setInterval(write, SPINNER_INTERVAL_MS);
   return {
     update(newMsg) { msg = newMsg; },
     done(doneMsg) {
@@ -32,7 +34,7 @@ export class RaceAnimation {
     this.names = names;
     this.info = info || null;
     this.finished = new Array(names.length).fill(false);
-    this.messages = [];
+    this.messages = new Array(names.length).fill(null);
     this.interval = null;
     this.frameIdx = 0;
     this.startTime = Date.now();
@@ -50,7 +52,7 @@ export class RaceAnimation {
     let header = `\n  ${c.bold}RaceForThePrize${c.reset} 🏆  ${vsString}`;
     if (this.info) header += `\n  ${c.dim}${this.info}${c.reset}`;
     process.stderr.write(header + '\n\n');
-    this.interval = setInterval(() => this._tick(), 120);
+    this.interval = setInterval(() => this._tick(), TICK_INTERVAL_MS);
   }
 
   _tick() {
@@ -67,6 +69,7 @@ export class RaceAnimation {
     process.stderr.write(line + '\x1b[K\n');
 
     for (const msg of this.messages) {
+      if (!msg) continue;
       const nameColor = RACER_COLORS[msg.index % RACER_COLORS.length];
       process.stderr.write(`  ${nameColor}${c.bold}${msg.name}:${c.reset} ${c.dim}"${msg.text}" (${msg.elapsed}s)${c.reset}\x1b[K\n`);
       this.lines++;
@@ -75,10 +78,13 @@ export class RaceAnimation {
 
   racerFinished(index) {
     this.finished[index] = true;
+    this.messages[index] = null;
   }
 
   addMessage(index, name, text, elapsed) {
-    this.messages.push({ index, name, text, elapsed });
+    const prev = this.messages[index];
+    if (prev && prev.text === text && prev.elapsed === elapsed) return;
+    this.messages[index] = { index, name, text, elapsed };
   }
 
   stop() {

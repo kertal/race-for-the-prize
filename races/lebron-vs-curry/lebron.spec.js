@@ -7,9 +7,9 @@ await page.goto('https://en.wikipedia.org/wiki/LeBron_James', { waitUntil: 'load
 // Scroll to a fixed absolute position (same for both racers so dribbles stay in sync)
 const fixedStart = 10000;
 await page.evaluate((y) => window.scrollTo(0, y), fixedStart);
-
+await page.waitForTimeout(1000);
 await page.raceRecordingStart();
-await page.waitForTimeout(1500);
+await page.waitForTimeout(2000);
 await page.raceStart('Dribble Race');
 
 // Basketball physics dribble — identical timing for both racers to stay in sync
