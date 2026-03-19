@@ -64,6 +64,12 @@ export function spawnRunner(ctx) {
   const animation = new RaceAnimation(racerNames, flags.join(' · '));
   animation.start();
 
+  // Pre-compile message regexes to avoid recreating them on every stderr event
+  const messageRegexes = racerNames.map(name => {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`\\[${escaped}\\] __raceMessage__\\[([\\d.]+)\\]:(.*)`, 'g');
+  });
+
   const runnerPath = path.join(rootDir, 'runner.cjs');
 
   return new Promise((resolve, reject) => {
@@ -78,8 +84,8 @@ export function spawnRunner(ctx) {
       const text = d.toString();
       racerNames.forEach((name, i) => {
         if (text.includes(`[${name}] Context closed`)) animation.racerFinished(i);
-        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const re = new RegExp(`\\[${escaped}\\] __raceMessage__\\[([\\d.]+)\\]:(.*)`, 'g');
+        const re = messageRegexes[i];
+        re.lastIndex = 0;
         let m;
         while ((m = re.exec(text)) !== null) {
           animation.addMessage(i, name, m[2], m[1]);
@@ -296,13 +302,20 @@ const MIME_TYPES = {
 };
 
 /**
- * Serve `dir` over HTTP on a random free port, open `index.html` in the
- * browser, and keep running until the process is killed.
+ * Create an HTTP request handler that serves static files from `dir`.
+ * Exported for testing.
  */
-export function serveResults(dir) {
-  const server = http.createServer((req, res) => {
-    const urlPath = req.url === '/' ? '/index.html' : req.url.split('?')[0];
-    const filePath = path.join(dir, urlPath);
+export function createStaticHandler(dir) {
+  return (req, res) => {
+    let urlPath;
+    try {
+      urlPath = decodeURIComponent(req.url === '/' ? '/index.html' : req.url.split('?')[0]);
+    } catch {
+      res.writeHead(400);
+      res.end('Bad request');
+      return;
+    }
+    const filePath = path.resolve(path.join(dir, urlPath));
     if (!filePath.startsWith(dir + path.sep) && filePath !== dir) {
       res.writeHead(403);
       res.end('Forbidden');
@@ -322,7 +335,15 @@ export function serveResults(dir) {
       });
       res.end(data);
     });
-  });
+  };
+}
+
+/**
+ * Serve `dir` over HTTP on a random free port, open `index.html` in the
+ * browser, and keep running until the process is killed.
+ */
+export function serveResults(dir) {
+  const server = http.createServer(createStaticHandler(dir));
 
   server.listen(0, '127.0.0.1', () => {
     const { port } = server.address();

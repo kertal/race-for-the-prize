@@ -122,6 +122,24 @@ describe('racer file discovery', () => {
     const { racerFiles } = discoverRacers(tmpDir);
     expect(racerFiles).toEqual([]);
   });
+
+  it('does not throw when racer names are unique', () => {
+    fs.writeFileSync(path.join(tmpDir, 'alpha.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'beta.spec.js'), '');
+
+    const { racerNames } = discoverRacers(tmpDir);
+    expect(racerNames).toEqual(['alpha', 'beta']);
+  });
+
+  it('throws on duplicate racer names in .js fallback mode', () => {
+    // alpha.spec.js stripped to "alpha", alpha.js stripped to "alpha"
+    // When fewer than 2 .spec.js, falls back to .js which includes .spec.js files
+    fs.writeFileSync(path.join(tmpDir, 'alpha.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'alpha.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'beta.js'), '');
+
+    expect(() => discoverRacers(tmpDir)).toThrow('Duplicate racer names detected: alpha');
+  });
 });
 
 describe('argument parsing', () => {
