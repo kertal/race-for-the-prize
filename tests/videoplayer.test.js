@@ -447,7 +447,9 @@ describe('buildPlayerHtml clipTimes', () => {
     expect(html).not.toContain('calibrateFromCanvas');
     expect(html).not.toContain('isGreenCue');
     expect(html).not.toContain('restoreFromCache');
-    expect(html).not.toContain('localStorage');
+    // localStorage is now used for notes persistence (not calibration cache)
+    expect(html).not.toContain('calibrationCache');
+    expect(html).toContain('race-notes:');
   });
 
   it('includes strict calibration error for missing trace metadata', () => {

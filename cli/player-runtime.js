@@ -873,13 +873,26 @@ document.getElementById('goStart').addEventListener('click', goToStart);
 document.getElementById('goEnd').addEventListener('click', goToEnd);
 
 document.addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'SELECT') return;
+  if (e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
   if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-STEP); }
   else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(STEP); }
   else if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
   else if (e.key === 'Home') { e.preventDefault(); goToStart(); }
   else if (e.key === 'End') { e.preventDefault(); goToEnd(); }
 });
+
+// --- Notes: persist in localStorage ---
+
+const notesTextarea = document.getElementById('notesTextarea');
+if (notesTextarea) {
+  const notesKey = 'race-notes:' + location.pathname;
+  const stored = localStorage.getItem(notesKey);
+  // Use stored value if present; otherwise keep any baked-in content (from export)
+  if (stored !== null) notesTextarea.value = stored;
+  notesTextarea.addEventListener('input', () => {
+    localStorage.setItem(notesKey, notesTextarea.value);
+  });
+}
 
 // --- Racer filter (3+ racers only) ---
 
@@ -1324,6 +1337,12 @@ function buildExportHtml() {
 
   // Remove any active export overlays
   doc.querySelectorAll('.export-overlay').forEach(el => el.remove());
+
+  // Bake current notes into the exported HTML so they appear without localStorage
+  const notesEl = doc.querySelector('#notesTextarea');
+  if (notesEl && notesTextarea) {
+    notesEl.textContent = notesTextarea.value;
+  }
 
   // Bake adjusted clip times into the script
   const scripts = doc.querySelectorAll('script');
