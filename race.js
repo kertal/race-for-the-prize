@@ -581,10 +581,10 @@ let ctx, settings, racerNames;
 
 if (urlMode) {
   // URL mode: generate race scripts from URLs
-  const urls = positional.slice(0, 5);
-  if (urls.length > 5) {
+  if (positional.length > 5) {
     console.error(`${c.yellow}Warning: Using first 5 URLs of ${positional.length} provided${c.reset}`);
   }
+  const urls = positional.slice(0, 5);
 
   // Derive names and deduplicate by appending suffix where needed
   const rawNames = urls.map(u => deriveRacerName(u));
