@@ -26,6 +26,7 @@ import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, b
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
 import { buildPlayerHtml } from './cli/videoplayer.js';
+import { runGeminiSummary, runGeminiSpec } from './cli/gemini-summary.js';
 
 /** Format a Date as YYYY-MM-DD_HH-MM-SS for directory naming. */
 export function formatTimestamp(date) {
@@ -417,7 +418,49 @@ if (boolFlags.has('init')) {
 
   fs.mkdirSync(targetDir, { recursive: true });
 
-  const racerA = `// Racer A — edit this script to test your first URL
+  // --gemini-spec="<prompt>": use Gemini + Playwright HTML research to generate specs
+  if (kvFlags['gemini-spec']) {
+    const userPrompt = kvFlags['gemini-spec'];
+    console.error(`\n  ${c.bold}${c.cyan}🤖 Generating race specs with Gemini…${c.reset}`);
+    console.error(`  ${c.dim}Prompt: ${userPrompt}${c.reset}\n`);
+
+    try {
+      const specFiles = await runGeminiSpec(userPrompt);
+      const written = [];
+      for (const [filename, content] of Object.entries(specFiles)) {
+        fs.writeFileSync(path.join(targetDir, filename), content + '\n');
+        written.push(filename);
+      }
+
+      if (written.length < 2) {
+        console.error(`${c.yellow}Warning: Gemini returned fewer than 2 spec files. Check the output and edit manually.${c.reset}`);
+      }
+
+      const settings = JSON.stringify({ parallel: false, headless: false, runs: 3 }, null, 2) + '\n';
+      fs.writeFileSync(path.join(targetDir, 'settings.json'), settings);
+
+      console.error(`
+${c.green}${c.bold}✓ Race scaffolded with Gemini:${c.reset} ${c.cyan}${path.relative(process.cwd(), targetDir)}/${c.reset}
+
+  ${written.map(f => `${c.dim}${f}${c.reset}`).join('\n  ')}
+  ${c.dim}settings.json${c.reset}
+
+${c.bold}Run it:${c.reset}
+  ${c.cyan}node race.js ${path.relative(process.cwd(), targetDir)}${c.reset}
+`);
+    } catch (e) {
+      console.error(`${c.red}Gemini spec generation failed: ${e.message}${c.reset}`);
+      console.error(`${c.dim}Falling back to default scaffold…${c.reset}`);
+      // Fall through to default scaffold below by re-running without gemini-spec
+      fs.writeFileSync(path.join(targetDir, 'racer-a.spec.js'), defaultRacerA);
+      fs.writeFileSync(path.join(targetDir, 'racer-b.spec.js'), defaultRacerB);
+      fs.writeFileSync(path.join(targetDir, 'settings.json'), JSON.stringify({ parallel: false, headless: false, runs: 3 }, null, 2) + '\n');
+    }
+
+    process.exit(0);
+  }
+
+  const defaultRacerA = `// Racer A — edit this script to test your first URL
 // Available race helpers injected into page:
 //   await page.raceRecordingStart()   — start video segment (optional)
 //   await page.raceStart('name')      — start a measurement
@@ -433,7 +476,7 @@ page.raceEnd('Load');
 await page.raceRecordingEnd();
 `;
 
-  const racerB = `// Racer B — edit this script to test your second URL
+  const defaultRacerB = `// Racer B — edit this script to test your second URL
 // Available race helpers injected into page:
 //   await page.raceRecordingStart()   — start video segment (optional)
 //   await page.raceStart('name')      — start a measurement
@@ -451,8 +494,8 @@ await page.raceRecordingEnd();
 
   const settings = JSON.stringify({ parallel: false, headless: false, runs: 3 }, null, 2) + '\n';
 
-  fs.writeFileSync(path.join(targetDir, 'racer-a.spec.js'), racerA);
-  fs.writeFileSync(path.join(targetDir, 'racer-b.spec.js'), racerB);
+  fs.writeFileSync(path.join(targetDir, 'racer-a.spec.js'), defaultRacerA);
+  fs.writeFileSync(path.join(targetDir, 'racer-b.spec.js'), defaultRacerB);
   fs.writeFileSync(path.join(targetDir, 'settings.json'), settings);
 
   console.error(`
@@ -563,6 +606,8 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-overlay${c.reset}         Record videos without overlays
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-recording${c.reset}      Skip video recording, just measure
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ffmpeg${c.reset}             Enable FFmpeg processing (trim, merge, convert)
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--gemini${c.reset}             Gemini CLI sports reporter commentary after race
+  node race.js ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset} ${c.yellow}--gemini-spec${c.reset}=${c.green}"prompt"${c.reset}  Generate specs via Gemini + Playwright HTML research
 
 ${c.dim}  CLI flags override settings.json values.${c.reset}
 ${c.dim}  Try the example:  node race.js ./races/lauda-vs-hunt${c.reset}
@@ -729,6 +774,24 @@ async function main() {
         fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summaries[0], null));
       } else {
         buildMedianOutput(summaries, summaries.map(() => null), allClipTimes);
+      }
+    }
+
+    // --- Gemini sports reporter summary ---
+    if (settings.gemini) {
+      const finalSummaryPath = path.join(resultsDir, 'summary.json');
+      if (fs.existsSync(finalSummaryPath)) {
+        try {
+          const finalSummary = JSON.parse(fs.readFileSync(finalSummaryPath, 'utf-8'));
+          console.error(`\n  ${c.bold}${c.cyan}🤖 Gemini Race Commentary${c.reset}`);
+          console.error(`  ${c.dim}${'─'.repeat(50)}${c.reset}\n`);
+          const commentary = runGeminiSummary(finalSummary);
+          console.error(commentary);
+          console.error(`\n  ${c.dim}${'─'.repeat(50)}${c.reset}\n`);
+          fs.writeFileSync(path.join(resultsDir, 'gemini-commentary.txt'), commentary + '\n');
+        } catch (e) {
+          console.error(`  ${c.yellow}⚠ Gemini summary skipped: ${e.message}${c.reset}`);
+        }
       }
     }
 

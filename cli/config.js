@@ -5,7 +5,7 @@
 
 import fs from 'fs';
 
-const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo']);
+const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'gemini-spec']);
 
 export function parseArgs(argv) {
   const positional = [];
@@ -96,5 +96,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
     const slowmo = Number(kvFlags.slowmo);
     s.slowmo = Number.isFinite(slowmo) && slowmo >= 0 ? Math.min(slowmo, 20) : 0;
   }
+  if (boolFlags.has('gemini')) s.gemini = true;
+  if (kvFlags['gemini-spec'] !== undefined) s.geminiSpec = kvFlags['gemini-spec'];
   return s;
 }
