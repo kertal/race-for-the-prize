@@ -28,7 +28,7 @@ Two browsers launch. Two Wikipedia pages load. Then they scroll — human-like, 
 
 ### What's in the race folder
 
-```
+```text
 races/lauda-vs-hunt/
   lauda.spec.js      # 🔴 Racer 1: Niki Lauda's Wikipedia page
   hunt.spec.js       # 🔵 Racer 2: James Hunt's Wikipedia page
@@ -79,7 +79,7 @@ npx race-for-the-prize my-race
 
 Every race needs at least two contenders (up to five). Create a folder with `.spec.js` scripts:
 
-```
+```text
 races/my-race/
   contender-a.spec.js   # Racer 1 (filename = racer name)
   contender-b.spec.js   # Racer 2
@@ -110,7 +110,7 @@ page.raceEnd('Full Page Load');
 
 // Hold the frame so the video doesn't cut abruptly
 await page.waitForTimeout(1500);
-page.raceRecordingEnd();
+await page.raceRecordingEnd();
 ```
 
 ### The Race API
@@ -120,7 +120,7 @@ page.raceRecordingEnd();
 | `await page.raceStart(name)` | Starts the stopwatch for a named measurement |
 | `page.raceEnd(name)` | Stops the stopwatch — time is recorded |
 | `await page.raceRecordingStart()` | Manually start the video segment |
-| `page.raceRecordingEnd()` | Manually end the video segment |
+| `await page.raceRecordingEnd()` | Manually end the video segment |
 | `page.raceMessage(text)` | Send a status message to the CLI terminal |
 | `await page.raceWaitForVisualStability(opts?)` | Wait for rendering to settle before measuring |
 
@@ -132,7 +132,7 @@ If you skip `raceRecordingStart`/`End`, the video automatically wraps your first
 
 Ship a performance regression? Find out before your users do. Point two racers at the same workflow — one against your current release, one against the candidate build:
 
-```
+```text
 races/checkout-v2-vs-v3/
   checkout-v2.spec.js    # Production: https://app.example.com
   checkout-v3.spec.js    # Staging: https://staging.example.com
@@ -159,7 +159,7 @@ page.raceEnd('Checkout render');
 
 // Let the final state linger in the recording
 await page.waitForTimeout(1500);
-page.raceRecordingEnd();
+await page.raceRecordingEnd();
 ```
 
 Run it under realistic conditions with throttling to see how it feels on real devices:
@@ -172,7 +172,7 @@ node race.js ./races/checkout-v2-vs-v3 --network=fast-3g --cpu=4 --runs=5
 
 Which dashboard loads faster — yours or the competition? Which CSS framework renders a complex layout quicker? Set up a head-to-head:
 
-```
+```text
 races/react-vs-svelte-todo/
   react-todo.spec.js      # React TodoMVC
   svelte-todo.spec.js     # Svelte TodoMVC
@@ -182,7 +182,7 @@ races/react-vs-svelte-todo/
 
 Want to know if lazy-loading images actually helped? Create two racers that hit the same page — one with the feature flag on, one off:
 
-```
+```text
 races/lazy-loading-impact/
   with-lazy.spec.js       # ?feature=lazy-images
   without-lazy.spec.js    # ?feature=eager-images
@@ -245,7 +245,7 @@ By default, races run in **serial** (sequential) mode — one browser at a time.
 
 After every race, the results land in a timestamped folder:
 
-```
+```text
 races/my-race/results-2026-01-31_14-30-00/
   contender-a/
     contender-a.race.webm     # Onboard camera footage
@@ -323,7 +323,7 @@ See the **[Installation Guide](INSTALLATION.md)** for detailed setup instruction
 
 ## Project Structure
 
-```
+```text
 RaceForThePrize/
 ├── race.js                 # 🏁 Main entry point — the race director
 ├── runner.cjs              # Playwright automation engine
