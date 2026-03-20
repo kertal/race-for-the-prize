@@ -392,7 +392,11 @@ export function serveResults(dir) {
 // --- CLI entry point ---
 
 // Check if running as main module (not imported)
-const isMainModule = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isMainModule = process.argv[1] && (() => {
+  try {
+    return fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url));
+  } catch { return false; }
+})();
 
 if (isMainModule) {
 
