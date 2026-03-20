@@ -222,6 +222,7 @@ node race.js <dir> --no-overlay          # Record videos without overlays
 node race.js <dir> --no-recording        # Skip video recording, just measure
 node race.js <dir> --ffmpeg              # Enable FFmpeg processing (trim, merge, convert)
 node race.js <dir> --serve=false         # Don't open results in browser after race
+node race.js <dir> --pause               # Pause between runs — press Enter to continue (multi-run)
 ```
 
 CLI flags always override `settings.json`. The stewards have spoken.
@@ -345,9 +346,25 @@ RaceForThePrize/
 │   ├── lauda-vs-hunt/        # 🏆 Example: the greatest rivalry in racing
 │   ├── lebron-vs-curry/      # 🏀 Example: the GOAT debate, dribble-style
 │   └── react-vs-angular/     # ⚛️  Example: frontend framework showdown (4 racers)
+├── presentation/
+│   ├── slides.md           # Marp slide deck
+│   └── script.md           # Speaker notes (7 slides, ~7 min)
 ├── tests/                  # Unit tests (vitest)
 ├── integration/            # Integration tests (vitest)
 └── package.json
+```
+
+## Presenting RaceForThePrize
+
+The `presentation/` folder contains a ready-to-use slide deck and speaker script for introducing the tool to an audience.
+
+- **`slides.md`** — 7-slide [Marp](https://marp.app/) deck covering positioning, the race API, live demo, and results
+- **`script.md`** — Speaker notes with timing guidance, audience adaptation tips, and key phrases to land
+
+Generate slides with Marp:
+
+```bash
+npx @marp-team/marp-cli presentation/slides.md --html -o presentation/slides.html
 ```
 
 ## Running Tests
