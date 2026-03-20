@@ -59,8 +59,8 @@ export function buildGeminiPrompt(summary) {
 
   lines.push('\n## Timing results');
   for (const comp of (comparisons || [])) {
-    const times = comp.racers.map((r, i) => r ? `${racers[i]}: ${r.duration.toFixed(0)}ms` : null).filter(Boolean);
-    const winStr = comp.winner ? ` → winner: ${comp.winner} by ${comp.diff?.toFixed(0)}ms (${comp.diffPercent?.toFixed(1)}% faster)` : ' → tie';
+    const times = comp.racers.map((r, i) => r ? `${racers[i]}: ${r.duration.toFixed(3)}s` : null).filter(Boolean);
+    const winStr = comp.winner ? ` → winner: ${comp.winner} by ${comp.diff?.toFixed(3)}s (${comp.diffPercent?.toFixed(1)}% faster)` : ' → tie';
     lines.push(`  "${comp.name}": ${times.join(' vs ')}${winStr}`);
   }
 
@@ -132,22 +132,22 @@ export function runGeminiSummary(summary) {
 // Feature 2: Generate race spec from a natural-language prompt
 // ---------------------------------------------------------------------------
 
+const HTML_MAX_LENGTH = 8000;
+
 /**
  * Use Playwright to fetch the HTML source of a URL (rendered DOM, not raw).
+ * Accepts an existing Playwright `browser` instance to avoid redundant launches.
  * Returns a truncated string suitable for embedding in a Gemini prompt.
  */
-export async function fetchPageHtml(url, maxLength = 8000) {
-  const browser = await chromium.launch({ headless: true });
+export async function fetchPageHtml(url, browser, maxLength = HTML_MAX_LENGTH) {
+  const page = await browser.newPage();
   try {
-    const page = await browser.newPage();
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     const html = await page.content();
-    await browser.close();
     // Truncate to keep the prompt manageable, prioritising the <head> and early <body>
     return html.length > maxLength ? html.slice(0, maxLength) + '\n... (truncated)' : html;
-  } catch (err) {
-    await browser.close();
-    throw new Error(`Could not fetch HTML from ${url}: ${err.message}`);
+  } finally {
+    await page.close();
   }
 }
 
@@ -219,7 +219,7 @@ export function buildSpecPrompt(userPrompt, htmlByUrl) {
  */
 export function parseSpecOutput(geminiOutput) {
   const files = {};
-  const filePattern = /FILE:\s*([\w.-]+\.spec\.js)\s*```(?:javascript)?\s*([\s\S]*?)```/gi;
+  const filePattern = /FILE:\s*([\w.-]+\.spec\.js)\s*```[a-zA-Z0-9-]*\s*([\s\S]*?)```/gi;
   let match;
   while ((match = filePattern.exec(geminiOutput)) !== null) {
     files[match[1]] = match[2].trim();
@@ -239,13 +239,21 @@ export async function runGeminiSpec(userPrompt, { fetchHtml = true } = {}) {
   let htmlByUrl = {};
 
   if (fetchHtml) {
-    const urls = extractUrls(userPrompt);
-    for (const url of urls.slice(0, 2)) { // limit to 2 URLs
+    const urls = extractUrls(userPrompt).slice(0, 2);
+    if (urls.length > 0) {
+      // Launch a single browser instance and reuse it across all URLs
+      const browser = await chromium.launch({ headless: true });
       try {
-        htmlByUrl[url] = await fetchPageHtml(url);
-      } catch (e) {
-        // Non-fatal: proceed without HTML context for this URL
-        htmlByUrl[url] = `(Could not fetch HTML: ${e.message})`;
+        for (const url of urls) {
+          try {
+            htmlByUrl[url] = await fetchPageHtml(url, browser);
+          } catch (e) {
+            // Non-fatal: proceed without HTML context for this URL
+            htmlByUrl[url] = `(Could not fetch HTML: ${e.message})`;
+          }
+        }
+      } finally {
+        await browser.close();
       }
     }
   }

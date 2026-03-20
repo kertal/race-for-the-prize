@@ -11,9 +11,9 @@ describe('buildGeminiPrompt', () => {
     comparisons: [
       {
         name: 'Load',
-        racers: [{ duration: 1200 }, { duration: 1800 }],
+        racers: [{ duration: 1.2 }, { duration: 1.8 }],
         winner: 'lauda',
-        diff: 600,
+        diff: 0.6,
         diffPercent: 50,
         rankings: ['lauda', 'hunt'],
       },
@@ -38,9 +38,9 @@ describe('buildGeminiPrompt', () => {
 
   it('includes timing data with diff', () => {
     const prompt = buildGeminiPrompt(baseSummary);
-    expect(prompt).toContain('1200ms');
-    expect(prompt).toContain('1800ms');
-    expect(prompt).toContain('600ms');
+    expect(prompt).toContain('1.200s');
+    expect(prompt).toContain('1.800s');
+    expect(prompt).toContain('0.600s');
     expect(prompt).toContain('50.0%');
   });
 
@@ -218,6 +218,20 @@ await page.goto('https://b.com');
 \`\`\``;
     const files = parseSpecOutput(output);
     expect(Object.keys(files)).toHaveLength(2);
+  });
+
+  it('handles ```js shorthand language tag', () => {
+    const output = `FILE: racer-a.spec.js
+\`\`\`js
+await page.goto('https://a.com');
+\`\`\`
+FILE: racer-b.spec.js
+\`\`\`js
+await page.goto('https://b.com');
+\`\`\``;
+    const files = parseSpecOutput(output);
+    expect(Object.keys(files)).toHaveLength(2);
+    expect(files['racer-a.spec.js']).toContain("goto('https://a.com')");
   });
 
   it('strips leading/trailing whitespace from file content', () => {

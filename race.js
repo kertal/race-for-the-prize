@@ -464,8 +464,15 @@ await page.raceRecordingEnd();
         written.push(filename);
       }
 
-      if (written.length < 2) {
-        console.error(`${c.yellow}Warning: Gemini returned fewer than 2 spec files. Check the output and edit manually.${c.reset}`);
+      const expectedSpecs = [
+        { file: 'racer-a.spec.js', default: defaultRacerA },
+        { file: 'racer-b.spec.js', default: defaultRacerB },
+      ];
+      for (const { file, default: fallback } of expectedSpecs) {
+        if (!specFiles[file]) {
+          fs.writeFileSync(path.join(targetDir, file), fallback);
+          written.push(`${file} (default — Gemini did not generate this file)`);
+        }
       }
 
       const settings = JSON.stringify({ parallel: false, headless: false, runs: 3 }, null, 2) + '\n';
