@@ -22,7 +22,7 @@ import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c, FORMAT_EXTENSIONS } from './cli/colors.js';
-import { parseArgs, discoverRacers, applyOverrides, isUrl, deriveRacerName, buildDefaultRaceScript } from './cli/config.js';
+import { parseArgs, discoverRacers, applyOverrides, applyDefaults, isUrl, deriveRacerName, buildDefaultRaceScript } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex, findMedianRunIndexPerRacer } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
@@ -495,18 +495,7 @@ function loadRaceDir(raceDir) {
       console.error(`${c.yellow}Warning: Could not parse settings.json: ${e.message}${c.reset}`);
     }
   }
-  settings = applyOverrides(settings, boolFlags, kvFlags);
-  settings.parallel    = settings.parallel    ?? false;
-  settings.headless    = settings.headless    ?? false;
-  settings.noOverlay   = settings.noOverlay   ?? false;
-  settings.noRecording = settings.noRecording ?? false;
-  settings.ffmpeg      = settings.ffmpeg      ?? false;
-  settings.noWasm      = settings.noWasm      ?? false;
-  settings.format      = settings.format      ?? 'webm';
-  settings.network     = settings.network     ?? 'none';
-  settings.cpuThrottle = settings.cpuThrottle ?? 1;
-  settings.slowmo      = settings.slowmo      ?? 0;
-  settings.runs        = settings.runs        ?? 1;
+  settings = applyDefaults(applyOverrides(settings, boolFlags, kvFlags));
 
   const ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir, racerFiles });
   return { ctx, settings, racerNames };
@@ -596,42 +585,23 @@ if (urlMode) {
   if (urls.length > 5) {
     console.error(`${c.yellow}Warning: Using first 5 URLs of ${positional.length} provided${c.reset}`);
   }
-  let names = urls.map(u => deriveRacerName(u));
 
-  // Deduplicate names by appending index when needed
-  const seen = {};
-  names = names.map((name, i) => {
-    if (seen[name] !== undefined) {
-      seen[name]++;
-      return `${name}-${seen[name]}`;
-    }
-    seen[name] = 0;
-    for (let j = i + 1; j < names.length; j++) {
-      if (names[j] === name) {
-        seen[name] = 1;
-        return `${name}-0`;
-      }
-    }
-    return name;
+  // Derive names and deduplicate by appending suffix where needed
+  const rawNames = urls.map(u => deriveRacerName(u));
+  const counts = {};
+  for (const n of rawNames) counts[n] = (counts[n] || 0) + 1;
+  const used = {};
+  const names = rawNames.map(n => {
+    if (counts[n] === 1) return n;
+    used[n] = (used[n] || 0);
+    return `${n}-${used[n]++}`;
   });
 
   const scripts = urls.map(u => buildDefaultRaceScript(u));
   raceDir = path.resolve(names.join('-vs-'));
   fs.mkdirSync(raceDir, { recursive: true });
 
-  settings = applyOverrides({}, boolFlags, kvFlags);
-  settings.parallel    = settings.parallel    ?? false;
-  settings.headless    = settings.headless    ?? false;
-  settings.noOverlay   = settings.noOverlay   ?? false;
-  settings.noRecording = settings.noRecording ?? false;
-  settings.ffmpeg      = settings.ffmpeg      ?? false;
-  settings.noWasm      = settings.noWasm      ?? false;
-  settings.format      = settings.format      ?? 'webm';
-  settings.network     = settings.network     ?? 'none';
-  settings.cpuThrottle = settings.cpuThrottle ?? 1;
-  settings.slowmo      = settings.slowmo      ?? 0;
-  settings.runs        = settings.runs        ?? 1;
-
+  settings = applyDefaults(applyOverrides({}, boolFlags, kvFlags));
   racerNames = names;
   ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir });
 } else {

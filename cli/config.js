@@ -73,9 +73,7 @@ export function isUrl(str) {
  */
 export function deriveRacerName(url) {
   try {
-    const hostname = new URL(url).hostname.replace(/^www\./, '');
-    // Replace dots with hyphens for filesystem safety, but keep it readable
-    return hostname;
+    return new URL(url).hostname.replace(/^www\./, '');
   } catch {
     // Fallback: use a sanitized version of the URL
     return url.replace(/^https?:\/\//, '').replace(/[^a-zA-Z0-9.-]/g, '_').slice(0, 40);
@@ -91,6 +89,27 @@ export function buildDefaultRaceScript(url) {
 await page.goto(${JSON.stringify(url)}, { waitUntil: 'load' });
 page.raceEnd('Page Load');
 `;
+}
+
+/**
+ * Apply default values for all settings properties.
+ * Call after applyOverrides to ensure every key has a defined value.
+ */
+export function applyDefaults(settings) {
+  return {
+    parallel: false,
+    headless: false,
+    noOverlay: false,
+    noRecording: false,
+    ffmpeg: false,
+    noWasm: false,
+    format: 'webm',
+    network: 'none',
+    cpuThrottle: 1,
+    slowmo: 0,
+    runs: 1,
+    ...settings,
+  };
 }
 
 const VALID_NETWORKS = ['none', 'slow-3g', 'fast-3g', '4g'];
