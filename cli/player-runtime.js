@@ -703,9 +703,7 @@ function buildRacerFilter() {
       hiddenRacers.add(idx);
       btn.classList.remove('active');
       if (racerDivs[idx]) racerDivs[idx].style.display = 'none';
-      if (selectedVideoIdx === idx) { selectedVideoIdx = -1; updateSelectionUI(); }
     }
-    if (viewMode !== 'grid') setViewMode('grid');
     activeClip = resolveAdjustedClip();
     seekAll(activeClip ? activeClip.start : 0);
     scrubber.value = 0;
@@ -875,17 +873,13 @@ document.getElementById('goStart').addEventListener('click', goToStart);
 document.getElementById('goEnd').addEventListener('click', goToEnd);
 
 document.addEventListener('keydown', (e) => {
-  const tag = e.target.tagName;
-  if (tag === 'SELECT' || tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+  if (e.target.tagName === 'SELECT') return;
   if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-STEP); }
   else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(STEP); }
   else if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
   else if (e.key === 'Home') { e.preventDefault(); goToStart(); }
   else if (e.key === 'End') { e.preventDefault(); goToEnd(); }
   else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFullscreen(); }
-  else if (e.key === 's' || e.key === 'S') { e.preventDefault(); setViewMode('solo'); }
-  else if (e.key === 'o' || e.key === 'O') { e.preventDefault(); setViewMode('overlay'); }
-  else if (e.key === 'Escape' && !isFullscreen()) { selectedVideoIdx = -1; updateSelectionUI(); setViewMode('grid'); }
 });
 
 // --- Racer filter (3+ racers only) ---
@@ -1211,71 +1205,6 @@ if (exportBtn) {
   exportBtn.addEventListener('click', startExport);
 }
 
-// --- Video selection & view modes ---
-
-let selectedVideoIdx = -1;
-let viewMode = 'grid'; // 'grid' | 'solo' | 'overlay'
-const soloBtn = document.getElementById('soloBtn');
-const overlayBtn = document.getElementById('overlayBtn');
-const overlaySliderRow = document.getElementById('overlaySliderRow');
-const overlaySlider = document.getElementById('overlaySlider');
-const racerEls = playerContainer ? Array.from(playerContainer.querySelectorAll('.racer')) : [];
-
-function selectVideo(idx) {
-  if (selectedVideoIdx === idx) {
-    selectedVideoIdx = -1;
-  } else {
-    selectedVideoIdx = idx;
-  }
-  updateSelectionUI();
-}
-
-function updateSelectionUI() {
-  racerEls.forEach((el, i) => {
-    el.classList.toggle('selected', i === selectedVideoIdx);
-  });
-  playerContainer?.classList.toggle('has-selection', selectedVideoIdx >= 0);
-}
-
-racerEls.forEach((el, i) => {
-  el.addEventListener('click', (e) => {
-    const t = e.target.tagName;
-    if (e.target.closest('.controls') || t === 'SELECT' || t === 'INPUT' || t === 'BUTTON') return;
-    selectVideo(i);
-  });
-});
-
-function setViewMode(mode) {
-  if (viewMode === mode) mode = 'grid';
-  if (mode === 'solo' && selectedVideoIdx < 0) mode = 'grid';
-  viewMode = mode;
-  playerContainer?.classList.toggle('solo-view', mode === 'solo');
-  playerContainer?.classList.toggle('overlay-view', mode === 'overlay');
-  soloBtn?.classList.toggle('active', mode === 'solo');
-  overlayBtn?.classList.toggle('active', mode === 'overlay');
-  if (overlaySliderRow) {
-    overlaySliderRow.classList.toggle('visible', mode === 'overlay');
-  }
-  if (mode === 'overlay') {
-    applyOverlayOpacity();
-  } else {
-    racerEls.forEach(el => { el.style.opacity = ''; });
-  }
-}
-
-function applyOverlayOpacity() {
-  const val = (overlaySlider ? overlaySlider.value : 50) / 100;
-  racerEls.forEach((el, i) => {
-    if (i > 0) el.style.opacity = val;
-  });
-}
-
-if (soloBtn) soloBtn.addEventListener('click', () => setViewMode('solo'));
-if (overlayBtn) overlayBtn.addEventListener('click', () => setViewMode('overlay'));
-if (overlaySlider) {
-  overlaySlider.addEventListener('input', applyOverlayOpacity);
-}
-
 // --- Fullscreen mode ---
 
 const fullscreenBtn = document.getElementById('fullscreenBtn');
@@ -1432,13 +1361,6 @@ function buildExportHtml() {
 
   // Remove any active export overlays
   doc.querySelectorAll('.export-overlay').forEach(el => el.remove());
-
-  // Reset view-mode state so exported HTML starts in default grid view
-  const pc = doc.querySelector('#playerContainer');
-  if (pc) {
-    pc.classList.remove('solo-view', 'overlay-view', 'has-selection');
-    pc.querySelectorAll('.racer').forEach(r => { r.classList.remove('selected'); r.style.opacity = ''; r.style.display = ''; });
-  }
 
   // Bake adjusted clip times into the script
   const scripts = doc.querySelectorAll('script');

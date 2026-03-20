@@ -208,8 +208,6 @@
     flex: 1;
     min-width: 280px;
     text-align: center;
-    cursor: pointer;
-    transition: opacity 0.2s;
   }
   .racer-label {
     font-family: Georgia, serif;
@@ -724,69 +722,6 @@
     flex-direction: column;
     align-items: center;
   }
-  .racer.selected {
-    outline: 2px solid #d4af37;
-    outline-offset: 2px;
-    border-radius: 4px;
-  }
-  .player-container.has-selection:not(.overlay-view) .racer:not(.selected) {
-    opacity: 0.4;
-  }
-  .player-container.solo-view .racer {
-    display: none;
-  }
-  .player-container.solo-view .racer.selected {
-    display: block;
-    flex: none;
-    width: 100%;
-    max-width: 1200px;
-  }
-  .player-container.overlay-view {
-    position: relative;
-  }
-  .player-container.overlay-view .racer {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-  }
-  .player-container.overlay-view .racer:first-child {
-    position: relative;
-  }
-  .player-container.overlay-view .racer:not(:first-child) {
-    opacity: 0.5;
-    mix-blend-mode: screen;
-  }
-  .player-container.overlay-view .racer:not(:first-child) .racer-label {
-    display: none;
-  }
-  .overlay-slider-row {
-    display: none;
-    align-items: center;
-    gap: 0.6rem;
-    font-size: 0.8rem;
-    color: #999;
-  }
-  .overlay-slider-row.visible { display: flex; }
-  .overlay-slider {
-    width: 100px;
-    accent-color: #d4af37;
-  }
-  .view-btn {
-    background: #2a2a2a;
-    color: #999;
-    border: 1px solid #555;
-    border-radius: 4px;
-    padding: 0.3rem 0.7rem;
-    font-size: 0.75rem;
-    cursor: pointer;
-    font-family: 'Courier New', monospace;
-    flex-shrink: 0;
-    transition: all 0.2s;
-  }
-  .view-btn:hover { background: #3a3a3a; border-color: #d4af37; color: #e8e0d0; }
-  .view-btn.active { background: #d4af37; color: #1a1a1a; border-color: #d4af37; }
   .fullscreen-btn {
     background: #2a2a2a;
     color: #d4af37;
@@ -837,15 +772,6 @@
   .fullscreen-wrapper:fullscreen .controls,
   .fullscreen-wrapper:-webkit-full-screen .controls {
     padding-bottom: 0.5rem;
-  }
-  .fullscreen-wrapper:fullscreen .player-container.solo-view .racer.selected,
-  .fullscreen-wrapper:-webkit-full-screen .player-container.solo-view .racer.selected {
-    max-width: 100%;
-  }
-  .fullscreen-wrapper:fullscreen .player-container.overlay-view,
-  .fullscreen-wrapper:-webkit-full-screen .player-container.overlay-view {
-    flex: 1;
-    min-height: 0;
   }
   .sr-only {
     position: absolute; width: 1px; height: 1px;
@@ -961,12 +887,6 @@
     <option value="2">2x</option>
   </select>
   {{calibrationBtn}}
-  <button class="view-btn" id="soloBtn" title="Solo selected video (S)">Solo</button>
-  <button class="view-btn" id="overlayBtn" title="Overlay videos (O)">Overlay</button>
-  <span class="overlay-slider-row" id="overlaySliderRow">
-    <label for="overlaySlider">Opacity</label>
-    <input type="range" class="overlay-slider" id="overlaySlider" min="0" max="100" value="50">
-  </span>
   <button class="fullscreen-btn" id="fullscreenBtn" title="Fullscreen (F)" aria-label="Toggle fullscreen">&#x26F6;</button>
 </div>
 </div>
