@@ -439,7 +439,7 @@ function sanitizeScript(script) {
  *   await page.raceStart(name)        — start a named stopwatch (async: syncs in parallel)
  *   page.raceEnd(name)                — stop the stopwatch (sync: just arithmetic)
  *   await page.raceRecordingStart()   — manually start a video segment (async: syncs)
- *   page.raceRecordingEnd()           — manually end a video segment (sync)
+ *   await page.raceRecordingEnd()     — manually end a video segment (async: flushes)
  *   page.raceMessage(text)            — send a message to the CLI terminal (sync)
  *   await page.raceWaitForVisualStability(opts?) — wait for rendering to settle (async)
  *

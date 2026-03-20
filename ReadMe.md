@@ -2,7 +2,7 @@
 
 **Ladies and gentlemen, welcome to race day!**
 
-RaceForThePrize is a command-line showdown that pits two browsers against each other in a head-to-head performance battle. Write your [Playwright](https://playwright.dev/) scripts, fire the starting gun, and watch them tear down the track side-by-side — complete with live terminal animation, video recordings, and a full race report declaring the champion.
+RaceForThePrize is a command-line showdown that pits browsers against each other in head-to-head performance battles. Pit 2 to 5 racers against each other — write your [Playwright](https://playwright.dev/) scripts, fire the starting gun, and watch them tear down the track side-by-side — complete with live terminal animation, video recordings, and a full race report declaring the champion.
 
 No judges, no bias — just cold, hard milliseconds on the clock.
 
@@ -28,7 +28,7 @@ Two browsers launch. Two Wikipedia pages load. Then they scroll — human-like, 
 
 ### What's in the race folder
 
-```
+```text
 races/lauda-vs-hunt/
   lauda.spec.js      # 🔴 Racer 1: Niki Lauda's Wikipedia page
   hunt.spec.js       # 🔵 Racer 2: James Hunt's Wikipedia page
@@ -44,6 +44,14 @@ node race.js ./races/lebron-vs-curry
 ```
 
 The dribbles are perfectly synced. The difference? The scroll back to the top: LeBron uses a smooth ease-in-out, Curry snaps up with a cubic ease-out. Pure browser performance decides the winner.
+
+## ⚛️ React vs Angular (and friends)
+
+The frontend framework cage match — four racers, one winner. React, Angular, Svelte, and htmx all load the same TodoMVC-style benchmark. RaceForThePrize supports up to five racers in a single heat.
+
+```bash
+node race.js ./races/react-vs-angular
+```
 
 ## Global Install
 
@@ -69,12 +77,13 @@ npx race-for-the-prize my-race
 
 ## Building Your Own Grand Prix
 
-Every race needs two contenders. Create a folder with two `.spec.js` scripts:
+Every race needs at least two contenders (up to five). Create a folder with `.spec.js` scripts:
 
-```
+```text
 races/my-race/
   contender-a.spec.js   # Racer 1 (filename = racer name)
   contender-b.spec.js   # Racer 2
+  contender-c.spec.js   # Racer 3 (optional — up to 5 racers)
   settings.json          # Optional: race conditions
 ```
 
@@ -101,7 +110,7 @@ page.raceEnd('Full Page Load');
 
 // Hold the frame so the video doesn't cut abruptly
 await page.waitForTimeout(1500);
-page.raceRecordingEnd();
+await page.raceRecordingEnd();
 ```
 
 ### The Race API
@@ -111,7 +120,9 @@ page.raceRecordingEnd();
 | `await page.raceStart(name)` | Starts the stopwatch for a named measurement |
 | `page.raceEnd(name)` | Stops the stopwatch — time is recorded |
 | `await page.raceRecordingStart()` | Manually start the video segment |
-| `page.raceRecordingEnd()` | Manually end the video segment |
+| `await page.raceRecordingEnd()` | Manually end the video segment |
+| `page.raceMessage(text)` | Send a status message to the CLI terminal |
+| `await page.raceWaitForVisualStability(opts?)` | Wait for rendering to settle before measuring |
 
 If you skip `raceRecordingStart`/`End`, the video automatically wraps your first `raceStart` to last `raceEnd`.
 
@@ -121,7 +132,7 @@ If you skip `raceRecordingStart`/`End`, the video automatically wraps your first
 
 Ship a performance regression? Find out before your users do. Point two racers at the same workflow — one against your current release, one against the candidate build:
 
-```
+```text
 races/checkout-v2-vs-v3/
   checkout-v2.spec.js    # Production: https://app.example.com
   checkout-v3.spec.js    # Staging: https://staging.example.com
@@ -148,7 +159,7 @@ page.raceEnd('Checkout render');
 
 // Let the final state linger in the recording
 await page.waitForTimeout(1500);
-page.raceRecordingEnd();
+await page.raceRecordingEnd();
 ```
 
 Run it under realistic conditions with throttling to see how it feels on real devices:
@@ -161,7 +172,7 @@ node race.js ./races/checkout-v2-vs-v3 --network=fast-3g --cpu=4 --runs=5
 
 Which dashboard loads faster — yours or the competition? Which CSS framework renders a complex layout quicker? Set up a head-to-head:
 
-```
+```text
 races/react-vs-svelte-todo/
   react-todo.spec.js      # React TodoMVC
   svelte-todo.spec.js     # Svelte TodoMVC
@@ -171,7 +182,7 @@ races/react-vs-svelte-todo/
 
 Want to know if lazy-loading images actually helped? Create two racers that hit the same page — one with the feature flag on, one off:
 
-```
+```text
 races/lazy-loading-impact/
   with-lazy.spec.js       # ?feature=lazy-images
   without-lazy.spec.js    # ?feature=eager-images
@@ -189,7 +200,7 @@ Combine network throttling and CPU slowdown to approximate mobile users on spott
 node race.js ./races/my-race --network=slow-3g --cpu=6 --runs=3
 ```
 
-The `--runs` flag takes the median, smoothing out noise and giving you a number you can trust.
+The `--runs` flag takes the median, smoothing out noise and giving you a number you can trust. In multi-run mode, each racer independently picks the run closest to their own median — so if Racer A performed best in Run 2 and Racer B in Run 4, each gets their own representative video. The results page shows which runs were selected (e.g., "Runs 2, 4").
 
 ## Race Flags (CLI Options)
 
@@ -207,27 +218,39 @@ node race.js <dir> --format=mov           # Broadcast-ready replay format (requi
 node race.js <dir> --format=gif           # Quick highlight reel (requires --ffmpeg)
 node race.js <dir> --runs=3               # Best of 3 — median wins
 node race.js <dir> --slowmo=2            # Slow-motion replay (2x, 3x, etc.)
+node race.js <dir> --no-overlay          # Record videos without overlays
+node race.js <dir> --no-recording        # Skip video recording, just measure
 node race.js <dir> --ffmpeg              # Enable FFmpeg processing (trim, merge, convert)
+node race.js <dir> --serve=false         # Don't open results in browser after race
+node race.js <dir> --pause               # Pause between runs — press Enter to continue (multi-run)
 ```
 
 CLI flags always override `settings.json`. The stewards have spoken.
+
+### Network Throttling Presets
+
+| Preset | Download | Upload | Latency |
+|---|---|---|---|
+| `slow-3g` | 500 Kbps | 500 Kbps | 400 ms |
+| `fast-3g` | 1500 Kbps | 750 Kbps | 150 ms |
+| `4g` | 4000 Kbps | 3000 Kbps | 50 ms |
 
 ### Serial vs Parallel: Accuracy vs Spectacle
 
 By default, races run in **serial** (sequential) mode — one browser at a time. This gives you the most accurate and reliable timing results because each racer gets the full, undivided attention of your machine's CPU and network stack. If you care about the numbers, stick with serial.
 
-**Parallel mode** (`--parallel`) launches both browsers simultaneously and is purely for the show. It's demo day mode — the wizard-of-many-windows spectacle where two browsers tear down the track side by side in real time. It looks fantastic in presentations and screen recordings, but since both browsers compete for the same system resources, the timings are less reliable. Use it when you want to impress an audience, not when you need to trust the stopwatch.
+**Parallel mode** (`--parallel`) launches all browsers simultaneously and is purely for the show. It's demo day mode — the wizard-of-many-windows spectacle where browsers tear down the track side by side in real time. It looks fantastic in presentations and screen recordings, but since all browsers compete for the same system resources, the timings are less reliable. Use it when you want to impress an audience, not when you need to trust the stopwatch.
 
 ## Race Results
 
 After every race, the results land in a timestamped folder:
 
-```
+```text
 races/my-race/results-2026-01-31_14-30-00/
   contender-a/
     contender-a.race.webm     # Onboard camera footage
     contender-a.full.webm     # Full session recording (--ffmpeg only)
-    contender-a.trace.json    # Performance trace (--profile)
+    contender-a.trace.json    # Performance trace (always generated)
     measurements.json          # Lap times
     clicks.json                # Driver inputs
   contender-b/
@@ -239,6 +262,8 @@ races/my-race/results-2026-01-31_14-30-00/
 ```
 
 By default, the HTML player handles virtual trimming via clip times and uses CDP screencast metadata or canvas-based calibration for frame-accurate playback — no external dependencies needed. When neither calibration source is available, it falls back to linear time-mapping which is less precise. With `--ffmpeg`, videos are physically trimmed, a side-by-side merged video is created, and format conversion (mov/gif) is available.
+
+The player includes segment navigation buttons — **Race Recording** (all measurements combined), individual named segments (one per `raceStart`/`raceEnd` pair), and **Whole Recording** (full unclipped video when available). This lets you scrub directly to any specific measurement.
 
 Disclaimer: Due to the nature of the way the video is transformed, the aim here is not accuracy, it's to showcase, to visualize performance. To compare between different network and browser settings.
 Do double check and question the metrics and findings. It should be a helpful tool supporting performance related narratives, but don't assume 100% accuracy. However, this generally applies to many 
@@ -262,7 +287,14 @@ The terminal delivers the verdict in style:
   "parallel": false,
   "network": "none",
   "cpuThrottle": 1,
-  "headless": false
+  "headless": false,
+  "runs": 1,
+  "slowmo": 0,
+  "format": "webm",
+  "ffmpeg": false,
+  "noOverlay": false,
+  "noRecording": false,
+  "noWasm": false
 }
 ```
 
@@ -272,6 +304,13 @@ The terminal delivers the verdict in style:
 | `network` | `none`, `slow-3g`, `fast-3g`, `4g` | `none` |
 | `cpuThrottle` | `1` (none) to any multiplier | `1` |
 | `headless` | `true` / `false` | `false` |
+| `runs` | integer ≥ 1 (median of N runs) | `1` |
+| `slowmo` | `0` (off) to `20` (multiplier) | `0` |
+| `format` | `webm`, `mov`, `gif` | `webm` |
+| `ffmpeg` | `true` / `false` | `false` |
+| `noOverlay` | `true` / `false` | `false` |
+| `noRecording` | `true` / `false` | `false` |
+| `noWasm` | `true` / `false` | `false` |
 
 ## Prerequisites
 
@@ -284,23 +323,56 @@ See the **[Installation Guide](INSTALLATION.md)** for detailed setup instruction
 
 ## Project Structure
 
-```
+```text
 RaceForThePrize/
-├── race.js              # 🏁 Main entry point — the race director
-├── runner.cjs           # Playwright automation engine
+├── race.js                 # 🏁 Main entry point — the race director
+├── runner.cjs              # Playwright automation engine
+├── sync-barrier.cjs        # Parallel mode checkpoint synchronization
+├── visual-stability.cjs    # Wait-for-visual-stability detection logic
+├── trace-calibration.cjs   # Derive timing from Chrome performance traces
 ├── cli/
-│   ├── animation.js     # Live terminal racing animation
-│   ├── colors.js        # ANSI color palette
-│   ├── config.js        # Argument parsing & racer discovery
-│   ├── results.js       # File management & video conversion
-│   ├── summary.js       # Results formatting & markdown reports
-│   ├── sidebyside.js    # FFmpeg video composition (--ffmpeg)
-│   └── videoplayer.js   # Interactive HTML player with clip-based trimming
+│   ├── animation.js        # Live terminal racing animation
+│   ├── colors.js           # ANSI color palette
+│   ├── config.js           # Argument parsing & racer discovery
+│   ├── profile-analysis.js # CDP performance metrics collection & analysis
+│   ├── player-runtime.js   # HTML player client-side runtime (canvas calibration)
+│   ├── player-sections.js  # HTML player template sections
+│   ├── race-utils.js       # Shared race utility helpers
+│   ├── results.js          # File management & video conversion
+│   ├── summary.js          # Results formatting & markdown reports
+│   ├── sidebyside.js       # FFmpeg video composition (--ffmpeg)
+│   └── videoplayer.js      # Interactive HTML player with clip-based trimming
 ├── races/
-│   ├── lauda-vs-hunt/   # 🏆 Example: the greatest rivalry in racing
-│   └── lebron-vs-curry/ # 🏀 Example: the GOAT debate, dribble-style
-├── tests/               # Test suite
+│   ├── lauda-vs-hunt/        # 🏆 Example: the greatest rivalry in racing
+│   ├── lebron-vs-curry/      # 🏀 Example: the GOAT debate, dribble-style
+│   └── react-vs-angular/     # ⚛️  Example: frontend framework showdown (4 racers)
+├── presentation/
+│   ├── slides.md           # Marp slide deck
+│   └── script.md           # Speaker notes (7 slides, ~7 min)
+├── tests/                  # Unit tests (vitest)
+├── integration/            # Integration tests (vitest)
 └── package.json
+```
+
+## Presenting RaceForThePrize
+
+The `presentation/` folder contains a ready-to-use slide deck and speaker script for introducing the tool to an audience.
+
+- **`slides.md`** — 7-slide [Marp](https://marp.app/) deck covering positioning, the race API, live demo, and results
+- **`script.md`** — Speaker notes with timing guidance, audience adaptation tips, and key phrases to land
+
+Generate slides with Marp:
+
+```bash
+npx @marp-team/marp-cli presentation/slides.md --html -o presentation/slides.html
+```
+
+## Running Tests
+
+```bash
+npm test                                          # Unit tests (vitest)
+npm run test:integration                          # Integration tests (calibration, trimming)
+npx vitest run tests/summary.test.js              # Run a single test file
 ```
 
 ## Standing on the Shoulders of Giants

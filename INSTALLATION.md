@@ -33,8 +33,8 @@ winget install OpenJS.NodeJS.LTS
 ## 2. Clone and install the project
 
 ```bash
-git clone https://github.com/kertal/race-for-the-price.git
-cd race-for-the-price
+git clone https://github.com/kertal/race-for-the-prize.git
+cd race-for-the-prize
 
 # Install project dependencies
 npm install
