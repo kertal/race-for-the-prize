@@ -882,3 +882,104 @@ describe('copyFFmpegFiles', () => {
     }
   });
 });
+
+// --- Embed mode (--embed) ---
+
+describe('buildPlayerHtml embed mode', () => {
+  function withEmbedDir(fn) {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'race-embed-test-'));
+    try {
+      // Create racer subdirectories and small fake video files
+      fs.mkdirSync(path.join(tmpDir, 'lauda'), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, 'hunt'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, 'lauda', 'lauda.race.webm'), 'fake-webm-lauda');
+      fs.writeFileSync(path.join(tmpDir, 'hunt', 'hunt.race.webm'), 'fake-webm-hunt');
+      fn(tmpDir);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  }
+
+  it('replaces video src with base64 data URI when embed + runDir provided', () => {
+    withEmbedDir(tmpDir => {
+      const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { embed: true, runDir: tmpDir });
+      expect(html).toContain('src="data:video/webm;base64,');
+      expect(html).not.toContain('src="lauda/lauda.race.webm"');
+      expect(html).not.toContain('src="hunt/hunt.race.webm"');
+    });
+  });
+
+  it('encodes correct base64 content for each racer', () => {
+    withEmbedDir(tmpDir => {
+      const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { embed: true, runDir: tmpDir });
+      const laudaB64 = Buffer.from('fake-webm-lauda').toString('base64');
+      const huntB64 = Buffer.from('fake-webm-hunt').toString('base64');
+      expect(html).toContain(laudaB64);
+      expect(html).toContain(huntB64);
+    });
+  });
+
+  it('falls back to relative path when video file not found', () => {
+    withEmbedDir(tmpDir => {
+      const missingFiles = ['missing/missing.race.webm', 'hunt/hunt.race.webm'];
+      const html = buildPlayerHtml(makeSummary(), missingFiles, null, null, { embed: true, runDir: tmpDir });
+      expect(html).toContain('src="missing/missing.race.webm"');
+      expect(html).toContain('src="data:video/webm;base64,');
+    });
+  });
+
+  it('embeds merged video as data URI when embed + runDir provided', () => {
+    withEmbedDir(tmpDir => {
+      fs.writeFileSync(path.join(tmpDir, 'lauda-vs-hunt.webm'), 'fake-merged');
+      const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, {
+        embed: true, runDir: tmpDir, mergedVideoFile: 'lauda-vs-hunt.webm',
+      });
+      const mergedB64 = Buffer.from('fake-merged').toString('base64');
+      expect(html).toContain(mergedB64);
+      expect(html).not.toContain('src="lauda-vs-hunt.webm"');
+    });
+  });
+
+  it('embeds full videos as data URIs when provided', () => {
+    withEmbedDir(tmpDir => {
+      fs.writeFileSync(path.join(tmpDir, 'lauda', 'lauda.full.webm'), 'fake-full-lauda');
+      fs.writeFileSync(path.join(tmpDir, 'hunt', 'hunt.full.webm'), 'fake-full-hunt');
+      const fullVideoFiles = ['lauda/lauda.full.webm', 'hunt/hunt.full.webm'];
+      const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, {
+        embed: true, runDir: tmpDir, fullVideoFiles,
+      });
+      const laudaFullB64 = Buffer.from('fake-full-lauda').toString('base64');
+      expect(html).toContain(laudaFullB64);
+    });
+  });
+
+  it('does not embed when embed option is false', () => {
+    withEmbedDir(tmpDir => {
+      const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { embed: false, runDir: tmpDir });
+      expect(html).toContain('src="lauda/lauda.race.webm"');
+      expect(html).not.toContain('src="data:video/webm;base64,');
+    });
+  });
+
+  it('does not embed when runDir is not provided', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { embed: true });
+    expect(html).toContain('src="lauda/lauda.race.webm"');
+    expect(html).not.toContain('src="data:video/webm;base64,');
+  });
+
+  it('uses correct MIME type for .mov files', () => {
+    withEmbedDir(tmpDir => {
+      fs.mkdirSync(path.join(tmpDir, 'a'), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, 'b'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, 'a', 'a.race.webm'), 'webm-a');
+      fs.writeFileSync(path.join(tmpDir, 'b', 'b.race.webm'), 'webm-b');
+      fs.writeFileSync(path.join(tmpDir, 'a', 'a.race.mov'), 'mov-a');
+      fs.writeFileSync(path.join(tmpDir, 'b', 'b.race.mov'), 'mov-b');
+      const altFiles = ['a/a.race.mov', 'b/b.race.mov'];
+      const summary = makeSummary({ racers: ['a', 'b'], comparisons: [], overallWinner: null });
+      const baseFiles = ['a/a.race.webm', 'b/b.race.webm'];
+      const html = buildPlayerHtml(summary, baseFiles, null, null, { embed: true, runDir: tmpDir });
+      expect(html).toContain('data:video/webm;base64,');
+    });
+  });
+});

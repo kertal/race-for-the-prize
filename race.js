@@ -292,9 +292,11 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
       runNavigation,
       clipTimes,
       ffmpegPathPrefix: raceOptions.ffmpegPathPrefix || './',
+      embed: settings.embed,
+      runDir,
     };
     fs.writeFileSync(path.join(runDir, 'index.html'), buildPlayerHtml(summary, videoFiles, ffmpeg && format !== 'webm' ? format : null, altFiles, playerOptions));
-    if (!raceOptions.skipCopyFFmpeg && !settings.noWasm) copyFFmpegFiles(runDir);
+    if (!raceOptions.skipCopyFFmpeg && !settings.noWasm && !settings.embed) copyFFmpegFiles(runDir);
   }
 
   return { summary, sideBySidePath, sideBySideName, clipTimes };
@@ -659,9 +661,11 @@ function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts
     traceFiles, raceScriptFiles, settingsFileCopied,
     runNavigation: runNav, clipTimes,
     ffmpegPathPrefix: raceOpts.ffmpegPathPrefix || './',
+    embed: settings.embed,
+    runDir,
   };
   fs.writeFileSync(path.join(runDir, 'index.html'), buildPlayerHtml(summary, videoFiles, null, null, playerOptions));
-  if (!raceOpts.skipCopyFFmpeg && !noWasm) copyFFmpegFiles(runDir);
+  if (!raceOpts.skipCopyFFmpeg && !noWasm && !settings.embed) copyFFmpegFiles(runDir);
 
   return { summary, clipTimes };
 }
@@ -789,12 +793,14 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
       runNavigation: medianNav,
       medianRunLabel,
       clipTimes: medianClipTimes,
+      embed: settings.embed,
+      runDir: resultsDir,
     };
     fs.writeFileSync(
       path.join(resultsDir, 'index.html'),
       buildPlayerHtml(medianSummary, medianVideoFiles, ffmpeg && format !== 'webm' ? format : null, medianAltFiles, medianPlayerOptions)
     );
-    if (!settings.noWasm) copyFFmpegFiles(resultsDir);
+    if (!settings.noWasm && !settings.embed) copyFFmpegFiles(resultsDir);
   }
 
   console.error(`\n  ${c.bold}${c.cyan}── Median Results (${totalRuns} runs) ──${c.reset}`);

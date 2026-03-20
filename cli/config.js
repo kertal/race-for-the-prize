@@ -72,6 +72,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('ffmpeg')) s.ffmpeg = true;
   if (boolFlags.has('har')) s.har = true;
   if (boolFlags.has('no-wasm')) s.noWasm = true;
+  if (boolFlags.has('embed')) s.embed = true;
   if (boolFlags.has('pause')) s.pauseBetweenRuns = true;
   if (kvFlags.network !== undefined) {
     if (!VALID_NETWORKS.includes(kvFlags.network)) {
