@@ -15,6 +15,7 @@ export function moveResults(recordingsBase, racerName, destDir, browserResult) {
     videoPath: null,
     fullVideoPath: null,
     tracePath: null,
+    harPath: null,
     clickEvents: browserResult.clickEvents || [],
     measurements: browserResult.measurements || [],
     profileMetrics: browserResult.profileMetrics || null,
@@ -49,6 +50,13 @@ export function moveResults(recordingsBase, racerName, destDir, browserResult) {
       const renamed = `${racerName}.trace.json`;
       fs.renameSync(path.join(destDir, traceFile), path.join(destDir, renamed));
       data.tracePath = path.join(destDir, renamed);
+    }
+
+    const harFile = files.find(f => f.endsWith('.har'));
+    if (harFile) {
+      const renamed = `${racerName}.har`;
+      fs.renameSync(path.join(destDir, harFile), path.join(destDir, renamed));
+      data.harPath = path.join(destDir, renamed);
     }
 
     fs.writeFileSync(path.join(destDir, 'clicks.json'), JSON.stringify(data.clickEvents, null, 2));

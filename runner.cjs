@@ -885,7 +885,7 @@ function trimVideoWithFfmpeg(outputDir, trimSegments, id) {
  * Called N times (once per racer) by runParallel or runSequential.
  */
 async function runBrowserRecording(config, barriers, isParallel, sharedState, opts = {}) {
-  const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, noRecording = false, ffmpeg = false, recordingsDir = null } = opts;
+  const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, noRecording = false, ffmpeg = false, har = false, recordingsDir = null } = opts;
   const { id, headless } = config;
   const outputDir = recordingsDir ? path.join(recordingsDir, id) : path.join(__dirname, 'recordings', id);
   let browser = null;
@@ -910,11 +910,15 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     const viewportHeight = isParallel ? layout.height - 100 : 720;
     const videoScale = slowmo > 0 ? 2 : 1;
     const contextCreationStart = Date.now();
+    const harPath = har ? path.join(outputDir, `${id}.har`) : null;
     const contextOpts = {
       viewport: { width: viewportWidth, height: viewportHeight },
     };
     if (!noRecording) {
       contextOpts.recordVideo = { dir: outputDir, size: { width: viewportWidth * videoScale, height: viewportHeight * videoScale } };
+    }
+    if (harPath) {
+      contextOpts.recordHar = { path: harPath, mode: 'minimal' };
     }
     context = await browser.newContext(contextOpts);
     const recordingStartTime = Date.now();
@@ -992,6 +996,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
       videoPath: videoFile ? path.join(id, videoFile) : null,
       fullVideoPath: fullVideoFile ? path.join(id, fullVideoFile) : null,
       tracePath: tracePath ? path.join(id, path.basename(tracePath)) : null,
+      harPath: harPath && fs.existsSync(harPath) ? path.join(id, path.basename(harPath)) : null,
       clickEvents: adjustedClicks,
       measurements,
       profileMetrics,
@@ -1021,6 +1026,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     videoPath: null,
     fullVideoPath: null,
     tracePath: null,
+    harPath: null,
     clickEvents: [],
     measurements: [],
     profileMetrics: null,
@@ -1075,8 +1081,8 @@ async function main() {
   try { config = JSON.parse(configJson); }
   catch (e) { console.error('Error: Invalid JSON:', e.message); process.exit(1); }
 
-  const { browsers, executionMode, throttle, headless, slowmo, noOverlay, noRecording, ffmpeg, recordingsDir } = config;
-  const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, recordingsDir };
+  const { browsers, executionMode, throttle, headless, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir } = config;
+  const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir };
 
   // Set headless flag on all browser configs
   for (const browser of browsers) {
@@ -1104,6 +1110,7 @@ async function main() {
       videoPath: r.videoPath || null,
       fullVideoPath: r.fullVideoPath || null,
       tracePath: r.tracePath || null,
+      harPath: r.harPath || null,
       clickEvents: r.clickEvents || [],
       measurements: r.measurements || [],
       profileMetrics: r.profileMetrics || null,

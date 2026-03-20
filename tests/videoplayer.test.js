@@ -535,6 +535,23 @@ describe('buildPlayerHtml files section', () => {
   it('omits trace links when not profiling', () => {
     expect(abHtml()).not.toContain('.trace.json');
   });
+
+  it('includes HAR download links when provided', () => {
+    const html = abHtml({ harFiles: ['a/a.har', 'b/b.har'] });
+    expect(html).toContain('href="a/a.har"');
+    expect(html).toContain('a (HAR)');
+    expect(html).toContain('download');
+  });
+
+  it('omits HAR links when not provided', () => {
+    expect(abHtml()).not.toContain('.har');
+  });
+
+  it('omits HAR links for racers without HAR files', () => {
+    const html = abHtml({ harFiles: ['a/a.har', null] });
+    expect(html).toContain('href="a/a.har"');
+    expect(html).not.toContain('b (HAR)');
+  });
 });
 
 // --- Debug mode ---

@@ -260,6 +260,9 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
     }
 
     const traceFiles = racerNames.map(name => `${name}/${name}.trace.json`);
+    const harFiles = racerNames.map((name, i) => {
+      return results[i]?.harPath ? `${name}/${name}.har` : null;
+    });
 
     // Collect clip times from recording segments for player-level trimming (default mode).
     // Uses only the first segment per racer — multiple non-contiguous segments are not
@@ -283,6 +286,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
       fullVideoFiles,
       mergedVideoFile: sideBySidePath ? sideBySideName : null,
       traceFiles,
+      harFiles,
       raceScriptFiles,
       settingsFileCopied,
       runNavigation,
@@ -313,6 +317,7 @@ export function buildRaceContext({ racerNames, scripts, settings, rootDir = __di
     noOverlay: settings.noOverlay,
     noRecording: settings.noRecording,
     ffmpeg: settings.ffmpeg,
+    har: settings.har,
   };
 
   return { racerNames, settings, executionMode, throttle, runnerConfig, rootDir, raceDir, racerFiles };

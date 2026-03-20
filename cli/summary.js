@@ -154,6 +154,7 @@ export function buildSummary(racerNames, results, settings, resultsDir) {
       [racerNames[i], r.videoPath || null],
       [`${racerNames[i]}_full`, r.fullVideoPath || null],
     ])),
+    harFiles: Object.fromEntries(racerNames.map((n, i) => [n, results[i].harPath || null])),
     clickCounts: Object.fromEntries(racerNames.map((n, i) => [n, (results[i].clickEvents || []).length])),
     profileMetrics: results.map(r => r.profileMetrics || null),
     profileComparison: buildProfileComparison(racerNames, results.map(r => r.profileMetrics || null)),

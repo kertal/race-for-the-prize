@@ -70,6 +70,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('no-overlay')) s.noOverlay = true;
   if (boolFlags.has('no-recording')) s.noRecording = true;
   if (boolFlags.has('ffmpeg')) s.ffmpeg = true;
+  if (boolFlags.has('har')) s.har = true;
   if (boolFlags.has('no-wasm')) s.noWasm = true;
   if (boolFlags.has('pause')) s.pauseBetweenRuns = true;
   if (kvFlags.network !== undefined) {
