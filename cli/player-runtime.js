@@ -166,7 +166,7 @@ function onMeta() {
   } else if (convertedAny && !playing) {
     // If conversion landed after the initial seek was already consumed,
     // force one seek to the actual clip start to avoid stale startup frame.
-    seekAll(activeClip ? activeClip.start : 0);
+    seekAllWithVerify(activeClip ? activeClip.start : 0);
     scrubber.value = 0;
     updateTimeDisplay();
   }
@@ -887,10 +887,32 @@ buildRacerFilter();
 
 // --- Initial clip seek ---
 
+// Chrome/WebM: recordings lack duration metadata so Chrome reports
+// duration=Infinity at loadedmetadata and cannot seek until the data
+// at the target position has been buffered. After seekAll(), attach a
+// one-shot 'seeked' listener per video; if the seek snapped back to a
+// position more than 150ms before the expected clip start, retry once.
+function seekAllWithVerify(targetStart) {
+  const adj = getAdjustedClipTimes();
+  const ct = adj || clipTimes;
+  seekAll(targetStart);
+  raceVideos.forEach((v, i) => {
+    if (!v || !clipTimes) return;
+    const expected = ct && isValidClipEntry(ct[i]) ? ct[i].start : targetStart;
+    if (expected <= 0.001) return; // nothing to verify at position 0
+    const handler = () => {
+      if (v.currentTime < expected - 0.15) {
+        v.currentTime = Math.min(expected, isFinite(v.duration) ? v.duration : expected);
+      }
+    };
+    v.addEventListener('seeked', handler, { once: true });
+  });
+}
+
 if (clipTimes) {
   const initSeek = () => {
     activeClip = resolveAdjustedClip();
-    seekAll(activeClip ? activeClip.start : 0);
+    seekAllWithVerify(activeClip ? activeClip.start : 0);
     scrubber.value = 0;
     updateTimeDisplay();
   };
