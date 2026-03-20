@@ -537,19 +537,42 @@ async function runScript(script, label) {
 
   const config = typeof script === 'string' ? { command: script } : script;
   const { command, timeout = 60000, waitFor } = config;
-  const scriptPath = path.resolve(raceDir, command);
 
+  // Validate command is a non-empty string
+  if (typeof command !== 'string' || !command.trim()) {
+    throw new Error(`${label} script config missing valid 'command' field`);
+  }
+
+  const scriptPath = path.resolve(raceDir, command);
+  const ext = path.extname(scriptPath);
+
+  // Validate script exists and is a file with supported extension
   if (!fs.existsSync(scriptPath)) {
     console.error(`${c.yellow}Warning: ${label} script not found: ${scriptPath}${c.reset}`);
     return;
   }
 
+  try {
+    if (!fs.statSync(scriptPath).isFile()) {
+      throw new Error(`${label} script path is not a file: ${scriptPath}`);
+    }
+  } catch (e) {
+    if (e.code === 'ENOENT') {
+      console.error(`${c.yellow}Warning: ${label} script not found: ${scriptPath}${c.reset}`);
+      return;
+    }
+    throw e;
+  }
+
+  if (ext !== '.sh' && ext !== '.js') {
+    throw new Error(`${label} script has unsupported extension '${ext}' (expected .sh or .js)`);
+  }
+
   const progress = startProgress(`Running ${label.toLowerCase()}…`);
 
   return new Promise((resolve, reject) => {
-    const ext = path.extname(scriptPath);
     const isShell = ext === '.sh';
-    const args = isShell ? [scriptPath] : [scriptPath];
+    const args = [scriptPath];
     const cmd = isShell ? 'bash' : 'node';
 
     const child = spawn(cmd, args, {
@@ -560,17 +583,29 @@ async function runScript(script, label) {
 
     let stdout = '';
     let stderr = '';
+    let timedOut = false;
+
     child.stdout.on('data', d => { stdout += d; });
     child.stderr.on('data', d => { stderr += d; });
 
     const timeoutId = setTimeout(() => {
+      timedOut = true;
       child.kill('SIGTERM');
-      progress.done(`${label} timed out after ${timeout}ms`);
-      reject(new Error(`${label} script timed out after ${timeout}ms`));
+      // Give process 5s to clean up after SIGTERM, then SIGKILL
+      setTimeout(() => {
+        if (!child.killed) child.kill('SIGKILL');
+      }, 5000);
     }, timeout);
 
     child.on('close', code => {
       clearTimeout(timeoutId);
+
+      if (timedOut) {
+        progress.done(`${label} timed out after ${timeout}ms`);
+        reject(new Error(`${label} script timed out after ${timeout}ms`));
+        return;
+      }
+
       if (code === 0) {
         progress.done(`${label} completed`);
 
@@ -582,20 +617,27 @@ async function runScript(script, label) {
             const startTime = Date.now();
 
             const poll = async () => {
+              const remaining = waitTimeout - (Date.now() - startTime);
+              if (remaining <= 0) {
+                waitProgress.done(`Timeout waiting for ${url}`);
+                reject(new Error(`Timeout waiting for ${url} after ${waitTimeout}ms`));
+                return;
+              }
+
               try {
-                const res = await fetch(url);
+                // Use AbortSignal to enforce per-request timeout
+                const res = await fetch(url, {
+                  signal: AbortSignal.timeout(Math.min(remaining, interval * 2)),
+                });
                 if (res.ok) {
                   waitProgress.done(`Service ready at ${url}`);
                   resolve();
                   return;
                 }
-              } catch {}
-
-              if (Date.now() - startTime > waitTimeout) {
-                waitProgress.done(`Timeout waiting for ${url}`);
-                reject(new Error(`Timeout waiting for ${url} after ${waitTimeout}ms`));
-                return;
+              } catch {
+                // Connection failed or timed out, will retry
               }
+
               setTimeout(poll, interval);
             };
             poll();
@@ -642,27 +684,20 @@ const totalRuns = settings.runs;
 // --- Main ---
 
 async function main() {
-  // Run global setup script before races
-  try {
-    await runScript(setupScript, 'Setup');
-  } catch (e) {
-    console.error(`\n${c.red}${c.bold}Setup failed:${c.reset} ${e.message}\n`);
-    process.exit(1);
-  }
+  let setupCompleted = false;
 
-  // Run per-racer setup scripts
-  for (const racer of racerScripts) {
-    if (racer.setup) {
-      try {
+  try {
+    // Run global setup script before races
+    await runScript(setupScript, 'Setup');
+
+    // Run per-racer setup scripts
+    for (const racer of racerScripts) {
+      if (racer.setup) {
         await runScript(racer.setup, `Setup [${racer.name}]`);
-      } catch (e) {
-        console.error(`\n${c.red}${c.bold}Setup for ${racer.name} failed:${c.reset} ${e.message}\n`);
-        process.exit(1);
       }
     }
-  }
 
-  try {
+    setupCompleted = true;
     if (totalRuns === 1) {
       const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir);
       printSummary(summary);
@@ -746,7 +781,8 @@ async function main() {
       }
     }
   } catch (e) {
-    console.error(`\n${c.red}${c.bold}Race failed:${c.reset} ${e.message}\n`);
+    const phase = setupCompleted ? 'Race' : 'Setup';
+    console.error(`\n${c.red}${c.bold}${phase} failed:${c.reset} ${e.message}\n`);
     throw e; // Re-throw to trigger teardown via finally
   } finally {
     // Run per-racer teardown scripts (even on failure)

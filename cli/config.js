@@ -4,6 +4,7 @@
  */
 
 import fs from 'fs';
+import path from 'path';
 
 export function parseArgs(argv) {
   const positional = [];
@@ -85,6 +86,25 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
 }
 
 /**
+ * Check if a path is a regular file (not a directory).
+ */
+function isFile(filePath) {
+  try {
+    return fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Get platform-appropriate script order (.js preferred on Windows, .sh elsewhere).
+ */
+function getScriptOrder(base) {
+  const isWindows = process.platform === 'win32';
+  return isWindows ? [`${base}.js`, `${base}.sh`] : [`${base}.sh`, `${base}.js`];
+}
+
+/**
  * Discover setup and teardown scripts in a race directory.
  * Looks for convention-based files: setup.sh, setup.js, teardown.sh, teardown.js
  * These can be overridden by settings.json setup/teardown fields.
@@ -96,9 +116,16 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
 export function discoverSetupTeardown(raceDir, settings = {}) {
   const allFiles = fs.readdirSync(raceDir).filter(f => !f.startsWith('.'));
 
-  // Convention-based discovery (shell scripts preferred over JS)
-  const setupConvention = ['setup.sh', 'setup.js'].find(f => allFiles.includes(f));
-  const teardownConvention = ['teardown.sh', 'teardown.js'].find(f => allFiles.includes(f));
+  // Convention-based discovery (platform-aware: .js on Windows, .sh elsewhere)
+  const setupOrder = getScriptOrder('setup');
+  const teardownOrder = getScriptOrder('teardown');
+
+  const setupConvention = setupOrder.find(f =>
+    allFiles.includes(f) && isFile(path.join(raceDir, f))
+  );
+  const teardownConvention = teardownOrder.find(f =>
+    allFiles.includes(f) && isFile(path.join(raceDir, f))
+  );
 
   // Settings override convention
   const setup = settings.setup !== undefined ? settings.setup : (setupConvention || null);
@@ -121,9 +148,16 @@ export function discoverSetupTeardown(raceDir, settings = {}) {
 export function discoverRacerSetupTeardown(raceDir, racerName, settings = {}) {
   const allFiles = fs.readdirSync(raceDir).filter(f => !f.startsWith('.'));
 
-  // Convention-based discovery (shell scripts preferred over JS)
-  const setupConvention = [`${racerName}.setup.sh`, `${racerName}.setup.js`].find(f => allFiles.includes(f));
-  const teardownConvention = [`${racerName}.teardown.sh`, `${racerName}.teardown.js`].find(f => allFiles.includes(f));
+  // Convention-based discovery (platform-aware: .js on Windows, .sh elsewhere)
+  const setupOrder = getScriptOrder(`${racerName}.setup`);
+  const teardownOrder = getScriptOrder(`${racerName}.teardown`);
+
+  const setupConvention = setupOrder.find(f =>
+    allFiles.includes(f) && isFile(path.join(raceDir, f))
+  );
+  const teardownConvention = teardownOrder.find(f =>
+    allFiles.includes(f) && isFile(path.join(raceDir, f))
+  );
 
   // Settings override convention (settings.racers.{name}.setup/teardown)
   const racerSettings = settings.racers?.[racerName] || {};

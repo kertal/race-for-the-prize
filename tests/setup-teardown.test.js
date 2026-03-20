@@ -15,6 +15,51 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
+/** Helper to write an executable shell script and run it */
+async function runShellScript(scriptPath, content, options = {}) {
+  fs.writeFileSync(scriptPath, content);
+  fs.chmodSync(scriptPath, 0o700); // Secure permissions (owner only)
+
+  return new Promise((resolve, reject) => {
+    const child = spawn('bash', [scriptPath], {
+      cwd: options.cwd || path.dirname(scriptPath),
+      env: options.env || process.env,
+    });
+    child.on('close', code => {
+      if (options.expectFailure) {
+        resolve(code);
+      } else if (code === 0) {
+        resolve(code);
+      } else {
+        reject(new Error(`Exit code ${code}`));
+      }
+    });
+    child.on('error', reject);
+  });
+}
+
+/** Helper to write and run a Node.js script */
+async function runNodeScript(scriptPath, content, options = {}) {
+  fs.writeFileSync(scriptPath, content);
+
+  return new Promise((resolve, reject) => {
+    const child = spawn('node', [scriptPath], {
+      cwd: options.cwd || path.dirname(scriptPath),
+      env: options.env || process.env,
+    });
+    child.on('close', code => {
+      if (options.expectFailure) {
+        resolve(code);
+      } else if (code === 0) {
+        resolve(code);
+      } else {
+        reject(new Error(`Exit code ${code}`));
+      }
+    });
+    child.on('error', reject);
+  });
+}
+
 describe('setup/teardown discovery edge cases', () => {
   it('handles race directory with only setup (no teardown)', () => {
     fs.writeFileSync(path.join(tmpDir, 'setup.sh'), '#!/bin/bash\necho "setup"');
@@ -100,10 +145,9 @@ describe('setup/teardown discovery edge cases', () => {
     fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
     fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
 
-    // readdirSync returns directories too, but they shouldn't be valid scripts
-    // The discovery function returns the filename, execution will fail later
+    // Directories are correctly filtered out by isFile() check
     const { setup } = discoverSetupTeardown(tmpDir);
-    expect(setup).toBe('setup.sh'); // It finds it, but execution would fail
+    expect(setup).toBe(null);
   });
 });
 
@@ -266,16 +310,7 @@ describe('script execution integration', () => {
     const markerFile = path.join(tmpDir, 'marker.txt');
     const setupScript = path.join(tmpDir, 'setup.sh');
 
-    fs.writeFileSync(setupScript, `#!/bin/bash\necho "executed" > "${markerFile}"`);
-    fs.chmodSync(setupScript, '755');
-
-    await new Promise((resolve, reject) => {
-      const child = spawn('bash', [setupScript], { cwd: tmpDir });
-      child.on('close', code => {
-        if (code === 0) resolve();
-        else reject(new Error(`Exit code ${code}`));
-      });
-    });
+    await runShellScript(setupScript, `#!/bin/bash\necho "executed" > "${markerFile}"`);
 
     expect(fs.existsSync(markerFile)).toBe(true);
     expect(fs.readFileSync(markerFile, 'utf-8').trim()).toBe('executed');
@@ -285,18 +320,10 @@ describe('script execution integration', () => {
     const markerFile = path.join(tmpDir, 'marker.txt');
     const setupScript = path.join(tmpDir, 'setup.js');
 
-    fs.writeFileSync(setupScript, `
+    await runNodeScript(setupScript, `
       const fs = require('fs');
       fs.writeFileSync('${markerFile.replace(/\\/g, '\\\\')}', 'executed');
     `);
-
-    await new Promise((resolve, reject) => {
-      const child = spawn('node', [setupScript], { cwd: tmpDir });
-      child.on('close', code => {
-        if (code === 0) resolve();
-        else reject(new Error(`Exit code ${code}`));
-      });
-    });
 
     expect(fs.existsSync(markerFile)).toBe(true);
     expect(fs.readFileSync(markerFile, 'utf-8').trim()).toBe('executed');
@@ -306,19 +333,11 @@ describe('script execution integration', () => {
     const markerFile = path.join(tmpDir, 'env-marker.txt');
     const setupScript = path.join(tmpDir, 'setup.sh');
 
-    fs.writeFileSync(setupScript, `#!/bin/bash\necho "$RACE_DIR" > "${markerFile}"`);
-    fs.chmodSync(setupScript, '755');
-
-    await new Promise((resolve, reject) => {
-      const child = spawn('bash', [setupScript], {
-        cwd: tmpDir,
-        env: { ...process.env, RACE_DIR: tmpDir },
-      });
-      child.on('close', code => {
-        if (code === 0) resolve();
-        else reject(new Error(`Exit code ${code}`));
-      });
-    });
+    await runShellScript(
+      setupScript,
+      `#!/bin/bash\necho "$RACE_DIR" > "${markerFile}"`,
+      { env: { ...process.env, RACE_DIR: tmpDir } }
+    );
 
     expect(fs.readFileSync(markerFile, 'utf-8').trim()).toBe(tmpDir);
   });
@@ -326,13 +345,7 @@ describe('script execution integration', () => {
   it('failing script returns non-zero exit code', async () => {
     const setupScript = path.join(tmpDir, 'setup.sh');
 
-    fs.writeFileSync(setupScript, '#!/bin/bash\nexit 1');
-    fs.chmodSync(setupScript, '755');
-
-    const exitCode = await new Promise(resolve => {
-      const child = spawn('bash', [setupScript], { cwd: tmpDir });
-      child.on('close', code => resolve(code));
-    });
+    const exitCode = await runShellScript(setupScript, '#!/bin/bash\nexit 1', { expectFailure: true });
 
     expect(exitCode).toBe(1);
   });
@@ -341,16 +354,7 @@ describe('script execution integration', () => {
     const markerFile = path.join(tmpDir, 'cwd-marker.txt');
     const setupScript = path.join(tmpDir, 'setup.sh');
 
-    fs.writeFileSync(setupScript, `#!/bin/bash\npwd > "${markerFile}"`);
-    fs.chmodSync(setupScript, '755');
-
-    await new Promise((resolve, reject) => {
-      const child = spawn('bash', [setupScript], { cwd: tmpDir });
-      child.on('close', code => {
-        if (code === 0) resolve();
-        else reject(new Error(`Exit code ${code}`));
-      });
-    });
+    await runShellScript(setupScript, `#!/bin/bash\npwd > "${markerFile}"`);
 
     expect(fs.readFileSync(markerFile, 'utf-8').trim()).toBe(tmpDir);
   });
@@ -362,21 +366,11 @@ describe('execution order verification', () => {
     const setupScript = path.join(tmpDir, 'setup.sh');
 
     // Setup writes "setup" then sleeps briefly
-    fs.writeFileSync(setupScript, `#!/bin/bash
+    await runShellScript(setupScript, `#!/bin/bash
 echo "setup-start" >> "${logFile}"
 sleep 0.1
 echo "setup-end" >> "${logFile}"
 `);
-    fs.chmodSync(setupScript, '755');
-
-    // Run setup
-    await new Promise((resolve, reject) => {
-      const child = spawn('bash', [setupScript], { cwd: tmpDir });
-      child.on('close', code => {
-        if (code === 0) resolve();
-        else reject(new Error(`Exit code ${code}`));
-      });
-    });
 
     // Write "main" after setup completes
     fs.appendFileSync(logFile, 'main\n');
@@ -392,21 +386,9 @@ echo "setup-end" >> "${logFile}"
     const script1 = path.join(tmpDir, 'script1.sh');
     const script2 = path.join(tmpDir, 'script2.sh');
 
-    fs.writeFileSync(script1, `#!/bin/bash\necho "script1" >> "${logFile}"`);
-    fs.writeFileSync(script2, `#!/bin/bash\necho "script2" >> "${logFile}"`);
-    fs.chmodSync(script1, '755');
-    fs.chmodSync(script2, '755');
-
-    // Run scripts in sequence
-    for (const script of [script1, script2]) {
-      await new Promise((resolve, reject) => {
-        const child = spawn('bash', [script], { cwd: tmpDir });
-        child.on('close', code => {
-          if (code === 0) resolve();
-          else reject(new Error(`Exit code ${code}`));
-        });
-      });
-    }
+    // Run scripts in sequence using helper
+    await runShellScript(script1, `#!/bin/bash\necho "script1" >> "${logFile}"`);
+    await runShellScript(script2, `#!/bin/bash\necho "script2" >> "${logFile}"`);
 
     const log = fs.readFileSync(logFile, 'utf-8');
     const lines = log.trim().split('\n');
