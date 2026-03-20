@@ -5,18 +5,27 @@
 
 import fs from 'fs';
 
+const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo']);
+
 export function parseArgs(argv) {
   const positional = [];
   const boolFlags = new Set();
   const kvFlags = {};
 
-  for (const arg of argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
     if (arg.startsWith('--')) {
       const eqIdx = arg.indexOf('=');
       if (eqIdx !== -1) {
         kvFlags[arg.slice(2, eqIdx)] = arg.slice(eqIdx + 1);
       } else {
-        boolFlags.add(arg.slice(2));
+        const name = arg.slice(2);
+        if (KV_FLAG_NAMES.has(name) && argv[i + 1] !== undefined && !argv[i + 1].startsWith('--')) {
+          kvFlags[name] = argv[i + 1];
+          i++;
+        } else {
+          boolFlags.add(name);
+        }
       }
     } else {
       positional.push(arg);
@@ -43,6 +52,11 @@ export function discoverRacers(raceDir) {
   }
 
   const racerNames = racerFiles.map(f => f.replace(/\.spec\.js$/, '').replace(/\.js$/, ''));
+  const dupes = racerNames.filter((n, i) => racerNames.indexOf(n) !== i);
+  if (dupes.length > 0) {
+    const unique = [...new Set(dupes)].join(', ');
+    throw new Error(`Duplicate racer names detected: ${unique}. Rename files so each racer has a unique name.`);
+  }
   return { racerFiles, racerNames };
 }
 
@@ -57,6 +71,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('no-recording')) s.noRecording = true;
   if (boolFlags.has('ffmpeg')) s.ffmpeg = true;
   if (boolFlags.has('no-wasm')) s.noWasm = true;
+  if (boolFlags.has('pause')) s.pauseBetweenRuns = true;
   if (kvFlags.network !== undefined) {
     if (!VALID_NETWORKS.includes(kvFlags.network)) {
       console.error(`Warning: Unknown network preset "${kvFlags.network}", valid values: ${VALID_NETWORKS.join(', ')}`);

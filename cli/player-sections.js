@@ -16,7 +16,12 @@ let T = {};
 /** Store build-time templates extracted from player.html. */
 export function setTemplates(templates) { T = templates; }
 
-/** Replace {{key}} placeholders in a template string with data values. */
+/**
+ * Replace {{key}} placeholders in a template string with data values.
+ * IMPORTANT: This does NOT auto-escape values. Callers MUST use escHtml() on
+ * any user-supplied strings before passing them as data values. Pre-built HTML
+ * snippets (e.g. nested template output) should be passed without escaping.
+ */
 export function render(tmpl, data) {
   return tmpl.replace(/\{\{(\w+)\}\}/g, (_, key) => data[key] ?? '');
 }

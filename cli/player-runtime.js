@@ -28,6 +28,11 @@ const timeDisplay = document.getElementById('timeDisplay');
 const frameDisplay = document.getElementById('frameDisplay');
 const speedSelect = document.getElementById('speedSelect');
 
+function setPlayState(isPlaying) {
+  playBtn.textContent = isPlaying ? '\u23F8' : '\u25B6';
+  playBtn.setAttribute('aria-label', isPlaying ? 'Pause' : 'Play');
+}
+
 let playing = false;
 let duration = 0;
 let activeClip = null;
@@ -190,7 +195,7 @@ function onTimeUpdate() {
     videos.forEach(v => v?.pause());
     seekAll(activeClip.end);
     playing = false;
-    playBtn.textContent = '\u25B6';
+    setPlayState(false);
     scrubber.value = 1000;
     updateTimeDisplay();
     return;
@@ -206,7 +211,7 @@ function onTimeUpdate() {
 function onEnded() {
   if (videos.every(vi => !vi || vi.paused || vi.ended)) {
     playing = false;
-    playBtn.textContent = '\u25B6';
+    setPlayState(false);
   }
 }
 
@@ -269,7 +274,7 @@ function resolveClip() {
 
 function switchMode(targetSrcSet, targetVideos, modeBtn, opts) {
   pendingSeek = null;
-  if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
+  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
   detachVideoListeners();
   const srcChanged = loadedSrcSet !== targetSrcSet;
   if (srcChanged && opts.loadSrc) opts.loadSrc();
@@ -587,7 +592,7 @@ function buildSegmentNav() {
   // Switch to race-clip videos if we were in whole-recording (full) mode
   function ensureRaceMode(callback) {
     if (fullVideoPaths && loadedSrcSet === 'full') {
-      if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
+      if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
       detachVideoListeners();
       raceVideos.forEach((v, i) => { v.src = raceVideoPaths[i]; });
       loadedSrcSet = 'race';
@@ -612,7 +617,7 @@ function buildSegmentNav() {
     activeSegmentClipTimes = null;
     const doSeek = () => { activeClip = null; seekAll(0); scrubber.value = 0; updateTimeDisplay(); };
     if (fullVideoPaths && loadedSrcSet !== 'full') {
-      if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
+      if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
       detachVideoListeners();
       raceVideos.forEach((v, i) => { v.src = fullVideoPaths[i]; });
       loadedSrcSet = 'full';
@@ -810,14 +815,14 @@ if (mergedVideo) mergedVideo.addEventListener('loadedmetadata', () => {
 playBtn.addEventListener('click', () => {
   if (playing) {
     videos.forEach(v => v?.pause());
-    playBtn.textContent = '\u25B6';
+    setPlayState(false);
   } else {
     if (activeClip && Number(scrubber.value) >= 999) {
       seekAll(activeClip.start);
       scrubber.value = 0;
     }
     videos.forEach(v => v?.play());
-    playBtn.textContent = '\u23F8';
+    setPlayState(true);
   }
   playing = !playing;
 });
@@ -835,7 +840,7 @@ speedSelect.addEventListener('change', () => {
 });
 
 function stepFrame(delta) {
-  if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
+  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
   const minT = clipOffset();
   const maxT = activeClip ? activeClip.end : duration;
   const d = clipDuration();
@@ -851,14 +856,14 @@ document.getElementById('prevFrame').addEventListener('click', () => stepFrame(-
 document.getElementById('nextFrame').addEventListener('click', () => stepFrame(STEP));
 
 function goToStart() {
-  if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
+  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
   seekAll(activeClip ? activeClip.start : 0);
   scrubber.value = 0;
   updateTimeDisplay();
 }
 
 function goToEnd() {
-  if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
+  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
   seekAll(activeClip ? activeClip.end : duration);
   scrubber.value = 1000;
   updateTimeDisplay();
@@ -1083,7 +1088,7 @@ async function startExport() {
     alert('Export requires a browser that supports Canvas.captureStream and MediaRecorder (Chrome, Firefox, or Edge).');
     return;
   }
-  if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
+  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
 
   const layout = getExportLayout(raceVideos.length);
 
@@ -1355,7 +1360,7 @@ function buildExportHtml() {
 }
 
 async function startHtmlExport() {
-  if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
+  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
 
   const tmpl = document.getElementById('tmpl-export-overlay');
   const overlay = tmpl.content.cloneNode(true).firstElementChild;

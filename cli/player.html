@@ -3,13 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#1a1a1a">
 <title>{{title}}</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     background: #1a1a1a;
     color: #e8e0d0;
-    font-family: 'Courier New', monospace;
+    font-family: ui-monospace, 'Courier New', monospace;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
@@ -35,7 +37,7 @@
     padding: 0.3rem 0.8rem;
     font-size: 0.8rem;
     text-decoration: none;
-    font-family: 'Courier New', monospace;
+    font-family: ui-monospace, 'Courier New', monospace;
     transition: all 0.2s;
   }
   .run-nav-btn:hover {
@@ -86,7 +88,7 @@
     white-space: nowrap;
   }
   .info-label {
-    color: #666;
+    color: #999;
     margin-right: 0.4rem;
   }
   .errors {
@@ -114,7 +116,7 @@
     padding: 0.4rem 1rem;
     font-size: 0.85rem;
     cursor: pointer;
-    font-family: 'Courier New', monospace;
+    font-family: ui-monospace, 'Courier New', monospace;
     transition: all 0.2s;
   }
   .mode-btn:hover {
@@ -141,7 +143,7 @@
     padding: 0.3rem 0.9rem;
     font-size: 0.82rem;
     cursor: pointer;
-    font-family: 'Courier New', monospace;
+    font-family: ui-monospace, 'Courier New', monospace;
     background: #2a2a2a;
     transition: opacity 0.2s, background 0.2s;
     opacity: 0.35;
@@ -180,7 +182,7 @@
     padding: 0.3rem 0.9rem;
     font-size: 0.82rem;
     cursor: pointer;
-    font-family: 'Courier New', monospace;
+    font-family: ui-monospace, 'Courier New', monospace;
     transition: all 0.2s;
   }
   .segment-btn:hover {
@@ -356,7 +358,7 @@
     line-height: 1.4;
   }
   .profile-info-icon {
-    color: #666;
+    color: #888;
     font-size: 0.7rem;
     cursor: help;
   }
@@ -506,7 +508,7 @@
     padding: 0.2rem 0.5rem;
     font-size: 0.75rem;
     cursor: pointer;
-    font-family: 'Courier New', monospace;
+    font-family: ui-monospace, 'Courier New', monospace;
     transition: all 0.2s;
   }
   .debug-frame-btn:hover {
@@ -532,7 +534,7 @@
     padding: 0.3rem 0.8rem;
     font-size: 0.8rem;
     cursor: pointer;
-    font-family: 'Courier New', monospace;
+    font-family: ui-monospace, 'Courier New', monospace;
     transition: all 0.2s;
   }
   .debug-action-btn:hover {
@@ -610,7 +612,7 @@
     padding: 0.3rem 0.7rem;
     font-size: 0.8rem;
     cursor: pointer;
-    font-family: 'Courier New', monospace;
+    font-family: ui-monospace, 'Courier New', monospace;
     flex-shrink: 0;
     transition: all 0.2s;
   }
@@ -676,7 +678,7 @@
     padding: 0.4rem 1rem;
     font-size: 0.85rem;
     cursor: pointer;
-    font-family: 'Courier New', monospace;
+    font-family: ui-monospace, 'Courier New', monospace;
     text-decoration: none;
     transition: all 0.2s;
   }
@@ -703,7 +705,7 @@
     padding: 0.4rem 1rem;
     font-size: 0.85rem;
     cursor: pointer;
-    font-family: 'Courier New', monospace;
+    font-family: ui-monospace, 'Courier New', monospace;
     transition: all 0.2s;
   }
   .export-convert-row button:hover { background: #d4af37; color: #1a1a1a; }
@@ -713,6 +715,21 @@
     background: #2a2a2a;
     color: #999;
     border-color: #555;
+  }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
+  }
+  @media (max-width: 600px) {
+    .controls-row { min-width: auto; flex-wrap: wrap; }
+    .time-display { min-width: auto; }
   }
   {{layoutCss}}
 </style>
@@ -794,16 +811,18 @@
 </div>
 <div class="controls">
   <div class="controls-row">
-    <button class="frame-btn" id="goStart" title="Go to start (Home)">&#x23EE;</button>
-    <button class="frame-btn" id="prevFrame" title="-0.1s (&larr;)">&laquo;</button>
-    <button class="play-btn" id="playBtn">&#x25B6;</button>
-    <button class="frame-btn" id="nextFrame" title="+0.1s (&rarr;)">&raquo;</button>
-    <button class="frame-btn" id="goEnd" title="Go to end (End)">&#x23ED;</button>
-    <input type="range" class="scrubber" id="scrubber" min="0" max="1000" value="0">
+    <button class="frame-btn" id="goStart" title="Go to start (Home)" aria-label="Go to start">&#x23EE;</button>
+    <button class="frame-btn" id="prevFrame" title="-0.1s (&larr;)" aria-label="Previous frame">&laquo;</button>
+    <button class="play-btn" id="playBtn" aria-label="Play">&#x25B6;</button>
+    <button class="frame-btn" id="nextFrame" title="+0.1s (&rarr;)" aria-label="Next frame">&raquo;</button>
+    <button class="frame-btn" id="goEnd" title="Go to end (End)" aria-label="Go to end">&#x23ED;</button>
+    <label for="scrubber" class="sr-only">Video position</label>
+    <input type="range" class="scrubber" id="scrubber" min="0" max="1000" value="0" aria-label="Video position">
   </div>
   <span class="time-display" id="timeDisplay">0:00.000 / 0:00.000</span>
   <span class="frame-display" id="frameDisplay">0.0s</span>
-  <select class="speed-select" id="speedSelect">
+  <label for="speedSelect" class="sr-only">Playback speed</label>
+  <select class="speed-select" id="speedSelect" aria-label="Playback speed">
     <option value="0.25">0.25x</option>
     <option value="0.5">0.5x</option>
     <option value="1" selected>1x</option>
