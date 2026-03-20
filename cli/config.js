@@ -97,6 +97,5 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
     s.slowmo = Number.isFinite(slowmo) && slowmo >= 0 ? Math.min(slowmo, 20) : 0;
   }
   if (boolFlags.has('gemini')) s.gemini = true;
-  if (kvFlags['gemini-spec'] !== undefined) s.geminiSpec = kvFlags['gemini-spec'];
   return s;
 }

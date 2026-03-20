@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { buildGeminiPrompt, buildSpecPrompt, parseSpecOutput, extractUrls, invokeGemini } from '../cli/gemini-summary.js';
+import { describe, it, expect, vi } from 'vitest';
+import { buildGeminiPrompt, buildSpecPrompt, parseSpecOutput, extractUrls } from '../cli/gemini-summary.js';
 
 // ---------------------------------------------------------------------------
 // buildGeminiPrompt
@@ -238,14 +238,36 @@ await page.goto('https://b.com');
 // invokeGemini (error handling — mocked spawnSync)
 // ---------------------------------------------------------------------------
 
-describe('invokeGemini', () => {
-  it('throws a helpful message when gemini CLI is not found', async () => {
-    // We test the ENOENT branch by passing a non-existent command name.
-    // Since we cannot mock spawnSync easily without a mocking library setup,
-    // we verify that the real implementation throws on ENOENT by relying on
-    // the fact that a binary named '__nonexistent_gemini__' does not exist.
-    const { spawnSync } = await import('child_process');
-    const result = spawnSync('__nonexistent_gemini__', ['-p', 'hello'], { encoding: 'utf-8' });
-    expect(result.error?.code).toBe('ENOENT');
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, spawnSync: vi.fn() };
+});
+
+describe('invokeGemini', async () => {
+  const { spawnSync } = await import('child_process');
+  const { invokeGemini } = await import('../cli/gemini-summary.js');
+
+  it('throws a helpful install message when gemini CLI is not found (ENOENT)', () => {
+    spawnSync.mockReturnValue({ error: { code: 'ENOENT' }, status: null, stdout: '', stderr: '' });
+    expect(() => invokeGemini('hello')).toThrow(/Gemini CLI not found.*npm install -g @google\/gemini-cli/s);
+  });
+
+  it('throws the stderr message on non-zero exit code', () => {
+    spawnSync.mockReturnValue({ error: null, status: 1, stdout: '', stderr: 'auth error' });
+    expect(() => invokeGemini('hello')).toThrow('auth error');
+  });
+
+  it('returns trimmed stdout on success', () => {
+    spawnSync.mockReturnValueOnce({ error: null, status: 0, stdout: '  Great race!\n', stderr: '' });
+    expect(invokeGemini('hello')).toBe('Great race!');
+  });
+
+  it('passes the prompt via stdin (input option, no -p argument)', () => {
+    spawnSync.mockReturnValueOnce({ error: null, status: 0, stdout: 'ok', stderr: '' });
+    invokeGemini('my prompt');
+    const [cmd, args, opts] = spawnSync.mock.calls.at(-1);
+    expect(cmd).toBe('gemini');
+    expect(args).toEqual([]);
+    expect(opts.input).toBe('my prompt');
   });
 });

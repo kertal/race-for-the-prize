@@ -418,48 +418,6 @@ if (boolFlags.has('init')) {
 
   fs.mkdirSync(targetDir, { recursive: true });
 
-  // --gemini-spec="<prompt>": use Gemini + Playwright HTML research to generate specs
-  if (kvFlags['gemini-spec']) {
-    const userPrompt = kvFlags['gemini-spec'];
-    console.error(`\n  ${c.bold}${c.cyan}🤖 Generating race specs with Gemini…${c.reset}`);
-    console.error(`  ${c.dim}Prompt: ${userPrompt}${c.reset}\n`);
-
-    try {
-      const specFiles = await runGeminiSpec(userPrompt);
-      const written = [];
-      for (const [filename, content] of Object.entries(specFiles)) {
-        fs.writeFileSync(path.join(targetDir, filename), content + '\n');
-        written.push(filename);
-      }
-
-      if (written.length < 2) {
-        console.error(`${c.yellow}Warning: Gemini returned fewer than 2 spec files. Check the output and edit manually.${c.reset}`);
-      }
-
-      const settings = JSON.stringify({ parallel: false, headless: false, runs: 3 }, null, 2) + '\n';
-      fs.writeFileSync(path.join(targetDir, 'settings.json'), settings);
-
-      console.error(`
-${c.green}${c.bold}✓ Race scaffolded with Gemini:${c.reset} ${c.cyan}${path.relative(process.cwd(), targetDir)}/${c.reset}
-
-  ${written.map(f => `${c.dim}${f}${c.reset}`).join('\n  ')}
-  ${c.dim}settings.json${c.reset}
-
-${c.bold}Run it:${c.reset}
-  ${c.cyan}node race.js ${path.relative(process.cwd(), targetDir)}${c.reset}
-`);
-    } catch (e) {
-      console.error(`${c.red}Gemini spec generation failed: ${e.message}${c.reset}`);
-      console.error(`${c.dim}Falling back to default scaffold…${c.reset}`);
-      // Fall through to default scaffold below by re-running without gemini-spec
-      fs.writeFileSync(path.join(targetDir, 'racer-a.spec.js'), defaultRacerA);
-      fs.writeFileSync(path.join(targetDir, 'racer-b.spec.js'), defaultRacerB);
-      fs.writeFileSync(path.join(targetDir, 'settings.json'), JSON.stringify({ parallel: false, headless: false, runs: 3 }, null, 2) + '\n');
-    }
-
-    process.exit(0);
-  }
-
   const defaultRacerA = `// Racer A — edit this script to test your first URL
 // Available race helpers injected into page:
 //   await page.raceRecordingStart()   — start video segment (optional)
@@ -491,6 +449,48 @@ await page.waitForLoadState('networkidle');
 page.raceEnd('Load');
 await page.raceRecordingEnd();
 `;
+
+  // --gemini-spec="<prompt>": use Gemini + Playwright HTML research to generate specs
+  if (kvFlags['gemini-spec'] !== undefined) {
+    const userPrompt = kvFlags['gemini-spec'];
+    console.error(`\n  ${c.bold}${c.cyan}🤖 Generating race specs with Gemini…${c.reset}`);
+    console.error(`  ${c.dim}Prompt: ${userPrompt}${c.reset}\n`);
+
+    try {
+      const specFiles = await runGeminiSpec(userPrompt);
+      const written = [];
+      for (const [filename, content] of Object.entries(specFiles)) {
+        fs.writeFileSync(path.join(targetDir, filename), content + '\n');
+        written.push(filename);
+      }
+
+      if (written.length < 2) {
+        console.error(`${c.yellow}Warning: Gemini returned fewer than 2 spec files. Check the output and edit manually.${c.reset}`);
+      }
+
+      const settings = JSON.stringify({ parallel: false, headless: false, runs: 3 }, null, 2) + '\n';
+      fs.writeFileSync(path.join(targetDir, 'settings.json'), settings);
+
+      console.error(`
+${c.green}${c.bold}✓ Race scaffolded with Gemini:${c.reset} ${c.cyan}${path.relative(process.cwd(), targetDir)}/${c.reset}
+
+  ${written.map(f => `${c.dim}${f}${c.reset}`).join('\n  ')}
+  ${c.dim}settings.json${c.reset}
+
+${c.bold}Run it:${c.reset}
+  ${c.cyan}npx race-for-the-prize ${path.relative(process.cwd(), targetDir)}${c.reset}
+`);
+    } catch (e) {
+      console.error(`${c.red}Gemini spec generation failed: ${e.message}${c.reset}`);
+      console.error(`${c.dim}Falling back to default scaffold…${c.reset}`);
+      // Fall through to default scaffold below by re-running without gemini-spec
+      fs.writeFileSync(path.join(targetDir, 'racer-a.spec.js'), defaultRacerA);
+      fs.writeFileSync(path.join(targetDir, 'racer-b.spec.js'), defaultRacerB);
+      fs.writeFileSync(path.join(targetDir, 'settings.json'), JSON.stringify({ parallel: false, headless: false, runs: 3 }, null, 2) + '\n');
+    }
+
+    process.exit(0);
+  }
 
   const settings = JSON.stringify({ parallel: false, headless: false, runs: 3 }, null, 2) + '\n';
 

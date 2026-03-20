@@ -13,9 +13,10 @@ import { chromium } from 'playwright';
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Invoke the `gemini` CLI, passing `prompt` on stdin. Returns stdout string or throws. */
+/** Invoke the `gemini` CLI, passing `prompt` via stdin. Returns stdout string or throws. */
 export function invokeGemini(prompt) {
-  const result = spawnSync('gemini', ['-p', prompt], {
+  const result = spawnSync('gemini', [], {
+    input: prompt,
     encoding: 'utf-8',
     maxBuffer: 10 * 1024 * 1024,
   });
