@@ -75,8 +75,8 @@ export function deriveRacerName(url) {
   try {
     return new URL(url).hostname.replace(/^www\./, '');
   } catch {
-    // Fallback: use a sanitized version of the URL
-    return url.replace(/^https?:\/\//, '').replace(/[^a-zA-Z0-9.-]/g, '_').slice(0, 40);
+    // Fallback: sanitize for filesystem safety (no path traversal)
+    return url.replace(/^https?:\/\//, '').replace(/[^a-zA-Z0-9.-]/g, '_').replace(/\.{2,}/g, '.').slice(0, 40) || 'url';
   }
 }
 
