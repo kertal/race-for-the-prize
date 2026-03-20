@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isUrl, deriveRacerName, buildDefaultRaceScript } from '../cli/config.js';
+import { isUrl, deriveRacerName, buildDefaultRaceScript, applyDefaults } from '../cli/config.js';
 
 describe('isUrl', () => {
   it('recognizes https URLs', () => {
@@ -75,5 +75,46 @@ describe('buildDefaultRaceScript', () => {
     const script1 = buildDefaultRaceScript('https://a.com');
     const script2 = buildDefaultRaceScript('https://b.com');
     expect(script1).not.toBe(script2);
+  });
+});
+
+describe('applyDefaults', () => {
+  it('provides all default values for empty settings', () => {
+    const result = applyDefaults({});
+    expect(result.parallel).toBe(false);
+    expect(result.headless).toBe(false);
+    expect(result.runs).toBe(1);
+    expect(result.format).toBe('webm');
+    expect(result.network).toBe('none');
+    expect(result.cpuThrottle).toBe(1);
+    expect(result.slowmo).toBe(0);
+  });
+
+  it('preserves explicitly set values', () => {
+    const result = applyDefaults({ parallel: true, runs: 3, format: 'mov' });
+    expect(result.parallel).toBe(true);
+    expect(result.runs).toBe(3);
+    expect(result.format).toBe('mov');
+    // Other defaults still applied
+    expect(result.headless).toBe(false);
+    expect(result.network).toBe('none');
+  });
+
+  it('strips null values so defaults apply', () => {
+    const result = applyDefaults({ runs: null, format: null });
+    expect(result.runs).toBe(1);
+    expect(result.format).toBe('webm');
+  });
+
+  it('strips undefined values so defaults apply', () => {
+    const result = applyDefaults({ runs: undefined, network: undefined });
+    expect(result.runs).toBe(1);
+    expect(result.network).toBe('none');
+  });
+
+  it('keeps falsy but valid values (0, false, empty string)', () => {
+    const result = applyDefaults({ slowmo: 0, parallel: false });
+    expect(result.slowmo).toBe(0);
+    expect(result.parallel).toBe(false);
   });
 });

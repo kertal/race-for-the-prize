@@ -94,8 +94,12 @@ page.raceEnd('Page Load');
 /**
  * Apply default values for all settings properties.
  * Call after applyOverrides to ensure every key has a defined value.
+ * Strips null/undefined values so they don't shadow defaults.
  */
 export function applyDefaults(settings) {
+  const cleaned = Object.fromEntries(
+    Object.entries(settings).filter(([, v]) => v != null)
+  );
   return {
     parallel: false,
     headless: false,
@@ -108,7 +112,7 @@ export function applyDefaults(settings) {
     cpuThrottle: 1,
     slowmo: 0,
     runs: 1,
-    ...settings,
+    ...cleaned,
   };
 }
 

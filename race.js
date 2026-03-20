@@ -561,7 +561,7 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-recording${c.reset}      Skip video recording, just measure
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ffmpeg${c.reset}             Enable FFmpeg processing (trim, merge, convert)
 
-${c.dim}  All flags work with both URL mode and directory mode.${c.reset}
+${c.dim}  All flags except --results work with both URL mode and directory mode.${c.reset}
 ${c.dim}  Try the example:  node race.js ./races/lauda-vs-hunt${c.reset}
 `);
   process.exit(1);
@@ -586,15 +586,16 @@ if (urlMode) {
   }
   const urls = positional.slice(0, 5);
 
-  // Derive names and deduplicate by appending suffix where needed
+  // Derive names and deduplicate: first occurrence keeps its name,
+  // subsequent duplicates get -2, -3, etc.
   const rawNames = urls.map(u => deriveRacerName(u));
-  const counts = {};
+  const counts = Object.create(null);
   for (const n of rawNames) counts[n] = (counts[n] || 0) + 1;
-  const used = {};
+  const used = Object.create(null);
   const names = rawNames.map(n => {
     if (counts[n] === 1) return n;
-    used[n] = (used[n] || 0);
-    return `${n}-${used[n]++}`;
+    used[n] = (used[n] || 0) + 1;
+    return used[n] === 1 ? n : `${n}-${used[n]}`;
   });
 
   const scripts = urls.map(u => buildDefaultRaceScript(u));
