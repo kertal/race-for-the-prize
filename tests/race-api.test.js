@@ -69,6 +69,11 @@ function createRaceAPI() {
     return __endMeasure(name);
   };
 
+  // Mock raceWaitForVisualStability — in real runner.cjs this uses CDP
+  page.raceWaitForVisualStability = async () => {
+    return { stable: true, elapsed: 0 };
+  };
+
   // Auto-stop helper (called after script execution in runner.js)
   const autoStopIfNeeded = () => {
     if (autoRecordingStarted && !hasExplicitRecording && markerState.currentSegmentStart !== null) {
@@ -207,6 +212,29 @@ describe('page.race* API', () => {
 
       expect(markerState.segments).toHaveLength(1);
       expect(markerState.segments[0].start).toBe(segStart);
+    });
+  });
+
+  describe('page.raceWaitForVisualStability', () => {
+    it('resolves with stable: true in the mock', async () => {
+      const { page } = createRaceAPI();
+      const result = await page.raceWaitForVisualStability();
+      expect(result).toEqual({ stable: true, elapsed: 0 });
+    });
+
+    it('works in a typical race flow between waitForSelector and raceEnd', async () => {
+      const { page, measurements, autoStopIfNeeded } = createRaceAPI();
+
+      await page.raceStart('Load');
+      // Simulate: page.goto + waitForSelector would happen here
+      await new Promise(r => setTimeout(r, 10));
+      await page.raceWaitForVisualStability();
+      const duration = page.raceEnd('Load');
+
+      expect(measurements).toHaveLength(1);
+      expect(duration).toBeGreaterThan(0);
+
+      autoStopIfNeeded();
     });
   });
 

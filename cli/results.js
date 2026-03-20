@@ -5,7 +5,8 @@
 import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
-import { c, FORMAT_EXTENSIONS, VIDEO_DEFAULTS } from './colors.js';
+import { createRequire } from 'module';
+import { c, FORMAT_EXTENSIONS, VIDEO_DEFAULTS, codecArgs } from './colors.js';
 
 /** Move recordings from the runner's temp dir to the results folder. */
 export function moveResults(recordingsBase, racerName, destDir, browserResult) {
@@ -52,9 +53,7 @@ export function moveResults(recordingsBase, racerName, destDir, browserResult) {
 
     fs.writeFileSync(path.join(destDir, 'clicks.json'), JSON.stringify(data.clickEvents, null, 2));
     fs.writeFileSync(path.join(destDir, 'measurements.json'), JSON.stringify(data.measurements, null, 2));
-    if (data.profileMetrics) {
-      fs.writeFileSync(path.join(destDir, 'profile-metrics.json'), JSON.stringify(data.profileMetrics, null, 2));
-    }
+    fs.writeFileSync(path.join(destDir, 'profile-metrics.json'), JSON.stringify(data.profileMetrics, null, 2));
   } catch (e) {
     console.error(`${c.dim}Warning: Could not move ${racerName} results: ${e.message}${c.reset}`);
   }
@@ -71,18 +70,67 @@ export function compressGif(filePath) {
   }
 }
 
+/** Files from @ffmpeg/ffmpeg ESM dist needed for browser-side conversion. */
+const FFMPEG_ESM_FILES = ['index.js', 'classes.js', 'const.js', 'errors.js', 'types.js', 'utils.js', 'worker.js'];
+
+/** Files from @ffmpeg/core ESM dist needed for browser-side conversion. */
+const FFMPEG_CORE_FILES = ['ffmpeg-core.js', 'ffmpeg-core.wasm'];
+
+/**
+ * Copy ffmpeg.wasm files to a `ffmpeg/` subdirectory alongside the output HTML.
+ * Uses the locally installed @ffmpeg/ffmpeg and @ffmpeg/core packages.
+ * Returns true if files were copied successfully, false otherwise.
+ */
+export function copyFFmpegFiles(destDir) {
+  const ffmpegDir = path.join(destDir, 'ffmpeg');
+  try {
+    const require = createRequire(import.meta.url);
+    // Resolve package root by walking up from the main entry point to find package.json,
+    // then construct the dist/esm path explicitly for reliable resolution.
+    const ffmpegEntry = require.resolve('@ffmpeg/ffmpeg');
+    const ffmpegRoot = path.join(path.dirname(ffmpegEntry), '..', '..');
+    const ffmpegEsmDir = path.join(ffmpegRoot, 'dist', 'esm');
+    const coreEntry = require.resolve('@ffmpeg/core');
+    const coreRoot = path.join(path.dirname(coreEntry), '..', '..');
+    const coreEsmDir = path.join(coreRoot, 'dist', 'esm');
+
+    fs.mkdirSync(ffmpegDir, { recursive: true });
+
+    for (const file of FFMPEG_ESM_FILES) {
+      const src = path.join(ffmpegEsmDir, file);
+      const dest = path.join(ffmpegDir, file);
+      fs.copyFileSync(src, dest);
+    }
+    for (const file of FFMPEG_CORE_FILES) {
+      const src = path.join(coreEsmDir, file);
+      const dest = path.join(ffmpegDir, file);
+      fs.copyFileSync(src, dest);
+    }
+    return true;
+  } catch (e) {
+    console.error(`${c.dim}Warning: Could not copy ffmpeg.wasm files: ${e.message}${c.reset}`);
+    try { fs.rmSync(ffmpegDir, { recursive: true, force: true }); } catch {}
+    return false;
+  }
+}
+
 /** Convert .webm videos to the requested format (mov/gif) via ffmpeg. */
 export function convertVideos(results, format) {
+  const ext = FORMAT_EXTENSIONS[format];
+  if (!ext) {
+    console.error(`${c.dim}Warning: Unknown format "${format}", skipping conversion${c.reset}`);
+    return;
+  }
   for (const r of results) {
     for (const key of ['videoPath', 'fullVideoPath']) {
       if (!r[key]) continue;
       const src = r[key];
-      const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.gif;
       const dest = src.replace(/\.webm$/, ext);
       try {
         const args = ['-y', '-i', src];
-        if (format === 'mov') {
-          args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p');
+        const codec = codecArgs(format);
+        if (codec.length > 0) {
+          args.push(...codec);
         } else {
           // GIF optimization: fps, scale, palette generation with Bayer dithering
           const { scaleWidth2to3, gifFps, gifMaxColors, gifBayerScale } = VIDEO_DEFAULTS;

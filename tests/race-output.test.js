@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { formatTimestamp, buildResultsPaths } from '../race.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { formatTimestamp, buildResultsPaths, waitForEnter } from '../race.js';
 
 describe('formatTimestamp', () => {
   it('formats date as YYYY-MM-DD_HH-MM-SS', () => {
@@ -34,5 +34,100 @@ describe('buildResultsPaths', () => {
     const { relResults, relHtml } = buildResultsPaths('/project/results', '/project/results');
     expect(relResults).toBe('');
     expect(relHtml).toBe('index.html');
+  });
+});
+
+function setupTTYStdin() {
+  Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true, configurable: true });
+  Object.defineProperty(process.stdin, 'readableEnded', { value: false, writable: true, configurable: true });
+  if (!process.stdin.setRawMode) process.stdin.setRawMode = () => {};
+  const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => {});
+  const setRawModeSpy = vi.spyOn(process.stdin, 'setRawMode').mockImplementation(() => {});
+  const pauseSpy = vi.spyOn(process.stdin, 'pause').mockImplementation(() => {});
+  const resumeSpy = vi.spyOn(process.stdin, 'resume').mockImplementation(() => {});
+  return { stderrSpy, setRawModeSpy, pauseSpy, resumeSpy };
+}
+
+describe('waitForEnter', () => {
+  let origIsTTY;
+
+  beforeEach(() => {
+    origIsTTY = process.stdin.isTTY;
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: origIsTTY, writable: true, configurable: true });
+  });
+
+
+  it('resolves immediately in non-TTY environments', async () => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, writable: true, configurable: true });
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => {});
+    await waitForEnter('test prompt ');
+    expect(stderrSpy).toHaveBeenCalledWith('test prompt  (skipped — non-interactive)\n');
+    stderrSpy.mockRestore();
+  });
+
+  it('resolves when data is received on a TTY stdin', async () => {
+    vi.useFakeTimers();
+    const { stderrSpy } = setupTTYStdin();
+
+    const promise = waitForEnter('press enter ');
+    await vi.runAllTimersAsync(); // advance past the drain timeout
+    process.stdin.emit('data', '\n');
+    await promise;
+
+    vi.useRealTimers();
+    expect(stderrSpy).toHaveBeenCalledWith('press enter ');
+  });
+
+  it('resolves when stdin emits end event', async () => {
+    vi.useFakeTimers();
+    const { stderrSpy } = setupTTYStdin();
+
+    const promise = waitForEnter('prompt ');
+    await vi.runAllTimersAsync();
+    process.stdin.emit('end');
+    await promise;
+
+    vi.useRealTimers();
+    expect(stderrSpy).toHaveBeenCalledWith('prompt ');
+  });
+
+  it('ignores type-ahead data emitted before the drain timeout', async () => {
+    vi.useFakeTimers();
+    const { stderrSpy } = setupTTYStdin();
+
+    const promise = waitForEnter('prompt ');
+    // Emit data immediately (before drain timeout) — should be discarded
+    process.stdin.emit('data', '\n');
+
+    // Advance past the drain timeout
+    await vi.runAllTimersAsync();
+
+    // Promise should NOT have resolved yet (the early data was drained)
+    let resolved = false;
+    promise.then(() => { resolved = true; });
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+
+    // Now emit data after drain — should resolve
+    process.stdin.emit('data', '\n');
+    await promise;
+
+    vi.useRealTimers();
+    stderrSpy.mockRestore();
+  });
+
+  it('resolves when stdin emits error event', async () => {
+    vi.useFakeTimers();
+    setupTTYStdin();
+
+    const promise = waitForEnter('prompt ');
+    await vi.runAllTimersAsync();
+    process.stdin.emit('error', new Error('test'));
+    await promise;
+
+    vi.useRealTimers();
   });
 });

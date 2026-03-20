@@ -7,7 +7,7 @@ await page.goto('https://en.wikipedia.org/wiki/Stephen_Curry', { waitUntil: 'loa
 // Scroll to a fixed absolute position (same for both racers so dribbles stay in sync)
 const fixedStart = 10000;
 await page.evaluate((y) => window.scrollTo(0, y), fixedStart);
-
+await page.waitForTimeout(500);
 await page.raceRecordingStart();
 await page.waitForTimeout(1500);
 await page.raceStart('Dribble Race');

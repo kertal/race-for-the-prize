@@ -253,11 +253,11 @@ describe('buildProfileMarkdown', () => {
   it('generates markdown with headers and tables', () => {
     const metrics1 = {
       total: { networkTransferSize: 1000, scriptDuration: 100 },
-      measured: { networkTransferSize: 500 }
+      measured: { networkTransferSize: 500, scriptDuration: 50 }
     };
     const metrics2 = {
       total: { networkTransferSize: 2000, scriptDuration: 200 },
-      measured: { networkTransferSize: 800 }
+      measured: { networkTransferSize: 800, scriptDuration: 100 }
     };
     const comparison = buildProfileComparison(['racer1', 'racer2'], [metrics1, metrics2]);
     const markdown = buildProfileMarkdown(comparison, ['racer1', 'racer2']);
@@ -265,26 +265,23 @@ describe('buildProfileMarkdown', () => {
     expect(markdown).toContain('### Performance Profile Analysis');
     expect(markdown).toContain('Lower values are better');
     expect(markdown).toContain('During Measurement');
-    expect(markdown).toContain('Total Session');
     expect(markdown).toContain('| Metric |');
     expect(markdown).toContain('racer1');
     expect(markdown).toContain('racer2');
-    expect(markdown).toContain('racer1');
   });
 
   it('includes percentage differences in markdown', () => {
     const metrics1 = {
-      total: { networkTransferSize: 1000 },
-      measured: {}
+      total: {},
+      measured: { networkTransferSize: 1000 }
     };
     const metrics2 = {
-      total: { networkTransferSize: 2000 },
-      measured: {}
+      total: {},
+      measured: { networkTransferSize: 2000 }
     };
     const comparison = buildProfileComparison(['a', 'b'], [metrics1, metrics2]);
     const markdown = buildProfileMarkdown(comparison, ['a', 'b']);
 
-    // Should contain the percentage diff (100%)
     expect(markdown).toContain('100.0%');
   });
 });
@@ -365,9 +362,9 @@ describe('multi-racer support (3-5 racers)', () => {
 
   it('buildProfileMarkdown generates columns for all racers', () => {
     const data = [
-      { total: { networkTransferSize: 1000 }, measured: {} },
-      { total: { networkTransferSize: 2000 }, measured: {} },
-      { total: { networkTransferSize: 1500 }, measured: {} },
+      { total: {}, measured: { networkTransferSize: 1000 } },
+      { total: {}, measured: { networkTransferSize: 2000 } },
+      { total: {}, measured: { networkTransferSize: 1500 } },
     ];
     const racers = ['angular', 'react', 'svelte'];
     const comparison = buildProfileComparison(racers, data);

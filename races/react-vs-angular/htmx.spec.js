@@ -4,14 +4,13 @@
 
 await page.raceRecordingStart();
 await page.waitForTimeout(500);
-await page.raceStart('Load Framework');
+await page.raceStart('Webpage loaded and stable');
 
 await page.goto('https://htmx.org/', { waitUntil: 'load' });
+await page.raceWaitForVisualStability();
 
-// Wait for the main hero content to be visible
-await page.waitForSelector('h1', { state: 'visible' });
+page.raceEnd('Webpage loaded and stable');
 
-page.raceEnd('Load Framework');
 page.raceMessage('HTML extended!');
 await page.waitForTimeout(1500);
 await page.raceRecordingEnd();

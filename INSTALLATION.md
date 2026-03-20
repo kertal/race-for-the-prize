@@ -50,7 +50,7 @@ npx playwright install-deps chromium
 
 ## 3. Install FFmpeg (optional)
 
-FFmpeg is only needed if you want the `--format=gif`, `--format=mov`, or side-by-side video features. Everything else works without it.
+FFmpeg is **not required** for normal use. The HTML player handles video trimming and calibration entirely in the browser. FFmpeg is only needed if you want `--ffmpeg` for physical video trimming, `--format=gif` / `--format=mov` conversion, or server-side side-by-side merging.
 
 **macOS** (Homebrew):
 ```bash
@@ -84,4 +84,4 @@ ffmpeg -version
 | Requirement | Version | Required? |
 |---|---|---|
 | **Node.js** | 18+ | Yes |
-| **FFmpeg** | any recent | Optional — needed for side-by-side video replays and GIF export |
+| **FFmpeg** | any recent | Optional — only for `--ffmpeg` physical trimming, format conversion, and server-side merging |

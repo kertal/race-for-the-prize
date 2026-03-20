@@ -3,11 +3,49 @@
  */
 
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { c, RACER_COLORS } from './colors.js';
-import { buildProfileComparison, printProfileAnalysis, buildProfileMarkdown } from './profile-analysis.js';
+import { buildProfileComparison, printProfileAnalysis, buildProfileMarkdown, PROFILE_METRICS } from './profile-analysis.js';
+import { determineOverallWinner } from './race-utils.js';
+
+const PLATFORM_NAMES = { darwin: 'macOS', linux: 'Linux', win32: 'Windows' };
+
+export function formatPlatform(platform) {
+  return PLATFORM_NAMES[platform] || platform;
+}
+
+/**
+ * Collect machine information about the host running the race.
+ */
+export function getMachineInfo() {
+  const cpus = os.cpus();
+  const cpuModel = cpus.length > 0 ? cpus[0].model.trim() : 'Unknown';
+  return {
+    platform: os.platform(),
+    arch: os.arch(),
+    osRelease: os.release(),
+    cpuModel,
+    cpuCores: cpus.length,
+    totalMemoryMB: Math.round(os.totalmem() / (1024 * 1024)),
+    nodeVersion: process.version,
+  };
+}
 
 // --- Helper functions to eliminate duplication ---
+
+/** Compute the median of a numeric array, ignoring null/undefined values. Returns null if empty. */
+function medianOf(values) {
+  const vals = values.filter(v => v != null).sort((a, b) => a - b);
+  if (vals.length === 0) return null;
+  const mid = Math.floor(vals.length / 2);
+  return vals.length % 2 === 1 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
+}
+
+/** Count wins per racer from comparisons. Returns { racerName: winCount, ... }. */
+function computeWins(racerNames, comparisons) {
+  return Object.fromEntries(racerNames.map(name => [name, comparisons.filter(x => x.winner === name).length]));
+}
 
 /**
  * Compute comparison stats for a single measurement across racers.
@@ -60,18 +98,6 @@ export function getPlacementOrder(summary) {
   return indices;
 }
 
-/**
- * Determine overall winner from win counts.
- * Returns racer name, 'tie', or null (no data).
- */
-function determineOverallWinner(wins, racerNames, comparisons) {
-  if (comparisons.length === 0) return null;
-  const maxWins = Math.max(...wins);
-  const winnersWithMaxWins = racerNames.filter((_, i) => wins[i] === maxWins);
-  if (winnersWithMaxWins.length === 1) return winnersWithMaxWins[0];
-  if (winnersWithMaxWins.length === racerNames.length && maxWins === 0) return null;
-  return 'tie';
-}
 
 /**
  * Build markdown results table rows.
@@ -112,7 +138,7 @@ export function buildSummary(racerNames, results, settings, resultsDir) {
     return computeComparison(name, vals, racerNames);
   });
 
-  const wins = racerNames.map(name => comparisons.filter(x => x.winner === name).length);
+  const wins = computeWins(racerNames, comparisons);
   const overallWinner = determineOverallWinner(wins, racerNames, comparisons);
 
   return {
@@ -122,7 +148,7 @@ export function buildSummary(racerNames, results, settings, resultsDir) {
     settings: settings || {},
     comparisons,
     overallWinner,
-    wins: Object.fromEntries(racerNames.map((n, i) => [n, wins[i]])),
+    wins,
     errors: results.flatMap((r, i) => r.error ? [`${racerNames[i]}: ${r.error}`] : []),
     videos: Object.fromEntries(results.flatMap((r, i) => [
       [racerNames[i], r.videoPath || null],
@@ -131,6 +157,7 @@ export function buildSummary(racerNames, results, settings, resultsDir) {
     clickCounts: Object.fromEntries(racerNames.map((n, i) => [n, (results[i].clickEvents || []).length])),
     profileMetrics: results.map(r => r.profileMetrics || null),
     profileComparison: buildProfileComparison(racerNames, results.map(r => r.profileMetrics || null)),
+    machineInfo: getMachineInfo(),
   };
 }
 
@@ -217,7 +244,7 @@ export function printSummary(summary) {
 }
 
 export function buildMarkdownSummary(summary, sideBySideName) {
-  const { racers, comparisons, overallWinner, wins, errors, videos, clickCounts, settings, timestamp, profileComparison } = summary;
+  const { racers, comparisons, overallWinner, wins, errors, videos, clickCounts, settings, timestamp, profileComparison, machineInfo } = summary;
   const lines = [];
 
   // ASCII art header
@@ -256,6 +283,16 @@ export function buildMarkdownSummary(summary, sideBySideName) {
     if (settings.format && settings.format !== 'webm') lines.push(`| **Format** | ${settings.format} |`);
     if (settings.headless) lines.push(`| **Headless** | yes |`);
     if (settings.runs && settings.runs > 1) lines.push(`| **Runs** | ${settings.runs} |`);
+  }
+  if (machineInfo) {
+    lines.push(`| **Machine** | ${formatPlatform(machineInfo.platform)} ${machineInfo.osRelease} (${machineInfo.arch}) |`);
+    lines.push(`| **CPU** | ${machineInfo.cpuModel} (${machineInfo.cpuCores} cores) |`);
+    if (machineInfo.totalMemoryMB) {
+      lines.push(`| **Memory** | ${(machineInfo.totalMemoryMB / 1024).toFixed(1)} GB |`);
+    }
+    if (machineInfo.nodeVersion) {
+      lines.push(`| **Node.js** | ${machineInfo.nodeVersion} |`);
+    }
   }
   lines.push('');
 
@@ -328,6 +365,55 @@ export function findMedianRunIndex(summaries, medianSummary) {
   return bestIdx;
 }
 
+/**
+ * For each racer independently, find the run whose durations are closest to
+ * that racer's median values. Returns an array of 0-based run indices, one per racer.
+ */
+export function findMedianRunIndexPerRacer(summaries, medianSummary) {
+  return medianSummary.racers.map((_, racerIdx) => {
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    for (let runIdx = 0; runIdx < summaries.length; runIdx++) {
+      let totalDist = 0;
+      for (const medComp of medianSummary.comparisons) {
+        const runComp = summaries[runIdx].comparisons.find(comp => comp.name === medComp.name);
+        if (!runComp) continue;
+        const medDur = medComp.racers[racerIdx]?.duration;
+        const runDur = runComp.racers[racerIdx]?.duration;
+        if (medDur != null && runDur != null) {
+          totalDist += Math.abs(runDur - medDur);
+        }
+      }
+      if (totalDist < bestDist) {
+        bestDist = totalDist;
+        bestIdx = runIdx;
+      }
+    }
+    return bestIdx;
+  });
+}
+
+/**
+ * For each racer, compute the median value of each profile metric across runs.
+ * Returns an array (one per racer) of profile metric objects { total: {...}, measured: {...} }.
+ */
+function buildMedianProfileMetrics(summaries) {
+  const racers = summaries[0].racers;
+  const hasAny = summaries.some(s => s.profileMetrics?.some(Boolean));
+  if (!hasAny) return null;
+
+  return racers.map((_, racerIdx) => {
+    const result = { total: {}, measured: {} };
+    for (const key of Object.keys(PROFILE_METRICS)) {
+      const [scope, metric] = key.split('.');
+      const values = summaries.map(s => s.profileMetrics?.[racerIdx]?.[scope]?.[metric] ?? null);
+      const med = medianOf(values);
+      if (med !== null) result[scope][metric] = med;
+    }
+    return (Object.keys(result.total).length || Object.keys(result.measured).length) ? result : null;
+  });
+}
+
 /** Compute median of each measurement across multiple runs. */
 export function buildMedianSummary(summaries, resultsDir) {
   const racers = summaries[0].racers;
@@ -336,19 +422,18 @@ export function buildMedianSummary(summaries, resultsDir) {
   const comparisons = [...allNames].map(name => {
     const vals = racers.map((_, i) => {
       const durations = summaries
-        .map(s => s.comparisons.find(c => c.name === name)?.racers[i]?.duration)
-        .filter(d => d != null)
-        .sort((a, b) => a - b);
-      if (durations.length === 0) return null;
-      const mid = Math.floor(durations.length / 2);
-      const median = durations.length % 2 === 1 ? durations[mid] : (durations[mid - 1] + durations[mid]) / 2;
-      return { duration: median };
+        .map(s => s.comparisons.find(comp => comp.name === name)?.racers[i]?.duration)
+        .filter(d => d != null);
+      const median = medianOf(durations);
+      return median != null ? { duration: median } : null;
     });
     return computeComparison(name, vals, racers);
   });
 
-  const wins = racers.map(name => comparisons.filter(x => x.winner === name).length);
+  const wins = computeWins(racers, comparisons);
   const overallWinner = determineOverallWinner(wins, racers, comparisons);
+
+  const medianProfileMetrics = buildMedianProfileMetrics(summaries);
 
   return {
     timestamp: new Date().toISOString(),
@@ -357,11 +442,14 @@ export function buildMedianSummary(summaries, resultsDir) {
     settings: summaries[0].settings,
     comparisons,
     overallWinner,
-    wins: Object.fromEntries(racers.map((n, i) => [n, wins[i]])),
+    wins,
     errors: summaries.flatMap(s => s.errors || []),
     videos: {},
     clickCounts: Object.fromEntries(racers.map(n => [n, 0])),
     runs: summaries.length,
+    machineInfo: summaries.find(s => s.machineInfo)?.machineInfo,
+    profileMetrics: medianProfileMetrics,
+    profileComparison: medianProfileMetrics ? buildProfileComparison(racers, medianProfileMetrics) : null,
   };
 }
 

@@ -1,6 +1,6 @@
 /**
  * Profile analysis module for network and performance metric comparisons.
- * Captures and compares detailed performance metrics when --profile is enabled.
+ * Captures and compares detailed performance metrics for each race.
  *
  * Metrics are captured via Chrome DevTools Protocol during race execution.
  * All metrics follow "less is better" - lower values win.
@@ -11,27 +11,32 @@
  */
 
 import { c, RACER_COLORS } from './colors.js';
+import { determineOverallWinner } from './race-utils.js';
 
 /**
  * Performance metric definitions.
  * Keys use "scope.metric" format; scope/category are derived from the key structure.
  */
 const metricDefs = {
-  networkTransferSize: { name: 'Network Transfer', format: formatBytes, category: 'network' },
-  networkRequestCount: { name: 'Network Requests', format: (v) => `${v} req`, category: 'network' },
-  scriptDuration:      { name: 'Script Execution', format: formatMs, category: 'computation' },
-  taskDuration:        { name: 'Task Duration', format: formatMs, category: 'computation' },
-  layoutDuration:      { name: 'Layout Time', format: formatMs, category: 'rendering' },
-  recalcStyleDuration: { name: 'Style Recalculation', format: formatMs, category: 'rendering' },
-  domContentLoaded:    { name: 'DOM Content Loaded', format: formatMs, category: 'loading' },
-  domComplete:         { name: 'DOM Complete', format: formatMs, category: 'loading' },
-  jsHeapUsedSize:      { name: 'JS Heap Used', format: formatBytes, category: 'memory' },
+  networkTransferSize: { name: 'Network Transfer', format: formatBytes, category: 'network', description: 'Total bytes transferred over the network (compressed). Less data means faster loads on slow connections.' },
+  networkRequestCount: { name: 'Network Requests', format: (v) => `${v} req`, category: 'network', description: 'Number of HTTP requests made. Fewer requests reduce connection overhead and latency.' },
+  scriptDuration:      { name: 'Script Execution', format: formatMs, category: 'computation', description: 'Time spent executing JavaScript. High values indicate CPU-heavy scripts that may block the main thread.' },
+  taskDuration:        { name: 'Task Duration', format: formatMs, category: 'computation', description: 'Total time spent on all browser tasks including script, layout, and rendering. Reflects overall main-thread busyness.' },
+  layoutDuration:      { name: 'Layout Time', format: formatMs, category: 'rendering', description: 'Time spent computing element positions and sizes. Frequent layout recalculations ("layout thrashing") hurt performance.' },
+  recalcStyleDuration: { name: 'Style Recalculation', format: formatMs, category: 'rendering', description: 'Time spent recalculating CSS styles. Complex selectors or frequent DOM changes increase this cost.' },
+  ttfb:                { name: 'Time to First Byte (TTFB)', format: formatMs, category: 'loading', description: 'Time from the request until the first byte of the response arrives. Reflects server speed, DNS, and connection latency. Good: under 800ms.' },
+  fcp:                 { name: 'First Contentful Paint (FCP)', format: formatMs, category: 'loading', description: 'Time until the first text, image, or canvas is painted on screen. A fast FCP reassures users that the page is loading. Good: under 1.8s.' },
+  lcp:                 { name: 'Largest Contentful Paint (LCP)', format: formatMs, category: 'loading', description: 'Time until the largest visible element (hero image, heading, etc.) finishes rendering. LCP is a Core Web Vital used by Google as a search ranking signal. Good: under 2.5s.' },
+  cls:                 { name: 'Cumulative Layout Shift (CLS)', format: formatCLS, category: 'loading', description: 'Measures unexpected layout movement — elements shifting after being rendered. CLS is a Core Web Vital; high values frustrate users who click the wrong target. Good: under 0.1.' },
+  domContentLoaded:    { name: 'DOM Content Loaded', format: formatMs, category: 'loading', description: 'Time until the HTML document is fully parsed and all deferred scripts have executed (DOMContentLoaded event).' },
+  domComplete:         { name: 'DOM Complete', format: formatMs, category: 'loading', description: 'Time until the page and all sub-resources (images, stylesheets, etc.) have finished loading.' },
+  jsHeapUsedSize:      { name: 'JS Heap Used', format: formatBytes, category: 'memory', description: 'JavaScript memory currently in use. High usage can trigger garbage collection pauses and indicates memory-heavy code.' },
 };
 
 // Measured metrics (between raceStart/raceEnd)
 const MEASURED_METRICS = ['networkTransferSize', 'networkRequestCount', 'scriptDuration', 'taskDuration', 'layoutDuration', 'recalcStyleDuration'];
 // Total metrics (entire session) — includes loading/memory which are total-only
-const TOTAL_METRICS = ['networkTransferSize', 'networkRequestCount', 'domContentLoaded', 'domComplete', 'jsHeapUsedSize', 'scriptDuration', 'taskDuration', 'layoutDuration', 'recalcStyleDuration'];
+const TOTAL_METRICS = ['networkTransferSize', 'networkRequestCount', 'ttfb', 'fcp', 'lcp', 'cls', 'domContentLoaded', 'domComplete', 'jsHeapUsedSize', 'scriptDuration', 'taskDuration', 'layoutDuration', 'recalcStyleDuration'];
 
 // Build the full PROFILE_METRICS map with scope-prefixed keys
 export const PROFILE_METRICS = {};
@@ -45,7 +50,7 @@ for (const metric of TOTAL_METRICS) {
 }
 
 function formatBytes(bytes) {
-  if (bytes === 0) return '0 B';
+  if (bytes <= 0) return '0 B';
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -56,6 +61,10 @@ function formatMs(ms) {
   if (ms < 1) return `${(ms * 1000).toFixed(0)}μs`;
   if (ms < 1000) return `${ms.toFixed(1)}ms`;
   return `${(ms / 1000).toFixed(2)}s`;
+}
+
+function formatCLS(score) {
+  return score.toFixed(3);
 }
 
 /**
@@ -160,14 +169,6 @@ export function buildProfileComparison(racerNames, profileData) {
   };
 }
 
-function determineOverallWinner(wins, racerNames, comparisons) {
-  if (comparisons.length === 0) return null;
-  const maxWins = Math.max(...racerNames.map(n => wins[n]));
-  const winnersWithMax = racerNames.filter(n => wins[n] === maxWins);
-  if (winnersWithMax.length === 1) return winnersWithMax[0];
-  if (maxWins === 0) return null;
-  return 'tie';
-}
 
 function groupByCategory(comparisons) {
   const groups = {};
@@ -186,6 +187,14 @@ const categoryLabels = {
   memory: '🧠 Memory',
   computation: '⚡ Computation',
   rendering: '🎨 Rendering'
+};
+
+export const categoryDescriptions = {
+  network: 'Network activity: data transferred and requests made. Fewer bytes and requests mean faster page loads.',
+  loading: 'Page loading milestones measured from navigation start. Indicates how quickly the page becomes usable.',
+  memory: 'JavaScript memory usage. Lower memory consumption reduces garbage collection pauses and improves stability.',
+  computation: 'CPU time spent on JavaScript execution and browser tasks. Less computation means a more responsive page.',
+  rendering: 'Time spent on visual layout and style calculations. Less rendering work means smoother interactions.',
 };
 
 /**
@@ -273,10 +282,6 @@ export function printProfileAnalysis(profileComparison, racers) {
   if (measured.comparisons.length > 0) {
     printProfileSection('⏱️  During Measurement (raceStart → raceEnd)', measured, racers, w, write);
   }
-
-  if (total.comparisons.length > 0) {
-    printProfileSection('📈 Total Session', total, racers, w, write);
-  }
 }
 
 /**
@@ -335,10 +340,6 @@ export function buildProfileMarkdown(profileComparison, racers) {
 
   if (measured.comparisons.length > 0) {
     lines.push(buildScopeMarkdown('During Measurement (raceStart → raceEnd)', measured, racers));
-  }
-
-  if (total.comparisons.length > 0) {
-    lines.push(buildScopeMarkdown('Total Session', total, racers));
   }
 
   return lines.join('\n');

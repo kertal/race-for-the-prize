@@ -1,6 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { buildPlayerHtml } from '../cli/videoplayer.js';
 import { buildProfileComparison } from '../cli/profile-analysis.js';
+import { copyFFmpegFiles } from '../cli/results.js';
 
 const makeSummary = (overrides = {}) => ({
   racers: ['lauda', 'hunt'],
@@ -28,8 +32,16 @@ const videoFiles = ['lauda/lauda.race.webm', 'hunt/hunt.race.webm'];
 const abVideoFiles = ['a/a.race.webm', 'b/b.race.webm'];
 const abSummary = (overrides = {}) => makeSummary({ racers: ['a', 'b'], comparisons: [], ...overrides });
 
-// Shared default output — used by many tests that don't need custom summaries
-const defaultHtml = buildPlayerHtml(makeSummary(), videoFiles);
+// Shared helpers — reduce repeated buildPlayerHtml boilerplate
+const withSummary = (overrides) => buildPlayerHtml(makeSummary(overrides), videoFiles);
+const withOptions = (opts, summary) => buildPlayerHtml(summary || makeSummary(), videoFiles, null, null, opts);
+const defaultHtml = withSummary();
+const noVideosHtml = buildPlayerHtml(makeSummary(), []);
+
+function withTmpDir(fn) {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'race-test-'));
+  try { fn(tmpDir); } finally { fs.rmSync(tmpDir, { recursive: true, force: true }); }
+}
 
 describe('buildPlayerHtml', () => {
   it('returns a complete HTML document', () => {
@@ -51,13 +63,12 @@ describe('buildPlayerHtml', () => {
     expect(defaultHtml).toContain('profile-bar-fill');
   });
 
-  it('shows winner banner', () => {
-    expect(defaultHtml).toContain('LAUDA wins!');
+  it('shows winner trophy on racer label', () => {
+    expect(defaultHtml).toContain('&#127942;');
   });
 
-  it('shows tie banner when tied', () => {
-    const html = buildPlayerHtml(makeSummary({ overallWinner: 'tie' }), videoFiles);
-    expect(html).toContain("It's a Tie!");
+  it('shows tie trophy on racer labels when tied', () => {
+    expect(withSummary({ overallWinner: 'tie' })).toContain('&#129309;');
   });
 
   it('includes playback controls', () => {
@@ -91,7 +102,7 @@ describe('buildPlayerHtml', () => {
   });
 
   it('handles empty comparisons', () => {
-    const html = buildPlayerHtml(makeSummary({ comparisons: [] }), videoFiles);
+    const html = withSummary({ comparisons: [] });
     expect(html).toContain('<!DOCTYPE html>');
     expect(html).toContain('Results');
   });
@@ -148,30 +159,28 @@ describe('buildPlayerHtml', () => {
     expect(defaultHtml).toContain('getTime');
   });
 
-  it('shows mode toggle when full videos provided', () => {
+  it('embeds full video paths when full videos provided', () => {
     const fullVideos = ['lauda/lauda.full.webm', 'hunt/hunt.full.webm'];
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { fullVideoFiles: fullVideos });
-    expect(html).toContain('id="modeRace"');
-    expect(html).toContain('id="modeFull"');
-    expect(html).toContain('class="mode-btn active"');
-    expect(html).toContain('switchToFull');
+    const html = withOptions({ fullVideoFiles: fullVideos });
+    expect(html).not.toContain('id="modeRace"');
+    expect(html).not.toContain('id="modeFull"');
     expect(html).toContain('"lauda/lauda.full.webm"');
     expect(html).toContain('"hunt/hunt.full.webm"');
   });
 
   it('shows merged video button when merged video provided', () => {
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { mergedVideoFile: 'lauda-vs-hunt.webm' });
+    const html = withOptions({ mergedVideoFile: 'lauda-vs-hunt.webm' });
     expect(html).toContain('id="modeMerged"');
     expect(html).toContain('id="mergedVideo"');
     expect(html).toContain('src="lauda-vs-hunt.webm"');
     expect(html).toContain('switchToMerged');
   });
 
-  it('shows all mode buttons when both full and merged provided', () => {
+  it('shows merged button when both full and merged provided', () => {
     const fullVideos = ['lauda/lauda.full.webm', 'hunt/hunt.full.webm'];
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { fullVideoFiles: fullVideos, mergedVideoFile: 'merged.webm' });
-    expect(html).toContain('id="modeRace"');
-    expect(html).toContain('id="modeFull"');
+    const html = withOptions({ fullVideoFiles: fullVideos, mergedVideoFile: 'merged.webm' });
+    expect(html).not.toContain('id="modeRace"');
+    expect(html).not.toContain('id="modeFull"');
     expect(html).toContain('id="modeMerged"');
   });
 
@@ -188,19 +197,20 @@ describe('buildPlayerHtml', () => {
     const metrics1 = { total: { networkTransferSize: 1000, scriptDuration: 100 }, measured: { networkTransferSize: 500 } };
     const metrics2 = { total: { networkTransferSize: 2000, scriptDuration: 200 }, measured: { networkTransferSize: 800 } };
     const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
-    const html = buildPlayerHtml(makeSummary({ profileComparison }), videoFiles);
+    const html = withSummary({ profileComparison });
     expect(html).toContain('Performance Profile');
     expect(html).toContain('Lower values are better');
     expect(html).toContain('During Measurement');
+    expect(html).toContain('<details');
     expect(html).toContain('Total Session');
   });
 
   it('shows profile racers sorted by value with deltas', () => {
-    const metrics1 = { total: { networkTransferSize: 2000 }, measured: {} };
-    const metrics2 = { total: { networkTransferSize: 1000 }, measured: {} };
+    const metrics1 = { total: {}, measured: { networkTransferSize: 2000 } };
+    const metrics2 = { total: {}, measured: { networkTransferSize: 1000 } };
     const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
-    const html = buildPlayerHtml(makeSummary({ profileComparison }), videoFiles);
-    const profileSection = html.slice(html.indexOf('Total Session'));
+    const html = withSummary({ profileComparison });
+    const profileSection = html.slice(html.indexOf('During Measurement'));
     expect(profileSection.indexOf('>hunt<')).toBeLessThan(profileSection.indexOf('>lauda<'));
     expect(profileSection).toContain('(+');
   });
@@ -237,20 +247,17 @@ describe('buildPlayerHtml', () => {
     expect(html).toContain('Results');
   });
 
-  it('shows median page with videos and source note', () => {
+  it('shows median page with videos', () => {
     const html = buildPlayerHtml(makeSummary(), ['2/lauda/lauda.race.webm', '2/hunt/hunt.race.webm'], null, null, {
       runNavigation: { currentRun: 'median', totalRuns: 3, pathPrefix: '' },
-      medianRunLabel: 'Run 2',
     });
     expect(html).toContain('<script>');
     expect(html).toContain('src="2/lauda/lauda.race.webm"');
-    expect(html).toContain('Videos from Run 2 (closest to median)');
+    expect(html).not.toContain('closest to median');
   });
 
   it('shows run navigation bar', () => {
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, {
-      runNavigation: { currentRun: 1, totalRuns: 3, pathPrefix: '../' },
-    });
+    const html = withOptions({ runNavigation: { currentRun: 1, totalRuns: 3, pathPrefix: '../' } });
     for (let i = 1; i <= 3; i++) expect(html).toContain(`Run ${i}`);
     expect(html).toContain('Median');
     expect(html).toContain('run-nav-btn active');
@@ -281,6 +288,44 @@ describe('buildPlayerHtml race info', () => {
   });
 });
 
+// --- Machine Info section ---
+
+describe('buildPlayerHtml machine info', () => {
+  const machineInfo = {
+    platform: 'linux',
+    arch: 'x64',
+    osRelease: '5.15.0',
+    cpuModel: 'Intel Core i7-12700K',
+    cpuCores: 12,
+    totalMemoryMB: 32768,
+    nodeVersion: 'v20.11.0',
+  };
+
+  it('shows machine info table when provided', () => {
+    const html = buildPlayerHtml(abSummary({ machineInfo }), abVideoFiles);
+    expect(html).toContain('machine-info');
+    expect(html).toContain('Linux');
+    expect(html).toContain('5.15.0');
+    expect(html).toContain('x64');
+    expect(html).toContain('Intel Core i7-12700K');
+    expect(html).toContain('12 cores');
+    expect(html).toContain('32.0 GB');
+    expect(html).toContain('v20.11.0');
+  });
+
+  it('omits machine info section when not provided', () => {
+    expect(buildPlayerHtml(abSummary(), abVideoFiles)).not.toContain('<div class="machine-info">');
+  });
+
+  it('HTML-escapes values', () => {
+    const html = buildPlayerHtml(abSummary({
+      machineInfo: { ...machineInfo, cpuModel: '<script>alert("xss")</script>' },
+    }), abVideoFiles);
+    expect(html).not.toContain('<script>alert');
+    expect(html).toContain('&lt;script&gt;');
+  });
+});
+
 // --- Errors section ---
 
 describe('buildPlayerHtml errors', () => {
@@ -300,26 +345,26 @@ describe('buildPlayerHtml errors', () => {
 
 describe('buildPlayerHtml click counts', () => {
   it('shows click counts when present', () => {
-    const html = buildPlayerHtml(makeSummary({ comparisons: [], clickCounts: { lauda: 5, hunt: 3 } }), videoFiles);
+    const html = withSummary({ comparisons: [], clickCounts: { lauda: 5, hunt: 3 } });
     expect(html).toContain('Clicks');
     expect(html).toContain('>5<');
     expect(html).toContain('>3<');
   });
 
   it('omits clicks when all zero', () => {
-    expect(buildPlayerHtml(makeSummary({ comparisons: [] }), videoFiles)).not.toContain('Clicks');
+    expect(withSummary({ comparisons: [] })).not.toContain('Clicks');
   });
 });
 
 // --- Clip times (default mode, without --ffmpeg) ---
 
 describe('buildPlayerHtml clipTimes', () => {
-  const withClips = (clips, opts = {}) => buildPlayerHtml(opts.summary || makeSummary(), videoFiles, null, null, { clipTimes: clips, ...opts });
+  const withClips = (clips, opts = {}) => withOptions({ clipTimes: clips, ...opts }, opts.summary);
 
-  it('shows mode toggle with Full button when clipTimes provided', () => {
+  it('does not show Race/Full mode buttons when clipTimes provided', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.5, end: 3 }]);
-    expect(html).toContain('id="modeRace"');
-    expect(html).toContain('id="modeFull"');
+    expect(html).not.toContain('id="modeRace"');
+    expect(html).not.toContain('id="modeFull"');
   });
 
   it('embeds clipTimes data in player script', () => {
@@ -335,7 +380,7 @@ describe('buildPlayerHtml clipTimes', () => {
 
   it('handles clipTimes with null entries', () => {
     const html = withClips([{ start: 1, end: 2 }, null]);
-    expect(html).toContain('id="modeFull"');
+    expect(html).not.toContain('id="modeFull"');
     expect(html).toContain('const clipTimes =');
   });
 
@@ -362,6 +407,97 @@ describe('buildPlayerHtml clipTimes', () => {
 
   it('does not show Merged button without mergedVideoFile', () => {
     expect(withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }])).not.toContain('id="modeMerged"');
+  });
+
+  it('embeds recordingOffset and wallClockDuration in clipTimes JSON', () => {
+    const clips = [
+      { start: 1.5, end: 3, recordingOffset: 0.12, wallClockDuration: 5.0 },
+      { start: 1.2, end: 2.8, recordingOffset: 0.15, wallClockDuration: 4.8 },
+    ];
+    const html = withClips(clips);
+    expect(html).toContain('"recordingOffset"');
+    expect(html).toContain('"wallClockDuration"');
+    const clipMatch = html.match(/const clipTimes = (\[.*?\]);/);
+    expect(clipMatch).toBeTruthy();
+    const parsed = JSON.parse(clipMatch[1]);
+    expect(parsed[0].recordingOffset).toBe(0.12);
+    expect(parsed[0].wallClockDuration).toBe(5.0);
+    expect(parsed[1].recordingOffset).toBe(0.15);
+    expect(parsed[1].wallClockDuration).toBe(4.8);
+  });
+
+  it('includes trace-based conversion logic in onMeta', () => {
+    const clips = [
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+    ];
+    const html = withClips(clips);
+    expect(html).toContain('_converted');
+    expect(html).toContain('tracePtsStart');
+    expect(html).toContain('hasTraceCalibration(ct)');
+  });
+
+  it('does not include canvas/localStorage fallback calibration code', () => {
+    const clips = [
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+    ];
+    const html = withClips(clips);
+    expect(html).not.toContain('detectGreenCuePts');
+    expect(html).not.toContain('calibrateFromCanvas');
+    expect(html).not.toContain('isGreenCue');
+    expect(html).not.toContain('restoreFromCache');
+    expect(html).not.toContain('localStorage');
+  });
+
+  it('includes strict calibration error for missing trace metadata', () => {
+    const clips = [
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+    ];
+    const html = withClips(clips);
+    expect(html).toContain('Calibration error: missing trace calibration metadata. Please calibrate manually.');
+    expect(html).toContain('manual calibration required');
+    expect(html).toContain('playBtn.disabled = true');
+  });
+
+  it('embeds trace calibration and uses trace-based conversion when present', () => {
+    const clips = [
+      {
+        start: 1,
+        end: 3,
+        recordingOffset: 0.1,
+        wallClockDuration: 5,
+        calibratedStart: null,
+        traceCalibration: { firstFrameTs: 1_000_000, lastFrameTs: 2_000_000, recordingStartTs: 1_100_000, recordingEndTs: 1_900_000 },
+        measurements: [{ name: 'Load', startTime: 1.2, endTime: 2.1, startTraceTs: 1_200_000, endTraceTs: 1_600_000 }],
+      },
+      {
+        start: 1,
+        end: 3,
+        recordingOffset: 0.1,
+        wallClockDuration: 5,
+        calibratedStart: null,
+        traceCalibration: { firstFrameTs: 1_000_000, lastFrameTs: 2_000_000, recordingStartTs: 1_100_000, recordingEndTs: 1_900_000 },
+        measurements: [{ name: 'Load', startTime: 1.3, endTime: 2.2, startTraceTs: 1_250_000, endTraceTs: 1_650_000 }],
+      },
+    ];
+    const html = withClips(clips);
+    expect(html).toContain('"traceCalibration"');
+    expect(html).toContain('hasTraceCalibration(ct)');
+    expect(html).toContain('traceTsToClipPts');
+    expect(html).toContain('traceCalibration.firstFrameTs');
+  });
+
+  it('does not include blob/canvas fallback helpers', () => {
+    const clips = [
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+    ];
+    const html = withClips(clips);
+    expect(html).not.toContain('toBlobVideo');
+    expect(html).not.toContain('detectGreenCuePts');
+    expect(html).not.toContain('getImageData(0, 0, CUE_DETECT_SIZE, CUE_DETECT_SIZE)');
   });
 });
 
@@ -405,22 +541,22 @@ describe('buildPlayerHtml files section', () => {
 
 describe('buildPlayerHtml debug mode', () => {
   const clipTimes = [{ start: 1.52, end: 3 }, { start: 1.2, end: 2.8 }];
-  const debugHtml = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
+  const debugHtml = withOptions({ clipTimes });
 
-  it('shows Debug button when clipTimes provided', () => {
+  it('shows Calibration button when clipTimes provided', () => {
     expect(debugHtml).toContain('id="modeDebug"');
-    expect(debugHtml).toContain('>Debug<');
+    expect(debugHtml).toContain('>Calibration<');
   });
 
   it('hides Debug button when no clipTimes or all null', () => {
     expect(defaultHtml).not.toContain('id="modeDebug"');
-    const nullClips = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes: [null, null] });
+    const nullClips = withOptions({ clipTimes: [null, null] });
     expect(nullClips).not.toContain('id="modeDebug"');
   });
 
   it('renders debug panel with per-racer rows', () => {
     expect(debugHtml).toContain('id="debugPanel"');
-    expect(debugHtml).toContain('DEBUG: Clip Start Calibration');
+    expect(debugHtml).toContain('Calibration');
     expect(debugHtml).toContain('data-debug-idx="0"');
     expect(debugHtml).toContain('data-debug-idx="1"');
   });
@@ -440,7 +576,7 @@ describe('buildPlayerHtml debug mode', () => {
   });
 
   it('script includes debug functions', () => {
-    for (const fn of ['FRAME_STEP', 'switchToDebug', 'adjustDebugOffset', 'debugOffsets', 'getAdjustedClipTimes', 'resolveAdjustedClip']) {
+    for (const fn of ['FRAME_STEP', 'toggleCalibration', 'adjustDebugOffset', 'debugOffsets', 'getAdjustedClipTimes', 'resolveAdjustedClip']) {
       expect(debugHtml).toContain(fn);
     }
   });
@@ -457,9 +593,102 @@ describe('buildPlayerHtml debug mode', () => {
   });
 
   it('debug rows ordered by placement (winner first)', () => {
-    const html = buildPlayerHtml(huntWinsSummary(), videoFiles, null, null, { clipTimes });
+    const html = withOptions({ clipTimes }, huntWinsSummary());
     const panelSection = html.slice(html.indexOf('id="debugPanel"'));
     expect(panelSection.indexOf('>hunt<')).toBeLessThan(panelSection.indexOf('>lauda<'));
+  });
+
+  it('renders FRAME POSITIONS section in debug panel', () => {
+    expect(debugHtml).toContain('id="debugFrames"');
+    expect(debugHtml).toContain('FRAME POSITIONS');
+    expect(debugHtml).toContain('id="debugFrameRow0"');
+    expect(debugHtml).toContain('id="debugFrameRow1"');
+  });
+
+  it('script includes frame position update showing clip, full, and range', () => {
+    expect(debugHtml).toContain('updateFramePositions');
+    expect(debugHtml).toContain('clipFrame');
+    expect(debugHtml).toContain('clipStartFrame');
+    expect(debugHtml).toContain('clipEndFrame');
+    expect(debugHtml).toContain("'clip: '");
+    expect(debugHtml).toContain("'full: '");
+    expect(debugHtml).toContain("'range: '");
+  });
+});
+
+// --- Timing events in debug mode ---
+
+describe('buildPlayerHtml timing events', () => {
+  const clipTimes = [
+    { start: 1.5, end: 3, recordingOffset: 0.12, wallClockDuration: 5.0, measurements: [{ name: 'Load', startTime: 1.6, endTime: 2.8 }] },
+    { start: 1.2, end: 2.8, recordingOffset: 0.15, wallClockDuration: 4.8, measurements: [{ name: 'Load', startTime: 1.3, endTime: 2.5 }] },
+  ];
+  const timingHtml = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
+
+  it('renders TIMING EVENTS section in debug panel', () => {
+    expect(timingHtml).toContain('TIMING EVENTS');
+    expect(timingHtml).toContain('id="debugTiming"');
+    expect(timingHtml).toContain('debug-timing');
+  });
+
+  it('renders per-racer timing placeholder divs', () => {
+    expect(timingHtml).toContain('id="debugTimingRacer0"');
+    expect(timingHtml).toContain('id="debugTimingRacer1"');
+    expect(timingHtml).toContain('id="debugTimingEvents0"');
+    expect(timingHtml).toContain('id="debugTimingEvents1"');
+  });
+
+  it('embeds measurements in clipTimes JSON', () => {
+    const clipMatch = timingHtml.match(/const clipTimes = (\[.*?\]);/);
+    expect(clipMatch).toBeTruthy();
+    const parsed = JSON.parse(clipMatch[1]);
+    // clipTimes are reordered by placement; winner (lauda) is first
+    expect(parsed[0].measurements).toBeDefined();
+    expect(parsed[0].measurements.length).toBeGreaterThan(0);
+    expect(parsed[0].measurements[0].name).toBe('Load');
+  });
+
+  it('saves _wcStart and _wcEnd in onMeta before trace conversion', () => {
+    expect(timingHtml).toContain('ct._wcStart = ct.start');
+    expect(timingHtml).toContain('ct._wcEnd = ct.end');
+    expect(timingHtml).not.toContain('ct._ptsScale = scale');
+  });
+
+  it('script contains timing event labels and column headers', () => {
+    expect(timingHtml).toContain('Context created');
+    expect(timingHtml).toContain('recordingStartTime (t=0)');
+    expect(timingHtml).toContain('raceRecordingStart()');
+    expect(timingHtml).toContain('raceRecordingEnd()');
+    expect(timingHtml).toContain('Pre-close');
+    expect(timingHtml).toContain('Calibration mode');
+    expect(timingHtml).toContain("'Event'");
+    expect(timingHtml).toContain("'Wall-clock'");
+    expect(timingHtml).toContain("'Video time'");
+    expect(timingHtml).toContain("'Frame'");
+  });
+
+  it('script includes frame number computation', () => {
+    expect(timingHtml).toContain('toFrame');
+    expect(timingHtml).toContain('Math.round(pts / 0.04)');
+  });
+
+  it('includes timingData in Copy JSON handler', () => {
+    expect(timingHtml).toContain('timingData');
+    expect(timingHtml).toContain('videoDuration');
+    expect(timingHtml).toContain('_wcStart');
+    expect(timingHtml).toContain('_ptsScale');
+  });
+
+  it('handles clipTimes without measurements gracefully', () => {
+    const noMeasClips = [
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+    ];
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes: noMeasClips });
+    expect(html).toContain('TIMING EVENTS');
+    expect(html).toContain('id="debugTimingEvents0"');
+    // Should still contain measurement iteration code
+    expect(html).toContain('const measurements = ct.measurements || []');
   });
 });
 
@@ -473,6 +702,166 @@ describe('buildPlayerHtml export', () => {
   });
 
   it('does not render Export button when no videos', () => {
-    expect(buildPlayerHtml(makeSummary(), [])).not.toContain('id="exportBtn"');
+    expect(noVideosHtml).not.toContain('id="exportBtn"');
+  });
+});
+
+// --- Browser-based conversion (ffmpeg.wasm) ---
+
+describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
+  it('includes convertWithFFmpeg function in player script', () => {
+    expect(defaultHtml).toContain('convertWithFFmpeg');
+  });
+
+  it('includes loadFFmpeg function with local paths', () => {
+    expect(defaultHtml).toContain('loadFFmpeg');
+    expect(defaultHtml).toContain("import('./ffmpeg/index.js')");
+    expect(defaultHtml).toContain('./ffmpeg/ffmpeg-core.js');
+    expect(defaultHtml).toContain('./ffmpeg/ffmpeg-core.wasm');
+  });
+
+  it('includes file:// protocol check with helpful error message', () => {
+    expect(defaultHtml).toContain("location.protocol === 'file:'");
+    expect(defaultHtml).toContain('npx serve');
+  });
+
+  it('revokes blob URLs after ffmpeg load to prevent memory leak', () => {
+    expect(defaultHtml).toContain('forEach(u => URL.revokeObjectURL(u))');
+  });
+
+  it('includes toBlobURL helper for CORS-safe loading', () => {
+    expect(defaultHtml).toContain('toBlobURL');
+  });
+
+
+  it('includes GIF conversion args with palette optimization', () => {
+    expect(defaultHtml).toContain('palettegen');
+    expect(defaultHtml).toContain('paletteuse=dither=bayer');
+  });
+
+  it('includes MOV conversion args with H.264', () => {
+    expect(defaultHtml).toContain('libx264');
+    expect(defaultHtml).toContain('yuv420p');
+  });
+
+
+  it('includes conversion progress UI CSS', () => {
+    expect(defaultHtml).toContain('export-convert-row');
+  });
+
+  it('uses unique filenames per conversion to prevent conflicts', () => {
+    expect(defaultHtml).toContain('convertCounter');
+    expect(defaultHtml).toContain("'input_' + runId");
+    expect(defaultHtml).toContain("'output_' + runId");
+  });
+
+  it('logs cleanup failures instead of silently catching', () => {
+    expect(defaultHtml).toContain("console.warn('ffmpeg cleanup:'");
+  });
+
+  it('keeps a dismiss button available during conversion', () => {
+    expect(defaultHtml).toContain('dismissBtn');
+  });
+
+
+  it('passes clip range for trimming during conversion', () => {
+    const html = withOptions({ clipTimes: [{ start: 1, end: 3 }, { start: 1, end: 3 }] });
+    expect(html).toContain('clipRange');
+    expect(html).toContain("'-ss'");
+    expect(html).toContain("'-t'");
+  });
+
+
+  it('checks ff.exec exit code and throws a human-readable error on non-zero', () => {
+    expect(defaultHtml).toContain('exitCode !== 0');
+    expect(defaultHtml).toContain('ffmpeg exited with code');
+    expect(defaultHtml).toContain('conversion failed');
+  });
+});
+
+// --- Clip alignment ---
+
+describe('buildPlayerHtml clip alignment', () => {
+  const withClips = (clips, opts = {}) => withOptions({ clipTimes: clips, ...opts }, opts.summary);
+
+  it('resolveClip uses maxDuration, not maxEnd', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    expect(html).toContain('maxDuration');
+    expect(html).toContain('minStart + maxDuration');
+  });
+
+  it('seekAll uses elapsed-time mapping for per-video positioning', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    expect(html).toContain('const elapsed = t - activeClip.start');
+    expect(html).toContain('target = ct[i].start + elapsed');
+  });
+
+  it('resolveAdjustedClip also uses maxDuration', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    const script = html.slice(html.indexOf('resolveAdjustedClip'));
+    expect(script).toContain('maxDuration');
+  });
+
+  it('updateTimeDisplay derives time from scrubber, not primary.currentTime', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    const fnMatch = html.match(/function updateTimeDisplay\(\)\s*\{([^}]+)\}/);
+    expect(fnMatch).toBeTruthy();
+    expect(fnMatch[1]).toContain('scrubber.value');
+    expect(fnMatch[1]).not.toContain('primary.currentTime');
+  });
+
+  it('timeupdate clip-end handler sets scrubber to 1000 and returns', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    expect(html).toContain('scrubber.value = 1000');
+  });
+
+  it('stepFrame derives position from scrubber for elapsed-time consistency', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    const stepStart = html.indexOf('function stepFrame');
+    const nextFn = html.indexOf('\nfunction ', stepStart + 1);
+    const endIdx = nextFn > stepStart ? nextFn : stepStart + 500;
+    const stepFn = html.slice(stepStart, endIdx);
+    expect(stepFn).not.toContain('Math.max.apply');
+    expect(stepFn).toContain('scrubber.value');
+  });
+
+  it('export seek code uses elapsed-based alignment', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    const exportSection = html.slice(html.indexOf('seekPromises'));
+    expect(exportSection).toContain('const elapsed = startTime - activeClip.start');
+    expect(exportSection).toContain('target = ct[i].start + elapsed');
+  });
+});
+
+// --- copyFFmpegFiles ---
+
+describe('copyFFmpegFiles', () => {
+  it('copies ffmpeg.wasm files to ffmpeg/ subdirectory', () => {
+    withTmpDir(tmpDir => {
+      expect(copyFFmpegFiles(tmpDir)).toBe(true);
+      const ffmpegDir = path.join(tmpDir, 'ffmpeg');
+      expect(fs.existsSync(ffmpegDir)).toBe(true);
+      for (const file of ['index.js', 'classes.js', 'worker.js', 'ffmpeg-core.js', 'ffmpeg-core.wasm']) {
+        expect(fs.existsSync(path.join(ffmpegDir, file))).toBe(true);
+      }
+      const wasmPath = path.join(ffmpegDir, 'ffmpeg-core.wasm');
+      expect(fs.existsSync(wasmPath)).toBe(true);
+      expect(fs.statSync(wasmPath).size).toBeGreaterThan(1024 * 1024);
+    });
+  });
+
+  it('returns false and logs warning on copy failure', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      withTmpDir(tmpDir => {
+        fs.writeFileSync(path.join(tmpDir, 'blocker'), ''); // regular file blocks mkdir inside it
+        expect(copyFFmpegFiles(path.join(tmpDir, 'blocker'))).toBe(false);
+        expect(spy).toHaveBeenCalledOnce();
+        expect(spy.mock.calls[0][0]).toContain('Could not copy ffmpeg.wasm files');
+        expect(fs.existsSync(path.join(path.join(tmpDir, 'blocker'), 'ffmpeg'))).toBe(false);
+      });
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

@@ -1,4 +1,4 @@
-// Alpha — Recording delay: 100ms, Race duration: ~600ms
+// Alpha — Recording delay: 100ms, Render: ~600ms, Reload: ~400ms
 // The timer on screen shows elapsed ms since page load, making it easy
 // to verify that the trimmed video starts/ends at the right timestamps.
 
@@ -23,6 +23,16 @@ await page.raceStart('Render');
 await page.evaluate(() => window.__setPhase('racing', 600));
 await page.waitForTimeout(600);
 page.raceEnd('Render');
+
+// Gap between measurements
+await page.evaluate(() => window.__setPhase('recording'));
+await page.waitForTimeout(200);
+
+// --- Race measurement 2: ~400ms ---
+await page.raceStart('Reload');
+await page.evaluate(() => window.__setPhase('racing', 400));
+await page.waitForTimeout(400);
+page.raceEnd('Reload');
 
 // Padding after measurement
 await page.evaluate(() => window.__setPhase('done'));
