@@ -319,6 +319,7 @@ export function buildRaceContext({ racerNames, scripts, settings, rootDir = __di
     ffmpeg: settings.ffmpeg,
     har: settings.har,
     ignoreHTTPSErrors: settings.ignoreHTTPSErrors,
+    viewportHeight: settings.viewportHeight,
   };
 
   return { racerNames, settings, executionMode, throttle, runnerConfig, rootDir, raceDir, racerFiles };
