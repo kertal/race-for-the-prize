@@ -20,6 +20,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { waitForStability } = require('./visual-stability.cjs');
 const { deriveTraceTiming } = require('./trace-calibration.cjs');
+const { flashCue, injectOverlay, showRecordingIndicator, hideRecordingIndicator, showFinishTime, showMedal, CUE_DURATION_MS, CUE_SIZE } = require('./overlay.cjs');
 
 // Track active browsers/contexts for cleanup on SIGTERM/SIGINT
 let activeBrowsers = [];
@@ -28,7 +29,7 @@ let activeContexts = [];
 // --- Named constants (previously magic numbers) ---
 
 const OLD_VIDEO_CLEANUP_MS = 5000;      // Age threshold for deleting stale recordings
-const MEDAL_DISPLAY_MS = 500;           // How long to show the placement medal overlay
+// MEDAL_DISPLAY_MS moved to overlay.cjs
 const POST_RACE_WAIT_MS = 500;          // Pause after race finishes for final video frames
 const SLOWMO_MULTIPLIER = 20;           // Playwright slowMo factor per slowmo unit
 const PAGE_TIMEOUT_MS = 90000;          // Default page action/navigation timeout
@@ -461,15 +462,8 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   const activeMeasurements = {};
 
   // --- Visual cues for frame-accurate trimming / calibration ---
-  // Always injected into every recording. A tiny colored square in the top-left
-  // corner, displayed for ~2 frames (80ms at 25fps). Used by the HTML player's
-  // Canvas API to calibrate clip start/end positions client-side, independent
-  // of whether CDP screencast calibration is also available.
-  // 4px is the smallest size that reliably survives VP8 video compression.
   const CUE_COLOR_START = '#00FF00';
   const CUE_COLOR_END = '#FF0000';
-  const CUE_DURATION_MS = 200;  // Long enough to be captured even at ~5fps (200ms > 1/5fps = 200ms)
-  const CUE_SIZE = 4;
   const traceMarkPrefix = 'race:';
   const markTrace = async (markName) => {
     try {
@@ -494,114 +488,18 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
 
   const encodeMeasureName = (name) => encodeURIComponent(String(name ?? 'default'));
 
-  const flashCue = async (color, durationMs) => {
-    if (noRecording) return;
-    const dur = typeof durationMs === 'number' ? durationMs : CUE_DURATION_MS;
-    await page.evaluate(({ c, size, ms }) => {
-      const el = document.createElement('div');
-      el.id = '__race_cue';
-      // CSS animation forces compositor updates → guarantees screencast frame capture
-      el.style.cssText = 'position:fixed;top:0;left:0;width:' + size + 'px;height:' + size + 'px;z-index:2147483647;background:' + c + ';animation:__rcue 16ms steps(2) infinite';
-      var sheet = document.createElement('style');
-      sheet.textContent = '@keyframes __rcue{50%{opacity:.999}}';
-      document.head.appendChild(sheet);
-      document.documentElement.appendChild(el);
-      el.offsetHeight;
-      return new Promise(resolve => setTimeout(() => {
-        el.remove(); sheet.remove(); resolve();
-      }, ms));
-    }, { c: color, size: CUE_SIZE, ms: dur });
-  };
-
   // Track overlay state so it can be re-injected after page.goto() navigations
   // which destroy the DOM. null = hidden, otherwise { text, bg } = what to show.
   let overlayState = null;
-
-  const injectOverlay = async (text, bg) => {
-    await page.evaluate(({ text, bg }) => {
-      let el = document.getElementById('__race_rec_indicator');
-      if (!el) {
-        el = document.createElement('div');
-        el.id = '__race_rec_indicator';
-        el.style.cssText = 'position:fixed;top:12px;right:12px;z-index:2147483647;'
-          + 'color:#fff;padding:4px 10px;border-radius:6px;'
-          + 'font:bold 14px/1 system-ui,sans-serif;pointer-events:none';
-        document.body.appendChild(el);
-      }
-      el.textContent = text;
-      el.style.background = bg;
-    }, { text, bg });
-  };
 
   // Re-inject overlay after navigations (page.goto destroys the DOM)
   if (!noOverlay) {
     page.on('load', () => {
       if (overlayState) {
-        injectOverlay(overlayState.text, overlayState.bg).catch(() => {});
+        injectOverlay(page, overlayState.text, overlayState.bg).catch(() => {});
       }
     });
   }
-
-  const showRecordingIndicator = async () => {
-    if (noOverlay || noRecording) return;
-    overlayState = { text: '📹 REC', bg: 'rgba(220,38,38,0.85)' };
-    await injectOverlay(overlayState.text, overlayState.bg);
-  };
-
-  const showFinishTime = (duration) => {
-    if (noOverlay || noRecording) return;
-    overlayState = { text: '🏁 ' + duration.toFixed(1) + 's', bg: 'rgba(22,163,74,0.85)' };
-    injectOverlay(overlayState.text, overlayState.bg).catch(() => {});
-  };
-
-  const hideRecordingIndicator = async () => {
-    if (noOverlay || noRecording) return;
-    overlayState = null;
-    await page.evaluate(() => {
-      const el = document.getElementById('__race_rec_indicator');
-      if (el) el.remove();
-    });
-  };
-
-  const showMedal = async () => {
-    if (!sharedState) return;
-    // Record finish with actual measurement end time for accurate ranking
-    const lastMeasurement = measurements[measurements.length - 1];
-    const endTime = lastMeasurement ? lastMeasurement.endTime : (Date.now() - recordingStartTime) / 1000;
-    sharedState.finishOrder.push({ id, endTime });
-    if (noOverlay || noRecording) return;
-
-    if (isParallel) {
-      // Parallel mode: show placement medals based on actual end times
-      const sorted = [...sharedState.finishOrder].sort((a, b) => a.endTime - b.endTime);
-      const place = sorted.findIndex(f => f.id === id) + 1;
-      const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
-      const ordinals = ['1st', '2nd', '3rd', '4th', '5th'];
-      const medal = medals[place - 1] || `${place}`;
-      const ordinal = ordinals[place - 1] || `${place}th`;
-      await page.evaluate(({ medal, ordinal }) => {
-        const el = document.createElement('div');
-        el.id = '__race_medal';
-        el.textContent = medal + ' ' + ordinal;
-        el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483647;'
-          + 'font:bold 64px/1 system-ui,sans-serif;pointer-events:none;'
-          + 'background:rgba(0,0,0,0.6);color:#fff;padding:24px 48px;border-radius:16px';
-        document.body.appendChild(el);
-      }, { medal, ordinal });
-    } else {
-      // Sequential mode: just show finish flag (no placement since they don't race simultaneously)
-      await page.evaluate(() => {
-        const el = document.createElement('div');
-        el.id = '__race_medal';
-        el.textContent = '🏁';
-        el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483647;'
-          + 'font:bold 80px/1 system-ui,sans-serif;pointer-events:none;'
-          + 'background:rgba(0,0,0,0.6);color:#fff;padding:24px 48px;border-radius:16px';
-        document.body.appendChild(el);
-      });
-    }
-    await page.waitForTimeout(MEDAL_DISPLAY_MS);
-  };
 
   const startRecording = async () => {
     if (currentSegmentStart !== null) return;
@@ -612,8 +510,10 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     const startWallMs = Date.now();
     currentSegmentStart = (startWallMs - recordingStartTime) / 1000;
     await markTrace(`${traceMarkPrefix}recording:start`);
-    await flashCue(CUE_COLOR_START);
-    await showRecordingIndicator();
+    if (!noRecording) await flashCue(page, CUE_COLOR_START);
+    if (!noOverlay && !noRecording) {
+      overlayState = await showRecordingIndicator(page);
+    }
   };
 
 
@@ -624,9 +524,21 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     await markTrace(`${traceMarkPrefix}recording:end`);
     currentSegmentStart = null;
     stopPromise = (async () => {
-      await hideRecordingIndicator();
-      await showMedal();
-      await flashCue(CUE_COLOR_END);
+      if (!noOverlay && !noRecording) {
+        await hideRecordingIndicator(page);
+        overlayState = null;
+      }
+      if (sharedState) {
+        const lastMeasurement = measurements[measurements.length - 1];
+        const endTime = lastMeasurement ? lastMeasurement.endTime : (Date.now() - recordingStartTime) / 1000;
+        if (!noOverlay && !noRecording) {
+          await showMedal(page, { id, isParallel, sharedState, endTime });
+        } else {
+          // Still record finish order even when overlay is disabled
+          sharedState.finishOrder.push({ id, endTime });
+        }
+      }
+      if (!noRecording) await flashCue(page, CUE_COLOR_END);
     })();
     return stopPromise;
   };
@@ -647,7 +559,9 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     measurements.push({ name, startTime: start, endTime: end, duration });
     delete activeMeasurements[name];
     queueTraceMark(`${traceMarkPrefix}measure:end:${encodeMeasureName(name)}`);
-    showFinishTime(duration);
+    if (!noOverlay && !noRecording) {
+      overlayState = showFinishTime(page, duration);
+    }
     return end - start;
   };
 
