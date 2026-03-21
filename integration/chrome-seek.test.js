@@ -2,13 +2,16 @@
  * Integration test: Chrome seeks to calibrated start position when the static
  * server supports range requests.
  *
- * This test exercises the full stack:
+ * This test exercises the range-request + seek pipeline end-to-end:
  *  1. createStaticHandler serves WebM with Accept-Ranges / 206 responses so
  *     Chrome can make byte-range requests and seek into the file.
- *  2. The player's _durationForced fix handles duration=Infinity for WebM
- *     recordings that lack a Duration element in the container header.
- *  3. The canplay fallback in seekAllWithVerify retries the seek if
- *     readyState was too low when initSeek first ran.
+ *  2. The canplay fallback in seekAllWithVerify retries the seek when
+ *     readyState was too low (no buffered data) when initSeek first ran.
+ *
+ * Note: the ffmpeg-generated test videos include a Duration element so Chrome
+ * reports a finite duration at loadedmetadata — the _durationForced / Infinity
+ * workaround is not exercised here (it is covered by unit tests in
+ * tests/videoplayer.test.js).
  *
  * Requires: ffmpeg (to generate a test video), Playwright (chromium).
  * Skips cleanly when either tool is unavailable.

@@ -885,7 +885,7 @@ function trimVideoWithFfmpeg(outputDir, trimSegments, id) {
  * Called N times (once per racer) by runParallel or runSequential.
  */
 async function runBrowserRecording(config, barriers, isParallel, sharedState, opts = {}) {
-  const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, noRecording = false, ffmpeg = false, har = false, recordingsDir = null } = opts;
+  const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, noRecording = false, ffmpeg = false, har = false, recordingsDir = null, ignoreHTTPSErrors = false } = opts;
   const { id, headless } = config;
   const outputDir = recordingsDir ? path.join(recordingsDir, id) : path.join(__dirname, 'recordings', id);
   let browser = null;
@@ -913,7 +913,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     const harPath = har ? path.join(outputDir, `${id}.har`) : null;
     const contextOpts = {
       viewport: { width: viewportWidth, height: viewportHeight },
-      ignoreHTTPSErrors: true,
+      ignoreHTTPSErrors: ignoreHTTPSErrors || false,
     };
     if (!noRecording) {
       contextOpts.recordVideo = { dir: outputDir, size: { width: viewportWidth * videoScale, height: viewportHeight * videoScale } };
@@ -1082,8 +1082,8 @@ async function main() {
   try { config = JSON.parse(configJson); }
   catch (e) { console.error('Error: Invalid JSON:', e.message); process.exit(1); }
 
-  const { browsers, executionMode, throttle, headless, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir } = config;
-  const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir };
+  const { browsers, executionMode, throttle, headless, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir, ignoreHTTPSErrors } = config;
+  const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir, ignoreHTTPSErrors };
 
   // Set headless flag on all browser configs
   for (const browser of browsers) {

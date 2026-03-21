@@ -909,7 +909,7 @@ describe('buildPlayerHtml seekAllWithVerify', () => {
     const initSeekEnd = html.indexOf('};', initSeekStart) + 2;
     const initSeekFn = html.slice(initSeekStart, initSeekEnd);
     expect(initSeekFn).toContain('seekAllWithVerify(');
-    expect(initSeekFn).not.toMatch(/[^y]seekAll\(/); // no plain seekAll call
+    expect(initSeekFn).not.toMatch(/(^|\W)seekAll\(/); // no plain seekAll call (only seekAllWithVerify)
   });
 
   it('onMeta convertedAny branch uses seekAllWithVerify', () => {

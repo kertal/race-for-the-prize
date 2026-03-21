@@ -37,12 +37,10 @@ function fetch(server, urlPath, reqHeaders = {}) {
     http.get(opts, (res) => {
       const chunks = [];
       res.on('data', d => chunks.push(d));
-      res.on('end', () => resolve({
-        status: res.statusCode,
-        headers: res.headers,
-        body: Buffer.concat(chunks).toString(),
-        bodyBuffer: Buffer.concat(chunks),
-      }));
+      res.on('end', () => {
+        const buf = Buffer.concat(chunks);
+        resolve({ status: res.statusCode, headers: res.headers, body: buf.toString(), bodyBuffer: buf });
+      });
     });
   });
 }
@@ -163,5 +161,31 @@ describe('serveResults range request support', () => {
   it('responds 416 for inverted range (start > end)', async () => {
     const res = await fetch(server, '/data.bin', { range: 'bytes=10-5' });
     expect(res.status).toBe(416);
+  });
+
+  it('responds 206 for suffix-range (bytes=-N)', async () => {
+    const res = await fetch(server, '/data.bin', { range: 'bytes=-5' });
+    expect(res.status).toBe(206);
+    expect(res.bodyBuffer).toEqual(fileContent.slice(-5)); // last 5 bytes: VWXYZ
+  });
+
+  it('clamps suffix-range to full file when N exceeds file size', async () => {
+    const res = await fetch(server, '/data.bin', { range: 'bytes=-9999' });
+    expect(res.status).toBe(206);
+    expect(res.bodyBuffer).toEqual(fileContent); // entire file
+  });
+
+  it('responds 416 for bare bytes=- with no numbers', async () => {
+    const res = await fetch(server, '/data.bin', { range: 'bytes=-' });
+    expect(res.status).toBe(416);
+  });
+
+  it('returns 404 for directories (stat.isFile() guard)', async () => {
+    // The tmpDir itself is a directory — requesting it must not stream EISDIR.
+    const res = await fetch(server, '/');
+    // '/' is rewritten to index.html which is a file, so use a subdir instead.
+    fs.mkdirSync(path.join(tmpDir, 'subdir'), { recursive: true });
+    const dirRes = await fetch(server, '/subdir');
+    expect(dirRes.status).toBe(404);
   });
 });

@@ -377,7 +377,7 @@ export function createStaticHandler(dir) {
       'Cross-Origin-Embedder-Policy': 'require-corp',
     };
     fs.stat(filePath, (statErr, stat) => {
-      if (statErr) {
+      if (statErr || !stat.isFile()) {
         res.writeHead(404);
         res.end('Not found');
         return;
@@ -393,8 +393,18 @@ export function createStaticHandler(dir) {
       if (rangeHeader) {
         const m = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
         if (!m) { res.writeHead(416); res.end(); return; }
-        const start = m[1] ? parseInt(m[1], 10) : total - parseInt(m[2], 10);
-        const end = m[2] ? Math.min(parseInt(m[2], 10), total - 1) : total - 1;
+        let start, end;
+        if (!m[1] && !m[2]) {
+          // bytes=- with no numbers is invalid
+          res.writeHead(416); res.end(); return;
+        } else if (!m[1]) {
+          // Suffix range: bytes=-N → last N bytes
+          start = Math.max(0, total - parseInt(m[2], 10));
+          end = total - 1;
+        } else {
+          start = parseInt(m[1], 10);
+          end = m[2] ? Math.min(parseInt(m[2], 10), total - 1) : total - 1;
+        }
         if (start > end || start >= total) { res.writeHead(416); res.end(); return; }
         res.writeHead(206, { ...baseHeaders, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${total}` });
         pipeStream(fs.createReadStream(filePath, { start, end }));
