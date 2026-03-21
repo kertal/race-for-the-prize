@@ -983,6 +983,24 @@ function drawExportFrame(ctx, layout) {
     ctx.fillText(racerNames[i] || '', pos.x + layout.targetW / 2, pos.y + layout.labelH - 8);
     try { ctx.drawImage(v, pos.x, pos.y + layout.labelH, layout.targetW, layout.cellH); } catch {}
   }
+  // Clock overlay: matches the ffmpeg drawtext style in sidebyside.js
+  const t = primary ? (primary.currentTime || 0) : 0;
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = Math.floor(t % 60);
+  const clockText = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  ctx.font = 'bold 18px monospace';
+  ctx.textAlign = 'center';
+  const metrics = ctx.measureText(clockText);
+  const tw = metrics.width;
+  const th = 22;
+  const pad = 4;
+  const cx = layout.canvasW / 2;
+  const cy = layout.canvasH - th - 10;
+  ctx.fillStyle = 'rgba(0,0,0,0.8)';
+  ctx.fillRect(cx - tw / 2 - pad, cy - th + pad, tw + pad * 2, th + pad);
+  ctx.fillStyle = '#fff';
+  ctx.fillText(clockText, cx, cy + pad);
 }
 
 // --- Browser-based format conversion via ffmpeg.wasm ---
