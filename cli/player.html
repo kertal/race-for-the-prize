@@ -61,21 +61,7 @@
     text-transform: uppercase;
     letter-spacing: 0.15em;
   }
-  .winner-banner:empty { display: none; }
-  .winner-banner {
-    text-align: center;
-    font-family: Georgia, serif;
-    font-size: 1.2rem;
-    color: #e8e0d0;
-    padding-bottom: 1rem;
-  }
   .trophy { font-size: 1.1rem; }
-  .video-source-note {
-    text-align: center;
-    font-size: 0.8rem;
-    color: #777;
-    padding-bottom: 0.5rem;
-  }
   .race-info, .machine-info {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
@@ -739,8 +725,6 @@
 <div class="checkered-bar"></div>
 {{runNav}}
 <h1>Race for the Prize</h1>
-<div class="winner-banner">{{winnerBanner}}</div>
-{{videoSourceNote}}
 {{errors}}
 {{modeToggle}}
 

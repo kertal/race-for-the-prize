@@ -32,7 +32,7 @@ export function escHtml(str) {
 }
 
 /** Sort racers by value ascending (best first), nulls last. */
-export function sortByValue(racers, getValue) {
+function sortByValue(racers, getValue) {
   return racers
     .map((name, i) => ({ name, index: i, ...getValue(i) }))
     .sort((a, b) => {

@@ -178,9 +178,6 @@ function onMeta() {
       if (!isValidClipEntry(clipTimes[i]) || !videos[i] || (videos[i].readyState < 1)) continue;
       const clipEntry = clipTimes[i];
       if (clipEntry._converted) continue;
-      // _converted is always false here (the guard above skips converted entries),
-      // but we capture it before mutating so the convertedAny check below is explicit.
-      const wasConverted = !!clipEntry._converted;
       if (clipEntry._wcStart == null) { clipEntry._wcStart = clipEntry.start; clipEntry._wcEnd = clipEntry.end; }
       if (!canApplyTraceCalibration(clipEntry)) {
         failCalibration('Calibration error: missing trace calibration metadata. Please calibrate manually.');
@@ -194,7 +191,7 @@ function onMeta() {
         return;
       }
       applyCalibrationToClip(clipEntry, tracePtsStart, videos[i].duration);
-      if (!wasConverted && clipEntry._converted) convertedAny = true;
+      if (clipEntry._converted) convertedAny = true;
     }
   }
   activeClip = resolveAdjustedClip();

@@ -538,9 +538,6 @@ function loadRaceDir(raceDir) {
     console.error(`${c.red}Error: Need at least 2 .spec.js (or .js) script files in ${raceDir}, found ${racerFiles.length}${c.reset}`);
     process.exit(1);
   }
-  if (racerFiles.length > 5) {
-    console.error(`${c.yellow}Warning: Found ${racerFiles.length} script files, using first five: ${racerFiles.slice(0, 5).join(', ')}${c.reset}`);
-  }
   const scripts = racerFiles.map(f => fs.readFileSync(path.join(raceDir, f), 'utf-8'));
 
   let settings = {};

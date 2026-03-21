@@ -73,8 +73,6 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     ? `Race: ${escHtml(racers[0])} vs ${escHtml(racers[1])}`
     : `Race: ${racers.map(escHtml).join(' vs ')}`;
 
-  const winnerBanner = '';
-
   const hasVideos = videoFiles && videoFiles.length > 0;
   const placementOrder = getPlacementOrder(summary);
 
@@ -146,8 +144,6 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     title,
     layoutCss: `.player-container { max-width: ${containerMaxWidth}px; }\n  .racer { max-width: ${maxWidth}px; }`,
     runNav: buildRunNavHtml(runNavigation),
-    winnerBanner,
-    videoSourceNote: '',
     raceInfo: buildRaceInfoHtml(summary),
     machineInfo: buildMachineInfoHtml(summary.machineInfo),
     errors: buildErrorsHtml(summary.errors),
