@@ -970,7 +970,7 @@ function getExportLayout(count) {
   return { canvasW, canvasH, targetW, cellH, labelH: LABEL_H, positions };
 }
 
-function drawExportFrame(ctx, layout) {
+function drawExportFrame(ctx, layout, clockTime) {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, layout.canvasW, layout.canvasH);
   for (let i = 0; i < raceVideos.length; i++) {
@@ -984,7 +984,7 @@ function drawExportFrame(ctx, layout) {
     try { ctx.drawImage(v, pos.x, pos.y + layout.labelH, layout.targetW, layout.cellH); } catch {}
   }
   // Clock overlay: matches the ffmpeg drawtext style in sidebyside.js
-  const t = primary ? (primary.currentTime || 0) : 0;
+  const t = clockTime != null ? clockTime : (primary ? (primary.currentTime || 0) : 0);
   const h = Math.floor(t / 3600);
   const m = Math.floor((t % 3600) / 60);
   const s = Math.floor(t % 60);
@@ -1224,8 +1224,8 @@ async function startExport() {
 
   function tick() {
     if (cancelled) return;
-    drawExportFrame(ctx, layout);
     const cur = Math.max(...raceVideos.map(v => v?.currentTime || 0));
+    drawExportFrame(ctx, layout, cur);
     const progress = totalDur > 0 ? Math.min(1, (cur - startTime) / totalDur) : 0;
     progressFill.style.width = (progress * 100).toFixed(1) + '%';
     statusEl.textContent = 'Recording' + speedLabel + '... ' + Math.round(progress * 100) + '%';
