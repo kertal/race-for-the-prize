@@ -925,6 +925,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
   else if (e.key === 'Home') { e.preventDefault(); goToStart(); }
   else if (e.key === 'End') { e.preventDefault(); goToEnd(); }
+  else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFullscreen(); }
 });
 
 // --- Racer filter (3+ racers only) ---
@@ -1314,6 +1315,42 @@ if (exportBtn) {
   exportBtn.addEventListener('click', startExport);
 }
 
+// --- Fullscreen mode ---
+
+const fullscreenBtn = document.getElementById('fullscreenBtn');
+const fullscreenWrapper = document.getElementById('fullscreenWrapper');
+
+function isFullscreen() {
+  return !!(document.fullscreenElement || document.webkitFullscreenElement);
+}
+
+function toggleFullscreen() {
+  if (!fullscreenWrapper) return;
+  try {
+    if (isFullscreen()) {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exit) exit.call(document)?.catch?.(() => {});
+    } else {
+      const request = fullscreenWrapper.requestFullscreen || fullscreenWrapper.webkitRequestFullscreen;
+      if (request) request.call(fullscreenWrapper)?.catch?.(() => {});
+    }
+  } catch (_) { /* unsupported */ }
+}
+
+function onFullscreenChange() {
+  if (fullscreenBtn) {
+    const fs = isFullscreen();
+    fullscreenBtn.textContent = fs ? '\u2716' : '\u26F6';
+    fullscreenBtn.title = fs ? 'Exit fullscreen (Esc)' : 'Fullscreen (F)';
+  }
+}
+
+if (fullscreenBtn) {
+  fullscreenBtn.addEventListener('click', toggleFullscreen);
+}
+document.addEventListener('fullscreenchange', onFullscreenChange);
+document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+
 // --- Export HTML: self-contained zip with videos, profiles, baked adjustments ---
 
 const _crc32Table = new Uint32Array(256);
@@ -1566,4 +1603,3 @@ const exportHtmlBtn = document.getElementById('exportHtmlBtn');
 if (exportHtmlBtn) {
   exportHtmlBtn.addEventListener('click', startHtmlExport);
 }
-
