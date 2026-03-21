@@ -399,6 +399,7 @@ export function findMedianRunIndexPerRacer(summaries, medianSummary) {
  * Returns an array (one per racer) of profile metric objects { total: {...}, measured: {...} }.
  */
 function buildMedianProfileMetrics(summaries) {
+  if (!summaries || summaries.length === 0) return null;
   const racers = summaries[0].racers;
   const hasAny = summaries.some(s => s.profileMetrics?.some(Boolean));
   if (!hasAny) return null;

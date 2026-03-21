@@ -758,12 +758,12 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   } catch (error) {
     console.error(`[${id}] Script failed: ${error.message}`);
     throw new Error(`Script execution failed: ${error.message}`);
-  }
-
-  // Clean up CDP session used by raceWaitForVisualStability
-  if (cdpSession) {
-    try { await cdpSession.detach(); } catch {}
-    cdpSession = null;
+  } finally {
+    // Clean up CDP session used by raceWaitForVisualStability
+    if (cdpSession) {
+      try { await cdpSession.detach(); } catch {}
+      cdpSession = null;
+    }
   }
 
   if (currentSegmentStart !== null) await stopRecording();
@@ -789,6 +789,8 @@ const NETWORK_PRESETS = {
 async function applyThrottling(page, throttle, id) {
   if (!throttle) return;
   try {
+    // CDP session intentionally kept alive — detaching removes throttling.
+    // Session is cleaned up when the browser context closes.
     const client = await page.context().newCDPSession(page);
     const net = NETWORK_PRESETS[throttle.network];
     if (net) {
@@ -890,6 +892,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
   const outputDir = recordingsDir ? path.join(recordingsDir, id) : path.join(__dirname, 'recordings', id);
   let browser = null;
   let context = null;
+  let metricsCollector = null;
   let error = null;
 
   fs.mkdirSync(outputDir, { recursive: true });
@@ -933,7 +936,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     await setupClickTracker(context, recordingStartTime);
     await applyThrottling(page, throttle, id);
 
-    const metricsCollector = await startProfiling(page, browser, id);
+    metricsCollector = await startProfiling(page, browser, id);
 
     const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay, metricsCollector, noRecording);
     const markerSegments = result?.segments || [];
@@ -972,6 +975,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
         recordingOffset,
         wallClockDuration,
         calibratedStart: null,
+        traceCalibration: null,
         error: null
       };
     }
@@ -1011,6 +1015,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
   } catch (e) {
     error = e;
     console.error(`[${id}] Error: ${e.message}`);
+    if (metricsCollector) { try { await metricsCollector.detach(); } catch {} }
     if (sharedState) { sharedState.hasError = true; sharedState.errorMessage = e.message; }
     if (barriers) {
       barriers.ready.releaseAll();
@@ -1032,6 +1037,10 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     measurements: [],
     profileMetrics: null,
     recordingSegments: null,
+    recordingOffset: 0,
+    wallClockDuration: 0,
+    calibratedStart: null,
+    traceCalibration: null,
     error: error ? error.message : null
   };
 }
