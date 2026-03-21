@@ -25,6 +25,11 @@ describe('isUrl', () => {
     expect(isUrl('ftp://files.example.com')).toBe(false);
     expect(isUrl('--parallel')).toBe(false);
   });
+
+  it('rejects bare protocols without hostname', () => {
+    expect(isUrl('https://')).toBe(false);
+    expect(isUrl('http://')).toBe(false);
+  });
 });
 
 describe('deriveRacerName', () => {
@@ -50,6 +55,20 @@ describe('deriveRacerName', () => {
     const name = deriveRacerName('not-a-url');
     expect(typeof name).toBe('string');
     expect(name.length).toBeGreaterThan(0);
+  });
+
+  it('sanitizes filesystem-unsafe characters from hostnames', () => {
+    // IPv6 addresses have colons which are invalid on some filesystems
+    const name = deriveRacerName('http://[::1]:8080/path');
+    expect(name).not.toContain(':');
+    expect(name).not.toContain('[');
+    expect(name).not.toContain(']');
+  });
+
+  it('truncates very long hostnames', () => {
+    const longHost = 'a'.repeat(50) + '.example.com';
+    const name = deriveRacerName(`https://${longHost}`);
+    expect(name.length).toBeLessThanOrEqual(40);
   });
 });
 

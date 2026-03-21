@@ -576,6 +576,16 @@ if (positional.length === 1 && isUrl(positional[0])) {
 }
 
 const urlMode = positional.length >= 2 && positional.every(p => isUrl(p));
+
+// Catch mixed URL/path inputs (e.g. "node race.js https://a.com ./dir")
+if (!urlMode && positional.length >= 2 && positional.some(p => isUrl(p))) {
+  const nonUrls = positional.filter(p => !isUrl(p));
+  console.error(`${c.red}Error: Cannot mix URLs and directory paths. These are not valid URLs: ${nonUrls.join(', ')}${c.reset}`);
+  console.error(`${c.dim}  For URL mode, pass only URLs: node race.js https://a.com https://b.com${c.reset}`);
+  console.error(`${c.dim}  For directory mode, pass a race directory: node race.js ./races/my-race${c.reset}`);
+  process.exit(1);
+}
+
 let raceDir;
 let ctx, settings, racerNames;
 

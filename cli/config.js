@@ -61,23 +61,31 @@ export function discoverRacers(raceDir) {
 }
 
 /**
- * Check if a string looks like a URL (http:// or https://).
+ * Check if a string is a valid http(s) URL with a hostname.
  */
 export function isUrl(str) {
-  return /^https?:\/\//i.test(str);
+  try {
+    const u = new URL(str);
+    return (u.protocol === 'http:' || u.protocol === 'https:') && u.hostname !== '';
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Derive a short racer name from a URL.
- * Uses the hostname, stripping "www." prefix.
+ * Derive a short, filesystem-safe racer name from a URL.
+ * Uses the hostname, stripping "www." prefix and sanitizing.
  */
 export function deriveRacerName(url) {
+  let name;
   try {
-    return new URL(url).hostname.replace(/^www\./, '');
+    name = new URL(url).hostname.replace(/^www\./, '');
   } catch {
-    // Fallback: sanitize for filesystem safety (no path traversal)
-    return url.replaceAll(/^https?:\/\//g, '').replaceAll(/[^a-zA-Z0-9.-]/g, '_').replaceAll(/\.{2,}/g, '.').slice(0, 40) || 'url';
+    name = url.replaceAll(/^https?:\/\//g, '').replaceAll(/[^a-zA-Z0-9.-]/g, '_');
   }
+  // Sanitize: remove filesystem-unsafe chars (e.g. IPv6 colons),
+  // collapse consecutive dots, and truncate
+  return name.replaceAll(/[^a-zA-Z0-9.-]/g, '_').replaceAll(/\.{2,}/g, '.').slice(0, 40) || 'url';
 }
 
 /**
