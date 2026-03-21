@@ -5,7 +5,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { c, RACER_COLORS } from './colors.js';
+import { c, RACER_COLORS, TERMINAL_SEPARATOR_WIDTH } from './colors.js';
 import { buildProfileComparison, printProfileAnalysis, buildProfileMarkdown, PROFILE_METRICS } from './profile-analysis.js';
 import { determineOverallWinner } from './race-utils.js';
 
@@ -171,7 +171,7 @@ function printBar(label, duration, maxDuration, color, isWinner, width = 30) {
 
 export function printSummary(summary) {
   const { racers, comparisons, overallWinner, wins, errors, clickCounts, profileComparison } = summary;
-  const w = 54;
+  const w = TERMINAL_SEPARATOR_WIDTH;
 
   const write = (s) => process.stderr.write(s);
 

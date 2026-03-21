@@ -4,6 +4,7 @@
  */
 
 import fs from 'fs';
+import { MAX_RACERS, MAX_RUNS, MAX_SLOWMO, MIN_VIEWPORT_HEIGHT, MAX_VIEWPORT_HEIGHT, DEFAULT_VIEWPORT_HEIGHT } from './colors.js';
 
 const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'height']);
 
@@ -47,8 +48,8 @@ export function discoverRacers(raceDir) {
     }
   }
 
-  if (racerFiles.length > 5) {
-    racerFiles = racerFiles.slice(0, 5);
+  if (racerFiles.length > MAX_RACERS) {
+    racerFiles = racerFiles.slice(0, MAX_RACERS);
   }
 
   const racerNames = racerFiles.map(f => f.replace(/\.spec\.js$/, '').replace(/\.js$/, ''));
@@ -92,15 +93,15 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   }
   if (kvFlags.runs !== undefined) {
     const runs = Number(kvFlags.runs);
-    s.runs = Number.isFinite(runs) && runs >= 1 ? Math.min(Math.round(runs), 100) : 1;
+    s.runs = Number.isFinite(runs) && runs >= 1 ? Math.min(Math.round(runs), MAX_RUNS) : 1;
   }
   if (kvFlags.slowmo !== undefined) {
     const slowmo = Number(kvFlags.slowmo);
-    s.slowmo = Number.isFinite(slowmo) && slowmo >= 0 ? Math.min(slowmo, 20) : 0;
+    s.slowmo = Number.isFinite(slowmo) && slowmo >= 0 ? Math.min(slowmo, MAX_SLOWMO) : 0;
   }
   if (kvFlags.height !== undefined) {
     const height = Number(kvFlags.height);
-    s.viewportHeight = Number.isFinite(height) ? Math.min(Math.max(Math.round(height), 480), 4320) : 720;
+    s.viewportHeight = Number.isFinite(height) ? Math.min(Math.max(Math.round(height), MIN_VIEWPORT_HEIGHT), MAX_VIEWPORT_HEIGHT) : DEFAULT_VIEWPORT_HEIGHT;
   }
   return s;
 }

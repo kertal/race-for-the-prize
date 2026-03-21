@@ -10,7 +10,7 @@
  * - "total": metrics for the entire browser session
  */
 
-import { c, RACER_COLORS } from './colors.js';
+import { c, RACER_COLORS, TERMINAL_SEPARATOR_WIDTH } from './colors.js';
 import { determineOverallWinner } from './race-utils.js';
 
 /**
@@ -268,7 +268,7 @@ function printProfileSection(title, section, racers, w, write) {
  */
 export function printProfileAnalysis(profileComparison, racers) {
   const { measured, total } = profileComparison;
-  const w = 54;
+  const w = TERMINAL_SEPARATOR_WIDTH;
 
   const write = (s) => process.stderr.write(s);
 

@@ -44,6 +44,17 @@ export function codecArgs(format) {
   return [];  // Unknown format — let ffmpeg infer from extension
 }
 
+// CLI limits
+export const MAX_RACERS = 5;
+export const MAX_RUNS = 100;
+export const MAX_SLOWMO = 20;
+export const MIN_VIEWPORT_HEIGHT = 480;
+export const MAX_VIEWPORT_HEIGHT = 4320;
+export const DEFAULT_VIEWPORT_HEIGHT = 720;
+
+// Terminal output
+export const TERMINAL_SEPARATOR_WIDTH = 54;
+
 // Visual cue detection thresholds for frame-accurate trimming
 export const CUE_DETECTION = {
   startHueMin: 130,       // Green cue min hue
