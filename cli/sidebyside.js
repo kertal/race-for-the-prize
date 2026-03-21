@@ -27,20 +27,28 @@ function buildFilterComplex(count, slowmo, format) {
     : '';
   const scaleWidth = count <= 3 ? scaleWidth2to3 : scaleWidth4to5;
 
+  // Clock overlay: small white text on black box, bottom center
+  // When slowmo is applied, PTS is already scaled so the clock reflects video playback time
+  const clock = `drawtext=text='%{pts\\:hms}':fontsize=18:fontcolor=white:box=1:boxcolor=black@0.8:boxborderw=4:x=(w-tw)/2:y=h-th-10`;
+
+  let layout;
   if (count === 2) {
-    return `[0:v]${pts}scale=${scaleWidth}:-2[v0];[1:v]${pts}scale=${scaleWidth}:-2[v1];[v0][v1]hstack=inputs=2${gifTail}`;
+    layout = `[0:v]${pts}scale=${scaleWidth}:-2[v0];[1:v]${pts}scale=${scaleWidth}:-2[v1];[v0][v1]hstack=inputs=2`;
   } else if (count === 3) {
-    return `[0:v]${pts}scale=${scaleWidth}:-2[v0];[1:v]${pts}scale=${scaleWidth}:-2[v1];[2:v]${pts}scale=${scaleWidth}:-2[v2];[v0][v1][v2]hstack=inputs=3${gifTail}`;
+    layout = `[0:v]${pts}scale=${scaleWidth}:-2[v0];[1:v]${pts}scale=${scaleWidth}:-2[v1];[2:v]${pts}scale=${scaleWidth}:-2[v2];[v0][v1][v2]hstack=inputs=3`;
   } else if (count === 4) {
     // 2x2 grid
-    return `[0:v]${pts}scale=${scaleWidth}:-2[v0];[1:v]${pts}scale=${scaleWidth}:-2[v1];[2:v]${pts}scale=${scaleWidth}:-2[v2];[3:v]${pts}scale=${scaleWidth}:-2[v3];[v0][v1]hstack=inputs=2[top];[v2][v3]hstack=inputs=2[bot];[top][bot]vstack=inputs=2${gifTail}`;
+    layout = `[0:v]${pts}scale=${scaleWidth}:-2[v0];[1:v]${pts}scale=${scaleWidth}:-2[v1];[2:v]${pts}scale=${scaleWidth}:-2[v2];[3:v]${pts}scale=${scaleWidth}:-2[v3];[v0][v1]hstack=inputs=2[top];[v2][v3]hstack=inputs=2[bot];[top][bot]vstack=inputs=2`;
   } else if (count === 5) {
     // 3 on top, 2 on bottom with padding to center
     // Bottom row needs half-width padding on each side
     const halfWidth = Math.floor(scaleWidth / 2);
-    return `[0:v]${pts}scale=${scaleWidth}:-2[v0];[1:v]${pts}scale=${scaleWidth}:-2[v1];[2:v]${pts}scale=${scaleWidth}:-2[v2];[3:v]${pts}scale=${scaleWidth}:-2[v3];[4:v]${pts}scale=${scaleWidth}:-2[v4];[v0][v1][v2]hstack=inputs=3[top];[v3][v4]hstack=inputs=2[bot2];[bot2]pad=iw+${scaleWidth}:ih:${halfWidth}:0:black[bot];[top][bot]vstack=inputs=2${gifTail}`;
+    layout = `[0:v]${pts}scale=${scaleWidth}:-2[v0];[1:v]${pts}scale=${scaleWidth}:-2[v1];[2:v]${pts}scale=${scaleWidth}:-2[v2];[3:v]${pts}scale=${scaleWidth}:-2[v3];[4:v]${pts}scale=${scaleWidth}:-2[v4];[v0][v1][v2]hstack=inputs=3[top];[v3][v4]hstack=inputs=2[bot2];[bot2]pad=iw+${scaleWidth}:ih:${halfWidth}:0:black[bot];[top][bot]vstack=inputs=2`;
+  } else {
+    return '';
   }
-  return '';
+
+  return `${layout}[merged];[merged]${clock}${gifTail}`;
 }
 
 export function createSideBySide(videoPaths, outputPath, format = 'webm', slowmo = 0) {
