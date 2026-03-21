@@ -254,4 +254,39 @@ describe('settings override', () => {
     applyOverrides(orig, new Set(['parallel']), {});
     expect(orig.parallel).toBe(false);
   });
+
+  it('CLI --height sets viewportHeight', () => {
+    const s = applyOverrides({}, new Set(), { height: '1080' });
+    expect(s.viewportHeight).toBe(1080);
+  });
+
+  it('--height rounds to nearest integer', () => {
+    const s = applyOverrides({}, new Set(), { height: '999.7' });
+    expect(s.viewportHeight).toBe(1000);
+  });
+
+  it('--height clamps values below 480 to 480', () => {
+    const s = applyOverrides({}, new Set(), { height: '100' });
+    expect(s.viewportHeight).toBe(480);
+  });
+
+  it('--height clamps values above 4320 to 4320', () => {
+    const s = applyOverrides({}, new Set(), { height: '9999' });
+    expect(s.viewportHeight).toBe(4320);
+  });
+
+  it('--height defaults to 720 for non-numeric input', () => {
+    const s = applyOverrides({}, new Set(), { height: 'abc' });
+    expect(s.viewportHeight).toBe(720);
+  });
+
+  it('parseArgs handles --height=1080 format', () => {
+    const { kvFlags } = parseArgs(['dir', '--height=1080']);
+    expect(kvFlags.height).toBe('1080');
+  });
+
+  it('parseArgs handles --height 1080 space-separated format', () => {
+    const { kvFlags } = parseArgs(['dir', '--height', '1080']);
+    expect(kvFlags.height).toBe('1080');
+  });
 });

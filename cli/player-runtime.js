@@ -114,7 +114,11 @@ const US_PER_SECOND = 1e6; // trace timestamps are in microseconds
 
 function traceTsToClipPts(ct, traceTs) {
   if (!hasTraceCalibration(ct) || !Number.isFinite(traceTs)) return null;
-  return (traceTs - ct.traceCalibration.recordingStartTs) / US_PER_SECOND;
+  // Video PTS is measured from firstFrameTs (the first captured frame = PTS 0).
+  // Using recordingStartTs as the base would give time-since-recording-started,
+  // which is ct.start seconds too early once applyCalibrationToClip has set
+  // ct.start = (recordingStartTs - firstFrameTs) / US_PER_SECOND.
+  return (traceTs - ct.traceCalibration.firstFrameTs) / US_PER_SECOND;
 }
 
 function seekAll(t) {
@@ -202,9 +206,12 @@ function onMeta() {
     const fn = pendingSeek;
     pendingSeek = null;
     fn();
-  } else if (convertedAny && !playing) {
+  } else if (convertedAny && !playing && videos.every(v => !v || v.readyState >= 1)) {
     // If conversion landed after the initial seek was already consumed,
     // force one seek to the actual clip start to avoid stale startup frame.
+    // Guard: all videos must be at HAVE_METADATA (readyState >= 1) before
+    // seeking — calling seekAllWithVerify while another video is still at
+    // readyState 0 seeds seeked/canplay listeners with stale clip positions.
     seekAllWithVerify(activeClip ? activeClip.start : 0);
     scrubber.value = 0;
     updateTimeDisplay();
@@ -1032,7 +1039,7 @@ function getExportLayout(count) {
   return { canvasW, canvasH, targetW, cellH, labelH: LABEL_H, positions };
 }
 
-function drawExportFrame(ctx, layout) {
+function drawExportFrame(ctx, layout, clockTime) {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, layout.canvasW, layout.canvasH);
   for (let i = 0; i < raceVideos.length; i++) {
@@ -1045,6 +1052,25 @@ function drawExportFrame(ctx, layout) {
     ctx.fillText(racerNames[i] || '', pos.x + layout.targetW / 2, pos.y + layout.labelH - 8);
     try { ctx.drawImage(v, pos.x, pos.y + layout.labelH, layout.targetW, layout.cellH); } catch {}
   }
+  // Clock overlay: matches the ffmpeg drawtext style in sidebyside.js
+  const t = clockTime != null ? clockTime : (primary ? (primary.currentTime || 0) : 0);
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = Math.floor(t % 60);
+  const ms = Math.floor((t % 1) * 1000);
+  const clockText = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(ms).padStart(3,'0')}`;
+  ctx.font = 'bold 18px monospace';
+  ctx.textAlign = 'center';
+  const metrics = ctx.measureText(clockText);
+  const tw = metrics.width;
+  const th = 22;
+  const pad = 4;
+  const cx = layout.canvasW / 2;
+  const cy = layout.canvasH - th - 10;
+  ctx.fillStyle = 'rgba(0,0,0,0.8)';
+  ctx.fillRect(cx - tw / 2 - pad, cy - th + pad, tw + pad * 2, th + pad);
+  ctx.fillStyle = '#fff';
+  ctx.fillText(clockText, cx, cy + pad);
 }
 
 // --- Browser-based format conversion via ffmpeg.wasm ---
@@ -1267,8 +1293,8 @@ async function startExport() {
 
   function tick() {
     if (cancelled) return;
-    drawExportFrame(ctx, layout);
     const cur = Math.max(...raceVideos.map(v => v?.currentTime || 0));
+    drawExportFrame(ctx, layout, cur);
     const progress = totalDur > 0 ? Math.min(1, (cur - startTime) / totalDur) : 0;
     progressFill.style.width = (progress * 100).toFixed(1) + '%';
     statusEl.textContent = 'Recording' + speedLabel + '... ' + Math.round(progress * 100) + '%';
