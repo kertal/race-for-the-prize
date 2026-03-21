@@ -78,6 +78,89 @@ export async function waitForEnter(message) {
 
 // --- Race execution (module-scope functions with explicit context) ---
 
+/**
+ * Copy race scripts and settings.json from the race directory into runDir.
+ * Returns { raceScriptFiles, settingsFileCopied }.
+ */
+function copyRaceAssets(raceDir, racerFiles, runDir) {
+  const raceScriptFiles = [];
+  let settingsFileCopied = false;
+  if (raceDir && racerFiles) {
+    for (const f of racerFiles) {
+      try {
+        fs.copyFileSync(path.join(raceDir, f), path.join(runDir, f));
+        raceScriptFiles.push(f);
+      } catch (e) {
+        console.error(`${c.dim}Warning: Could not copy race script ${f}: ${e.message}${c.reset}`);
+      }
+    }
+    const srcSettings = path.join(raceDir, 'settings.json');
+    if (fs.existsSync(srcSettings)) {
+      try {
+        fs.copyFileSync(srcSettings, path.join(runDir, 'settings.json'));
+        settingsFileCopied = true;
+      } catch (e) {
+        console.error(`${c.dim}Warning: Could not copy settings.json: ${e.message}${c.reset}`);
+      }
+    }
+  }
+  return { raceScriptFiles, settingsFileCopied };
+}
+
+/**
+ * Build clip times from recording segments for player-level trimming (default mode).
+ * Uses only the first segment per racer — multiple non-contiguous segments are not
+ * supported in player-level trimming (--ffmpeg mode concatenates them into one video).
+ *
+ * @param {string[]} racerNames
+ * @param {function} getBrowserData - (racerIndex) => browser data object
+ * @param {boolean} ffmpeg - whether ffmpeg mode is enabled (clip times are null in ffmpeg mode)
+ * @returns {Array|null}
+ */
+function buildClipTimes(racerNames, getBrowserData, ffmpeg) {
+  if (ffmpeg) return null;
+  return racerNames.map((_, i) => {
+    const b = getBrowserData(i);
+    const segs = b?.recordingSegments;
+    if (!segs || segs.length === 0) return null;
+    return {
+      start: segs[0].start,
+      end: segs[0].end,
+      recordingOffset: b?.recordingOffset || 0,
+      wallClockDuration: b?.wallClockDuration || 0,
+      measurements: b?.measurements || [],
+      calibratedStart: b?.calibratedStart ?? null,
+      traceCalibration: b?.traceCalibration || null,
+    };
+  });
+}
+
+/**
+ * Write the player HTML and optionally copy FFmpeg files into runDir.
+ *
+ * @param {object} options
+ * @param {string} options.runDir - output directory
+ * @param {object} options.summary - race summary
+ * @param {string[]} options.racerNames
+ * @param {object} options.settings
+ * @param {string[]} options.videoFiles
+ * @param {object} options.playerExtras - additional fields merged into playerOptions
+ * @param {object} options.raceOptions - { skipCopyFFmpeg, ffmpegPathPrefix }
+ */
+function writePlayerAndAssets({ runDir, summary, settings, videoFiles, playerExtras, raceOptions }) {
+  const { format, ffmpeg, noWasm } = settings;
+  const altFormat = ffmpeg && format !== 'webm' ? format : null;
+  const playerOptions = {
+    ...playerExtras,
+    ffmpegPathPrefix: raceOptions.ffmpegPathPrefix || './',
+  };
+  fs.writeFileSync(
+    path.join(runDir, 'index.html'),
+    buildPlayerHtml(summary, videoFiles, altFormat, playerExtras.altFiles || null, playerOptions)
+  );
+  if (!raceOptions.skipCopyFFmpeg && !noWasm) copyFFmpegFiles(runDir);
+}
+
 /** Spawn the runner process, show animation, return parsed JSON result. */
 export function spawnRunner(ctx) {
   const { racerNames, settings, executionMode, throttle, runnerConfig, rootDir } = ctx;
@@ -169,28 +252,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
   const result = await spawnRunner(raceCtx);
 
   let results, summary, sideBySidePath = null, sideBySideName = null, clipTimes = null;
-  // Copy race scripts and settings.json to results directory for export
-  const raceScriptFiles = [];
-  let settingsFileCopied = false;
-  if (ctx.raceDir && ctx.racerFiles) {
-    for (const f of ctx.racerFiles) {
-      try {
-        fs.copyFileSync(path.join(ctx.raceDir, f), path.join(runDir, f));
-        raceScriptFiles.push(f);
-      } catch (e) {
-        console.error(`${c.dim}Warning: Could not copy race script ${f}: ${e.message}${c.reset}`);
-      }
-    }
-    const srcSettings = path.join(ctx.raceDir, 'settings.json');
-    if (fs.existsSync(srcSettings)) {
-      try {
-        fs.copyFileSync(srcSettings, path.join(runDir, 'settings.json'));
-        settingsFileCopied = true;
-      } catch (e) {
-        console.error(`${c.dim}Warning: Could not copy settings.json: ${e.message}${c.reset}`);
-      }
-    }
-  }
+  const { raceScriptFiles, settingsFileCopied } = copyRaceAssets(ctx.raceDir, ctx.racerFiles, runDir);
   const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
 
   if (noRecording) {
@@ -273,37 +335,23 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
       return results[i]?.harPath ? `${name}/${name}.har` : null;
     });
 
-    // Collect clip times from recording segments for player-level trimming (default mode).
-    // Uses only the first segment per racer — multiple non-contiguous segments are not
-    // supported in player-level trimming (--ffmpeg mode concatenates them into one video).
-    clipTimes = ffmpeg ? null : racerNames.map((_, i) => {
-      const b = result.browsers?.[i];
-      const segs = b?.recordingSegments;
-      if (!segs || segs.length === 0) return null;
-      return {
-        start: segs[0].start,
-        end: segs[0].end,
-        recordingOffset: b?.recordingOffset || 0,
-        wallClockDuration: b?.wallClockDuration || 0,
-        measurements: b?.measurements || [],
-        calibratedStart: b?.calibratedStart ?? null,
-        traceCalibration: b?.traceCalibration || null,
-      };
-    });
+    clipTimes = buildClipTimes(racerNames, (i) => result.browsers?.[i], ffmpeg);
 
-    const playerOptions = {
-      fullVideoFiles,
-      mergedVideoFile: sideBySidePath ? sideBySideName : null,
-      traceFiles,
-      harFiles,
-      raceScriptFiles,
-      settingsFileCopied,
-      runNavigation,
-      clipTimes,
-      ffmpegPathPrefix: raceOptions.ffmpegPathPrefix || './',
-    };
-    fs.writeFileSync(path.join(runDir, 'index.html'), buildPlayerHtml(summary, videoFiles, ffmpeg && format !== 'webm' ? format : null, altFiles, playerOptions));
-    if (!raceOptions.skipCopyFFmpeg && !settings.noWasm) copyFFmpegFiles(runDir);
+    writePlayerAndAssets({
+      runDir, summary, settings, videoFiles,
+      playerExtras: {
+        fullVideoFiles,
+        mergedVideoFile: sideBySidePath ? sideBySideName : null,
+        traceFiles,
+        harFiles,
+        raceScriptFiles,
+        settingsFileCopied,
+        runNavigation,
+        clipTimes,
+        altFiles,
+      },
+      raceOptions,
+    });
   }
 
   return { summary, sideBySidePath, sideBySideName, clipTimes };
@@ -672,49 +720,29 @@ async function runRacerAlone(browserIdx, racerRunDir) {
  * for run `i` are already moved into their run directories.
  */
 function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts = {}) {
-  const { format, ffmpeg, noWasm } = settings;
+  const { ffmpeg } = settings;
 
   const progress = startProgress('Processing recordings…');
   const summary = buildSummary(racerNames, runMovedResults, settings, runDir);
   fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
 
-  const raceScriptFiles = [];
-  let settingsFileCopied = false;
-  if (ctx.raceDir && ctx.racerFiles) {
-    for (const f of ctx.racerFiles) {
-      try { fs.copyFileSync(path.join(ctx.raceDir, f), path.join(runDir, f)); raceScriptFiles.push(f); } catch (e) {}
-    }
-    const srcSettings = path.join(ctx.raceDir, 'settings.json');
-    if (fs.existsSync(srcSettings)) {
-      try { fs.copyFileSync(srcSettings, path.join(runDir, 'settings.json')); settingsFileCopied = true; } catch (e) {}
-    }
-  }
+  const { raceScriptFiles, settingsFileCopied } = copyRaceAssets(ctx.raceDir, ctx.racerFiles, runDir);
 
   progress.done('Recordings processed');
 
-  const clipTimes = ffmpeg ? null : racerNames.map((_, ri) => {
-    const b = runRawResults[ri].browsers?.[0];
-    const segs = b?.recordingSegments;
-    if (!segs || segs.length === 0) return null;
-    return {
-      start: segs[0].start, end: segs[0].end,
-      recordingOffset: b?.recordingOffset || 0,
-      wallClockDuration: b?.wallClockDuration || 0,
-      measurements: b?.measurements || [],
-      calibratedStart: b?.calibratedStart ?? null,
-      traceCalibration: b?.traceCalibration || null,
-    };
-  });
+  const clipTimes = buildClipTimes(racerNames, (ri) => runRawResults[ri].browsers?.[0], ffmpeg);
 
   const videoFiles = racerNames.map(name => `${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
   const traceFiles = racerNames.map(name => `${name}/${name}.trace.json`);
-  const playerOptions = {
-    traceFiles, raceScriptFiles, settingsFileCopied,
-    runNavigation: runNav, clipTimes,
-    ffmpegPathPrefix: raceOpts.ffmpegPathPrefix || './',
-  };
-  fs.writeFileSync(path.join(runDir, 'index.html'), buildPlayerHtml(summary, videoFiles, null, null, playerOptions));
-  if (!raceOpts.skipCopyFFmpeg && !noWasm) copyFFmpegFiles(runDir);
+
+  writePlayerAndAssets({
+    runDir, summary, settings, videoFiles,
+    playerExtras: {
+      traceFiles, raceScriptFiles, settingsFileCopied,
+      runNavigation: runNav, clipTimes,
+    },
+    raceOptions: raceOpts,
+  });
 
   return { summary, clipTimes };
 }
