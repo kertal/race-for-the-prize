@@ -132,9 +132,10 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
       const trophyHtml = isWinner
         ? `<span class="trophy">${isTie ? '&#129309;' : '&#127942;'}</span> `
         : '';
+      const vSrc = videoFiles[origIdx].startsWith('data:') ? '' : ` src="${escHtml(videoFiles[origIdx])}"`;
       return `  <div class="racer">
     <div class="racer-label" style="color: ${color}">${trophyHtml}${escHtml(racer)}</div>
-    <video id="v${displayIdx}" src="${escHtml(videoFiles[origIdx])}" preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Race recording for ${escHtml(racer)}" data-racer-name="${escHtml(racer)}"></video>
+    <video id="v${displayIdx}"${vSrc} preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Race recording for ${escHtml(racer)}" data-racer-name="${escHtml(racer)}"></video>
   </div>`;
     }).join('\n');
 

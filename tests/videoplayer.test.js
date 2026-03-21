@@ -1044,10 +1044,12 @@ describe('buildPlayerHtml embed mode', () => {
     }
   }
 
-  it('replaces video src with base64 data URI when embed + runDir provided', () => {
+  it('embeds data URIs in JS config (not video src attr) when embed + runDir provided', () => {
     withEmbedDir(tmpDir => {
       const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { embed: true, runDir: tmpDir });
-      expect(html).toContain('src="data:video/webm;base64,');
+      // Data URIs go into raceVideoPaths JS variable, not video element src attributes
+      expect(html).toContain('data:video/webm;base64,');
+      expect(html).not.toContain('src="data:video/webm;base64,');
       expect(html).not.toContain('src="lauda/lauda.race.webm"');
       expect(html).not.toContain('src="hunt/hunt.race.webm"');
     });
@@ -1067,8 +1069,11 @@ describe('buildPlayerHtml embed mode', () => {
     withEmbedDir(tmpDir => {
       const missingFiles = ['missing/missing.race.webm', 'hunt/hunt.race.webm'];
       const html = buildPlayerHtml(makeSummary(), missingFiles, null, null, { embed: true, runDir: tmpDir });
+      // Missing file stays as relative path in src attribute (no data URI available)
       expect(html).toContain('src="missing/missing.race.webm"');
-      expect(html).toContain('src="data:video/webm;base64,');
+      // Found file becomes a data URI in the JS config (not in src attribute)
+      expect(html).toContain('data:video/webm;base64,');
+      expect(html).not.toContain('src="data:video/webm;base64,');
     });
   });
 

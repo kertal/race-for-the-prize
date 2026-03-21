@@ -20,6 +20,27 @@ const mergedVideo = document.getElementById('mergedVideo');
 const playerContainer = document.getElementById('playerContainer');
 const mergedContainer = document.getElementById('mergedContainer');
 
+// Mutable resolved paths — data URIs replaced with seekable Blob URLs on init
+let resolvedRacePaths = raceVideoPaths ? raceVideoPaths.slice() : raceVideoPaths;
+let resolvedFullPaths = fullVideoPaths ? fullVideoPaths.slice() : fullVideoPaths;
+
+(async function resolveEmbeddedVideos() {
+  async function toBlobUrl(p) {
+    if (!p || !p.startsWith('data:')) return p;
+    return URL.createObjectURL(await fetch(p).then(r => r.blob()));
+  }
+  const hasData = arr => arr && arr.some(p => p && p.startsWith('data:'));
+  const mergedSrc = mergedVideo && mergedVideo.getAttribute('src');
+  const mergedIsData = mergedSrc && mergedSrc.startsWith('data:');
+  if (!hasData(raceVideoPaths) && !hasData(fullVideoPaths) && !mergedIsData) return;
+  [resolvedRacePaths, resolvedFullPaths] = await Promise.all([
+    raceVideoPaths ? Promise.all(raceVideoPaths.map(toBlobUrl)) : Promise.resolve(raceVideoPaths),
+    fullVideoPaths ? Promise.all(fullVideoPaths.map(toBlobUrl)) : Promise.resolve(fullVideoPaths),
+  ]);
+  raceVideos.forEach((v, i) => { if (resolvedRacePaths[i]) v.src = resolvedRacePaths[i]; });
+  if (mergedIsData) mergedVideo.src = await toBlobUrl(mergedSrc);
+})();
+
 let videos = raceVideos;
 let primary = videos[0];
 const playBtn = document.getElementById('playBtn');
@@ -362,7 +383,7 @@ function resetSegmentState({ hide = false } = {}) {
 
 function switchToRace() {
   switchMode('race', raceVideos, modeRace, {
-    loadSrc() { raceVideos.forEach((v, i) => { v.src = raceVideoPaths[i]; }); },
+    loadSrc() { raceVideos.forEach((v, i) => { v.src = resolvedRacePaths[i]; }); },
     onActivate() {
       playerContainer.style.display = 'flex';
       if (mergedContainer) mergedContainer.style.display = 'none';
@@ -383,7 +404,7 @@ function switchToFull() {
   if (!fullVideoPaths && !clipTimes) return;
   const needsSrcSwitch = fullVideoPaths && loadedSrcSet !== 'full';
   switchMode(needsSrcSwitch ? 'full' : loadedSrcSet, raceVideos, modeFull, {
-    loadSrc: needsSrcSwitch ? () => { raceVideos.forEach((v, i) => { v.src = fullVideoPaths[i]; }); } : null,
+    loadSrc: needsSrcSwitch ? () => { raceVideos.forEach((v, i) => { v.src = resolvedFullPaths[i]; }); } : null,
     onActivate() {
       playerContainer.style.display = 'flex';
       if (mergedContainer) mergedContainer.style.display = 'none';
@@ -640,7 +661,7 @@ function buildSegmentNav() {
     if (fullVideoPaths && loadedSrcSet === 'full') {
       if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
       detachVideoListeners();
-      raceVideos.forEach((v, i) => { v.src = raceVideoPaths[i]; });
+      raceVideos.forEach((v, i) => { v.src = resolvedRacePaths[i]; });
       loadedSrcSet = 'race';
       videos = raceVideos;
       primary = videos[0];
@@ -665,7 +686,7 @@ function buildSegmentNav() {
     if (fullVideoPaths && loadedSrcSet !== 'full') {
       if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
       detachVideoListeners();
-      raceVideos.forEach((v, i) => { v.src = fullVideoPaths[i]; });
+      raceVideos.forEach((v, i) => { v.src = resolvedFullPaths[i]; });
       loadedSrcSet = 'full';
       videos = raceVideos;
       primary = videos[0];
@@ -1493,8 +1514,8 @@ async function startHtmlExport() {
   // Collect all file paths to include
   const filePaths = new Set();
   const optionalFilePaths = new Set(['summary.json']);
-  raceVideoPaths.forEach(p => { if (p) filePaths.add(p); });
-  if (fullVideoPaths) fullVideoPaths.forEach(p => { if (p) filePaths.add(p); });
+  raceVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) filePaths.add(p); });
+  if (fullVideoPaths) fullVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) filePaths.add(p); });
   if (mergedVideo) {
     const mergedPath = mergedVideo.getAttribute('src');
     if (mergedPath) filePaths.add(mergedPath);
