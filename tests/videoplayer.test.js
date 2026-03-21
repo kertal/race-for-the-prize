@@ -437,7 +437,7 @@ describe('buildPlayerHtml clipTimes', () => {
     expect(html).toContain('hasTraceCalibration(ct)');
   });
 
-  it('does not include canvas/localStorage fallback calibration code', () => {
+  it('does not include canvas-based calibration fallback code (localStorage is present for notes only)', () => {
     const clips = [
       { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
       { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
