@@ -339,6 +339,13 @@ const MIME_TYPES = {
 
 /**
  * Create an HTTP request handler that serves static files from `dir`.
+ *
+ * Security: rejects any path that resolves outside `dir` (path traversal).
+ * Range requests: advertises `Accept-Ranges: bytes` and responds with
+ * `206 Partial Content` so browsers can seek within media files (WebM, MP4).
+ * COOP/COEP headers are required for `SharedArrayBuffer` isolation used by
+ * FFmpeg.wasm in the browser player.
+ *
  * Exported for testing.
  */
 export function createStaticHandler(dir) {
@@ -352,6 +359,9 @@ export function createStaticHandler(dir) {
       return;
     }
     const filePath = path.resolve(path.join(dir, urlPath));
+    // Reject paths that escape the served directory. `filePath !== dir` allows
+    // the root directory itself to resolve (though in practice req.url='/' is
+    // rewritten to index.html above).
     if (!filePath.startsWith(dir + path.sep) && filePath !== dir) {
       res.writeHead(403);
       res.end('Forbidden');
@@ -362,6 +372,7 @@ export function createStaticHandler(dir) {
     const baseHeaders = {
       'Content-Type': contentType,
       'Accept-Ranges': 'bytes',
+      // Required for SharedArrayBuffer isolation (FFmpeg.wasm uses COOP/COEP).
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
     };
@@ -373,6 +384,12 @@ export function createStaticHandler(dir) {
       }
       const total = stat.size;
       const rangeHeader = req.headers['range'];
+
+      const pipeStream = (stream) => {
+        stream.on('error', () => { if (!res.writableEnded) res.end(); });
+        stream.pipe(res);
+      };
+
       if (rangeHeader) {
         const m = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
         if (!m) { res.writeHead(416); res.end(); return; }
@@ -380,10 +397,10 @@ export function createStaticHandler(dir) {
         const end = m[2] ? Math.min(parseInt(m[2], 10), total - 1) : total - 1;
         if (start > end || start >= total) { res.writeHead(416); res.end(); return; }
         res.writeHead(206, { ...baseHeaders, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${total}` });
-        fs.createReadStream(filePath, { start, end }).pipe(res);
+        pipeStream(fs.createReadStream(filePath, { start, end }));
       } else {
         res.writeHead(200, { ...baseHeaders, 'Content-Length': total });
-        fs.createReadStream(filePath).pipe(res);
+        pipeStream(fs.createReadStream(filePath));
       }
     });
   };

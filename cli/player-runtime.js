@@ -52,7 +52,10 @@ function failCalibration(msg) {
   if (frameDisplay) frameDisplay.textContent = 'manual calibration required';
   if (playBtn) playBtn.disabled = true;
   if (scrubber) scrubber.disabled = true;
-  throw new Error(msg);
+  // Log to console rather than throwing: this function is called from event
+  // listeners (loadedmetadata, durationchange) where an uncaught throw would
+  // surface as an unhandled exception without providing any extra information.
+  console.error('[player] calibration failed:', msg);
 }
 
 function applyCalibrationToClip(ct, ptsStart, videoDuration) {
@@ -107,9 +110,11 @@ function canApplyTraceCalibration(ct) {
   return hasTraceCalibration(ct) && Number.isFinite(ct.traceCalibration.firstFrameTs);
 }
 
+const US_PER_SECOND = 1e6; // trace timestamps are in microseconds
+
 function traceTsToClipPts(ct, traceTs) {
   if (!hasTraceCalibration(ct) || !Number.isFinite(traceTs)) return null;
-  return (traceTs - ct.traceCalibration.recordingStartTs) / 1e6;
+  return (traceTs - ct.traceCalibration.recordingStartTs) / US_PER_SECOND;
 }
 
 function seekAll(t) {
@@ -134,25 +139,29 @@ function seekAll(t) {
 // element in the container header (all Playwright recordings). Seeking requires
 // a finite duration. The fix: seek to 1e10 which forces Chrome to scan to the
 // end of the file, after which it fires durationchange with the real value.
+// _durationForced tracks which videos have already had the 1e10 seek triggered
+// so a second concurrent loadedmetadata listener does not trigger it again.
 const _durationForced = new WeakSet();
 
 function onMeta() {
   if (calibrationFatalError) return;
 
-  // Force Chrome to resolve Infinity durations before attempting calibration.
-  // Always block calibration while ANY video still has a non-finite duration —
-  // a second loadedmetadata listener must not race ahead and cancel the 1e10 seek.
+  // Block calibration until every video has a finite duration.
+  // readyState >= 1 (HAVE_METADATA) means the duration field is populated.
+  // We must check ALL videos before proceeding: a second loadedmetadata
+  // listener must not race ahead and run calibration while the 1e10 seek for
+  // another video is still in progress.
   if (clipTimes) {
     for (let i = 0; i < clipTimes.length; i++) {
       const v = videos[i];
-      if (!v || v.readyState < 1) continue;
+      if (!v || v.readyState < 1) continue; // readyState 1 = HAVE_METADATA
       if (!isFinite(v.duration)) {
         if (!_durationForced.has(v)) {
           _durationForced.add(v);
           v.addEventListener('durationchange', onMeta, { once: true });
           v.currentTime = 1e10; // seek past end → Chrome scans file → durationchange fires
         }
-        return; // wait until this video's durationchange fires before proceeding
+        return; // always wait — do not proceed until durationchange fires
       }
     }
   }
@@ -162,21 +171,25 @@ function onMeta() {
   if (clipTimes) {
     for (let i = 0; i < clipTimes.length; i++) {
       if (!isValidClipEntry(clipTimes[i]) || !videos[i] || (videos[i].readyState < 1)) continue;
-      const ct = clipTimes[i];
-      if (ct._converted) continue;
-      const wasConverted = !!ct._converted;
-      if (ct._wcStart == null) { ct._wcStart = ct.start; ct._wcEnd = ct.end; }
-      if (!canApplyTraceCalibration(ct)) {
+      const clipEntry = clipTimes[i];
+      if (clipEntry._converted) continue;
+      // _converted is always false here (the guard above skips converted entries),
+      // but we capture it before mutating so the convertedAny check below is explicit.
+      const wasConverted = !!clipEntry._converted;
+      if (clipEntry._wcStart == null) { clipEntry._wcStart = clipEntry.start; clipEntry._wcEnd = clipEntry.end; }
+      if (!canApplyTraceCalibration(clipEntry)) {
         failCalibration('Calibration error: missing trace calibration metadata. Please calibrate manually.');
         return;
       }
-      const tracePtsStart = (ct.traceCalibration.recordingStartTs - ct.traceCalibration.firstFrameTs) / 1e6;
+      // recordingStartTs − firstFrameTs gives the PTS offset (µs) where recording
+      // started relative to the first captured frame; divide to get seconds.
+      const tracePtsStart = (clipEntry.traceCalibration.recordingStartTs - clipEntry.traceCalibration.firstFrameTs) / US_PER_SECOND;
       if (!Number.isFinite(tracePtsStart) || tracePtsStart < 0) {
         failCalibration('Calibration error: invalid trace timestamps. Please calibrate manually.');
         return;
       }
-      applyCalibrationToClip(ct, tracePtsStart, videos[i].duration);
-      if (!wasConverted && ct._converted) convertedAny = true;
+      applyCalibrationToClip(clipEntry, tracePtsStart, videos[i].duration);
+      if (!wasConverted && clipEntry._converted) convertedAny = true;
     }
   }
   activeClip = resolveAdjustedClip();
@@ -912,11 +925,24 @@ buildRacerFilter();
 
 // --- Initial clip seek ---
 
-// Chrome/WebM: recordings lack duration metadata so Chrome reports
-// duration=Infinity at loadedmetadata and cannot seek until the data
-// at the target position has been buffered. After seekAll(), attach a
-// 'seeked' listener per video; if the seek snapped back more than 150ms
-// before the expected clip start, retry up to 10 times as data buffers in.
+// Tolerance (seconds): if currentTime lands within this window of the target
+// we consider the seek successful and stop retrying.
+const SEEK_SNAP_TOLERANCE = 0.15;
+// Maximum number of seeked-event retries before giving up on a snap-back seek.
+const MAX_SEEK_RETRIES = 10;
+// Positions within 1ms of zero are treated as "start of video" — no seek needed.
+const ZERO_START_THRESHOLD = 0.001;
+
+// seekAllWithVerify handles two distinct Chrome/WebM seeking failure modes:
+//
+//  1. Seek snaps back (seeked fires but currentTime < expected − tolerance):
+//     Chrome can't find the target cluster without a seek table (Cues element).
+//     Retry via the 'seeked' event up to MAX_SEEK_RETRIES times as data buffers.
+//
+//  2. Seek silently ignored at readyState=1 (HAVE_METADATA, no buffered data):
+//     The seek is issued before any data is available, so Chrome drops it.
+//     Retry via 'canplay' (readyState ≥ 3) when enough data has loaded.
+//     The 'canplay' handler resets the retry counter so case-1 retries still work.
 function seekAllWithVerify(targetStart) {
   const adj = getAdjustedClipTimes();
   const ct = adj || clipTimes;
@@ -924,20 +950,19 @@ function seekAllWithVerify(targetStart) {
   raceVideos.forEach((v, i) => {
     if (!v || !clipTimes) return;
     const expected = ct && isValidClipEntry(ct[i]) ? ct[i].start : targetStart;
-    if (expected <= 0.001) return; // nothing to verify at position 0
+    if (expected <= ZERO_START_THRESHOLD) return; // nothing to verify at start of video
     let retries = 0;
     const handler = () => {
-      if (v.currentTime < expected - 0.15 && retries++ < 10) {
+      if (v.currentTime < expected - SEEK_SNAP_TOLERANCE && retries++ < MAX_SEEK_RETRIES) {
         v.currentTime = Math.min(expected, isFinite(v.duration) ? v.duration : expected);
         v.addEventListener('seeked', handler, { once: true });
       }
     };
     v.addEventListener('seeked', handler, { once: true });
-    // Fallback: if seek failed because readyState was too low (no buffered data yet),
-    // retry once data becomes available (canplay fires at readyState >= 3).
+    // Case 2 fallback: retry when data is available (canplay = readyState ≥ 3).
     v.addEventListener('canplay', () => {
-      if (v.currentTime < expected - 0.15) {
-        retries = 0;
+      if (v.currentTime < expected - SEEK_SNAP_TOLERANCE) {
+        retries = 0; // give the seeked retry loop a fresh budget
         v.currentTime = Math.min(expected, isFinite(v.duration) ? v.duration : expected);
         v.addEventListener('seeked', handler, { once: true });
       }

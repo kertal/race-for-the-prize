@@ -25,9 +25,20 @@ import { buildPlayerHtml } from '../cli/videoplayer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+// The PTS position (seconds) the player should seek to on load.
+// tracePtsStart = (recordingStartTs − firstFrameTs) / 1e6 = 2_000_000 / 1e6 = 2.0
+const CALIBRATED_START_S = 2.0;
+
+// Acceptable window around CALIBRATED_START_S: Chrome's seek precision for a
+// small VP8 file is well within 200ms.
+const SEEK_TOLERANCE_S = 0.2;
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function hasFfmpeg() {
+  // 5s is generous for a version check; catches PATH issues quickly.
   try { execFileSync('ffmpeg', ['-version'], { stdio: 'pipe', timeout: 5_000 }); return true; }
   catch { return false; }
 }
@@ -43,6 +54,8 @@ function stopServer(srv) {
   return new Promise(resolve => srv.close(resolve));
 }
 
+// Minimal summary required by buildPlayerHtml. Only racers/comparisons/videos
+// fields are structurally needed; the rest are present to satisfy schema checks.
 function makeSummary() {
   return {
     racers: ['alpha', 'bravo'],
@@ -54,6 +67,21 @@ function makeSummary() {
     wins: { alpha: 1, bravo: 0 },
     clickCounts: { alpha: 0, bravo: 0 },
     videos: {},
+  };
+}
+
+// Build a clipTimes entry whose tracePtsStart resolves to CALIBRATED_START_S.
+// recordingStartTs − firstFrameTs = 2_000_000 µs → 2.0s after dividing by 1e6.
+function makeClipEntry() {
+  return {
+    start: 0, end: 8,
+    recordingOffset: 0, wallClockDuration: 8,
+    calibratedStart: CALIBRATED_START_S,
+    traceCalibration: {
+      recordingStartTs: 2_000_000, // µs; recordingStartTs − firstFrameTs = 2s
+      firstFrameTs:     0,
+      lastFrameTs:      100_000,
+    },
   };
 }
 
@@ -70,9 +98,9 @@ describe('chrome-seek: calibrated start position via HTTP range requests', () =>
 
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chrome-seek-'));
 
-    // Generate two 10-second test videos (VP8 WebM).  We deliberately use a
-    // short-duration lavfi source so the test is fast, and we do NOT strip the
-    // Duration element — the test focuses on the range-request + seek pipeline.
+    // Generate two 10-second VP8 WebM test videos using a synthetic lavfi source.
+    // We do NOT strip the Duration element — this test focuses on the
+    // range-request + seek pipeline, not the _durationForced Infinity workaround.
     for (const name of ['alpha', 'bravo']) {
       fs.mkdirSync(path.join(tmpDir, name), { recursive: true });
       execSync(
@@ -83,35 +111,10 @@ describe('chrome-seek: calibrated start position via HTTP range requests', () =>
       );
     }
 
-    // Calibrated start at 2s (tracePtsStart = recordingStartTs - firstFrameTs = 2_000_000 µs)
-    const CALIBRATED_START = 2.0;
-    const clipTimes = [
-      {
-        start: 0, end: 8,
-        recordingOffset: 0, wallClockDuration: 8,
-        calibratedStart: CALIBRATED_START,
-        traceCalibration: {
-          recordingStartTs: 2_000_000,
-          firstFrameTs:     0,
-          lastFrameTs:      100_000,
-        },
-      },
-      {
-        start: 0, end: 8,
-        recordingOffset: 0, wallClockDuration: 8,
-        calibratedStart: CALIBRATED_START,
-        traceCalibration: {
-          recordingStartTs: 2_000_000,
-          firstFrameTs:     0,
-          lastFrameTs:      100_000,
-        },
-      },
-    ];
-
     const html = buildPlayerHtml(
       makeSummary(),
       ['alpha/alpha.race.webm', 'bravo/bravo.race.webm'],
-      null, null, { clipTimes },
+      null, null, { clipTimes: [makeClipEntry(), makeClipEntry()] },
     );
     fs.writeFileSync(path.join(tmpDir, 'index.html'), html);
 
@@ -130,7 +133,7 @@ describe('chrome-seek: calibrated start position via HTTP range requests', () =>
   });
 
   afterAll(async () => {
-    if (page)   await page.close().catch(() => {});
+    if (page)    await page.close().catch(() => {});
     if (browser) await browser.close().catch(() => {});
     if (server)  await stopServer(server);
     if (tmpDir && fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -160,42 +163,35 @@ describe('chrome-seek: calibrated start position via HTTP range requests', () =>
     const { port } = server.address();
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'networkidle' });
 
-    // Wait up to 12s for both videos to reach the calibrated start (2.0s ± 0.2s).
-    const result = await page.evaluate(() => new Promise(resolve => {
-      const EXPECTED = 2.0;
-      const TOLERANCE = 0.2;
-      const TIMEOUT_MS = 12_000;
-
-      let poll, timer;
-
-      const check = () => {
-        const vs = Array.from(document.querySelectorAll('video'));
-        if (vs.length >= 2 && vs.every(v => isFinite(v.duration) && Math.abs(v.currentTime - EXPECTED) <= TOLERANCE)) {
+    // Poll inside the page until both videos land at CALIBRATED_START_S ± SEEK_TOLERANCE_S,
+    // or time out after 12s. The constants below mirror CALIBRATED_START_S and
+    // SEEK_TOLERANCE_S defined at the top of this file — keep them in sync.
+    const result = await page.evaluate(
+      ({ expected, tolerance, timeoutMs }) => new Promise(resolve => {
+        let poll, timer;
+        const check = () => {
+          const vs = Array.from(document.querySelectorAll('video'));
+          if (vs.length >= 2 && vs.every(v => isFinite(v.duration) && Math.abs(v.currentTime - expected) <= tolerance)) {
+            clearInterval(poll);
+            clearTimeout(timer);
+            resolve({ ok: true, times: vs.map(v => v.currentTime) });
+          }
+        };
+        poll = setInterval(check, 100);
+        check();
+        timer = setTimeout(() => {
           clearInterval(poll);
-          clearTimeout(timer);
-          resolve({ ok: true, times: vs.map(v => v.currentTime) });
-        }
-      };
+          const vs = Array.from(document.querySelectorAll('video'));
+          resolve({ ok: false, times: vs.map(v => v.currentTime), durations: vs.map(v => v.duration), readyStates: vs.map(v => v.readyState) });
+        }, timeoutMs);
+      }),
+      { expected: CALIBRATED_START_S, tolerance: SEEK_TOLERANCE_S, timeoutMs: 12_000 },
+    );
 
-      poll = setInterval(check, 100);
-      check();
-
-      timer = setTimeout(() => {
-        clearInterval(poll);
-        const vs = Array.from(document.querySelectorAll('video'));
-        resolve({
-          ok: false,
-          times: vs.map(v => v.currentTime),
-          durations: vs.map(v => v.duration),
-          readyStates: vs.map(v => v.readyState),
-        });
-      }, TIMEOUT_MS);
-    }));
-
-    expect(result.ok, `Expected currentTime ≈ 2.0s but got ${JSON.stringify(result)}`).toBe(true);
+    expect(result.ok, `Expected currentTime ≈ ${CALIBRATED_START_S}s but got ${JSON.stringify(result)}`).toBe(true);
     for (const ct of result.times) {
-      expect(ct).toBeGreaterThan(2.0 - 0.2);
-      expect(ct).toBeLessThan(2.0 + 0.2);
+      expect(ct).toBeGreaterThan(CALIBRATED_START_S - SEEK_TOLERANCE_S);
+      expect(ct).toBeLessThan(CALIBRATED_START_S + SEEK_TOLERANCE_S);
     }
   });
 });

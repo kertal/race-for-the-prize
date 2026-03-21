@@ -666,9 +666,9 @@ describe('buildPlayerHtml timing events', () => {
   });
 
   it('saves _wcStart and _wcEnd in onMeta before trace conversion', () => {
-    expect(timingHtml).toContain('ct._wcStart = ct.start');
-    expect(timingHtml).toContain('ct._wcEnd = ct.end');
-    expect(timingHtml).not.toContain('ct._ptsScale = scale');
+    expect(timingHtml).toContain('_wcStart = ');
+    expect(timingHtml).toContain('_wcEnd = ');
+    expect(timingHtml).not.toContain('_ptsScale = scale');
   });
 
   it('script contains timing event labels and column headers', () => {
@@ -879,12 +879,12 @@ describe('buildPlayerHtml seekAllWithVerify', () => {
     expect(fn).toContain('{ once: true }');
   });
 
-  it('uses 0.15s threshold for retry condition', () => {
+  it('uses SEEK_SNAP_TOLERANCE threshold for retry condition', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
     const fnStart = html.indexOf('function seekAllWithVerify(');
     const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
-    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 600);
-    expect(fn).toContain('expected - 0.15');
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 800);
+    expect(fn).toContain('SEEK_SNAP_TOLERANCE');
   });
 
   it('guards retry with isFinite(v.duration)', () => {
@@ -899,8 +899,8 @@ describe('buildPlayerHtml seekAllWithVerify', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
     const fnStart = html.indexOf('function seekAllWithVerify(');
     const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
-    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 600);
-    expect(fn).toContain('expected <= 0.001');
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 800);
+    expect(fn).toContain('ZERO_START_THRESHOLD');
   });
 
   it('initSeek uses seekAllWithVerify not plain seekAll', () => {
@@ -934,8 +934,8 @@ describe('buildPlayerHtml seekAllWithVerify', () => {
     const fnStart = html.indexOf('function seekAllWithVerify(');
     const fnEnd = html.indexOf('\nif (clipTimes)', fnStart);
     const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 800);
-    // Must check position is still wrong before re-seeking
-    expect(fn).toContain('expected - 0.15');
+    // Must check position is still wrong before re-seeking (uses named constant)
+    expect(fn).toContain('SEEK_SNAP_TOLERANCE');
     // Must reset retries so the seeked retry loop gets fresh attempts
     expect(fn).toContain('retries = 0');
   });
