@@ -138,10 +138,12 @@ describe('embed-export: ZIP export embeds videos in index.html', () => {
       return vs.length >= 2 && vs.every(v => v.readyState >= 1);
     }, { timeout: 15_000 });
 
-    // Click Export Zip and capture the download
+    // Click Export Zip, wait for the export to finish, then click the download link
+    await page.click('#exportHtmlBtn');
+    const dlLink = await page.waitForSelector('.export-actions a[download]', { timeout: 60_000 });
     const [download] = await Promise.all([
-      page.waitForEvent('download', { timeout: 60_000 }),
-      page.click('#exportHtmlBtn'),
+      page.waitForEvent('download', { timeout: 30_000 }),
+      dlLink.click(),
     ]);
 
     const zipPath = await download.path();
@@ -209,6 +211,136 @@ describe('embed-export: ZIP export embeds videos in index.html', () => {
     expect(result.ok, `Expected blob: URLs but got ${JSON.stringify(result.srcs)}`).toBe(true);
     for (const src of result.srcs) {
       expect(src).toMatch(/^blob:/);
+    }
+  });
+
+  it('ZIP extracted to disk produces a fully working standalone player', async ({ skip }) => {
+    if (setupError) skip(setupError);
+
+    // Re-download the ZIP (or reuse if already cached from test 1)
+    const { port } = server.address();
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'networkidle' });
+    await page.waitForFunction(() => {
+      const vs = Array.from(document.querySelectorAll('video'));
+      return vs.length >= 2 && vs.every(v => v.readyState >= 1);
+    }, { timeout: 15_000 });
+
+    await page.click('#exportHtmlBtn');
+    const dlLink2 = await page.waitForSelector('.export-actions a[download]', { timeout: 60_000 });
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 30_000 }),
+      dlLink2.click(),
+    ]);
+
+    const zipPath = await download.path();
+    expect(zipPath).toBeTruthy();
+
+    // Extract ZIP to a fresh directory on disk
+    const extractDir = path.join(tmpDir, 'extracted');
+    fs.mkdirSync(extractDir, { recursive: true });
+    const zipBuf = fs.readFileSync(zipPath);
+    const entries = readZipEntries(zipBuf);
+    for (const entry of entries) {
+      const dest = path.join(extractDir, entry.name);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.writeFileSync(dest, entry.data);
+    }
+
+    // Verify extracted files exist on disk
+    expect(fs.existsSync(path.join(extractDir, 'index.html'))).toBe(true);
+    // No separate video files should exist (embedded in HTML)
+    expect(fs.existsSync(path.join(extractDir, 'alpha', 'alpha.race.webm'))).toBe(false);
+    expect(fs.existsSync(path.join(extractDir, 'bravo', 'bravo.race.webm'))).toBe(false);
+
+    // Serve the extracted directory and open in a new page
+    const extractServer = await startServer(extractDir);
+    const extractPort = extractServer.address().port;
+    const extractPage = await context.newPage();
+
+    try {
+      await extractPage.goto(`http://127.0.0.1:${extractPort}/`, { waitUntil: 'networkidle' });
+
+      // Videos should resolve to blob: URLs and become seekable
+      const videoResult = await extractPage.evaluate(() => new Promise(resolve => {
+        let timer;
+        const poll = setInterval(() => {
+          const vs = Array.from(document.querySelectorAll('video'));
+          if (vs.length >= 2 && vs.every(v => v.src.startsWith('blob:') && v.readyState >= 1)) {
+            clearInterval(poll);
+            clearTimeout(timer);
+            resolve({
+              ok: true,
+              count: vs.length,
+              srcs: vs.map(v => v.src.slice(0, 5)),
+              durations: vs.map(v => v.duration),
+              readyStates: vs.map(v => v.readyState),
+            });
+          }
+        }, 100);
+        timer = setTimeout(() => {
+          clearInterval(poll);
+          const vs = Array.from(document.querySelectorAll('video'));
+          resolve({
+            ok: false,
+            count: vs.length,
+            srcs: vs.map(v => v.src.slice(0, 30)),
+            readyStates: vs.map(v => v.readyState),
+          });
+        }, 15_000);
+      }));
+
+      expect(videoResult.ok, `Videos not ready: ${JSON.stringify(videoResult)}`).toBe(true);
+      expect(videoResult.count).toBe(2);
+      for (const dur of videoResult.durations) {
+        expect(dur).toBeGreaterThan(0);
+        expect(Number.isFinite(dur)).toBe(true);
+      }
+
+      // Verify player UI elements are present and functional
+      const uiResult = await extractPage.evaluate(() => {
+        const playBtn = document.getElementById('playBtn');
+        const scrubber = document.getElementById('scrubber');
+        const timeDisplay = document.getElementById('timeDisplay');
+        const title = document.querySelector('h1');
+        return {
+          hasPlayBtn: !!playBtn,
+          hasScrubber: !!scrubber,
+          hasTimeDisplay: !!timeDisplay,
+          titleText: title?.textContent || '',
+          // Export buttons should be removed in the exported HTML
+          hasExportBtn: !!document.getElementById('exportBtn'),
+          hasExportHtmlBtn: !!document.getElementById('exportHtmlBtn'),
+        };
+      });
+
+      expect(uiResult.hasPlayBtn).toBe(true);
+      expect(uiResult.hasScrubber).toBe(true);
+      expect(uiResult.hasTimeDisplay).toBe(true);
+      expect(uiResult.titleText).toContain('Race');
+      // Export buttons should have been stripped from the exported HTML
+      expect(uiResult.hasExportBtn).toBe(false);
+      expect(uiResult.hasExportHtmlBtn).toBe(false);
+
+      // Verify seeking works (videos are seekable via blob: URLs)
+      const seekResult = await extractPage.evaluate(() => {
+        const vs = Array.from(document.querySelectorAll('video'));
+        return Promise.all(vs.map(v => new Promise(resolve => {
+          const target = Math.min(1.0, v.duration / 2);
+          v.currentTime = target;
+          v.addEventListener('seeked', () => {
+            resolve({ seeked: true, currentTime: v.currentTime, target });
+          }, { once: true });
+          setTimeout(() => resolve({ seeked: false, currentTime: v.currentTime, target }), 5000);
+        })));
+      });
+
+      for (const s of seekResult) {
+        expect(s.seeked, `Video should be seekable`).toBe(true);
+        expect(Math.abs(s.currentTime - s.target)).toBeLessThan(0.5);
+      }
+    } finally {
+      await extractPage.close().catch(() => {});
+      await stopServer(extractServer);
     }
   });
 });
