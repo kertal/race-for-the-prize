@@ -139,9 +139,10 @@ function seekAll(t) {
 // element in the container header (all Playwright recordings). Seeking requires
 // a finite duration. The fix: seek to 1e10 which forces Chrome to scan to the
 // end of the file, after which it fires durationchange with the real value.
-// _durationForced tracks which videos have already had the 1e10 seek triggered
-// so a second concurrent loadedmetadata listener does not trigger it again.
-const _durationForced = new WeakSet();
+// _durationForced maps each video element to the src key for which the 1e10
+// seek was already triggered. Keyed by src (not element) so that switching
+// sources (e.g. race clip → full recording) re-triggers the scan if needed.
+const _durationForced = new WeakMap();
 
 function onMeta() {
   if (calibrationFatalError) return;
@@ -151,18 +152,18 @@ function onMeta() {
   // We must check ALL videos before proceeding: a second loadedmetadata
   // listener must not race ahead and run calibration while the 1e10 seek for
   // another video is still in progress.
-  if (clipTimes) {
-    for (let i = 0; i < clipTimes.length; i++) {
-      const v = videos[i];
-      if (!v || v.readyState < 1) continue; // readyState 1 = HAVE_METADATA
-      if (!isFinite(v.duration)) {
-        if (!_durationForced.has(v)) {
-          _durationForced.add(v);
-          v.addEventListener('durationchange', onMeta, { once: true });
-          v.currentTime = 1e10; // seek past end → Chrome scans file → durationchange fires
-        }
-        return; // always wait — do not proceed until durationchange fires
+  // Note: runs unconditionally (not gated on clipTimes) so full-recording
+  // pages also get finite durations before any seek/UI is attempted.
+  for (const v of videos) {
+    if (!v || v.readyState < 1) continue; // readyState 1 = HAVE_METADATA
+    if (!isFinite(v.duration)) {
+      const srcKey = v.currentSrc || v.src || '';
+      if (_durationForced.get(v) !== srcKey) {
+        _durationForced.set(v, srcKey);
+        v.addEventListener('durationchange', onMeta, { once: true });
+        v.currentTime = 1e10; // seek past end → Chrome scans file → durationchange fires
       }
+      return; // always wait — do not proceed until durationchange fires
     }
   }
 
@@ -953,7 +954,7 @@ function seekAllWithVerify(targetStart) {
     if (expected <= ZERO_START_THRESHOLD) return; // nothing to verify at start of video
     let retries = 0;
     const handler = () => {
-      if (v.currentTime < expected - SEEK_SNAP_TOLERANCE && retries++ < MAX_SEEK_RETRIES) {
+      if (Math.abs(v.currentTime - expected) > SEEK_SNAP_TOLERANCE && retries++ < MAX_SEEK_RETRIES) {
         v.currentTime = Math.min(expected, isFinite(v.duration) ? v.duration : expected);
         v.addEventListener('seeked', handler, { once: true });
       }
@@ -961,7 +962,7 @@ function seekAllWithVerify(targetStart) {
     v.addEventListener('seeked', handler, { once: true });
     // Case 2 fallback: retry when data is available (canplay = readyState ≥ 3).
     v.addEventListener('canplay', () => {
-      if (v.currentTime < expected - SEEK_SNAP_TOLERANCE) {
+      if (Math.abs(v.currentTime - expected) > SEEK_SNAP_TOLERANCE) {
         retries = 0; // give the seeked retry loop a fresh budget
         v.currentTime = Math.min(expected, isFinite(v.duration) ? v.duration : expected);
         v.addEventListener('seeked', handler, { once: true });

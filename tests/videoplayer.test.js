@@ -944,10 +944,10 @@ describe('buildPlayerHtml seekAllWithVerify', () => {
 describe('buildPlayerHtml onMeta _durationForced (Chrome WebM Infinity duration)', () => {
   const withClips = (clips) => withOptions({ clipTimes: clips });
 
-  it('declares _durationForced WeakSet', () => {
+  it('declares _durationForced WeakMap', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
     expect(html).toContain('_durationForced');
-    expect(html).toContain('WeakSet');
+    expect(html).toContain('WeakMap');
   });
 
   it('onMeta triggers 1e10 seek when duration is non-finite', () => {
@@ -978,18 +978,19 @@ describe('buildPlayerHtml onMeta _durationForced (Chrome WebM Infinity duration)
     expect(between).toBe('');
   });
 
-  it('onMeta only triggers 1e10 seek once per video (WeakSet guard)', () => {
+  it('onMeta only triggers 1e10 seek once per src (WeakMap guard)', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
     const onMetaStart = html.indexOf('function onMeta(');
     const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
     const fn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
-    expect(fn).toContain('_durationForced.add(v)');
-    // The 1e10 seek must be inside the !has(v) guard
-    const notHasIdx = fn.indexOf('!_durationForced.has(v)');
-    const addIdx = fn.indexOf('_durationForced.add(v)', notHasIdx);
-    const seek1e10Idx = fn.indexOf('1e10', notHasIdx);
-    expect(addIdx).toBeGreaterThan(notHasIdx);
-    expect(seek1e10Idx).toBeGreaterThan(notHasIdx);
+    // WeakMap API: set() inside the guard, get() !== srcKey as the condition
+    expect(fn).toContain('_durationForced.set(v');
+    const getGuardIdx = fn.indexOf('_durationForced.get(v)');
+    const setIdx = fn.indexOf('_durationForced.set(v', getGuardIdx);
+    const seek1e10Idx = fn.indexOf('1e10', getGuardIdx);
+    expect(getGuardIdx).toBeGreaterThan(-1);
+    expect(setIdx).toBeGreaterThan(getGuardIdx);
+    expect(seek1e10Idx).toBeGreaterThan(getGuardIdx);
   });
 });
 
