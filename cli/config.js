@@ -99,7 +99,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   }
   if (kvFlags.height !== undefined) {
     const height = Number(kvFlags.height);
-    s.viewportHeight = Number.isFinite(height) && height >= 480 ? Math.min(Math.round(height), 4320) : 720;
+    s.viewportHeight = Number.isFinite(height) ? Math.min(Math.max(Math.round(height), 480), 4320) : 720;
   }
   return s;
 }

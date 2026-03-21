@@ -907,7 +907,8 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     activeBrowsers.push(browser);
 
     const viewportWidth = isParallel ? layout.width - 20 : 1280;
-    const viewportHeight = isParallel ? layout.height - 100 : (configViewportHeight || 720);
+    const parsedHeight = Number(configViewportHeight);
+    const viewportHeight = isParallel ? layout.height - 100 : (Number.isFinite(parsedHeight) ? parsedHeight : 720);
     const videoScale = slowmo > 0 ? 2 : 1;
     const contextCreationStart = Date.now();
     const harPath = har ? path.join(outputDir, `${id}.har`) : null;
