@@ -21,9 +21,10 @@ import { compressGif } from './results.js';
 function buildFilterComplex(count, slowmo, format) {
   const pts = slowmo > 0 ? `setpts=${slowmo}*PTS,` : '';
   const { scaleWidth2to3, scaleWidth4to5, gifFps, gifMaxColors, gifBayerScale } = VIDEO_DEFAULTS;
-  // GIF optimization: reduced fps, palette generation with Bayer dithering for quality
-  const gifTail = format === 'gif'
-    ? `,fps=${gifFps},split[s0][s1];[s0]palettegen=max_colors=${gifMaxColors}:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=${gifBayerScale}`
+  // GIF optimization: fps reduction before clock (cheaper), then palette split with Bayer dithering
+  const gifFpsFilter  = format === 'gif' ? `fps=${gifFps}` : '';
+  const gifPalette    = format === 'gif'
+    ? `,split[s0][s1];[s0]palettegen=max_colors=${gifMaxColors}:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=${gifBayerScale}`
     : '';
   const scaleWidth = count <= 3 ? scaleWidth2to3 : scaleWidth4to5;
 
@@ -45,10 +46,15 @@ function buildFilterComplex(count, slowmo, format) {
     const halfWidth = Math.floor(scaleWidth / 2);
     layout = `[0:v]${pts}scale=${scaleWidth}:-2[v0];[1:v]${pts}scale=${scaleWidth}:-2[v1];[2:v]${pts}scale=${scaleWidth}:-2[v2];[3:v]${pts}scale=${scaleWidth}:-2[v3];[4:v]${pts}scale=${scaleWidth}:-2[v4];[v0][v1][v2]hstack=inputs=3[top];[v3][v4]hstack=inputs=2[bot2];[bot2]pad=iw+${scaleWidth}:ih:${halfWidth}:0:black[bot];[top][bot]vstack=inputs=2`;
   } else {
-    return '';
+    throw new Error(`side-by-side supports 2–5 videos (got ${count})`);
   }
 
-  return `${layout}[merged];[merged]${clock}${gifTail}`;
+  if (format === 'gif') {
+    // Apply fps reduction before drawtext: clock runs at GIF fps (not full capture rate),
+    // then palette split happens after so palette includes clock text colours.
+    return `${layout}[merged];[merged]${gifFpsFilter}[merged_fps];[merged_fps]${clock}${gifPalette}`;
+  }
+  return `${layout}[merged];[merged]${clock}`;
 }
 
 export function createSideBySide(videoPaths, outputPath, format = 'webm', slowmo = 0) {
