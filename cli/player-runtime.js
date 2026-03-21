@@ -197,6 +197,11 @@ function onMeta() {
       if (!wasConverted && clipEntry._converted) convertedAny = true;
     }
   }
+  // Recompute segment clip times after calibration (they depend on traceTsToClipPts
+  // which uses the now-calibrated traceCalibration data on clipTimes entries).
+  if (convertedAny && activeSegmentName) {
+    activeSegmentClipTimes = getSegmentClipTimes(activeSegmentName);
+  }
   activeClip = resolveAdjustedClip();
   buildSegmentNav();
   updateTimeDisplay();
@@ -1035,7 +1040,9 @@ function getExportLayout(count) {
     for (let i = 0; i < count - 3; i++) positions.push({ x: bottomOffset + i * targetW, y: slotH });
   }
   const canvasW = (count >= 5 ? 3 : cols) * targetW;
-  const canvasH = rows * slotH;
+  const rawH = rows * slotH;
+  // libx264 (MOV) requires even dimensions; bump odd height by 1
+  const canvasH = rawH + (rawH % 2);
   return { canvasW, canvasH, targetW, cellH, labelH: LABEL_H, positions };
 }
 
@@ -1147,14 +1154,18 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
           'fps=10,scale=640:-2,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3',
           outFile]);
       } else {
-        // libx264 requires even dimensions; scale=trunc(iw/2)*2:trunc(ih/2)*2 ensures that
-        args = trimArgs.concat(['-i', inFile, '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', outFile]);
+        args = trimArgs.concat(['-i', inFile, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', outFile]);
       }
       progressFill.style.width = '50%';
-      return ff.exec(args);
+      var execPromise = ff.exec(args);
+      var timeoutId;
+      var timeoutPromise = new Promise(function(_, reject) {
+        timeoutId = setTimeout(function() { reject(new Error('FFmpeg conversion timed out')); }, 300000);
+      });
+      return Promise.race([execPromise, timeoutPromise]).finally(function() { clearTimeout(timeoutId); });
     }).then(exitCode => {
-      if (cancelled || exitCode == null) return;
-      if (exitCode !== 0) throw new Error('ffmpeg exited with code ' + exitCode + ' — conversion failed');
+      if (cancelled) return;
+      if (exitCode == null || exitCode !== 0) throw new Error('ffmpeg exited with code ' + exitCode + ' — conversion failed');
       progressFill.style.width = '90%';
       return ff.readFile(outFile);
     }).then(data => {
