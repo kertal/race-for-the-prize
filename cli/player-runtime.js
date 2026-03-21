@@ -1472,7 +1472,7 @@ function buildExportHtml(pathOverrides = {}) {
     // Race video elements: raceVideoPaths[i] maps to <video id="v{i}">
     raceVideoPaths.forEach((p, i) => {
       if (!p || !pathOverrides[p]) return;
-      const vid = doc.getElementById('v' + i);
+      const vid = doc.querySelector('#v' + i);
       if (vid) vid.setAttribute('src', pathOverrides[p]);
     });
     // Merged video element
