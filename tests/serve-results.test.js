@@ -30,13 +30,17 @@ function rawRequest(port, raw) {
   });
 }
 
-function fetch(server, urlPath) {
+function fetch(server, urlPath, reqHeaders = {}) {
   return new Promise((resolve) => {
     const { port } = server.address();
-    http.get(`http://127.0.0.1:${port}${urlPath}`, (res) => {
-      let body = '';
-      res.on('data', d => body += d);
-      res.on('end', () => resolve({ status: res.statusCode, body }));
+    const opts = { hostname: '127.0.0.1', port, path: urlPath, headers: reqHeaders };
+    http.get(opts, (res) => {
+      const chunks = [];
+      res.on('data', d => chunks.push(d));
+      res.on('end', () => {
+        const buf = Buffer.concat(chunks);
+        resolve({ status: res.statusCode, headers: res.headers, body: buf.toString(), bodyBuffer: buf });
+      });
     });
   });
 }
@@ -92,5 +96,96 @@ describe('serveResults path traversal protection', () => {
   it('returns 404 for nonexistent file', async () => {
     const res = await fetch(server, '/nonexistent.txt');
     expect(res.status).toBe(404);
+  });
+});
+
+describe('serveResults range request support', () => {
+  let server;
+  let fileContent;
+
+  beforeEach(() => {
+    // Write a binary file with known content for range testing
+    fileContent = Buffer.from('ABCDEFGHIJKLMNOPQRSTUVWXYZ'); // 26 bytes
+    fs.writeFileSync(path.join(tmpDir, 'data.bin'), fileContent);
+    server = http.createServer(createStaticHandler(tmpDir));
+    return new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  });
+
+  afterEach(() => new Promise(resolve => server.close(resolve)));
+
+  it('includes Accept-Ranges: bytes on normal 200 response', async () => {
+    const res = await fetch(server, '/index.html');
+    expect(res.status).toBe(200);
+    expect(res.headers['accept-ranges']).toBe('bytes');
+  });
+
+  it('includes Content-Length on normal 200 response', async () => {
+    const res = await fetch(server, '/data.bin');
+    expect(res.status).toBe(200);
+    expect(parseInt(res.headers['content-length'], 10)).toBe(fileContent.length);
+  });
+
+  it('responds 206 with correct slice for a range request', async () => {
+    const res = await fetch(server, '/data.bin', { range: 'bytes=0-4' });
+    expect(res.status).toBe(206);
+    expect(res.headers['accept-ranges']).toBe('bytes');
+    expect(res.headers['content-range']).toBe(`bytes 0-4/${fileContent.length}`);
+    expect(parseInt(res.headers['content-length'], 10)).toBe(5);
+    expect(res.bodyBuffer).toEqual(fileContent.slice(0, 5));
+  });
+
+  it('responds 206 for a mid-file range', async () => {
+    const res = await fetch(server, '/data.bin', { range: 'bytes=10-19' });
+    expect(res.status).toBe(206);
+    expect(res.headers['content-range']).toBe(`bytes 10-19/${fileContent.length}`);
+    expect(res.bodyBuffer).toEqual(fileContent.slice(10, 20));
+  });
+
+  it('responds 206 for open-ended range (bytes=N-)', async () => {
+    const res = await fetch(server, '/data.bin', { range: 'bytes=20-' });
+    expect(res.status).toBe(206);
+    expect(res.bodyBuffer).toEqual(fileContent.slice(20));
+  });
+
+  it('clamps end to file size for out-of-bounds range end', async () => {
+    const res = await fetch(server, '/data.bin', { range: 'bytes=20-9999' });
+    expect(res.status).toBe(206);
+    expect(res.bodyBuffer).toEqual(fileContent.slice(20));
+  });
+
+  it('responds 416 for start beyond file size', async () => {
+    const res = await fetch(server, '/data.bin', { range: 'bytes=9999-' });
+    expect(res.status).toBe(416);
+  });
+
+  it('responds 416 for inverted range (start > end)', async () => {
+    const res = await fetch(server, '/data.bin', { range: 'bytes=10-5' });
+    expect(res.status).toBe(416);
+  });
+
+  it('responds 206 for suffix-range (bytes=-N)', async () => {
+    const res = await fetch(server, '/data.bin', { range: 'bytes=-5' });
+    expect(res.status).toBe(206);
+    expect(res.bodyBuffer).toEqual(fileContent.slice(-5)); // last 5 bytes: VWXYZ
+  });
+
+  it('clamps suffix-range to full file when N exceeds file size', async () => {
+    const res = await fetch(server, '/data.bin', { range: 'bytes=-9999' });
+    expect(res.status).toBe(206);
+    expect(res.bodyBuffer).toEqual(fileContent); // entire file
+  });
+
+  it('responds 416 for bare bytes=- with no numbers', async () => {
+    const res = await fetch(server, '/data.bin', { range: 'bytes=-' });
+    expect(res.status).toBe(416);
+  });
+
+  it('returns 404 for directories (stat.isFile() guard)', async () => {
+    // The tmpDir itself is a directory — requesting it must not stream EISDIR.
+    const res = await fetch(server, '/');
+    // '/' is rewritten to index.html which is a file, so use a subdir instead.
+    fs.mkdirSync(path.join(tmpDir, 'subdir'), { recursive: true });
+    const dirRes = await fetch(server, '/subdir');
+    expect(dirRes.status).toBe(404);
   });
 });
