@@ -65,6 +65,16 @@ describe('deriveRacerName', () => {
     expect(name).not.toContain(']');
   });
 
+  it('rejects dangerous filesystem names like . and ..', () => {
+    expect(deriveRacerName('http://.')).toBe('url');
+    expect(deriveRacerName('http://..')).toBe('url');
+  });
+
+  it('strips leading and trailing dots from hostnames', () => {
+    expect(deriveRacerName('http://example.com.')).toBe('example.com');
+    expect(deriveRacerName('http://.hidden')).toBe('hidden');
+  });
+
   it('truncates very long hostnames', () => {
     const longHost = 'a'.repeat(50) + '.example.com';
     const name = deriveRacerName(`https://${longHost}`);
