@@ -358,18 +358,33 @@ export function createStaticHandler(dir) {
       return;
     }
     const ext = path.extname(filePath).toLowerCase();
-    fs.readFile(filePath, (err, data) => {
-      if (err) {
+    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+    const baseHeaders = {
+      'Content-Type': contentType,
+      'Accept-Ranges': 'bytes',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    };
+    fs.stat(filePath, (statErr, stat) => {
+      if (statErr) {
         res.writeHead(404);
         res.end('Not found');
         return;
       }
-      res.writeHead(200, {
-        'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
-        'Cross-Origin-Opener-Policy': 'same-origin',
-        'Cross-Origin-Embedder-Policy': 'require-corp',
-      });
-      res.end(data);
+      const total = stat.size;
+      const rangeHeader = req.headers['range'];
+      if (rangeHeader) {
+        const m = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
+        if (!m) { res.writeHead(416); res.end(); return; }
+        const start = m[1] ? parseInt(m[1], 10) : total - parseInt(m[2], 10);
+        const end = m[2] ? Math.min(parseInt(m[2], 10), total - 1) : total - 1;
+        if (start > end || start >= total) { res.writeHead(416); res.end(); return; }
+        res.writeHead(206, { ...baseHeaders, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${total}` });
+        fs.createReadStream(filePath, { start, end }).pipe(res);
+      } else {
+        res.writeHead(200, { ...baseHeaders, 'Content-Length': total });
+        fs.createReadStream(filePath).pipe(res);
+      }
     });
   };
 }

@@ -913,6 +913,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     const harPath = har ? path.join(outputDir, `${id}.har`) : null;
     const contextOpts = {
       viewport: { width: viewportWidth, height: viewportHeight },
+      ignoreHTTPSErrors: true,
     };
     if (!noRecording) {
       contextOpts.recordVideo = { dir: outputDir, size: { width: viewportWidth * videoScale, height: viewportHeight * videoScale } };

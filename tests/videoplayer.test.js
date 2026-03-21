@@ -850,6 +850,149 @@ describe('buildPlayerHtml clip alignment', () => {
   });
 });
 
+// --- seekAllWithVerify (Chrome WebM seek retry) ---
+
+describe('buildPlayerHtml seekAllWithVerify', () => {
+  const withClips = (clips, opts = {}) => withOptions({ clipTimes: clips, ...opts }, opts.summary);
+
+  it('defines seekAllWithVerify when clipTimes provided', () => {
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
+    expect(html).toContain('function seekAllWithVerify(');
+  });
+
+  it('seekAllWithVerify guards against null clipTimes internally', () => {
+    // The function is always included in the template; it early-returns per-video
+    // when clipTimes is null, so it is safe to call regardless.
+    expect(defaultHtml).toContain('function seekAllWithVerify(');
+    const fnStart = defaultHtml.indexOf('function seekAllWithVerify(');
+    const fnEnd = defaultHtml.indexOf('\nfunction ', fnStart + 1);
+    const fn = defaultHtml.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 600);
+    expect(fn).toContain('!clipTimes');
+  });
+
+  it('attaches seeked listener with { once: true }', () => {
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
+    const fnStart = html.indexOf('function seekAllWithVerify(');
+    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 600);
+    expect(fn).toContain("addEventListener('seeked'");
+    expect(fn).toContain('{ once: true }');
+  });
+
+  it('uses 0.15s threshold for retry condition', () => {
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
+    const fnStart = html.indexOf('function seekAllWithVerify(');
+    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 600);
+    expect(fn).toContain('expected - 0.15');
+  });
+
+  it('guards retry with isFinite(v.duration)', () => {
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
+    const fnStart = html.indexOf('function seekAllWithVerify(');
+    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 600);
+    expect(fn).toContain('isFinite(v.duration)');
+  });
+
+  it('skips listener when expected position is at or near 0', () => {
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
+    const fnStart = html.indexOf('function seekAllWithVerify(');
+    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 600);
+    expect(fn).toContain('expected <= 0.001');
+  });
+
+  it('initSeek uses seekAllWithVerify not plain seekAll', () => {
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
+    const initSeekStart = html.indexOf('const initSeek = ()');
+    const initSeekEnd = html.indexOf('};', initSeekStart) + 2;
+    const initSeekFn = html.slice(initSeekStart, initSeekEnd);
+    expect(initSeekFn).toContain('seekAllWithVerify(');
+    expect(initSeekFn).not.toMatch(/[^y]seekAll\(/); // no plain seekAll call
+  });
+
+  it('onMeta convertedAny branch uses seekAllWithVerify', () => {
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
+    const onMetaStart = html.indexOf('function onMeta(');
+    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
+    const onMetaFn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
+    expect(onMetaFn).toContain('seekAllWithVerify(');
+  });
+
+  it('attaches canplay fallback listener in seekAllWithVerify', () => {
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
+    const fnStart = html.indexOf('function seekAllWithVerify(');
+    const fnEnd = html.indexOf('\nif (clipTimes)', fnStart);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 800);
+    expect(fn).toContain("addEventListener('canplay'");
+    expect(fn).toContain('{ once: true }');
+  });
+
+  it('canplay fallback resets retries and re-seeks when currentTime is off', () => {
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
+    const fnStart = html.indexOf('function seekAllWithVerify(');
+    const fnEnd = html.indexOf('\nif (clipTimes)', fnStart);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 800);
+    // Must check position is still wrong before re-seeking
+    expect(fn).toContain('expected - 0.15');
+    // Must reset retries so the seeked retry loop gets fresh attempts
+    expect(fn).toContain('retries = 0');
+  });
+});
+
+describe('buildPlayerHtml onMeta _durationForced (Chrome WebM Infinity duration)', () => {
+  const withClips = (clips) => withOptions({ clipTimes: clips });
+
+  it('declares _durationForced WeakSet', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
+    expect(html).toContain('_durationForced');
+    expect(html).toContain('WeakSet');
+  });
+
+  it('onMeta triggers 1e10 seek when duration is non-finite', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
+    const onMetaStart = html.indexOf('function onMeta(');
+    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
+    const fn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
+    expect(fn).toContain('1e10');
+    expect(fn).toContain('durationchange');
+  });
+
+  it('onMeta always returns early while any video has non-finite duration', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
+    const onMetaStart = html.indexOf('function onMeta(');
+    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
+    const fn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
+    // The return; must be unconditional — i.e. it appears after the closing brace
+    // of the if (!_durationForced.has(v)) { ... } block, not inside it.
+    // Search for the actual assignment (not a comment mention) to find the right position.
+    const seek1e10Idx = fn.indexOf('currentTime = 1e10');
+    expect(seek1e10Idx).toBeGreaterThan(-1);
+    // Find the closing brace of the has-guard block (after the 1e10 assignment)
+    const closingBraceIdx = fn.indexOf('}', seek1e10Idx);
+    const returnIdx = fn.indexOf('return;', closingBraceIdx);
+    expect(returnIdx).toBeGreaterThan(closingBraceIdx);
+    // Only whitespace/comments between the closing brace and return;
+    const between = fn.slice(closingBraceIdx + 1, returnIdx).replace(/\/\/[^\n]*/g, '').trim();
+    expect(between).toBe('');
+  });
+
+  it('onMeta only triggers 1e10 seek once per video (WeakSet guard)', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
+    const onMetaStart = html.indexOf('function onMeta(');
+    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
+    const fn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
+    expect(fn).toContain('_durationForced.add(v)');
+    // The 1e10 seek must be inside the !has(v) guard
+    const notHasIdx = fn.indexOf('!_durationForced.has(v)');
+    const addIdx = fn.indexOf('_durationForced.add(v)', notHasIdx);
+    const seek1e10Idx = fn.indexOf('1e10', notHasIdx);
+    expect(addIdx).toBeGreaterThan(notHasIdx);
+    expect(seek1e10Idx).toBeGreaterThan(notHasIdx);
+  });
+});
+
 // --- copyFFmpegFiles ---
 
 describe('copyFFmpegFiles', () => {

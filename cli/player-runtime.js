@@ -61,7 +61,7 @@ function applyCalibrationToClip(ct, ptsStart, videoDuration) {
   ct.calibratedEnd = ptsStart + segDuration;
   ct._ptsScale = null;
   ct.start = ptsStart;
-  ct.end = Math.min(ptsStart + segDuration, videoDuration);
+  ct.end = isFinite(videoDuration) ? Math.min(ptsStart + segDuration, videoDuration) : ptsStart + segDuration;
   ct._converted = true;
 }
 
@@ -130,13 +130,38 @@ function seekAll(t) {
 
 // --- Metadata & calibration ---
 
+// Chrome reports video.duration = Infinity for WebM files without a Duration
+// element in the container header (all Playwright recordings). Seeking requires
+// a finite duration. The fix: seek to 1e10 which forces Chrome to scan to the
+// end of the file, after which it fires durationchange with the real value.
+const _durationForced = new WeakSet();
+
 function onMeta() {
   if (calibrationFatalError) return;
+
+  // Force Chrome to resolve Infinity durations before attempting calibration.
+  // Always block calibration while ANY video still has a non-finite duration —
+  // a second loadedmetadata listener must not race ahead and cancel the 1e10 seek.
+  if (clipTimes) {
+    for (let i = 0; i < clipTimes.length; i++) {
+      const v = videos[i];
+      if (!v || v.readyState < 1) continue;
+      if (!isFinite(v.duration)) {
+        if (!_durationForced.has(v)) {
+          _durationForced.add(v);
+          v.addEventListener('durationchange', onMeta, { once: true });
+          v.currentTime = 1e10; // seek past end → Chrome scans file → durationchange fires
+        }
+        return; // wait until this video's durationchange fires before proceeding
+      }
+    }
+  }
+
   duration = Math.max(...videos.filter(v => v).map(v => v.duration || 0));
   let convertedAny = false;
   if (clipTimes) {
     for (let i = 0; i < clipTimes.length; i++) {
-      if (!isValidClipEntry(clipTimes[i]) || !videos[i] || !videos[i].duration) continue;
+      if (!isValidClipEntry(clipTimes[i]) || !videos[i] || (videos[i].readyState < 1)) continue;
       const ct = clipTimes[i];
       if (ct._converted) continue;
       const wasConverted = !!ct._converted;
@@ -890,8 +915,8 @@ buildRacerFilter();
 // Chrome/WebM: recordings lack duration metadata so Chrome reports
 // duration=Infinity at loadedmetadata and cannot seek until the data
 // at the target position has been buffered. After seekAll(), attach a
-// one-shot 'seeked' listener per video; if the seek snapped back to a
-// position more than 150ms before the expected clip start, retry once.
+// 'seeked' listener per video; if the seek snapped back more than 150ms
+// before the expected clip start, retry up to 10 times as data buffers in.
 function seekAllWithVerify(targetStart) {
   const adj = getAdjustedClipTimes();
   const ct = adj || clipTimes;
@@ -900,12 +925,23 @@ function seekAllWithVerify(targetStart) {
     if (!v || !clipTimes) return;
     const expected = ct && isValidClipEntry(ct[i]) ? ct[i].start : targetStart;
     if (expected <= 0.001) return; // nothing to verify at position 0
+    let retries = 0;
     const handler = () => {
-      if (v.currentTime < expected - 0.15) {
+      if (v.currentTime < expected - 0.15 && retries++ < 10) {
         v.currentTime = Math.min(expected, isFinite(v.duration) ? v.duration : expected);
+        v.addEventListener('seeked', handler, { once: true });
       }
     };
     v.addEventListener('seeked', handler, { once: true });
+    // Fallback: if seek failed because readyState was too low (no buffered data yet),
+    // retry once data becomes available (canplay fires at readyState >= 3).
+    v.addEventListener('canplay', () => {
+      if (v.currentTime < expected - 0.15) {
+        retries = 0;
+        v.currentTime = Math.min(expected, isFinite(v.duration) ? v.duration : expected);
+        v.addEventListener('seeked', handler, { once: true });
+      }
+    }, { once: true });
   });
 }
 
