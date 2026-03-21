@@ -41,6 +41,14 @@ let resolvedFullPaths = fullVideoPaths ? fullVideoPaths.slice() : fullVideoPaths
   if (mergedIsData) mergedVideo.src = await toBlobUrl(mergedSrc);
 })();
 
+// Convert a Blob to a base64 data URI (used when embedding videos in ZIP export)
+async function blobToDataUri(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return `data:${blob.type};base64,${btoa(binary)}`;
+}
+
 let videos = raceVideos;
 let primary = videos[0];
 const playBtn = document.getElementById('playBtn');
@@ -1431,7 +1439,7 @@ function createZipBuilder() {
   return { addFile, toBlob };
 }
 
-function buildExportHtml() {
+function buildExportHtml(pathOverrides = {}) {
   const doc = document.documentElement.cloneNode(true);
 
   // Defensive cleanup: if runtime state duplicated racer cards, keep one set.
@@ -1456,7 +1464,17 @@ function buildExportHtml() {
   // Remove any active export overlays
   doc.querySelectorAll('.export-overlay').forEach(el => el.remove());
 
-  // Bake adjusted clip times into the script
+  // Embed video paths: patch merged video src attribute and raceVideoPaths/fullVideoPaths in script
+  const hasOverrides = Object.keys(pathOverrides).length > 0;
+  if (hasOverrides) {
+    const mv = doc.querySelector('#mergedVideo');
+    if (mv) {
+      const mvSrc = mv.getAttribute('src');
+      if (mvSrc && pathOverrides[mvSrc]) mv.setAttribute('src', pathOverrides[mvSrc]);
+    }
+  }
+
+  // Bake adjusted clip times into the script; also apply path overrides for video embedding
   const scripts = doc.querySelectorAll('script');
   for (const script of scripts) {
     let text = script.textContent;
@@ -1483,6 +1501,11 @@ function buildExportHtml() {
         /const clipTimes = [\s\S]+?;\n/,
         'const clipTimes = ' + JSON.stringify(baked) + ';\n'
       );
+    }
+    if (hasOverrides) {
+      for (const [oldPath, dataUri] of Object.entries(pathOverrides)) {
+        text = text.replaceAll(JSON.stringify(oldPath), JSON.stringify(dataUri));
+      }
     }
     script.textContent = text;
   }
@@ -1511,30 +1534,52 @@ async function startHtmlExport() {
     overlay.remove();
   });
 
-  // Collect all file paths to include
-  const filePaths = new Set();
-  const optionalFilePaths = new Set(['summary.json']);
-  raceVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) filePaths.add(p); });
-  if (fullVideoPaths) fullVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) filePaths.add(p); });
+  // Collect video paths to embed and non-video paths to bundle as separate ZIP entries
+  const videoPaths = new Set();
+  raceVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) videoPaths.add(p); });
+  if (fullVideoPaths) fullVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) videoPaths.add(p); });
   if (mergedVideo) {
-    const mergedPath = mergedVideo.getAttribute('src');
-    if (mergedPath) filePaths.add(mergedPath);
+    const mp = mergedVideo.getAttribute('src');
+    if (mp && !mp.startsWith('data:')) videoPaths.add(mp);
   }
-  // Scan file-links section for trace files and other assets
+
+  const otherPaths = new Set();
+  const optionalPaths = new Set(['summary.json']);
   document.querySelectorAll('.file-links a').forEach(a => {
     const href = a.getAttribute('href');
-    if (href && !href.startsWith('http') && !href.startsWith('//') && !href.startsWith('data:')) {
-      filePaths.add(href);
+    if (href && !href.startsWith('http') && !href.startsWith('//') && !href.startsWith('data:') && !videoPaths.has(href)) {
+      otherPaths.add(href);
     }
   });
-  filePaths.add('summary.json');
+  otherPaths.add('summary.json');
 
-  const zipBuilder = createZipBuilder();
+  const total = videoPaths.size + otherPaths.size;
   const failedFiles = [];
   let fetched = 0;
-  const total = filePaths.size;
 
-  for (const filePath of filePaths) {
+  // Embed videos as data URIs directly in the exported HTML
+  const pathOverrides = {};
+  for (const vPath of videoPaths) {
+    if (abortCtrl.signal.aborted) return;
+    fetched++;
+    statusEl.textContent = 'Embedding ' + vPath + ' (' + fetched + '/' + total + ')';
+    progressFill.style.width = (fetched / total * 80).toFixed(0) + '%';
+    try {
+      const resp = await fetch(vPath, { signal: abortCtrl.signal });
+      if (resp.ok) {
+        pathOverrides[vPath] = await blobToDataUri(await resp.blob());
+      } else {
+        failedFiles.push(vPath);
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      failedFiles.push(vPath);
+    }
+  }
+
+  // Bundle non-video assets (trace files, summary, etc.) as separate ZIP entries
+  const zipBuilder = createZipBuilder();
+  for (const filePath of otherPaths) {
     if (abortCtrl.signal.aborted) return;
     fetched++;
     statusEl.textContent = 'Fetching ' + filePath + ' (' + fetched + '/' + total + ')';
@@ -1542,22 +1587,21 @@ async function startHtmlExport() {
     try {
       const resp = await fetch(filePath, { signal: abortCtrl.signal });
       if (resp.ok) {
-        const data = new Uint8Array(await resp.arrayBuffer());
-        zipBuilder.addFile(filePath, data);
+        zipBuilder.addFile(filePath, new Uint8Array(await resp.arrayBuffer()));
       } else {
-        if (!optionalFilePaths.has(filePath)) failedFiles.push(filePath);
+        if (!optionalPaths.has(filePath)) failedFiles.push(filePath);
       }
     } catch (e) {
       if (e.name === 'AbortError') return;
-      if (!optionalFilePaths.has(filePath)) failedFiles.push(filePath);
+      if (!optionalPaths.has(filePath)) failedFiles.push(filePath);
     }
   }
 
   if (abortCtrl.signal.aborted) return;
 
   statusEl.textContent = 'Building HTML...';
-  progressFill.style.width = '85%';
-  const html = buildExportHtml();
+  progressFill.style.width = '90%';
+  const html = buildExportHtml(pathOverrides);
   zipBuilder.addFile('index.html', new TextEncoder().encode(html));
 
   statusEl.textContent = 'Creating ZIP...';
