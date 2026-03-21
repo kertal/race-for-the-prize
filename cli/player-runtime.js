@@ -1147,7 +1147,8 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
           'fps=10,scale=640:-2,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3',
           outFile]);
       } else {
-        args = trimArgs.concat(['-i', inFile, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', outFile]);
+        // libx264 requires even dimensions; scale=trunc(iw/2)*2:trunc(ih/2)*2 ensures that
+        args = trimArgs.concat(['-i', inFile, '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', outFile]);
       }
       progressFill.style.width = '50%';
       return ff.exec(args);
@@ -1291,10 +1292,12 @@ async function startExport() {
   raceVideos.forEach(v => { if (v) { v.playbackRate = exportRate; v.play(); } });
   const speedLabel = exportRate !== 1 ? ' (' + exportRate + 'x)' : '';
 
+  let exportTimeOffset = null;
   function tick() {
     if (cancelled) return;
     const cur = Math.max(...raceVideos.map(v => v?.currentTime || 0));
-    drawExportFrame(ctx, layout, cur);
+    if (exportTimeOffset === null) exportTimeOffset = cur;
+    drawExportFrame(ctx, layout, cur - exportTimeOffset);
     const progress = totalDur > 0 ? Math.min(1, (cur - startTime) / totalDur) : 0;
     progressFill.style.width = (progress * 100).toFixed(1) + '%';
     statusEl.textContent = 'Recording' + speedLabel + '... ' + Math.round(progress * 100) + '%';
