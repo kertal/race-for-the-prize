@@ -223,6 +223,7 @@ node race.js <dir> --no-recording        # Skip video recording, just measure
 node race.js <dir> --ffmpeg              # Enable FFmpeg processing (trim, merge, convert)
 node race.js <dir> --serve=false         # Don't open results in browser after race
 node race.js <dir> --pause               # Pause between runs — press Enter to continue (multi-run)
+node race.js <dir> --height=900          # Set viewport/recording height in pixels (480–4320, default 720)
 node race.js <dir> --ignore-https-errors # Accept invalid/self-signed TLS certificates
 ```
 
@@ -296,7 +297,8 @@ The terminal delivers the verdict in style:
   "noOverlay": false,
   "noRecording": false,
   "noWasm": false,
-  "ignoreHTTPSErrors": false
+  "ignoreHTTPSErrors": false,
+  "viewportHeight": 720
 }
 ```
 
@@ -314,6 +316,7 @@ The terminal delivers the verdict in style:
 | `noRecording` | `true` / `false` | `false` |
 | `noWasm` | `true` / `false` | `false` |
 | `ignoreHTTPSErrors` | `true` / `false` | `false` |
+| `viewportHeight` | integer, 480–4320 | `720` |
 
 ## Prerequisites
 
