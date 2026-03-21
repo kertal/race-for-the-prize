@@ -31,32 +31,7 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// ---------------------------------------------------------------------------
-// Embed helpers — convert video files to base64 data URIs
-// ---------------------------------------------------------------------------
 
-function videoMimeType(filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  if (ext === '.webm') return 'video/webm';
-  if (ext === '.mov') return 'video/quicktime';
-  if (ext === '.gif') return 'image/gif';
-  return 'video/webm';
-}
-
-function embedAsDataUri(relativePath, runDir) {
-  const absPath = path.join(runDir, relativePath);
-  try {
-    const data = fs.readFileSync(absPath);
-    return `data:${videoMimeType(relativePath)};base64,${data.toString('base64')}`;
-  } catch {
-    return relativePath; // fallback to relative path if file not found
-  }
-}
-
-function embedVideoFiles(files, runDir) {
-  if (!files) return files;
-  return files.map(f => (f ? embedAsDataUri(f, runDir) : f));
-}
 const RAW_HTML = fs.readFileSync(path.join(__dirname, 'player.html'), 'utf-8');
 const RUNTIME = fs.readFileSync(path.join(__dirname, 'player-runtime.js'), 'utf-8');
 
@@ -88,13 +63,7 @@ function buildPlayerScript(config) {
 // ---------------------------------------------------------------------------
 
 export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, options = {}) {
-  let { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, runNavigation, clipTimes, ffmpegPathPrefix, embed, runDir } = options;
-
-  if (embed && runDir) {
-    videoFiles = embedVideoFiles(videoFiles, runDir);
-    fullVideoFiles = embedVideoFiles(fullVideoFiles, runDir);
-    if (mergedVideoFile) mergedVideoFile = embedAsDataUri(mergedVideoFile, runDir);
-  }
+  let { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, runNavigation, clipTimes, ffmpegPathPrefix } = options;
 
   const ffmpegDir = (ffmpegPathPrefix || './') + 'ffmpeg/';
   const racers = summary.racers;

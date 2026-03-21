@@ -1464,9 +1464,18 @@ function buildExportHtml(pathOverrides = {}) {
   // Remove any active export overlays
   doc.querySelectorAll('.export-overlay').forEach(el => el.remove());
 
-  // Embed video paths: patch merged video src attribute and raceVideoPaths/fullVideoPaths in script
+  // Embed video paths: set data URIs directly on <video> src attributes so videos
+  // play immediately without JavaScript, and patch the JS config so resolveEmbeddedVideos
+  // can still upgrade them to seekable Blob URLs at runtime.
   const hasOverrides = Object.keys(pathOverrides).length > 0;
   if (hasOverrides) {
+    // Race video elements: raceVideoPaths[i] maps to <video id="v{i}">
+    raceVideoPaths.forEach((p, i) => {
+      if (!p || !pathOverrides[p]) return;
+      const vid = doc.getElementById('v' + i);
+      if (vid) vid.setAttribute('src', pathOverrides[p]);
+    });
+    // Merged video element
     const mv = doc.querySelector('#mergedVideo');
     if (mv) {
       const mvSrc = mv.getAttribute('src');

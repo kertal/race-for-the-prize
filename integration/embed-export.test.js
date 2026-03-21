@@ -161,9 +161,10 @@ describe('embed-export: ZIP export embeds videos in index.html', () => {
     expect(entryNames, 'bravo video should not be a separate ZIP entry')
       .not.toContain('bravo/bravo.race.webm');
 
-    // The exported HTML must contain the embedded data URIs in the JS config
+    // The exported HTML must contain the embedded data URIs both in the JS config
+    // and as <video src> attributes for immediate (no-JS) playback
     const exportedHtml = indexEntry.data.toString('utf8');
-    expect(exportedHtml).toContain('data:video/webm;base64,');
+    expect(exportedHtml).toContain('src="data:video/webm;base64,');
 
     // The exact base64 content of both video files must appear in the HTML
     const alphaB64 = fs.readFileSync(path.join(tmpDir, 'alpha', 'alpha.race.webm')).toString('base64');
