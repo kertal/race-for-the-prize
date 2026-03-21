@@ -439,7 +439,7 @@ function sanitizeScript(script) {
  *   await page.raceStart(name)        — start a named stopwatch (async: syncs in parallel)
  *   page.raceEnd(name)                — stop the stopwatch (sync: just arithmetic)
  *   await page.raceRecordingStart()   — manually start a video segment (async: syncs)
- *   page.raceRecordingEnd()           — manually end a video segment (sync)
+ *   await page.raceRecordingEnd()     — manually end a video segment (async: flushes)
  *   page.raceMessage(text)            — send a message to the CLI terminal (sync)
  *   await page.raceWaitForVisualStability(opts?) — wait for rendering to settle (async)
  *
@@ -885,7 +885,7 @@ function trimVideoWithFfmpeg(outputDir, trimSegments, id) {
  * Called N times (once per racer) by runParallel or runSequential.
  */
 async function runBrowserRecording(config, barriers, isParallel, sharedState, opts = {}) {
-  const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, noRecording = false, ffmpeg = false, har = false, recordingsDir = null } = opts;
+  const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, noRecording = false, ffmpeg = false, har = false, recordingsDir = null, ignoreHTTPSErrors = false, viewportHeight: configViewportHeight = null } = opts;
   const { id, headless } = config;
   const outputDir = recordingsDir ? path.join(recordingsDir, id) : path.join(__dirname, 'recordings', id);
   let browser = null;
@@ -907,12 +907,13 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     activeBrowsers.push(browser);
 
     const viewportWidth = isParallel ? layout.width - 20 : 1280;
-    const viewportHeight = isParallel ? layout.height - 100 : 720;
+    const viewportHeight = configViewportHeight ?? (isParallel ? layout.height - 100 : 720);
     const videoScale = slowmo > 0 ? 2 : 1;
     const contextCreationStart = Date.now();
     const harPath = har ? path.join(outputDir, `${id}.har`) : null;
     const contextOpts = {
       viewport: { width: viewportWidth, height: viewportHeight },
+      ignoreHTTPSErrors: ignoreHTTPSErrors || false,
     };
     if (!noRecording) {
       contextOpts.recordVideo = { dir: outputDir, size: { width: viewportWidth * videoScale, height: viewportHeight * videoScale } };
@@ -1081,8 +1082,8 @@ async function main() {
   try { config = JSON.parse(configJson); }
   catch (e) { console.error('Error: Invalid JSON:', e.message); process.exit(1); }
 
-  const { browsers, executionMode, throttle, headless, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir } = config;
-  const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir };
+  const { browsers, executionMode, throttle, headless, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir, ignoreHTTPSErrors, viewportHeight } = config;
+  const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir, ignoreHTTPSErrors, viewportHeight };
 
   // Set headless flag on all browser configs
   for (const browser of browsers) {
