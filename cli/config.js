@@ -5,7 +5,7 @@
 
 import fs from 'fs';
 
-const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo']);
+const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'height']);
 
 export function parseArgs(argv) {
   const positional = [];
@@ -96,6 +96,10 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (kvFlags.slowmo !== undefined) {
     const slowmo = Number(kvFlags.slowmo);
     s.slowmo = Number.isFinite(slowmo) && slowmo >= 0 ? Math.min(slowmo, 20) : 0;
+  }
+  if (kvFlags.height !== undefined) {
+    const height = Number(kvFlags.height);
+    s.viewportHeight = Number.isFinite(height) && height >= 480 ? Math.min(Math.round(height), 4320) : 720;
   }
   return s;
 }
