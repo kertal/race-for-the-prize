@@ -849,12 +849,14 @@ function calculateWindowLayout(index, total) {
 
 // --- Profiling & trimming helpers ---
 
+/** Start CDP metrics collection and Chrome tracing on the given page. */
 async function startProfiling(page, browser, id) {
   const metricsCollector = await setupMetricsCollection(page, id);
   await browser.startTracing(page, { screenshots: true, categories: ['devtools.timeline', 'blink.user_timing'] });
   return metricsCollector;
 }
 
+/** Stop tracing, collect metrics, write trace JSON. Returns { tracePath, profileMetrics, traceText }. */
 async function collectProfilingResults(browser, metricsCollector, outputDir, id) {
   let profileMetrics = null;
   if (metricsCollector) {
@@ -872,6 +874,7 @@ async function collectProfilingResults(browser, metricsCollector, outputDir, id)
   };
 }
 
+/** Use ffmpeg to extract trimmed segments from the recorded video. Returns the full video basename or null. */
 function trimVideoWithFfmpeg(outputDir, trimSegments, id) {
   const videoFile = getMostRecentVideo(outputDir);
   if (!videoFile) return null;

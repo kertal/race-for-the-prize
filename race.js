@@ -804,6 +804,7 @@ async function main() {
   }
 }
 
+/** Compute median summary across all runs, pick representative videos, and write top-level index.html. */
 function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
   const medianSummary = buildMedianSummary(summaries, resultsDir);
   fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(medianSummary, null, 2));
