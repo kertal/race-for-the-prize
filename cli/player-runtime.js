@@ -988,7 +988,8 @@ function drawExportFrame(ctx, layout) {
   const h = Math.floor(t / 3600);
   const m = Math.floor((t % 3600) / 60);
   const s = Math.floor(t % 60);
-  const clockText = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  const ms = Math.floor((t % 1) * 1000);
+  const clockText = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(ms).padStart(3,'0')}`;
   ctx.font = 'bold 18px monospace';
   ctx.textAlign = 'center';
   const metrics = ctx.measureText(clockText);
