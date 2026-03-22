@@ -88,7 +88,7 @@ export function deriveRacerName(url) {
   }
   // Sanitize: remove filesystem-unsafe chars (e.g. IPv6 colons),
   // collapse consecutive dots, strip leading/trailing dots, and truncate
-  name = name.replaceAll(/[^a-zA-Z0-9.-]/g, '_').replaceAll(/\.{2,}/g, '.').replace(/^\.+|\.+$/g, '').slice(0, 40);
+  name = name.replaceAll(/[^a-zA-Z0-9.-]/g, '_').replaceAll(/\.{2,}/g, '.').replace(/^\.+/, '').replace(/\.+$/, '').slice(0, 40);
   // Reject dangerous names that resolve to current/parent directory
   if (!name || name === '.' || name === '..') return 'url';
   return name;

@@ -32,9 +32,9 @@ describe('isUrl', () => {
   });
 
   it('rejects degenerate hostnames (dots only)', () => {
-    expect(isUrl('http://.')).toBe(false);
-    expect(isUrl('http://..')).toBe(false);
-    expect(isUrl('http://...')).toBe(false);
+    expect(isUrl('https://.')).toBe(false);
+    expect(isUrl('https://..')).toBe(false);
+    expect(isUrl('https://...')).toBe(false);
   });
 });
 
@@ -65,20 +65,20 @@ describe('deriveRacerName', () => {
 
   it('sanitizes filesystem-unsafe characters from hostnames', () => {
     // IPv6 addresses have colons which are invalid on some filesystems
-    const name = deriveRacerName('http://[::1]:8080/path');
+    const name = deriveRacerName('https://[::1]:8080/path');
     expect(name).not.toContain(':');
     expect(name).not.toContain('[');
     expect(name).not.toContain(']');
   });
 
   it('rejects dangerous filesystem names like . and ..', () => {
-    expect(deriveRacerName('http://.')).toBe('url');
-    expect(deriveRacerName('http://..')).toBe('url');
+    expect(deriveRacerName('https://.')).toBe('url');
+    expect(deriveRacerName('https://..')).toBe('url');
   });
 
   it('strips leading and trailing dots from hostnames', () => {
-    expect(deriveRacerName('http://example.com.')).toBe('example.com');
-    expect(deriveRacerName('http://.hidden')).toBe('hidden');
+    expect(deriveRacerName('https://example.com.')).toBe('example.com');
+    expect(deriveRacerName('https://.hidden')).toBe('hidden');
   });
 
   it('truncates very long hostnames', () => {
