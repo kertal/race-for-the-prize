@@ -289,7 +289,6 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
     });
     fs.rmSync(recordingsDir, { recursive: true, force: true });
     summary = buildSummary(racerNames, results, settings, runDir);
-    if (!runNavigation) generateGeminiCommentary(summary, runDir);
     fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
   } else {
     const progress = startProgress('Processing recordings…');
@@ -300,7 +299,6 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
     fs.rmSync(recordingsDir, { recursive: true, force: true });
 
     summary = buildSummary(racerNames, results, settings, runDir);
-    if (!runNavigation) generateGeminiCommentary(summary, runDir);
     fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
     progress.done('Recordings processed');
 
@@ -805,6 +803,19 @@ function generateGeminiCommentary(summary, outputDir) {
   }
 }
 
+/** Inject gemini commentary into the notes textarea of an existing index.html. */
+function bakeNotesIntoHtml(dir, commentary) {
+  if (!commentary) return;
+  const htmlPath = path.join(dir, 'index.html');
+  if (!fs.existsSync(htmlPath)) return;
+  const html = fs.readFileSync(htmlPath, 'utf-8');
+  const escaped = commentary.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const placeholder = '<textarea class="notes-textarea" id="notesTextarea" placeholder="Add notes about this race..."></textarea>';
+  const replacement = `<textarea class="notes-textarea" id="notesTextarea" placeholder="Add notes about this race...">\n🤖 Gemini Race Commentary\n${'─'.repeat(40)}\n${escaped}\n</textarea>`;
+  const updated = html.replace(placeholder, replacement);
+  if (updated !== html) fs.writeFileSync(htmlPath, updated);
+}
+
 /**
  * Build the per-run output (summary.json + index.html) after all racers' recordings
  * for run `i` are already moved into their run directories.
@@ -846,6 +857,10 @@ async function main() {
       if (totalRuns === 1) {
         const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir);
         printSummary(summary);
+        generateGeminiCommentary(summary, resultsDir);
+        // Re-write summary.json with gemini commentary included
+        fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(summary, null, 2));
+        bakeNotesIntoHtml(resultsDir, summary.geminiCommentary);
         fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summary, sideBySidePath ? sideBySideName : null));
       } else {
         fs.mkdirSync(resultsDir, { recursive: true });
