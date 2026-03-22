@@ -15,19 +15,20 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-/** Helper to write an executable shell script and run it */
-async function runShellScript(scriptPath, content, options = {}) {
-  fs.writeFileSync(scriptPath, content, { mode: 0o755 });
+/** Helper to run a script (shell or node) */
+async function runScript(cmd, scriptPath, content, options = {}) {
+  // Use 0o700 for shell scripts (secure, owner-only execute)
+  // Use 0o600 for node scripts (no execute bit needed)
+  const mode = cmd === 'bash' ? 0o700 : 0o600;
+  fs.writeFileSync(scriptPath, content, { mode });
 
   return new Promise((resolve, reject) => {
-    const child = spawn('bash', [scriptPath], {
+    const child = spawn(cmd, [scriptPath], {
       cwd: options.cwd || path.dirname(scriptPath),
       env: options.env || process.env,
     });
     child.on('close', code => {
-      if (options.expectFailure) {
-        resolve(code);
-      } else if (code === 0) {
+      if (options.expectFailure || code === 0) {
         resolve(code);
       } else {
         reject(new Error(`Exit code ${code}`));
@@ -37,26 +38,14 @@ async function runShellScript(scriptPath, content, options = {}) {
   });
 }
 
-/** Helper to write and run a Node.js script */
-async function runNodeScript(scriptPath, content, options = {}) {
-  fs.writeFileSync(scriptPath, content, { mode: 0o644 });
+/** Helper to write an executable shell script and run it */
+function runShellScript(scriptPath, content, options = {}) {
+  return runScript('bash', scriptPath, content, options);
+}
 
-  return new Promise((resolve, reject) => {
-    const child = spawn('node', [scriptPath], {
-      cwd: options.cwd || path.dirname(scriptPath),
-      env: options.env || process.env,
-    });
-    child.on('close', code => {
-      if (options.expectFailure) {
-        resolve(code);
-      } else if (code === 0) {
-        resolve(code);
-      } else {
-        reject(new Error(`Exit code ${code}`));
-      }
-    });
-    child.on('error', reject);
-  });
+/** Helper to write and run a Node.js script */
+function runNodeScript(scriptPath, content, options = {}) {
+  return runScript('node', scriptPath, content, options);
 }
 
 describe('setup/teardown discovery edge cases', () => {
