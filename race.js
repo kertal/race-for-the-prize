@@ -590,6 +590,11 @@ let raceDir;
 let ctx, settings, racerNames;
 
 if (urlMode) {
+  if (boolFlags.has('results')) {
+    console.error(`${c.red}Error: --results is not supported in URL mode${c.reset}`);
+    process.exit(1);
+  }
+
   // URL mode: generate race scripts from URLs
   if (positional.length > 5) {
     console.error(`${c.yellow}Warning: Using first 5 URLs of ${positional.length} provided${c.reset}`);
