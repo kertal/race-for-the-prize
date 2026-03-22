@@ -289,6 +289,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
     });
     fs.rmSync(recordingsDir, { recursive: true, force: true });
     summary = buildSummary(racerNames, results, settings, runDir);
+    if (!runNavigation) generateGeminiCommentary(summary, runDir);
     fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
   } else {
     const progress = startProgress('Processing recordings…');
@@ -299,6 +300,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
     fs.rmSync(recordingsDir, { recursive: true, force: true });
 
     summary = buildSummary(racerNames, results, settings, runDir);
+    if (!runNavigation) generateGeminiCommentary(summary, runDir);
     fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
     progress.done('Recordings processed');
 
