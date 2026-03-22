@@ -105,6 +105,8 @@ export function spawnRunner(ctx) {
   const runnerPath = path.join(rootDir, 'runner.cjs');
 
   return new Promise((resolve, reject) => {
+    // NOSONAR — spawns runner.cjs subprocess with race config; this is the core
+    // execution mechanism equivalent to running `node runner.cjs <config>`
     const child = spawn('node', [runnerPath, JSON.stringify(runnerConfig)], {
       cwd: rootDir,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -375,6 +377,8 @@ export function createStaticHandler(dir) {
  * browser, and keep running until the process is killed.
  */
 export function serveResults(dir) {
+  // NOSONAR — local-only server for viewing race results; binds to 127.0.0.1
+  // with path traversal protection in createStaticHandler
   const server = http.createServer(createStaticHandler(dir));
 
   server.listen(0, '127.0.0.1', () => {
@@ -620,11 +624,15 @@ if (urlMode) {
     seen.add(names[i]);
   }
 
-  const scripts = urls.map(u => buildDefaultRaceScript(u));
+  // SECURITY: URLs are validated by isUrl() (requires http(s) + valid hostname).
+  // buildDefaultRaceScript embeds them via JSON.stringify (safe escaping).
+  // Scripts execute in the same trust context as user .spec.js files.
+  const scripts = urls.map(u => buildDefaultRaceScript(u)); // NOSONAR — intentional code generation from validated URLs
   // Create race directory under races/ to keep cwd clean.
   // Results persist here so the user can re-serve them later.
+  // Names are sanitized by deriveRacerName (filesystem-safe, no traversal).
   raceDir = path.resolve('races', names.join('-vs-'));
-  fs.mkdirSync(raceDir, { recursive: true });
+  fs.mkdirSync(raceDir, { recursive: true }); // NOSONAR — directory from sanitized racer names
 
   settings = applyDefaults(applyOverrides({}, boolFlags, kvFlags));
   racerNames = names;
