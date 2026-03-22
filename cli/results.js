@@ -138,7 +138,7 @@ export function convertVideos(results, format) {
         const args = ['-y', '-i', src];
         const codec = codecArgs(format);
         if (codec.length > 0) {
-          // libx264 (MOV) requires even dimensions; scale to nearest even if needed
+          // libx264 (MOV) requires even dimensions; trunc rounds down to even
           if (format === 'mov') args.push('-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2');
           args.push(...codec);
         } else {

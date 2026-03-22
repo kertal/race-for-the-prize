@@ -10,10 +10,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { convertVideos } from '../cli/results.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function hasTool(name) {
   try { execFileSync(name, ['-version'], { stdio: 'pipe', timeout: 5_000 }); return true; }
@@ -32,6 +29,7 @@ function getVideoInfo(videoPath) {
 function createTestWebm(outputPath, width, height, durationSecs = 1) {
   execFileSync('ffmpeg', [
     '-f', 'lavfi', '-i', `color=red:size=${width}x${height}:rate=25`,
+    '-c:v', 'libvpx', '-pix_fmt', 'yuv420p',
     '-t', String(durationSecs), '-y', outputPath,
   ], { stdio: 'pipe', timeout: 30_000 });
 }

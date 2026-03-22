@@ -4,8 +4,8 @@ import os from 'os';
 import path from 'path';
 import { buildPlayerHtml } from '../cli/videoplayer.js';
 import { buildProfileComparison } from '../cli/profile-analysis.js';
-import { copyFFmpegFiles, convertVideos } from '../cli/results.js';
-import { execFileSync } from 'child_process';
+import { copyFFmpegFiles } from '../cli/results.js';
+import { fileURLToPath } from 'url';
 
 const makeSummary = (overrides = {}) => ({
   racers: ['lauda', 'hunt'],
@@ -1029,7 +1029,7 @@ describe('buildPlayerHtml onMeta _durationForced (Chrome WebM Infinity duration)
 describe('convertVideos MOV scale filter', () => {
   it('includes scale=trunc for MOV to ensure even dimensions', () => {
     // Read results.js source directly to verify the scale filter is present
-    const src = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'cli', 'results.js'), 'utf-8');
+    const src = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'cli', 'results.js'), 'utf-8');
     expect(src).toContain("'scale=trunc(iw/2)*2:trunc(ih/2)*2'");
     expect(src).toContain("format === 'mov'");
   });

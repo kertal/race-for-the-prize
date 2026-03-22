@@ -1157,12 +1157,12 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
         args = trimArgs.concat(['-i', inFile, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', outFile]);
       }
       progressFill.style.width = '50%';
-      var execPromise = ff.exec(args);
-      var timeoutId;
-      var timeoutPromise = new Promise(function(_, reject) {
-        timeoutId = setTimeout(function() { reject(new Error('FFmpeg conversion timed out')); }, 300000);
+      const execPromise = ff.exec(args);
+      let timeoutId;
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => { reject(new Error('FFmpeg conversion timed out')); }, 300000);
       });
-      return Promise.race([execPromise, timeoutPromise]).finally(function() { clearTimeout(timeoutId); });
+      return Promise.race([execPromise, timeoutPromise]).finally(() => { clearTimeout(timeoutId); });
     }).then(exitCode => {
       if (cancelled) return;
       if (exitCode == null || exitCode !== 0) throw new Error('ffmpeg exited with code ' + exitCode + ' — conversion failed');
