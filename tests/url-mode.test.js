@@ -30,6 +30,12 @@ describe('isUrl', () => {
     expect(isUrl('https://')).toBe(false);
     expect(isUrl('http://')).toBe(false);
   });
+
+  it('rejects degenerate hostnames (dots only)', () => {
+    expect(isUrl('http://.')).toBe(false);
+    expect(isUrl('http://..')).toBe(false);
+    expect(isUrl('http://...')).toBe(false);
+  });
 });
 
 describe('deriveRacerName', () => {
@@ -89,10 +95,12 @@ describe('buildDefaultRaceScript', () => {
     expect(script).toContain("waitUntil: 'load'");
   });
 
-  it('includes raceStart and raceEnd calls', () => {
+  it('includes raceStart and raceEnd calls with try/finally', () => {
     const script = buildDefaultRaceScript('https://example.com');
     expect(script).toContain("page.raceStart('Page Load')");
     expect(script).toContain("page.raceEnd('Page Load')");
+    expect(script).toContain('try {');
+    expect(script).toContain('} finally {');
   });
 
   it('properly escapes URLs with special characters', () => {

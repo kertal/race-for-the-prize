@@ -66,7 +66,10 @@ export function discoverRacers(raceDir) {
 export function isUrl(str) {
   try {
     const u = new URL(str);
-    return (u.protocol === 'http:' || u.protocol === 'https:') && u.hostname !== '';
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    const h = u.hostname;
+    if (!h || h === '.' || h === '..' || h.replace(/\./g, '') === '') return false;
+    return true;
   } catch {
     return false;
   }
@@ -102,8 +105,11 @@ export function deriveRacerName(url) {
  */
 export function buildDefaultRaceScript(url) {
   return `await page.raceStart('Page Load');
-await page.goto(${JSON.stringify(url)}, { waitUntil: 'load' });
-page.raceEnd('Page Load');
+try {
+  await page.goto(${JSON.stringify(url)}, { waitUntil: 'load' });
+} finally {
+  page.raceEnd('Page Load');
+}
 `;
 }
 
