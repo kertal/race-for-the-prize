@@ -181,6 +181,35 @@ export function extractUrls(text) {
 }
 
 /**
+ * Returns true if the URL hostname resolves to a private or local address
+ * (localhost, loopback, RFC-1918 ranges). These are blocked from HTML fetching
+ * to prevent accidental exposure of internal services to Gemini.
+ */
+export function isPrivateUrl(urlString) {
+  let host;
+  try {
+    host = new URL(urlString).hostname.toLowerCase();
+  } catch {
+    return true; // unparseable — treat as unsafe
+  }
+  if (host === 'localhost') return true;
+  // IPv6 loopback
+  if (host === '::1' || host === '[::1]') return true;
+  // Strip IPv6 brackets for numeric checks
+  const plain = host.replace(/^\[|\]$/g, '');
+  const parts = plain.split('.').map(Number);
+  if (parts.length !== 4 || parts.some(isNaN)) return false;
+  const [a, b] = parts;
+  return (
+    a === 127 ||                        // 127.0.0.0/8 loopback
+    a === 10 ||                         // 10.0.0.0/8 private
+    a === 0 ||                          // 0.0.0.0/8
+    (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12 private
+    (a === 192 && b === 168)             // 192.168.0.0/16 private
+  );
+}
+
+/**
  * Build the Gemini prompt for spec generation, embedding scraped HTML context.
  */
 export function buildSpecPrompt(userPrompt, htmlByUrl) {
@@ -269,7 +298,15 @@ export async function runGeminiSpec(userPrompt, { fetchHtml = true } = {}) {
   let htmlByUrl = {};
 
   if (fetchHtml) {
-    const urls = extractUrls(userPrompt).slice(0, 2);
+    const urls = extractUrls(userPrompt)
+      .filter(url => {
+        if (isPrivateUrl(url)) {
+          // Skip silently — don't expose internal network topology to Gemini
+          return false;
+        }
+        return true;
+      })
+      .slice(0, 2);
     if (urls.length > 0) {
       // Launch a single browser instance and reuse it across all URLs
       const browser = await chromium.launch({ headless: true });

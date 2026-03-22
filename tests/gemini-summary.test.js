@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { buildGeminiPrompt, buildSpecPrompt, parseSpecOutput, extractUrls } from '../cli/gemini-summary.js';
+import { buildGeminiPrompt, buildSpecPrompt, parseSpecOutput, extractUrls, isPrivateUrl } from '../cli/gemini-summary.js';
 
 // ---------------------------------------------------------------------------
 // buildGeminiPrompt
@@ -141,6 +141,54 @@ describe('extractUrls', () => {
   it('strips trailing parentheses and brackets from URLs', () => {
     const urls = extractUrls('(https://example.com) and [https://test.com]');
     expect(urls).toEqual(['https://example.com', 'https://test.com']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isPrivateUrl
+// ---------------------------------------------------------------------------
+
+describe('isPrivateUrl', () => {
+  it('identifies localhost as private', () => {
+    expect(isPrivateUrl('http://localhost/admin')).toBe(true);
+  });
+
+  it('identifies 127.x.x.x loopback as private', () => {
+    expect(isPrivateUrl('http://127.0.0.1:8080/')).toBe(true);
+    expect(isPrivateUrl('http://127.1.2.3/')).toBe(true);
+  });
+
+  it('identifies 10.x.x.x as private', () => {
+    expect(isPrivateUrl('https://10.0.0.1/')).toBe(true);
+    expect(isPrivateUrl('https://10.255.255.255/')).toBe(true);
+  });
+
+  it('identifies 192.168.x.x as private', () => {
+    expect(isPrivateUrl('http://192.168.1.1/')).toBe(true);
+  });
+
+  it('identifies 172.16-31.x.x as private', () => {
+    expect(isPrivateUrl('http://172.16.0.1/')).toBe(true);
+    expect(isPrivateUrl('http://172.31.255.255/')).toBe(true);
+  });
+
+  it('does not flag 172.15 or 172.32 as private', () => {
+    expect(isPrivateUrl('http://172.15.0.1/')).toBe(false);
+    expect(isPrivateUrl('http://172.32.0.1/')).toBe(false);
+  });
+
+  it('identifies IPv6 loopback as private', () => {
+    expect(isPrivateUrl('http://[::1]/')).toBe(true);
+  });
+
+  it('treats unparseable URLs as private', () => {
+    expect(isPrivateUrl('not-a-url')).toBe(true);
+  });
+
+  it('allows public IPs', () => {
+    expect(isPrivateUrl('https://google.com/')).toBe(false);
+    expect(isPrivateUrl('https://8.8.8.8/')).toBe(false);
+    expect(isPrivateUrl('https://1.1.1.1/')).toBe(false);
   });
 });
 
