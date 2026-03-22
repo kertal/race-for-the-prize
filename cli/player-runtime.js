@@ -350,6 +350,32 @@ const modeMerged = document.getElementById('modeMerged');
 const modeDebug = document.getElementById('modeDebug');
 const debugPanel = document.getElementById('debugPanel');
 const segmentNav = document.getElementById('segmentNav');
+const settingsToggle = document.getElementById('settingsToggle');
+const settingsPanel = document.getElementById('settingsPanel');
+
+if (settingsToggle && settingsPanel) {
+  settingsToggle.addEventListener('click', () => {
+    const visible = settingsPanel.classList.toggle('visible');
+    settingsToggle.classList.toggle('active', visible);
+  });
+}
+
+const shareToggle = document.getElementById('shareToggle');
+const shareMenu = document.getElementById('shareMenu');
+
+if (shareToggle && shareMenu) {
+  shareToggle.addEventListener('click', () => {
+    const visible = shareMenu.classList.toggle('visible');
+    shareToggle.classList.toggle('active', visible);
+  });
+  // Close menu when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!shareToggle.contains(e.target) && !shareMenu.contains(e.target)) {
+      shareMenu.classList.remove('visible');
+      shareToggle.classList.remove('active');
+    }
+  });
+}
 
 function setActiveMode(btn) {
   [modeRace, modeFull, modeMerged].forEach(b => b?.classList.remove('active'));
@@ -393,11 +419,7 @@ function switchMode(targetSrcSet, targetVideos, modeBtn, opts) {
 
 function hideCalibration() {
   if (debugPanel) debugPanel.style.display = 'none';
-  if (modeDebug) { modeDebug.classList.remove('active'); modeDebug.style.display = 'none'; }
-}
-
-function showCalibrationBtn() {
-  if (modeDebug) modeDebug.style.display = '';
+  if (modeDebug) modeDebug.classList.remove('active');
 }
 
 function resetSegmentState({ hide = false } = {}) {
@@ -415,7 +437,6 @@ function switchToRace() {
       playerContainer.style.display = 'flex';
       if (mergedContainer) mergedContainer.style.display = 'none';
       hideCalibration();
-      showCalibrationBtn();
       resetSegmentState({ hide: false });
     },
     doSeek() {
@@ -757,6 +778,7 @@ function buildSegmentNav() {
   });
 
   segmentNav.style.display = 'inline-block';
+  if (modeDebug) modeDebug.style.display = '';
 }
 
 function buildRacerFilter() {
@@ -1420,11 +1442,38 @@ function toggleFullscreen() {
   } catch (_) { /* unsupported */ }
 }
 
+let fsHideTimer = null;
+
+function showFsControls() {
+  if (!fullscreenWrapper) return;
+  fullscreenWrapper.classList.add('fs-controls-visible');
+  clearTimeout(fsHideTimer);
+  if (isFullscreen()) {
+    fsHideTimer = setTimeout(() => {
+      fullscreenWrapper.classList.remove('fs-controls-visible');
+    }, 2500);
+  }
+}
+
 function onFullscreenChange() {
+  const fs = isFullscreen();
   if (fullscreenBtn) {
-    const fs = isFullscreen();
     fullscreenBtn.textContent = fs ? '\u2716' : '\u26F6';
     fullscreenBtn.title = fs ? 'Exit fullscreen (Esc)' : 'Fullscreen (F)';
+  }
+  if (fs) {
+    // Compute optimal grid columns: ceil(sqrt(visibleCount))
+    const visibleCount = raceVideos.length - hiddenRacers.size;
+    const cols = Math.ceil(Math.sqrt(visibleCount));
+    if (playerContainer) playerContainer.style.setProperty('--fs-cols', cols);
+    showFsControls();
+    fullscreenWrapper.addEventListener('mousemove', showFsControls);
+    fullscreenWrapper.addEventListener('click', showFsControls);
+  } else {
+    clearTimeout(fsHideTimer);
+    fullscreenWrapper.classList.remove('fs-controls-visible');
+    fullscreenWrapper.removeEventListener('mousemove', showFsControls);
+    fullscreenWrapper.removeEventListener('click', showFsControls);
   }
 }
 
@@ -1575,11 +1624,14 @@ function buildExportHtml(pathOverrides = {}, { slim = false } = {}) {
       const section = el.closest('details.section') || el.closest('.section');
       if (section) section.remove(); else el.remove();
     });
-    // Remove segment navigation (Whole Recording / Race Recording buttons)
-    const segNav = doc.querySelector('#segmentNav');
-    if (segNav) segNav.remove();
-    // Remove mode toggle (race/full/merged buttons)
-    doc.querySelectorAll('.mode-toggle').forEach(el => el.remove());
+    // Remove settings panel (segment nav, mode toggle, calibration)
+    const sp = doc.querySelector('#settingsPanel');
+    if (sp) sp.remove();
+    const stBtn = doc.querySelector('#settingsToggle');
+    if (stBtn) stBtn.remove();
+    // Remove share menu and toggle
+    const shBtn = doc.querySelector('#shareToggle');
+    if (shBtn) { const group = shBtn.closest('.header-icon-group'); if (group) group.remove(); else shBtn.remove(); }
   }
 
   // Clear dynamically-built UI so the script rebuilds it cleanly on load

@@ -113,8 +113,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
 </div>` : '';
 
     debugPanelOut = hasClipTimes ? buildDebugPanelHtml(racers, placementOrder, clipTimes) : '';
-    const calibrationBtn = hasClipTimes ? '<button class="export-btn" id="modeDebug" title="Calibrate clip start times">Calibration</button>' : '';
-    playerSection = buildPlayerSectionHtml(videoElements, mergedVideoElement, { calibrationBtn });
+    playerSection = buildPlayerSectionHtml(videoElements, mergedVideoElement);
 
     const videoIds = placementOrder.map((_, i) => `v${i}`);
     const orderedVideoFiles = placementOrder.map(i => videoFiles[i]);

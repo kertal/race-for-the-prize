@@ -556,10 +556,10 @@ describe('buildPlayerHtml debug mode', () => {
     expect(debugHtml).toContain('>Calibration<');
   });
 
-  it('hides Debug button when no clipTimes or all null', () => {
-    expect(defaultHtml).not.toContain('id="modeDebug"');
-    const nullClips = withOptions({ clipTimes: [null, null] });
-    expect(nullClips).not.toContain('id="modeDebug"');
+  it('calibration button is always in template, hidden by default', () => {
+    // Button is in the player template with display:none; runtime shows it when clip times exist
+    expect(defaultHtml).toContain('id="modeDebug"');
+    expect(defaultHtml).toContain('style="display:none"');
   });
 
   it('renders debug panel with per-racer rows', () => {
@@ -709,8 +709,10 @@ describe('buildPlayerHtml export', () => {
     }
   });
 
-  it('does not render Export button when no videos', () => {
-    expect(noVideosHtml).not.toContain('id="exportBtn"');
+  it('renders Export button in header for all pages', () => {
+    // Export buttons are always in the header; runtime hides them when < 2 racers
+    expect(noVideosHtml).toContain('id="exportBtn"');
+    expect(defaultHtml).toContain('id="exportBtn"');
   });
 
   it('getExportLayout ensures even canvasH for libx264 compatibility', () => {

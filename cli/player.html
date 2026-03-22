@@ -52,14 +52,117 @@
     font-weight: bold;
     cursor: default;
   }
+  .header-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    max-width: 1440px;
+    padding: 1.2rem 1.5rem 0.3rem;
+    position: relative;
+  }
+  .header-icon {
+    font-size: 1.4rem;
+    position: absolute;
+  }
+  .header-icon-left { left: 1.5rem; }
+  .header-icon-right {
+    right: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .header-action-btn {
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 4px;
+    width: 34px;
+    height: 34px;
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #999;
+    transition: border-color 0.2s, color 0.2s, background 0.2s;
+  }
+  .header-action-btn:hover {
+    border-color: #d4af37;
+    color: #e8e0d0;
+    background: #3a3a3a;
+  }
+  .header-action-btn.active {
+    border-color: #d4af37;
+    color: #d4af37;
+  }
+  .header-icon-group {
+    position: relative;
+    display: inline-block;
+  }
+  .share-menu {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    background: #2a2a2a;
+    border: 1px solid #555;
+    border-radius: 6px;
+    padding: 0.3rem 0;
+    min-width: 160px;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .share-menu.visible { display: block; }
+  .share-menu-item {
+    display: block;
+    width: 100%;
+    background: none;
+    border: none;
+    color: #e8e0d0;
+    padding: 0.5rem 1rem;
+    font-size: 0.82rem;
+    font-family: ui-monospace, 'Courier New', monospace;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .share-menu-item:hover {
+    background: #3a3a3a;
+    color: #d4af37;
+  }
   h1 {
     font-family: Georgia, 'Times New Roman', serif;
     font-size: 1.8rem;
     color: #d4af37;
     text-align: center;
-    padding: 1.2rem 0 0.3rem;
     text-transform: uppercase;
     letter-spacing: 0.15em;
+  }
+  .settings-panel {
+    display: none;
+    width: 100%;
+    max-width: 1440px;
+    padding: 0.5rem 1.5rem;
+    gap: 0.8rem;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+  .settings-panel.visible {
+    display: flex;
+  }
+  .settings-left {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .settings-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
   }
   .winner-banner:empty { display: none; }
   .winner-banner {
@@ -151,37 +254,6 @@
   .racer-filter-btn.active { opacity: 1; }
   .racer-filter-btn:not(.active):hover { background: #3a3a3a; opacity: 0.6; }
   .racer-filter-btn.active:hover { background: #3a3a3a; }
-  .top-toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    max-width: 1440px;
-    padding: 0.3rem 1.5rem;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
-  .top-toolbar-right {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-  }
-  .below-controls-row {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    max-width: 900px;
-    width: 100%;
-    padding: 0 1.5rem 0.4rem;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-  }
-  .export-btns {
-    display: flex;
-    gap: 0.5rem;
-    flex-shrink: 0;
-  }
   .segment-nav {
     display: none;
     appearance: none;
@@ -505,6 +577,12 @@
     letter-spacing: 0.1em;
     margin-bottom: 0.6rem;
   }
+  .calibration-note {
+    color: #999;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    margin-bottom: 0.8rem;
+  }
   .debug-row {
     display: flex;
     align-items: center;
@@ -625,19 +703,6 @@
     text-align: right;
     color: #bbb;
   }
-  .export-btn {
-    background: #2a2a2a;
-    color: #d4af37;
-    border: 1px solid #d4af37;
-    border-radius: 4px;
-    padding: 0.3rem 0.7rem;
-    font-size: 0.8rem;
-    cursor: pointer;
-    font-family: ui-monospace, 'Courier New', monospace;
-    flex-shrink: 0;
-    transition: all 0.2s;
-  }
-  .export-btn:hover { background: #d4af37; color: #1a1a1a; }
   .export-overlay {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
@@ -745,38 +810,50 @@
     flex-direction: column;
     align-items: center;
   }
-  .fullscreen-btn {
-    background: #2a2a2a;
-    color: #d4af37;
-    border: 1px solid #555;
-    border-radius: 4px;
-    width: 34px;
-    height: 34px;
-    font-size: 1rem;
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: all 0.2s;
-  }
-  .fullscreen-btn:hover { background: #3a3a3a; border-color: #d4af37; }
   .fullscreen-wrapper:fullscreen,
   .fullscreen-wrapper:-webkit-full-screen {
-    background: #1a1a1a;
+    background: #000;
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    padding: 1rem;
+    padding: 0;
+    position: relative;
+    cursor: none;
+  }
+  .fullscreen-wrapper.fs-controls-visible {
+    cursor: default;
   }
   .fullscreen-wrapper:fullscreen .player-container,
   .fullscreen-wrapper:-webkit-full-screen .player-container {
-    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(var(--fs-cols, 2), 1fr);
+    grid-auto-rows: 1fr;
+    gap: 2px;
+    padding: 0;
+    width: 100%;
+    height: 100vh;
     min-height: 0;
-    align-items: center;
+    max-width: 100%;
+  }
+  .fullscreen-wrapper:fullscreen .racer,
+  .fullscreen-wrapper:-webkit-full-screen .racer {
+    min-width: 0;
+    max-width: none;
+    overflow: hidden;
+  }
+  .fullscreen-wrapper:fullscreen .racer-label,
+  .fullscreen-wrapper:-webkit-full-screen .racer-label {
+    display: none;
   }
   .fullscreen-wrapper:fullscreen video,
   .fullscreen-wrapper:-webkit-full-screen video {
-    max-height: calc(100vh - 80px);
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
     object-fit: contain;
+    border: none;
+    border-radius: 0;
   }
   .fullscreen-wrapper:fullscreen .merged-container,
   .fullscreen-wrapper:-webkit-full-screen .merged-container {
@@ -786,15 +863,35 @@
     align-items: center;
     justify-content: center;
     max-width: 100%;
+    padding: 0;
+    height: 100vh;
   }
   .fullscreen-wrapper:fullscreen .merged-container video,
   .fullscreen-wrapper:-webkit-full-screen .merged-container video {
-    max-height: calc(100vh - 80px);
+    height: 100vh;
+    max-height: 100vh;
     object-fit: contain;
+    border: none;
+    border-radius: 0;
   }
   .fullscreen-wrapper:fullscreen .controls,
   .fullscreen-wrapper:-webkit-full-screen .controls {
-    padding-bottom: 0.5rem;
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    max-width: 100%;
+    padding: 0.5rem 1rem;
+    gap: 0.5rem;
+    background: linear-gradient(transparent, rgba(0,0,0,0.85));
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+    z-index: 10;
+  }
+  .fullscreen-wrapper.fs-controls-visible .controls {
+    opacity: 1;
+    pointer-events: auto;
   }
   .sr-only {
     position: absolute; width: 1px; height: 1px;
@@ -834,13 +931,30 @@
 
 <div class="checkered-bar"></div>
 {{runNav}}
-<h1>Race for the Prize</h1>
+<div class="header-bar">
+  <span class="header-icon header-icon-left">🏆</span>
+  <h1>Race for the Prize</h1>
+  <span class="header-icon header-icon-right">
+    <button class="header-action-btn" id="fullscreenBtn" title="Fullscreen (F)" aria-label="Toggle fullscreen">&#x26F6;</button>
+    <span class="header-icon-group">
+      <button class="header-action-btn" id="shareToggle" title="Export / Share" aria-label="Export and share menu">&#x1F4E4;</button>
+      <div class="share-menu" id="shareMenu">
+        <button class="share-menu-item" id="exportBtn">Export Recording</button>
+        <button class="share-menu-item" id="exportHtmlBtn">Export Zip</button>
+        <button class="share-menu-item" id="exportHtmlOnlyBtn">Export HTML</button>
+      </div>
+    </span>
+    <button class="header-action-btn" id="settingsToggle" title="Settings" aria-label="Toggle settings">&#x2699;</button>
+  </span>
+</div>
 <div class="winner-banner">{{winnerBanner}}</div>
 {{videoSourceNote}}
 {{errors}}
-<div class="top-toolbar">
-  <div id="racerFilter" class="racer-filter"></div>
-  <div class="top-toolbar-right">
+<div class="settings-panel" id="settingsPanel">
+  <div class="settings-left">
+    <div id="racerFilter" class="racer-filter"></div>
+  </div>
+  <div class="settings-right">
     <select id="segmentNav" class="segment-nav" aria-label="Recording segment"></select>
     {{modeToggle}}
   </div>
@@ -931,15 +1045,7 @@
     <option value="1" selected>🚙 1x</option>
     <option value="2">🏎️ 2x</option>
   </select>
-  <button class="fullscreen-btn" id="fullscreenBtn" title="Fullscreen (F)" aria-label="Toggle fullscreen">&#x26F6;</button>
-</div>
-<div class="below-controls-row">
-  {{calibrationBtn}}
-  <div class="export-btns">
-    <button class="export-btn" id="exportBtn" title="Export side-by-side video">Export Recording</button>
-    <button class="export-btn" id="exportHtmlBtn" title="Export as self-contained HTML zip">Export Zip</button>
-    <button class="export-btn" id="exportHtmlOnlyBtn" title="Export as single self-contained HTML file">Export HTML</button>
-  </div>
+  <button class="frame-btn" id="modeDebug" title="Calibration" aria-label="Toggle calibration" style="display:none">🎛️</button>
 </div>
 </div>
 </template>
@@ -980,7 +1086,9 @@
 
 <template id="build-debug-panel">
 <div class="debug-panel" id="debugPanel">
-  <h3>Calibration</h3>{{debugRows}}
+  <h3>Calibration</h3>
+  <p class="calibration-note">Video recordings don't start at exactly the same moment &mdash; each browser context begins capturing slightly earlier or later. Use the frame offsets below to align the starting points so racers are visually synchronized during playback.</p>
+  {{debugRows}}
   <div class="debug-stats" id="debugStats">
     <div class="debug-stats-header">VIDEO INFO</div>
 {{statsRows}}
