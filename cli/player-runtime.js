@@ -404,12 +404,8 @@ function resetSegmentState({ hide = false } = {}) {
   activeSegmentName = null;
   activeSegmentClipTimes = null;
   if (!segmentNav) return;
-  segmentNav.querySelectorAll('.segment-btn').forEach((b) => {
-    b.classList.remove('active');
-  });
-  const allBtn = segmentNav.querySelector('.segment-btn[data-segment="__all__"]');
-  if (allBtn) allBtn.classList.add('active');
-  segmentNav.style.display = hide ? 'none' : (segmentNavBuilt ? 'flex' : 'none');
+  segmentNav.value = '__all__';
+  segmentNav.style.display = hide ? 'none' : (segmentNavBuilt ? 'inline-block' : 'none');
 }
 
 function switchToRace() {
@@ -682,11 +678,6 @@ function buildSegmentNav() {
   segmentNavBuilt = true;
   segmentNav.innerHTML = '';
 
-  function setActiveSegBtn(btn) {
-    segmentNav.querySelectorAll('.segment-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-  }
-
   // Switch to race-clip videos if we were in whole-recording (full) mode
   function ensureRaceMode(callback) {
     if (fullVideoPaths && loadedSrcSet === 'full') {
@@ -704,73 +695,68 @@ function buildSegmentNav() {
     }
   }
 
-  // "Whole Recording" — shows full unclipped recording
-  const fullBtn = document.createElement('button');
-  fullBtn.className = 'segment-btn';
-  fullBtn.textContent = 'Whole Recording';
-  fullBtn.dataset.segment = '__full__';
-  fullBtn.addEventListener('click', () => {
-    setActiveSegBtn(fullBtn);
-    activeSegmentName = '__full__';
-    activeSegmentClipTimes = null;
-    const doSeek = () => { activeClip = null; seekAll(0); scrubber.value = 0; updateTimeDisplay(); };
-    if (fullVideoPaths && loadedSrcSet !== 'full') {
-      if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
-      detachVideoListeners();
-      raceVideos.forEach((v, i) => { v.src = resolvedFullPaths[i]; });
-      loadedSrcSet = 'full';
-      videos = raceVideos;
-      primary = videos[0];
-      attachVideoListeners();
-      duration = 0;
-      pendingSeek = doSeek;
-    } else {
-      doSeek();
-    }
-  });
-  segmentNav.appendChild(fullBtn);
+  // Build dropdown options
+  const fullOpt = document.createElement('option');
+  fullOpt.value = '__full__';
+  fullOpt.textContent = 'Whole Recording';
+  segmentNav.appendChild(fullOpt);
 
-  // "All" — shows all measurements combined
-  const allBtn = document.createElement('button');
-  allBtn.className = 'segment-btn active';
-  allBtn.textContent = 'Race Recording';
-  allBtn.dataset.segment = '__all__';
-  allBtn.addEventListener('click', () => {
-    setActiveSegBtn(allBtn);
-    activeSegmentName = null;
-    activeSegmentClipTimes = null;
-    ensureRaceMode(() => {
-      activeClip = resolveAdjustedClip();
-      seekAll(activeClip ? activeClip.start : 0);
-      scrubber.value = 0;
-      updateTimeDisplay();
-    });
-  });
-  segmentNav.appendChild(allBtn);
+  const allOpt = document.createElement('option');
+  allOpt.value = '__all__';
+  allOpt.textContent = 'Race Recording';
+  allOpt.selected = true;
+  segmentNav.appendChild(allOpt);
 
-  // Individual measurement buttons — only shown when there are multiple measurements
   if (names.length > 1) {
     for (const name of names) {
-      const btn = document.createElement('button');
-      btn.className = 'segment-btn';
-      btn.textContent = name;
-      btn.dataset.segment = name;
-      btn.addEventListener('click', () => {
-        setActiveSegBtn(btn);
-        activeSegmentName = name;
-        activeSegmentClipTimes = getSegmentClipTimes(name);
-        ensureRaceMode(() => {
-          activeClip = resolveAdjustedClip();
-          seekAll(activeClip ? activeClip.start : 0);
-          scrubber.value = 0;
-          updateTimeDisplay();
-        });
-      });
-      segmentNav.appendChild(btn);
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      segmentNav.appendChild(opt);
     }
   }
 
-  segmentNav.style.display = 'flex';
+  segmentNav.addEventListener('change', () => {
+    const val = segmentNav.value;
+    if (val === '__full__') {
+      activeSegmentName = '__full__';
+      activeSegmentClipTimes = null;
+      const doSeek = () => { activeClip = null; seekAll(0); scrubber.value = 0; updateTimeDisplay(); };
+      if (fullVideoPaths && loadedSrcSet !== 'full') {
+        if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
+        detachVideoListeners();
+        raceVideos.forEach((v, i) => { v.src = resolvedFullPaths[i]; });
+        loadedSrcSet = 'full';
+        videos = raceVideos;
+        primary = videos[0];
+        attachVideoListeners();
+        duration = 0;
+        pendingSeek = doSeek;
+      } else {
+        doSeek();
+      }
+    } else if (val === '__all__') {
+      activeSegmentName = null;
+      activeSegmentClipTimes = null;
+      ensureRaceMode(() => {
+        activeClip = resolveAdjustedClip();
+        seekAll(activeClip ? activeClip.start : 0);
+        scrubber.value = 0;
+        updateTimeDisplay();
+      });
+    } else {
+      activeSegmentName = val;
+      activeSegmentClipTimes = getSegmentClipTimes(val);
+      ensureRaceMode(() => {
+        activeClip = resolveAdjustedClip();
+        seekAll(activeClip ? activeClip.start : 0);
+        scrubber.value = 0;
+        updateTimeDisplay();
+      });
+    }
+  });
+
+  segmentNav.style.display = 'inline-block';
 }
 
 function buildRacerFilter() {
