@@ -132,6 +132,16 @@ describe('extractUrls', () => {
     const urls = extractUrls('compare google and bing');
     expect(urls).toEqual([]);
   });
+
+  it('strips trailing punctuation from URLs', () => {
+    const urls = extractUrls('Visit https://google.com. Also check https://bing.com!');
+    expect(urls).toEqual(['https://google.com', 'https://bing.com']);
+  });
+
+  it('strips trailing parentheses and brackets from URLs', () => {
+    const urls = extractUrls('(https://example.com) and [https://test.com]');
+    expect(urls).toEqual(['https://example.com', 'https://test.com']);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -232,6 +242,26 @@ await page.goto('https://b.com');
     const files = parseSpecOutput(output);
     expect(Object.keys(files)).toHaveLength(2);
     expect(files['racer-a.spec.js']).toContain("goto('https://a.com')");
+  });
+
+  it('rejects unexpected filenames (only racer-a/racer-b allowed)', () => {
+    const output = `FILE: racer-a.spec.js
+\`\`\`javascript
+await page.goto('https://a.com');
+\`\`\`
+FILE: evil.spec.js
+\`\`\`javascript
+await page.goto('https://evil.com');
+\`\`\`
+FILE: racer-b.spec.js
+\`\`\`javascript
+await page.goto('https://b.com');
+\`\`\``;
+    const files = parseSpecOutput(output);
+    expect(Object.keys(files)).toHaveLength(2);
+    expect(files['evil.spec.js']).toBeUndefined();
+    expect(files['racer-a.spec.js']).toBeDefined();
+    expect(files['racer-b.spec.js']).toBeDefined();
   });
 
   it('strips leading/trailing whitespace from file content', () => {

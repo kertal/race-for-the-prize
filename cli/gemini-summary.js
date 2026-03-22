@@ -157,7 +157,7 @@ export async function fetchPageHtml(url, browser, maxLength = HTML_MAX_LENGTH) {
  */
 export function extractUrls(text) {
   const matches = text.match(/https?:\/\/[^\s,;'"]+/gi) || [];
-  return [...new Set(matches)];
+  return [...new Set(matches.map(url => url.replace(/[)\].,;!?]+$/, '')))];
 }
 
 /**
@@ -219,10 +219,13 @@ export function buildSpecPrompt(userPrompt, htmlByUrl) {
  */
 export function parseSpecOutput(geminiOutput) {
   const files = {};
+  const allowedFiles = new Set(['racer-a.spec.js', 'racer-b.spec.js']);
   const filePattern = /FILE:\s*([\w.-]+\.spec\.js)\s*```[a-zA-Z0-9-]*\s*([\s\S]*?)```/gi;
   let match;
   while ((match = filePattern.exec(geminiOutput)) !== null) {
-    files[match[1]] = match[2].trim();
+    if (allowedFiles.has(match[1])) {
+      files[match[1]] = match[2].trim();
+    }
   }
   return files;
 }
