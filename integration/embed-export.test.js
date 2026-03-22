@@ -111,6 +111,9 @@ function waitForBlobVideos(pg, count = 2, timeout = 15_000) {
 
 /** Click an export button, wait for export to finish, click download link. */
 async function triggerExport(pg, buttonSelector) {
+  // Open the share menu first (export buttons are inside a hidden dropdown)
+  const shareToggle = await pg.$('#shareToggle');
+  if (shareToggle) await shareToggle.click();
   await pg.click(buttonSelector);
   const dlLink = await pg.waitForSelector('.export-actions a[download]', { timeout: 60_000 });
   const [download] = await Promise.all([

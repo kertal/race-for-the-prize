@@ -290,8 +290,8 @@ describe('chrome-seek: calibrated start position via HTTP range requests', () =>
       { expected: CALIBRATED_START_S, tolerance: SEEK_TOLERANCE_S, timeoutMs: 12_000 },
     );
 
-    // Open the calibration debug panel
-    const debugBtn = await page.$('#modeDebug');
+    // Open the calibration debug panel (button starts hidden, shown when clip times load)
+    const debugBtn = await page.waitForSelector('#modeDebug', { state: 'visible', timeout: 10_000 }).catch(() => null);
     if (!debugBtn) skip('no calibration button — debug panel not available');
     await debugBtn.click();
     await page.waitForSelector('#debugPanel', { state: 'visible', timeout: 3_000 });
@@ -348,8 +348,8 @@ describe('chrome-seek: calibrated start position via HTTP range requests', () =>
     const errors = [];
     page.on('pageerror', err => errors.push(err.message));
 
-    // Open debug panel
-    const debugBtn = await page.$('#modeDebug');
+    // Open debug panel (button starts hidden, shown when clip times load)
+    const debugBtn = await page.waitForSelector('#modeDebug', { state: 'visible', timeout: 10_000 }).catch(() => null);
     if (!debugBtn) skip('no calibration button');
     await debugBtn.click();
     await page.waitForSelector('#debugPanel', { state: 'visible', timeout: 3_000 });
