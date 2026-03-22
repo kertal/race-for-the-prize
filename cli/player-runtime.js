@@ -1309,7 +1309,8 @@ async function startExport() {
     const cur = Math.max(...raceVideos.map(v => v?.currentTime || 0));
     if (exportTimeOffset === null) exportTimeOffset = cur;
     drawExportFrame(ctx, layout, cur - exportTimeOffset);
-    const progress = totalDur > 0 ? Math.min(1, (cur - startTime) / totalDur) : 0;
+    const elapsed = cur - exportTimeOffset;
+    const progress = totalDur > 0 ? Math.min(1, elapsed / totalDur) : 0;
     progressFill.style.width = (progress * 100).toFixed(1) + '%';
     statusEl.textContent = 'Recording' + speedLabel + '... ' + Math.round(progress * 100) + '%';
     const allDone = raceVideos.every((v, i) => !v || v.currentTime >= perVideoEnd[i] || v.ended);
