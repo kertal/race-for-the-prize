@@ -745,6 +745,9 @@ if (urlMode) {
   racerNames = names;
   ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir });
 } else {
+  if (positional.length > 1) {
+    console.error(`${c.yellow}Warning: Directory mode expects 1 argument (the race directory), ignoring extra arguments: ${positional.slice(1).join(', ')}${c.reset}`);
+  }
   raceDir = path.resolve(positional[0]);
 
   if (!fs.existsSync(raceDir)) {
