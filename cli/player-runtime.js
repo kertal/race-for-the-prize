@@ -238,19 +238,21 @@ function onMeta() {
   updateTimeDisplay();
   updateDebugStats();
 
-  if (pendingSeek && videos.every(v => !v || v.readyState >= 1)) {
-    const fn = pendingSeek;
-    pendingSeek = null;
-    fn();
-  } else if (convertedAny && !playing && videos.every(v => !v || v.readyState >= 1)) {
-    // If conversion landed after the initial seek was already consumed,
-    // force one seek to the actual clip start to avoid stale startup frame.
-    // Guard: all videos must be at HAVE_METADATA (readyState >= 1) before
-    // seeking — calling seekAllWithVerify while another video is still at
-    // readyState 0 seeds seeked/canplay listeners with stale clip positions.
-    seekAllWithVerify(activeClip ? activeClip.start : 0);
-    scrubber.value = 0;
-    updateTimeDisplay();
+  if (videos.every(v => !v || v.readyState >= 1)) {
+    if (pendingSeek) {
+      const fn = pendingSeek;
+      pendingSeek = null;
+      fn();
+    }
+    // Always seek to calibrated start after calibration converts clip entries,
+    // even if the user already started playing or pendingSeek was consumed earlier.
+    // This ensures the video visibly jumps to the correct frame.
+    if (convertedAny) {
+      if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
+      seekAllWithVerify(activeClip ? activeClip.start : 0);
+      scrubber.value = 0;
+      updateTimeDisplay();
+    }
   }
 
 }
@@ -535,7 +537,7 @@ function updateDebugStats() {
     const toFrame = (pts) => pts != null && isFinite(pts) ? Math.round(pts / 0.04) : null;
     const fmtF = (pts) => { const f = toFrame(pts); return f != null ? '#' + f : '\u2014'; };
     const events = [];
-    events.push({ label: 'Context created', wc: -offset, ptsVal: 0 });
+    events.push({ label: 'Context created', wc: -(ct.recordingOffset || 0), ptsVal: 0 });
     events.push({ label: 'recordingStartTime (t=0)', wc: 0, ptsVal: toPts(0) });
     events.push({ label: 'raceRecordingStart()', wc: wcStart, ptsVal: ct.start });
     const measurements = ct.measurements || [];
@@ -829,8 +831,18 @@ function adjustDebugOffset(idx, frameDelta) {
   debugOffsets[idx] = newOffset;
   updateDebugDisplay();
   updateDebugStats();
+  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
   activeClip = resolveAdjustedClip();
-  seekAll(activeClip ? activeClip.start : 0);
+  // Force each video to seek to its adjusted start and render the frame.
+  // Use direct per-video currentTime assignment + pause to guarantee a visible update.
+  const adj = getAdjustedClipTimes();
+  const ct = adj || clipTimes;
+  videos.forEach((v, i) => {
+    if (!v) return;
+    const target = (activeClip && ct && isValidClipEntry(ct[i])) ? ct[i].start : (activeClip ? activeClip.start : 0);
+    v.currentTime = Math.min(target, v.duration || target);
+  });
+  updateFramePositions();
   scrubber.value = 0;
   updateTimeDisplay();
 }
@@ -871,8 +883,16 @@ if (debugPanel) {
       for (let i = 0; i < debugOffsets.length; i++) debugOffsets[i] = 0;
       updateDebugDisplay();
       updateDebugStats();
+      if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
       activeClip = resolveAdjustedClip();
-      seekAll(activeClip ? activeClip.start : 0);
+      const adj = getAdjustedClipTimes();
+      const ct = adj || clipTimes;
+      videos.forEach((v, i) => {
+        if (!v) return;
+        const target = (activeClip && ct && isValidClipEntry(ct[i])) ? ct[i].start : (activeClip ? activeClip.start : 0);
+        v.currentTime = Math.min(target, v.duration || target);
+      });
+      updateFramePositions();
       scrubber.value = 0;
       updateTimeDisplay();
     }
@@ -961,6 +981,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
   else if (e.key === 'Home') { e.preventDefault(); goToStart(); }
   else if (e.key === 'End') { e.preventDefault(); goToEnd(); }
+  else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFullscreen(); }
 });
 
 // --- Racer filter (3+ racers only) ---
@@ -1349,6 +1370,42 @@ if (exportBtn) {
   if (raceVideos.length < 2) exportBtn.style.display = 'none';
   exportBtn.addEventListener('click', startExport);
 }
+
+// --- Fullscreen mode ---
+
+const fullscreenBtn = document.getElementById('fullscreenBtn');
+const fullscreenWrapper = document.getElementById('fullscreenWrapper');
+
+function isFullscreen() {
+  return !!(document.fullscreenElement || document.webkitFullscreenElement);
+}
+
+function toggleFullscreen() {
+  if (!fullscreenWrapper) return;
+  try {
+    if (isFullscreen()) {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exit) exit.call(document)?.catch?.(() => {});
+    } else {
+      const request = fullscreenWrapper.requestFullscreen || fullscreenWrapper.webkitRequestFullscreen;
+      if (request) request.call(fullscreenWrapper)?.catch?.(() => {});
+    }
+  } catch (_) { /* unsupported */ }
+}
+
+function onFullscreenChange() {
+  if (fullscreenBtn) {
+    const fs = isFullscreen();
+    fullscreenBtn.textContent = fs ? '\u2716' : '\u26F6';
+    fullscreenBtn.title = fs ? 'Exit fullscreen (Esc)' : 'Fullscreen (F)';
+  }
+}
+
+if (fullscreenBtn) {
+  fullscreenBtn.addEventListener('click', toggleFullscreen);
+}
+document.addEventListener('fullscreenchange', onFullscreenChange);
+document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
 // --- Export HTML: self-contained zip with videos, profiles, baked adjustments ---
 

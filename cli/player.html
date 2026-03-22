@@ -716,6 +716,63 @@
     color: #999;
     border-color: #555;
   }
+  .fullscreen-wrapper {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .fullscreen-btn {
+    background: #2a2a2a;
+    color: #d4af37;
+    border: 1px solid #555;
+    border-radius: 4px;
+    width: 34px;
+    height: 34px;
+    font-size: 1rem;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.2s;
+  }
+  .fullscreen-btn:hover { background: #3a3a3a; border-color: #d4af37; }
+  .fullscreen-wrapper:fullscreen,
+  .fullscreen-wrapper:-webkit-full-screen {
+    background: #1a1a1a;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 1rem;
+  }
+  .fullscreen-wrapper:fullscreen .player-container,
+  .fullscreen-wrapper:-webkit-full-screen .player-container {
+    flex: 1;
+    min-height: 0;
+    align-items: center;
+  }
+  .fullscreen-wrapper:fullscreen video,
+  .fullscreen-wrapper:-webkit-full-screen video {
+    max-height: calc(100vh - 80px);
+    object-fit: contain;
+  }
+  .fullscreen-wrapper:fullscreen .merged-container,
+  .fullscreen-wrapper:-webkit-full-screen .merged-container {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    max-width: 100%;
+  }
+  .fullscreen-wrapper:fullscreen .merged-container video,
+  .fullscreen-wrapper:-webkit-full-screen .merged-container video {
+    max-height: calc(100vh - 80px);
+    object-fit: contain;
+  }
+  .fullscreen-wrapper:fullscreen .controls,
+  .fullscreen-wrapper:-webkit-full-screen .controls {
+    padding-bottom: 0.5rem;
+  }
   .sr-only {
     position: absolute; width: 1px; height: 1px;
     padding: 0; margin: -1px; overflow: hidden;
@@ -797,6 +854,7 @@
 
 <template id="build-player-section">
 <div id="racerFilter" class="racer-filter"></div>
+<div class="fullscreen-wrapper" id="fullscreenWrapper">
 <div class="player-container" id="playerContainer">
 {{videoElements}}
 </div>
@@ -830,6 +888,8 @@
     <option value="2">2x</option>
   </select>
   {{calibrationBtn}}
+  <button class="fullscreen-btn" id="fullscreenBtn" title="Fullscreen (F)" aria-label="Toggle fullscreen">&#x26F6;</button>
+</div>
 </div>
 </template>
 

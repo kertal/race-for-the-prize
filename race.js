@@ -128,9 +128,18 @@ export function spawnRunner(ctx) {
     const sigHandler = () => child.kill('SIGTERM');
     process.on('SIGINT', sigHandler);
 
-    child.on('close', () => {
+    function cleanup() {
       process.removeListener('SIGINT', sigHandler);
       if (animation.interval) animation.stop();
+    }
+
+    child.on('error', (err) => {
+      cleanup();
+      reject(new Error(`Runner process failed to start: ${err.message}`));
+    });
+
+    child.on('close', () => {
+      cleanup();
 
       // Parse the last valid JSON line from runner stdout
       const lines = stdout.trim().split('\n');

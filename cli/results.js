@@ -24,6 +24,7 @@ export function moveResults(recordingsBase, racerName, destDir, browserResult) {
 
   try {
     if (!fs.existsSync(sourceDir)) return data;
+    fs.mkdirSync(destDir, { recursive: true });
 
     const files = fs.readdirSync(sourceDir);
     for (const file of files) {
