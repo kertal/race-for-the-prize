@@ -794,6 +794,10 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
     expect(defaultHtml).toContain('ffmpeg exited with code');
     expect(defaultHtml).toContain('conversion failed');
   });
+
+  it('passes a timeout to ff.exec to prevent indefinite hangs', () => {
+    expect(defaultHtml).toContain('ff.exec(args, 300000)');
+  });
 });
 
 // --- Clip alignment ---
