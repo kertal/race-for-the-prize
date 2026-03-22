@@ -20,6 +20,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { waitForStability } = require('./visual-stability.cjs');
 const { deriveTraceTiming } = require('./trace-calibration.cjs');
+const { flashCue, injectOverlay, showRecordingIndicator, hideRecordingIndicator, showFinishTime, showMedal } = require('./overlay.cjs');
 
 // Track active browsers/contexts for cleanup on SIGTERM/SIGINT
 let activeBrowsers = [];
@@ -28,7 +29,7 @@ let activeContexts = [];
 // --- Named constants (previously magic numbers) ---
 
 const OLD_VIDEO_CLEANUP_MS = 5000;      // Age threshold for deleting stale recordings
-const MEDAL_DISPLAY_MS = 500;           // How long to show the placement medal overlay
+// MEDAL_DISPLAY_MS moved to overlay.cjs
 const POST_RACE_WAIT_MS = 500;          // Pause after race finishes for final video frames
 const SLOWMO_MULTIPLIER = 20;           // Playwright slowMo factor per slowmo unit
 const PAGE_TIMEOUT_MS = 90000;          // Default page action/navigation timeout
@@ -439,7 +440,7 @@ function sanitizeScript(script) {
  *   await page.raceStart(name)        — start a named stopwatch (async: syncs in parallel)
  *   page.raceEnd(name)                — stop the stopwatch (sync: just arithmetic)
  *   await page.raceRecordingStart()   — manually start a video segment (async: syncs)
- *   page.raceRecordingEnd()           — manually end a video segment (sync)
+ *   await page.raceRecordingEnd()     — manually end a video segment (async: flushes)
  *   page.raceMessage(text)            — send a message to the CLI terminal (sync)
  *   await page.raceWaitForVisualStability(opts?) — wait for rendering to settle (async)
  *
@@ -461,15 +462,8 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   const activeMeasurements = {};
 
   // --- Visual cues for frame-accurate trimming / calibration ---
-  // Always injected into every recording. A tiny colored square in the top-left
-  // corner, displayed for ~2 frames (80ms at 25fps). Used by the HTML player's
-  // Canvas API to calibrate clip start/end positions client-side, independent
-  // of whether CDP screencast calibration is also available.
-  // 4px is the smallest size that reliably survives VP8 video compression.
   const CUE_COLOR_START = '#00FF00';
   const CUE_COLOR_END = '#FF0000';
-  const CUE_DURATION_MS = 200;  // Long enough to be captured even at ~5fps (200ms > 1/5fps = 200ms)
-  const CUE_SIZE = 4;
   const traceMarkPrefix = 'race:';
   const markTrace = async (markName) => {
     try {
@@ -494,114 +488,18 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
 
   const encodeMeasureName = (name) => encodeURIComponent(String(name ?? 'default'));
 
-  const flashCue = async (color, durationMs) => {
-    if (noRecording) return;
-    const dur = typeof durationMs === 'number' ? durationMs : CUE_DURATION_MS;
-    await page.evaluate(({ c, size, ms }) => {
-      const el = document.createElement('div');
-      el.id = '__race_cue';
-      // CSS animation forces compositor updates → guarantees screencast frame capture
-      el.style.cssText = 'position:fixed;top:0;left:0;width:' + size + 'px;height:' + size + 'px;z-index:2147483647;background:' + c + ';animation:__rcue 16ms steps(2) infinite';
-      var sheet = document.createElement('style');
-      sheet.textContent = '@keyframes __rcue{50%{opacity:.999}}';
-      document.head.appendChild(sheet);
-      document.documentElement.appendChild(el);
-      el.offsetHeight;
-      return new Promise(resolve => setTimeout(() => {
-        el.remove(); sheet.remove(); resolve();
-      }, ms));
-    }, { c: color, size: CUE_SIZE, ms: dur });
-  };
-
   // Track overlay state so it can be re-injected after page.goto() navigations
   // which destroy the DOM. null = hidden, otherwise { text, bg } = what to show.
   let overlayState = null;
-
-  const injectOverlay = async (text, bg) => {
-    await page.evaluate(({ text, bg }) => {
-      let el = document.getElementById('__race_rec_indicator');
-      if (!el) {
-        el = document.createElement('div');
-        el.id = '__race_rec_indicator';
-        el.style.cssText = 'position:fixed;top:12px;right:12px;z-index:2147483647;'
-          + 'color:#fff;padding:4px 10px;border-radius:6px;'
-          + 'font:bold 14px/1 system-ui,sans-serif;pointer-events:none';
-        document.body.appendChild(el);
-      }
-      el.textContent = text;
-      el.style.background = bg;
-    }, { text, bg });
-  };
 
   // Re-inject overlay after navigations (page.goto destroys the DOM)
   if (!noOverlay) {
     page.on('load', () => {
       if (overlayState) {
-        injectOverlay(overlayState.text, overlayState.bg).catch(() => {});
+        injectOverlay(page, overlayState.text, overlayState.bg).catch(() => {});
       }
     });
   }
-
-  const showRecordingIndicator = async () => {
-    if (noOverlay || noRecording) return;
-    overlayState = { text: '📹 REC', bg: 'rgba(220,38,38,0.85)' };
-    await injectOverlay(overlayState.text, overlayState.bg);
-  };
-
-  const showFinishTime = (duration) => {
-    if (noOverlay || noRecording) return;
-    overlayState = { text: '🏁 ' + duration.toFixed(1) + 's', bg: 'rgba(22,163,74,0.85)' };
-    injectOverlay(overlayState.text, overlayState.bg).catch(() => {});
-  };
-
-  const hideRecordingIndicator = async () => {
-    if (noOverlay || noRecording) return;
-    overlayState = null;
-    await page.evaluate(() => {
-      const el = document.getElementById('__race_rec_indicator');
-      if (el) el.remove();
-    });
-  };
-
-  const showMedal = async () => {
-    if (!sharedState) return;
-    // Record finish with actual measurement end time for accurate ranking
-    const lastMeasurement = measurements[measurements.length - 1];
-    const endTime = lastMeasurement ? lastMeasurement.endTime : (Date.now() - recordingStartTime) / 1000;
-    sharedState.finishOrder.push({ id, endTime });
-    if (noOverlay || noRecording) return;
-
-    if (isParallel) {
-      // Parallel mode: show placement medals based on actual end times
-      const sorted = [...sharedState.finishOrder].sort((a, b) => a.endTime - b.endTime);
-      const place = sorted.findIndex(f => f.id === id) + 1;
-      const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
-      const ordinals = ['1st', '2nd', '3rd', '4th', '5th'];
-      const medal = medals[place - 1] || `${place}`;
-      const ordinal = ordinals[place - 1] || `${place}th`;
-      await page.evaluate(({ medal, ordinal }) => {
-        const el = document.createElement('div');
-        el.id = '__race_medal';
-        el.textContent = medal + ' ' + ordinal;
-        el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483647;'
-          + 'font:bold 64px/1 system-ui,sans-serif;pointer-events:none;'
-          + 'background:rgba(0,0,0,0.6);color:#fff;padding:24px 48px;border-radius:16px';
-        document.body.appendChild(el);
-      }, { medal, ordinal });
-    } else {
-      // Sequential mode: just show finish flag (no placement since they don't race simultaneously)
-      await page.evaluate(() => {
-        const el = document.createElement('div');
-        el.id = '__race_medal';
-        el.textContent = '🏁';
-        el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483647;'
-          + 'font:bold 80px/1 system-ui,sans-serif;pointer-events:none;'
-          + 'background:rgba(0,0,0,0.6);color:#fff;padding:24px 48px;border-radius:16px';
-        document.body.appendChild(el);
-      });
-    }
-    await page.waitForTimeout(MEDAL_DISPLAY_MS);
-  };
 
   const startRecording = async () => {
     if (currentSegmentStart !== null) return;
@@ -612,8 +510,10 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     const startWallMs = Date.now();
     currentSegmentStart = (startWallMs - recordingStartTime) / 1000;
     await markTrace(`${traceMarkPrefix}recording:start`);
-    await flashCue(CUE_COLOR_START);
-    await showRecordingIndicator();
+    if (!noRecording) await flashCue(page, CUE_COLOR_START);
+    if (!noOverlay && !noRecording) {
+      overlayState = await showRecordingIndicator(page);
+    }
   };
 
 
@@ -624,9 +524,22 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     await markTrace(`${traceMarkPrefix}recording:end`);
     currentSegmentStart = null;
     stopPromise = (async () => {
-      await hideRecordingIndicator();
-      await showMedal();
-      await flashCue(CUE_COLOR_END);
+      if (!noOverlay && !noRecording) {
+        await hideRecordingIndicator(page);
+        overlayState = null;
+      }
+      if (sharedState) {
+        const lastMeasurement = measurements[measurements.length - 1];
+        const endTime = lastMeasurement ? lastMeasurement.endTime : (Date.now() - recordingStartTime) / 1000;
+        sharedState.finishOrder.push({ id, endTime });
+        if (!noOverlay && !noRecording) {
+          // Calculate placement from finish order for the medal display
+          const sorted = [...sharedState.finishOrder].sort((a, b) => a.endTime - b.endTime);
+          const place = isParallel ? sorted.findIndex(f => f.id === id) + 1 : null;
+          await showMedal(page, place);
+        }
+      }
+      if (!noRecording) await flashCue(page, CUE_COLOR_END);
     })();
     return stopPromise;
   };
@@ -647,7 +560,9 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     measurements.push({ name, startTime: start, endTime: end, duration });
     delete activeMeasurements[name];
     queueTraceMark(`${traceMarkPrefix}measure:end:${encodeMeasureName(name)}`);
-    showFinishTime(duration);
+    if (!noOverlay && !noRecording) {
+      overlayState = showFinishTime(page, duration);
+    }
     return end - start;
   };
 
@@ -758,12 +673,12 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   } catch (error) {
     console.error(`[${id}] Script failed: ${error.message}`);
     throw new Error(`Script execution failed: ${error.message}`);
-  }
-
-  // Clean up CDP session used by raceWaitForVisualStability
-  if (cdpSession) {
-    try { await cdpSession.detach(); } catch {}
-    cdpSession = null;
+  } finally {
+    // Clean up CDP session used by raceWaitForVisualStability
+    if (cdpSession) {
+      try { await cdpSession.detach(); } catch {}
+      cdpSession = null;
+    }
   }
 
   if (currentSegmentStart !== null) await stopRecording();
@@ -789,6 +704,8 @@ const NETWORK_PRESETS = {
 async function applyThrottling(page, throttle, id) {
   if (!throttle) return;
   try {
+    // CDP session intentionally kept alive — detaching removes throttling.
+    // Session is cleaned up when the browser context closes.
     const client = await page.context().newCDPSession(page);
     const net = NETWORK_PRESETS[throttle.network];
     if (net) {
@@ -885,11 +802,12 @@ function trimVideoWithFfmpeg(outputDir, trimSegments, id) {
  * Called N times (once per racer) by runParallel or runSequential.
  */
 async function runBrowserRecording(config, barriers, isParallel, sharedState, opts = {}) {
-  const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, noRecording = false, ffmpeg = false, recordingsDir = null } = opts;
+  const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, noRecording = false, ffmpeg = false, har = false, recordingsDir = null, ignoreHTTPSErrors = false, viewportHeight: configViewportHeight = null } = opts;
   const { id, headless } = config;
   const outputDir = recordingsDir ? path.join(recordingsDir, id) : path.join(__dirname, 'recordings', id);
   let browser = null;
   let context = null;
+  let metricsCollector = null;
   let error = null;
 
   fs.mkdirSync(outputDir, { recursive: true });
@@ -907,14 +825,19 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     activeBrowsers.push(browser);
 
     const viewportWidth = isParallel ? layout.width - 20 : 1280;
-    const viewportHeight = isParallel ? layout.height - 100 : 720;
+    const viewportHeight = configViewportHeight ?? (isParallel ? layout.height - 100 : 720);
     const videoScale = slowmo > 0 ? 2 : 1;
     const contextCreationStart = Date.now();
+    const harPath = har ? path.join(outputDir, `${id}.har`) : null;
     const contextOpts = {
       viewport: { width: viewportWidth, height: viewportHeight },
+      ignoreHTTPSErrors: ignoreHTTPSErrors || false,
     };
     if (!noRecording) {
       contextOpts.recordVideo = { dir: outputDir, size: { width: viewportWidth * videoScale, height: viewportHeight * videoScale } };
+    }
+    if (harPath) {
+      contextOpts.recordHar = { path: harPath, mode: 'minimal' };
     }
     context = await browser.newContext(contextOpts);
     const recordingStartTime = Date.now();
@@ -928,7 +851,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     await setupClickTracker(context, recordingStartTime);
     await applyThrottling(page, throttle, id);
 
-    const metricsCollector = await startProfiling(page, browser, id);
+    metricsCollector = await startProfiling(page, browser, id);
 
     const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay, metricsCollector, noRecording);
     const markerSegments = result?.segments || [];
@@ -967,6 +890,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
         recordingOffset,
         wallClockDuration,
         calibratedStart: null,
+        traceCalibration: null,
         error: null
       };
     }
@@ -992,6 +916,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
       videoPath: videoFile ? path.join(id, videoFile) : null,
       fullVideoPath: fullVideoFile ? path.join(id, fullVideoFile) : null,
       tracePath: tracePath ? path.join(id, path.basename(tracePath)) : null,
+      harPath: harPath && fs.existsSync(harPath) ? path.join(id, path.basename(harPath)) : null,
       clickEvents: adjustedClicks,
       measurements,
       profileMetrics,
@@ -1005,6 +930,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
   } catch (e) {
     error = e;
     console.error(`[${id}] Error: ${e.message}`);
+    if (metricsCollector) { try { await metricsCollector.detach(); } catch {} }
     if (sharedState) { sharedState.hasError = true; sharedState.errorMessage = e.message; }
     if (barriers) {
       barriers.ready.releaseAll();
@@ -1021,10 +947,15 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     videoPath: null,
     fullVideoPath: null,
     tracePath: null,
+    harPath: null,
     clickEvents: [],
     measurements: [],
     profileMetrics: null,
     recordingSegments: null,
+    recordingOffset: 0,
+    wallClockDuration: 0,
+    calibratedStart: null,
+    traceCalibration: null,
     error: error ? error.message : null
   };
 }
@@ -1075,8 +1006,8 @@ async function main() {
   try { config = JSON.parse(configJson); }
   catch (e) { console.error('Error: Invalid JSON:', e.message); process.exit(1); }
 
-  const { browsers, executionMode, throttle, headless, slowmo, noOverlay, noRecording, ffmpeg, recordingsDir } = config;
-  const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, recordingsDir };
+  const { browsers, executionMode, throttle, headless, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir, ignoreHTTPSErrors, viewportHeight } = config;
+  const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir, ignoreHTTPSErrors, viewportHeight };
 
   // Set headless flag on all browser configs
   for (const browser of browsers) {
@@ -1104,6 +1035,7 @@ async function main() {
       videoPath: r.videoPath || null,
       fullVideoPath: r.fullVideoPath || null,
       tracePath: r.tracePath || null,
+      harPath: r.harPath || null,
       clickEvents: r.clickEvents || [],
       measurements: r.measurements || [],
       profileMetrics: r.profileMetrics || null,
