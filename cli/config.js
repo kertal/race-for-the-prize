@@ -5,7 +5,7 @@
 
 import fs from 'fs';
 
-const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'gemini-spec']);
+const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'height', 'gemini-spec']);
 
 export function parseArgs(argv) {
   const positional = [];
@@ -70,8 +70,10 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('no-overlay')) s.noOverlay = true;
   if (boolFlags.has('no-recording')) s.noRecording = true;
   if (boolFlags.has('ffmpeg')) s.ffmpeg = true;
+  if (boolFlags.has('har')) s.har = true;
   if (boolFlags.has('no-wasm')) s.noWasm = true;
   if (boolFlags.has('pause')) s.pauseBetweenRuns = true;
+  if (boolFlags.has('ignore-https-errors')) s.ignoreHTTPSErrors = true;
   if (kvFlags.network !== undefined) {
     if (!VALID_NETWORKS.includes(kvFlags.network)) {
       console.error(`Warning: Unknown network preset "${kvFlags.network}", valid values: ${VALID_NETWORKS.join(', ')}`);
@@ -95,6 +97,10 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (kvFlags.slowmo !== undefined) {
     const slowmo = Number(kvFlags.slowmo);
     s.slowmo = Number.isFinite(slowmo) && slowmo >= 0 ? Math.min(slowmo, 20) : 0;
+  }
+  if (kvFlags.height !== undefined) {
+    const height = Number(kvFlags.height);
+    s.viewportHeight = Number.isFinite(height) ? Math.min(Math.max(Math.round(height), 480), 4320) : 720;
   }
   if (boolFlags.has('gemini')) s.gemini = true;
   return s;

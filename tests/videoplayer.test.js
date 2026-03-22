@@ -5,6 +5,7 @@ import path from 'path';
 import { buildPlayerHtml } from '../cli/videoplayer.js';
 import { buildProfileComparison } from '../cli/profile-analysis.js';
 import { copyFFmpegFiles } from '../cli/results.js';
+import { fileURLToPath } from 'node:url';
 
 const makeSummary = (overrides = {}) => ({
   racers: ['lauda', 'hunt'],
@@ -360,6 +361,10 @@ describe('buildPlayerHtml click counts', () => {
 
 describe('buildPlayerHtml clipTimes', () => {
   const withClips = (clips, opts = {}) => withOptions({ clipTimes: clips, ...opts }, opts.summary);
+  const defaultClips = () => [
+    { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+    { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+  ];
 
   it('does not show Race/Full mode buttons when clipTimes provided', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.5, end: 3 }]);
@@ -427,35 +432,25 @@ describe('buildPlayerHtml clipTimes', () => {
   });
 
   it('includes trace-based conversion logic in onMeta', () => {
-    const clips = [
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-    ];
-    const html = withClips(clips);
+    const html = withClips(defaultClips());
     expect(html).toContain('_converted');
     expect(html).toContain('tracePtsStart');
     expect(html).toContain('hasTraceCalibration(ct)');
   });
 
-  it('does not include canvas/localStorage fallback calibration code', () => {
-    const clips = [
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-    ];
-    const html = withClips(clips);
+  it('does not include canvas-based calibration fallback code (localStorage is present for notes only)', () => {
+    const html = withClips(defaultClips());
     expect(html).not.toContain('detectGreenCuePts');
     expect(html).not.toContain('calibrateFromCanvas');
     expect(html).not.toContain('isGreenCue');
     expect(html).not.toContain('restoreFromCache');
-    expect(html).not.toContain('localStorage');
+    // localStorage is now used for notes persistence (not calibration cache)
+    expect(html).not.toContain('calibrationCache');
+    expect(html).toContain('race-notes:');
   });
 
   it('includes strict calibration error for missing trace metadata', () => {
-    const clips = [
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-    ];
-    const html = withClips(clips);
+    const html = withClips(defaultClips());
     expect(html).toContain('Calibration error: missing trace calibration metadata. Please calibrate manually.');
     expect(html).toContain('manual calibration required');
     expect(html).toContain('playBtn.disabled = true');
@@ -490,11 +485,7 @@ describe('buildPlayerHtml clipTimes', () => {
   });
 
   it('does not include blob/canvas fallback helpers', () => {
-    const clips = [
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-    ];
-    const html = withClips(clips);
+    const html = withClips(defaultClips());
     expect(html).not.toContain('toBlobVideo');
     expect(html).not.toContain('detectGreenCuePts');
     expect(html).not.toContain('getImageData(0, 0, CUE_DETECT_SIZE, CUE_DETECT_SIZE)');
@@ -535,6 +526,23 @@ describe('buildPlayerHtml files section', () => {
   it('omits trace links when not profiling', () => {
     expect(abHtml()).not.toContain('.trace.json');
   });
+
+  it('includes HAR download links when provided', () => {
+    const html = abHtml({ harFiles: ['a/a.har', 'b/b.har'] });
+    expect(html).toContain('href="a/a.har"');
+    expect(html).toContain('a (HAR)');
+    expect(html).toContain('download');
+  });
+
+  it('omits HAR links when not provided', () => {
+    expect(abHtml()).not.toContain('.har');
+  });
+
+  it('omits HAR links for racers without HAR files', () => {
+    const html = abHtml({ harFiles: ['a/a.har', null] });
+    expect(html).toContain('href="a/a.har"');
+    expect(html).not.toContain('b (HAR)');
+  });
 });
 
 // --- Debug mode ---
@@ -548,10 +556,10 @@ describe('buildPlayerHtml debug mode', () => {
     expect(debugHtml).toContain('>Calibration<');
   });
 
-  it('hides Debug button when no clipTimes or all null', () => {
-    expect(defaultHtml).not.toContain('id="modeDebug"');
-    const nullClips = withOptions({ clipTimes: [null, null] });
-    expect(nullClips).not.toContain('id="modeDebug"');
+  it('calibration button is always in template, hidden by default', () => {
+    // Button is in the player template with display:none; runtime shows it when clip times exist
+    expect(defaultHtml).toContain('id="modeDebug"');
+    expect(defaultHtml).toContain('style="display:none"');
   });
 
   it('renders debug panel with per-racer rows', () => {
@@ -649,9 +657,9 @@ describe('buildPlayerHtml timing events', () => {
   });
 
   it('saves _wcStart and _wcEnd in onMeta before trace conversion', () => {
-    expect(timingHtml).toContain('ct._wcStart = ct.start');
-    expect(timingHtml).toContain('ct._wcEnd = ct.end');
-    expect(timingHtml).not.toContain('ct._ptsScale = scale');
+    expect(timingHtml).toContain('_wcStart = ');
+    expect(timingHtml).toContain('_wcEnd = ');
+    expect(timingHtml).not.toContain('_ptsScale = scale');
   });
 
   it('script contains timing event labels and column headers', () => {
@@ -701,8 +709,24 @@ describe('buildPlayerHtml export', () => {
     }
   });
 
-  it('does not render Export button when no videos', () => {
-    expect(noVideosHtml).not.toContain('id="exportBtn"');
+  it('renders Export button in header for all pages', () => {
+    // Export buttons are always in the header; runtime hides them when < 2 racers
+    expect(noVideosHtml).toContain('id="exportBtn"');
+    expect(defaultHtml).toContain('id="exportBtn"');
+  });
+
+  it('getExportLayout ensures even canvasH for libx264 compatibility', () => {
+    // canvasH = rawH + (rawH % 2) rounds odd heights up to even
+    expect(defaultHtml).toContain('rawH % 2');
+  });
+
+  it('export timer starts from 0 using exportTimeOffset', () => {
+    expect(defaultHtml).toContain('exportTimeOffset');
+    expect(defaultHtml).toContain('cur - exportTimeOffset');
+  });
+
+  it('export modal canvas has max-height to keep buttons visible', () => {
+    expect(defaultHtml).toContain('max-height: 50vh');
   });
 });
 
@@ -772,10 +796,15 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
   });
 
 
-  it('checks ff.exec exit code and throws a human-readable error on non-zero', () => {
-    expect(defaultHtml).toContain('exitCode !== 0');
+  it('checks ff.exec exit code and throws a human-readable error on non-zero or null', () => {
+    expect(defaultHtml).toContain('exitCode == null || exitCode !== 0');
     expect(defaultHtml).toContain('ffmpeg exited with code');
     expect(defaultHtml).toContain('conversion failed');
+  });
+
+  it('passes a timeout to ff.exec to prevent indefinite hangs', () => {
+    // ff.exec(args, 300000) uses the library's built-in timeout
+    expect(defaultHtml).toContain('ff.exec(args, 300000)');
   });
 });
 
@@ -833,6 +862,170 @@ describe('buildPlayerHtml clip alignment', () => {
   });
 });
 
+// --- seekAllWithVerify (Chrome WebM seek retry) ---
+
+describe('buildPlayerHtml seekAllWithVerify', () => {
+  const withClips = (clips, opts = {}) => withOptions({ clipTimes: clips, ...opts }, opts.summary);
+
+  it('defines seekAllWithVerify when clipTimes provided', () => {
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
+    expect(html).toContain('function seekAllWithVerify(');
+  });
+
+  it('seekAllWithVerify guards against null clipTimes internally', () => {
+    // The function is always included in the template; it early-returns per-video
+    // when clipTimes is null, so it is safe to call regardless.
+    expect(defaultHtml).toContain('function seekAllWithVerify(');
+    const fnStart = defaultHtml.indexOf('function seekAllWithVerify(');
+    const fnEnd = defaultHtml.indexOf('\nfunction ', fnStart + 1);
+    const fn = defaultHtml.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 600);
+    expect(fn).toContain('!clipTimes');
+  });
+
+  it('attaches seeked listener with { once: true }', () => {
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
+    const fnStart = html.indexOf('function seekAllWithVerify(');
+    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 600);
+    expect(fn).toContain("addEventListener('seeked'");
+    expect(fn).toContain('{ once: true }');
+  });
+
+  it('uses SEEK_SNAP_TOLERANCE threshold for retry condition', () => {
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
+    const fnStart = html.indexOf('function seekAllWithVerify(');
+    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 800);
+    expect(fn).toContain('SEEK_SNAP_TOLERANCE');
+  });
+
+  it('guards retry with isFinite(v.duration)', () => {
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
+    const fnStart = html.indexOf('function seekAllWithVerify(');
+    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 600);
+    expect(fn).toContain('isFinite(v.duration)');
+  });
+
+  it('skips listener when expected position is at or near 0', () => {
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
+    const fnStart = html.indexOf('function seekAllWithVerify(');
+    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 800);
+    expect(fn).toContain('ZERO_START_THRESHOLD');
+  });
+
+  it('initSeek uses seekAllWithVerify not plain seekAll', () => {
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
+    const initSeekStart = html.indexOf('const initSeek = ()');
+    const initSeekEnd = html.indexOf('};', initSeekStart) + 2;
+    const initSeekFn = html.slice(initSeekStart, initSeekEnd);
+    expect(initSeekFn).toContain('seekAllWithVerify(');
+    expect(initSeekFn).not.toMatch(/(^|\W)seekAll\(/); // no plain seekAll call (only seekAllWithVerify)
+  });
+
+  it('onMeta recomputes activeSegmentClipTimes after calibration', () => {
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
+    const onMetaStart = html.indexOf('function onMeta(');
+    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
+    const onMetaFn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 2000);
+    expect(onMetaFn).toContain('convertedAny && activeSegmentName');
+    expect(onMetaFn).toContain('activeSegmentClipTimes = getSegmentClipTimes(activeSegmentName)');
+  });
+
+  it('onMeta convertedAny branch uses seekAllWithVerify', () => {
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
+    const onMetaStart = html.indexOf('function onMeta(');
+    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
+    const onMetaFn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
+    expect(onMetaFn).toContain('seekAllWithVerify(');
+  });
+
+  it('attaches canplay fallback listener in seekAllWithVerify', () => {
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
+    const fnStart = html.indexOf('function seekAllWithVerify(');
+    const fnEnd = html.indexOf('\nif (clipTimes)', fnStart);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 800);
+    expect(fn).toContain("addEventListener('canplay'");
+    expect(fn).toContain('{ once: true }');
+  });
+
+  it('canplay fallback resets retries and re-seeks when currentTime is off', () => {
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
+    const fnStart = html.indexOf('function seekAllWithVerify(');
+    const fnEnd = html.indexOf('\nif (clipTimes)', fnStart);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 800);
+    // Must check position is still wrong before re-seeking (uses named constant)
+    expect(fn).toContain('SEEK_SNAP_TOLERANCE');
+    // Must reset retries so the seeked retry loop gets fresh attempts
+    expect(fn).toContain('retries = 0');
+  });
+});
+
+describe('buildPlayerHtml onMeta _durationForced (Chrome WebM Infinity duration)', () => {
+  const withClips = (clips) => withOptions({ clipTimes: clips });
+
+  it('declares _durationForced WeakMap', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
+    expect(html).toContain('_durationForced');
+    expect(html).toContain('WeakMap');
+  });
+
+  it('onMeta triggers 1e10 seek when duration is non-finite', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
+    const onMetaStart = html.indexOf('function onMeta(');
+    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
+    const fn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
+    expect(fn).toContain('1e10');
+    expect(fn).toContain('durationchange');
+  });
+
+  it('onMeta always returns early while any video has non-finite duration', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
+    const onMetaStart = html.indexOf('function onMeta(');
+    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
+    const fn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
+    // The return; must be unconditional — i.e. it appears after the closing brace
+    // of the if (!_durationForced.has(v)) { ... } block, not inside it.
+    // Search for the actual assignment (not a comment mention) to find the right position.
+    const seek1e10Idx = fn.indexOf('currentTime = 1e10');
+    expect(seek1e10Idx).toBeGreaterThan(-1);
+    // Find the closing brace of the has-guard block (after the 1e10 assignment)
+    const closingBraceIdx = fn.indexOf('}', seek1e10Idx);
+    const returnIdx = fn.indexOf('return;', closingBraceIdx);
+    expect(returnIdx).toBeGreaterThan(closingBraceIdx);
+    // Only whitespace/comments between the closing brace and return;
+    const between = fn.slice(closingBraceIdx + 1, returnIdx).replace(/\/\/[^\n]*/g, '').trim();
+    expect(between).toBe('');
+  });
+
+  it('onMeta only triggers 1e10 seek once per src (WeakMap guard)', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
+    const onMetaStart = html.indexOf('function onMeta(');
+    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
+    const fn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
+    // WeakMap API: set() inside the guard, get() !== srcKey as the condition
+    expect(fn).toContain('_durationForced.set(v');
+    const getGuardIdx = fn.indexOf('_durationForced.get(v)');
+    const setIdx = fn.indexOf('_durationForced.set(v', getGuardIdx);
+    const seek1e10Idx = fn.indexOf('1e10', getGuardIdx);
+    expect(getGuardIdx).toBeGreaterThan(-1);
+    expect(setIdx).toBeGreaterThan(getGuardIdx);
+    expect(seek1e10Idx).toBeGreaterThan(getGuardIdx);
+  });
+});
+
+// --- convertVideos scale filter for MOV ---
+
+describe('convertVideos MOV scale filter', () => {
+  it('includes scale=trunc for MOV to ensure even dimensions', () => {
+    // Read results.js source directly to verify the scale filter is present
+    const src = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'cli', 'results.js'), 'utf-8');
+    expect(src).toContain("'scale=trunc(iw/2)*2:trunc(ih/2)*2'");
+    expect(src).toContain("format === 'mov'");
+  });
+});
+
 // --- copyFFmpegFiles ---
 
 describe('copyFFmpegFiles', () => {
@@ -865,3 +1058,4 @@ describe('copyFFmpegFiles', () => {
     }
   });
 });
+

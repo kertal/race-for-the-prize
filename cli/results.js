@@ -15,6 +15,7 @@ export function moveResults(recordingsBase, racerName, destDir, browserResult) {
     videoPath: null,
     fullVideoPath: null,
     tracePath: null,
+    harPath: null,
     clickEvents: browserResult.clickEvents || [],
     measurements: browserResult.measurements || [],
     profileMetrics: browserResult.profileMetrics || null,
@@ -23,6 +24,7 @@ export function moveResults(recordingsBase, racerName, destDir, browserResult) {
 
   try {
     if (!fs.existsSync(sourceDir)) return data;
+    fs.mkdirSync(destDir, { recursive: true });
 
     const files = fs.readdirSync(sourceDir);
     for (const file of files) {
@@ -49,6 +51,13 @@ export function moveResults(recordingsBase, racerName, destDir, browserResult) {
       const renamed = `${racerName}.trace.json`;
       fs.renameSync(path.join(destDir, traceFile), path.join(destDir, renamed));
       data.tracePath = path.join(destDir, renamed);
+    }
+
+    const harFile = files.find(f => f.endsWith('.har'));
+    if (harFile) {
+      const renamed = `${racerName}.har`;
+      fs.renameSync(path.join(destDir, harFile), path.join(destDir, renamed));
+      data.harPath = path.join(destDir, renamed);
     }
 
     fs.writeFileSync(path.join(destDir, 'clicks.json'), JSON.stringify(data.clickEvents, null, 2));
@@ -130,6 +139,8 @@ export function convertVideos(results, format) {
         const args = ['-y', '-i', src];
         const codec = codecArgs(format);
         if (codec.length > 0) {
+          // libx264 (MOV) requires even dimensions; trunc rounds down to even
+          if (format === 'mov') args.push('-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2');
           args.push(...codec);
         } else {
           // GIF optimization: fps, scale, palette generation with Bayer dithering

@@ -20,6 +20,50 @@ const mergedVideo = document.getElementById('mergedVideo');
 const playerContainer = document.getElementById('playerContainer');
 const mergedContainer = document.getElementById('mergedContainer');
 
+// Mutable resolved paths — data URIs replaced with seekable Blob URLs on init
+let resolvedRacePaths = raceVideoPaths ? raceVideoPaths.slice() : raceVideoPaths;
+let resolvedFullPaths = fullVideoPaths ? fullVideoPaths.slice() : fullVideoPaths;
+
+const _embeddedBlobUrls = [];
+(async function resolveEmbeddedVideos() {
+  async function toBlobUrl(p) {
+    if (!p || !p.startsWith('data:')) return p;
+    try {
+      const resp = await fetch(p);
+      if (!resp.ok) return p;
+      const url = URL.createObjectURL(await resp.blob());
+      _embeddedBlobUrls.push(url);
+      return url;
+    } catch { return p; }
+  }
+  const hasData = arr => arr && arr.some(p => p && p.startsWith('data:'));
+  const mergedSrc = mergedVideo && mergedVideo.getAttribute('src');
+  const mergedIsData = mergedSrc && mergedSrc.startsWith('data:');
+  if (!hasData(raceVideoPaths) && !hasData(fullVideoPaths) && !mergedIsData) return;
+  [resolvedRacePaths, resolvedFullPaths] = await Promise.all([
+    raceVideoPaths ? Promise.all(raceVideoPaths.map(toBlobUrl)) : Promise.resolve(raceVideoPaths),
+    fullVideoPaths ? Promise.all(fullVideoPaths.map(toBlobUrl)) : Promise.resolve(fullVideoPaths),
+  ]);
+  // Update video src attributes with seekable blob: URLs
+  raceVideos.forEach((v, i) => {
+    if (!v) return;
+    const resolved = loadedSrcSet === 'full' && resolvedFullPaths ? resolvedFullPaths[i] : resolvedRacePaths[i];
+    if (resolved && resolved !== v.getAttribute('src')) v.src = resolved;
+  });
+  if (mergedIsData) mergedVideo.src = await toBlobUrl(mergedSrc);
+})();
+window.addEventListener('pagehide', () => { _embeddedBlobUrls.forEach(u => URL.revokeObjectURL(u)); });
+
+// Convert a Blob to a base64 data URI (used when embedding videos in ZIP export)
+function blobToDataUri(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
 let videos = raceVideos;
 let primary = videos[0];
 const playBtn = document.getElementById('playBtn');
@@ -52,7 +96,10 @@ function failCalibration(msg) {
   if (frameDisplay) frameDisplay.textContent = 'manual calibration required';
   if (playBtn) playBtn.disabled = true;
   if (scrubber) scrubber.disabled = true;
-  throw new Error(msg);
+  // Log to console rather than throwing: this function is called from event
+  // listeners (loadedmetadata, durationchange) where an uncaught throw would
+  // surface as an unhandled exception without providing any extra information.
+  console.error('[player] calibration failed:', msg);
 }
 
 function applyCalibrationToClip(ct, ptsStart, videoDuration) {
@@ -61,7 +108,7 @@ function applyCalibrationToClip(ct, ptsStart, videoDuration) {
   ct.calibratedEnd = ptsStart + segDuration;
   ct._ptsScale = null;
   ct.start = ptsStart;
-  ct.end = Math.min(ptsStart + segDuration, videoDuration);
+  ct.end = isFinite(videoDuration) ? Math.min(ptsStart + segDuration, videoDuration) : ptsStart + segDuration;
   ct._converted = true;
 }
 
@@ -107,9 +154,15 @@ function canApplyTraceCalibration(ct) {
   return hasTraceCalibration(ct) && Number.isFinite(ct.traceCalibration.firstFrameTs);
 }
 
+const US_PER_SECOND = 1e6; // trace timestamps are in microseconds
+
 function traceTsToClipPts(ct, traceTs) {
   if (!hasTraceCalibration(ct) || !Number.isFinite(traceTs)) return null;
-  return (traceTs - ct.traceCalibration.recordingStartTs) / 1e6;
+  // Video PTS is measured from firstFrameTs (the first captured frame = PTS 0).
+  // Using recordingStartTs as the base would give time-since-recording-started,
+  // which is ct.start seconds too early once applyCalibrationToClip has set
+  // ct.start = (recordingStartTs - firstFrameTs) / US_PER_SECOND.
+  return (traceTs - ct.traceCalibration.firstFrameTs) / US_PER_SECOND;
 }
 
 function seekAll(t) {
@@ -130,45 +183,90 @@ function seekAll(t) {
 
 // --- Metadata & calibration ---
 
+// Chrome reports video.duration = Infinity for WebM files without a Duration
+// element in the container header (all Playwright recordings). Seeking requires
+// a finite duration. The fix: seek to 1e10 which forces Chrome to scan to the
+// end of the file, after which it fires durationchange with the real value.
+// _durationForced maps each video element to the src key for which the 1e10
+// seek was already triggered. Keyed by src (not element) so that switching
+// sources (e.g. race clip → full recording) re-triggers the scan if needed.
+const _durationForced = new WeakMap();
+
 function onMeta() {
   if (calibrationFatalError) return;
+
+  // Block calibration until every video has a finite duration.
+  // readyState >= 1 (HAVE_METADATA) means the duration field is populated.
+  // We must check ALL videos before proceeding: a second loadedmetadata
+  // listener must not race ahead and run calibration while the 1e10 seek for
+  // another video is still in progress.
+  // Note: runs unconditionally (not gated on clipTimes) so full-recording
+  // pages also get finite durations before any seek/UI is attempted.
+  for (const v of videos) {
+    if (!v || v.readyState < 1) continue; // readyState 1 = HAVE_METADATA
+    if (!isFinite(v.duration)) {
+      const srcKey = v.currentSrc || v.src || '';
+      if (_durationForced.get(v) !== srcKey) {
+        _durationForced.set(v, srcKey);
+        v.addEventListener('durationchange', onMeta, { once: true });
+        v.currentTime = 1e10; // seek past end → Chrome scans file → durationchange fires
+      }
+      return; // always wait — do not proceed until durationchange fires
+    }
+  }
+
   duration = Math.max(...videos.filter(v => v).map(v => v.duration || 0));
   let convertedAny = false;
   if (clipTimes) {
     for (let i = 0; i < clipTimes.length; i++) {
-      if (!isValidClipEntry(clipTimes[i]) || !videos[i] || !videos[i].duration) continue;
-      const ct = clipTimes[i];
-      if (ct._converted) continue;
-      const wasConverted = !!ct._converted;
-      if (ct._wcStart == null) { ct._wcStart = ct.start; ct._wcEnd = ct.end; }
-      if (!canApplyTraceCalibration(ct)) {
+      if (!isValidClipEntry(clipTimes[i]) || !videos[i] || (videos[i].readyState < 1)) continue;
+      const clipEntry = clipTimes[i];
+      if (clipEntry._converted) continue;
+      // _converted is always false here (the guard above skips converted entries),
+      // but we capture it before mutating so the convertedAny check below is explicit.
+      const wasConverted = !!clipEntry._converted;
+      if (clipEntry._wcStart == null) { clipEntry._wcStart = clipEntry.start; clipEntry._wcEnd = clipEntry.end; }
+      if (!canApplyTraceCalibration(clipEntry)) {
         failCalibration('Calibration error: missing trace calibration metadata. Please calibrate manually.');
         return;
       }
-      const tracePtsStart = (ct.traceCalibration.recordingStartTs - ct.traceCalibration.firstFrameTs) / 1e6;
+      // recordingStartTs − firstFrameTs gives the PTS offset (µs) where recording
+      // started relative to the first captured frame; divide to get seconds.
+      const tracePtsStart = (clipEntry.traceCalibration.recordingStartTs - clipEntry.traceCalibration.firstFrameTs) / US_PER_SECOND;
       if (!Number.isFinite(tracePtsStart) || tracePtsStart < 0) {
         failCalibration('Calibration error: invalid trace timestamps. Please calibrate manually.');
         return;
       }
-      applyCalibrationToClip(ct, tracePtsStart, videos[i].duration);
-      if (!wasConverted && ct._converted) convertedAny = true;
+      applyCalibrationToClip(clipEntry, tracePtsStart, videos[i].duration);
+      if (!wasConverted && clipEntry._converted) convertedAny = true;
     }
+  }
+  // Recompute segment clip times after calibration (they depend on traceTsToClipPts
+  // which uses the now-calibrated traceCalibration data on clipTimes entries).
+  // Skip for __all__ (uses base clipTimes) and __full__ (intentionally null).
+  if (convertedAny && activeSegmentName && activeSegmentName !== '__all__' && activeSegmentName !== '__full__') {
+    activeSegmentClipTimes = getSegmentClipTimes(activeSegmentName);
   }
   activeClip = resolveAdjustedClip();
   buildSegmentNav();
   updateTimeDisplay();
   updateDebugStats();
 
-  if (pendingSeek && videos.every(v => !v || v.readyState >= 1)) {
-    const fn = pendingSeek;
-    pendingSeek = null;
-    fn();
-  } else if (convertedAny && !playing) {
-    // If conversion landed after the initial seek was already consumed,
-    // force one seek to the actual clip start to avoid stale startup frame.
-    seekAll(activeClip ? activeClip.start : 0);
-    scrubber.value = 0;
-    updateTimeDisplay();
+  if (videos.every(v => !v || v.readyState >= 1)) {
+    if (pendingSeek) {
+      const fn = pendingSeek;
+      pendingSeek = null;
+      fn();
+    }
+    // Always seek to calibrated start after calibration converts clip entries,
+    // even if the user already started playing or pendingSeek was consumed earlier.
+    // This ensures the video visibly jumps to the correct frame.
+    if (convertedAny) {
+      if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
+      seekAllWithVerify(activeClip ? activeClip.start : 0);
+      scrubber.value = 0;
+      updateTimeDisplay();
+    }
   }
 
 }
@@ -252,6 +350,32 @@ const modeMerged = document.getElementById('modeMerged');
 const modeDebug = document.getElementById('modeDebug');
 const debugPanel = document.getElementById('debugPanel');
 const segmentNav = document.getElementById('segmentNav');
+const settingsToggle = document.getElementById('settingsToggle');
+const settingsPanel = document.getElementById('settingsPanel');
+
+if (settingsToggle && settingsPanel) {
+  settingsToggle.addEventListener('click', () => {
+    const visible = settingsPanel.classList.toggle('visible');
+    settingsToggle.classList.toggle('active', visible);
+  });
+}
+
+const shareToggle = document.getElementById('shareToggle');
+const shareMenu = document.getElementById('shareMenu');
+
+if (shareToggle && shareMenu) {
+  shareToggle.addEventListener('click', () => {
+    const visible = shareMenu.classList.toggle('visible');
+    shareToggle.classList.toggle('active', visible);
+  });
+  // Close menu when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!shareToggle.contains(e.target) && !shareMenu.contains(e.target)) {
+      shareMenu.classList.remove('visible');
+      shareToggle.classList.remove('active');
+    }
+  });
+}
 
 function setActiveMode(btn) {
   [modeRace, modeFull, modeMerged].forEach(b => b?.classList.remove('active'));
@@ -295,33 +419,24 @@ function switchMode(targetSrcSet, targetVideos, modeBtn, opts) {
 
 function hideCalibration() {
   if (debugPanel) debugPanel.style.display = 'none';
-  if (modeDebug) { modeDebug.classList.remove('active'); modeDebug.style.display = 'none'; }
-}
-
-function showCalibrationBtn() {
-  if (modeDebug) modeDebug.style.display = '';
+  if (modeDebug) modeDebug.classList.remove('active');
 }
 
 function resetSegmentState({ hide = false } = {}) {
   activeSegmentName = null;
   activeSegmentClipTimes = null;
   if (!segmentNav) return;
-  segmentNav.querySelectorAll('.segment-btn').forEach((b) => {
-    b.classList.remove('active');
-  });
-  const allBtn = segmentNav.querySelector('.segment-btn[data-segment="__all__"]');
-  if (allBtn) allBtn.classList.add('active');
-  segmentNav.style.display = hide ? 'none' : (segmentNavBuilt ? 'flex' : 'none');
+  segmentNav.value = '__all__';
+  segmentNav.style.display = hide ? 'none' : (segmentNavBuilt ? 'inline-block' : 'none');
 }
 
 function switchToRace() {
   switchMode('race', raceVideos, modeRace, {
-    loadSrc() { raceVideos.forEach((v, i) => { v.src = raceVideoPaths[i]; }); },
+    loadSrc() { raceVideos.forEach((v, i) => { v.src = resolvedRacePaths[i]; }); },
     onActivate() {
       playerContainer.style.display = 'flex';
       if (mergedContainer) mergedContainer.style.display = 'none';
       hideCalibration();
-      showCalibrationBtn();
       resetSegmentState({ hide: false });
     },
     doSeek() {
@@ -337,7 +452,7 @@ function switchToFull() {
   if (!fullVideoPaths && !clipTimes) return;
   const needsSrcSwitch = fullVideoPaths && loadedSrcSet !== 'full';
   switchMode(needsSrcSwitch ? 'full' : loadedSrcSet, raceVideos, modeFull, {
-    loadSrc: needsSrcSwitch ? () => { raceVideos.forEach((v, i) => { v.src = fullVideoPaths[i]; }); } : null,
+    loadSrc: needsSrcSwitch ? () => { raceVideos.forEach((v, i) => { v.src = resolvedFullPaths[i]; }); } : null,
     onActivate() {
       playerContainer.style.display = 'flex';
       if (mergedContainer) mergedContainer.style.display = 'none';
@@ -453,7 +568,7 @@ function updateDebugStats() {
     const toFrame = (pts) => pts != null && isFinite(pts) ? Math.round(pts / 0.04) : null;
     const fmtF = (pts) => { const f = toFrame(pts); return f != null ? '#' + f : '\u2014'; };
     const events = [];
-    events.push({ label: 'Context created', wc: -offset, ptsVal: 0 });
+    events.push({ label: 'Context created', wc: -(ct.recordingOffset || 0), ptsVal: 0 });
     events.push({ label: 'recordingStartTime (t=0)', wc: 0, ptsVal: toPts(0) });
     events.push({ label: 'raceRecordingStart()', wc: wcStart, ptsVal: ct.start });
     const measurements = ct.measurements || [];
@@ -584,17 +699,12 @@ function buildSegmentNav() {
   segmentNavBuilt = true;
   segmentNav.innerHTML = '';
 
-  function setActiveSegBtn(btn) {
-    segmentNav.querySelectorAll('.segment-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-  }
-
   // Switch to race-clip videos if we were in whole-recording (full) mode
   function ensureRaceMode(callback) {
     if (fullVideoPaths && loadedSrcSet === 'full') {
       if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
       detachVideoListeners();
-      raceVideos.forEach((v, i) => { v.src = raceVideoPaths[i]; });
+      raceVideos.forEach((v, i) => { v.src = resolvedRacePaths[i]; });
       loadedSrcSet = 'race';
       videos = raceVideos;
       primary = videos[0];
@@ -606,73 +716,69 @@ function buildSegmentNav() {
     }
   }
 
-  // "Whole Recording" — shows full unclipped recording
-  const fullBtn = document.createElement('button');
-  fullBtn.className = 'segment-btn';
-  fullBtn.textContent = 'Whole Recording';
-  fullBtn.dataset.segment = '__full__';
-  fullBtn.addEventListener('click', () => {
-    setActiveSegBtn(fullBtn);
-    activeSegmentName = '__full__';
-    activeSegmentClipTimes = null;
-    const doSeek = () => { activeClip = null; seekAll(0); scrubber.value = 0; updateTimeDisplay(); };
-    if (fullVideoPaths && loadedSrcSet !== 'full') {
-      if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
-      detachVideoListeners();
-      raceVideos.forEach((v, i) => { v.src = fullVideoPaths[i]; });
-      loadedSrcSet = 'full';
-      videos = raceVideos;
-      primary = videos[0];
-      attachVideoListeners();
-      duration = 0;
-      pendingSeek = doSeek;
-    } else {
-      doSeek();
-    }
-  });
-  segmentNav.appendChild(fullBtn);
+  // Build dropdown options
+  const fullOpt = document.createElement('option');
+  fullOpt.value = '__full__';
+  fullOpt.textContent = 'Whole Recording';
+  segmentNav.appendChild(fullOpt);
 
-  // "All" — shows all measurements combined
-  const allBtn = document.createElement('button');
-  allBtn.className = 'segment-btn active';
-  allBtn.textContent = 'Race Recording';
-  allBtn.dataset.segment = '__all__';
-  allBtn.addEventListener('click', () => {
-    setActiveSegBtn(allBtn);
-    activeSegmentName = null;
-    activeSegmentClipTimes = null;
-    ensureRaceMode(() => {
-      activeClip = resolveAdjustedClip();
-      seekAll(activeClip ? activeClip.start : 0);
-      scrubber.value = 0;
-      updateTimeDisplay();
-    });
-  });
-  segmentNav.appendChild(allBtn);
+  const allOpt = document.createElement('option');
+  allOpt.value = '__all__';
+  allOpt.textContent = 'Race Recording';
+  allOpt.selected = true;
+  segmentNav.appendChild(allOpt);
 
-  // Individual measurement buttons — only shown when there are multiple measurements
   if (names.length > 1) {
     for (const name of names) {
-      const btn = document.createElement('button');
-      btn.className = 'segment-btn';
-      btn.textContent = name;
-      btn.dataset.segment = name;
-      btn.addEventListener('click', () => {
-        setActiveSegBtn(btn);
-        activeSegmentName = name;
-        activeSegmentClipTimes = getSegmentClipTimes(name);
-        ensureRaceMode(() => {
-          activeClip = resolveAdjustedClip();
-          seekAll(activeClip ? activeClip.start : 0);
-          scrubber.value = 0;
-          updateTimeDisplay();
-        });
-      });
-      segmentNav.appendChild(btn);
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      segmentNav.appendChild(opt);
     }
   }
 
-  segmentNav.style.display = 'flex';
+  segmentNav.addEventListener('change', () => {
+    const val = segmentNav.value;
+    if (val === '__full__') {
+      activeSegmentName = '__full__';
+      activeSegmentClipTimes = null;
+      const doSeek = () => { activeClip = null; seekAll(0); scrubber.value = 0; updateTimeDisplay(); };
+      if (fullVideoPaths && loadedSrcSet !== 'full') {
+        if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
+        detachVideoListeners();
+        raceVideos.forEach((v, i) => { v.src = resolvedFullPaths[i]; });
+        loadedSrcSet = 'full';
+        videos = raceVideos;
+        primary = videos[0];
+        attachVideoListeners();
+        duration = 0;
+        pendingSeek = doSeek;
+      } else {
+        doSeek();
+      }
+    } else if (val === '__all__') {
+      activeSegmentName = null;
+      activeSegmentClipTimes = null;
+      ensureRaceMode(() => {
+        activeClip = resolveAdjustedClip();
+        seekAll(activeClip ? activeClip.start : 0);
+        scrubber.value = 0;
+        updateTimeDisplay();
+      });
+    } else {
+      activeSegmentName = val;
+      activeSegmentClipTimes = getSegmentClipTimes(val);
+      ensureRaceMode(() => {
+        activeClip = resolveAdjustedClip();
+        seekAll(activeClip ? activeClip.start : 0);
+        scrubber.value = 0;
+        updateTimeDisplay();
+      });
+    }
+  });
+
+  segmentNav.style.display = 'inline-block';
+  if (modeDebug) modeDebug.style.display = '';
 }
 
 function buildRacerFilter() {
@@ -747,8 +853,18 @@ function adjustDebugOffset(idx, frameDelta) {
   debugOffsets[idx] = newOffset;
   updateDebugDisplay();
   updateDebugStats();
+  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
   activeClip = resolveAdjustedClip();
-  seekAll(activeClip ? activeClip.start : 0);
+  // Force each video to seek to its adjusted start and render the frame.
+  // Use direct per-video currentTime assignment + pause to guarantee a visible update.
+  const adj = getAdjustedClipTimes();
+  const ct = adj || clipTimes;
+  videos.forEach((v, i) => {
+    if (!v) return;
+    const target = (activeClip && ct && isValidClipEntry(ct[i])) ? ct[i].start : (activeClip ? activeClip.start : 0);
+    v.currentTime = Math.min(target, v.duration || target);
+  });
+  updateFramePositions();
   scrubber.value = 0;
   updateTimeDisplay();
 }
@@ -789,8 +905,16 @@ if (debugPanel) {
       for (let i = 0; i < debugOffsets.length; i++) debugOffsets[i] = 0;
       updateDebugDisplay();
       updateDebugStats();
+      if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
       activeClip = resolveAdjustedClip();
-      seekAll(activeClip ? activeClip.start : 0);
+      const adj = getAdjustedClipTimes();
+      const ct = adj || clipTimes;
+      videos.forEach((v, i) => {
+        if (!v) return;
+        const target = (activeClip && ct && isValidClipEntry(ct[i])) ? ct[i].start : (activeClip ? activeClip.start : 0);
+        v.currentTime = Math.min(target, v.duration || target);
+      });
+      updateFramePositions();
       scrubber.value = 0;
       updateTimeDisplay();
     }
@@ -873,13 +997,32 @@ document.getElementById('goStart').addEventListener('click', goToStart);
 document.getElementById('goEnd').addEventListener('click', goToEnd);
 
 document.addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'SELECT') return;
+  if (e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
   if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-STEP); }
   else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(STEP); }
   else if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
   else if (e.key === 'Home') { e.preventDefault(); goToStart(); }
   else if (e.key === 'End') { e.preventDefault(); goToEnd(); }
+  else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFullscreen(); }
 });
+
+// --- Notes: persist in localStorage ---
+
+const notesTextarea = document.getElementById('notesTextarea');
+if (notesTextarea) {
+  const notesKey = 'race-notes:' + location.pathname;
+  try {
+    const stored = localStorage.getItem(notesKey);
+    // Use stored value if present; otherwise keep any baked-in content (from export)
+    if (stored !== null) notesTextarea.value = stored;
+  } catch (e) { /* storage unavailable (privacy mode / sandboxed) */ }
+
+  let notesTimer;
+  const saveNotes = () => { try { localStorage.setItem(notesKey, notesTextarea.value); } catch (e) {} };
+  notesTextarea.addEventListener('input', () => { clearTimeout(notesTimer); notesTimer = setTimeout(saveNotes, 400); });
+  notesTextarea.addEventListener('blur', saveNotes);
+  window.addEventListener('beforeunload', saveNotes, { once: true });
+}
 
 // --- Racer filter (3+ racers only) ---
 
@@ -887,10 +1030,55 @@ buildRacerFilter();
 
 // --- Initial clip seek ---
 
+// Tolerance (seconds): if currentTime lands within this window of the target
+// we consider the seek successful and stop retrying.
+const SEEK_SNAP_TOLERANCE = 0.15;
+// Maximum number of seeked-event retries before giving up on a snap-back seek.
+const MAX_SEEK_RETRIES = 10;
+// Positions within 1ms of zero are treated as "start of video" — no seek needed.
+const ZERO_START_THRESHOLD = 0.001;
+
+// seekAllWithVerify handles two distinct Chrome/WebM seeking failure modes:
+//
+//  1. Seek snaps back (seeked fires but currentTime < expected − tolerance):
+//     Chrome can't find the target cluster without a seek table (Cues element).
+//     Retry via the 'seeked' event up to MAX_SEEK_RETRIES times as data buffers.
+//
+//  2. Seek silently ignored at readyState=1 (HAVE_METADATA, no buffered data):
+//     The seek is issued before any data is available, so Chrome drops it.
+//     Retry via 'canplay' (readyState ≥ 3) when enough data has loaded.
+//     The 'canplay' handler resets the retry counter so case-1 retries still work.
+function seekAllWithVerify(targetStart) {
+  const adj = getAdjustedClipTimes();
+  const ct = adj || clipTimes;
+  seekAll(targetStart);
+  raceVideos.forEach((v, i) => {
+    if (!v || !clipTimes) return;
+    const expected = ct && isValidClipEntry(ct[i]) ? ct[i].start : targetStart;
+    if (expected <= ZERO_START_THRESHOLD) return; // nothing to verify at start of video
+    let retries = 0;
+    const handler = () => {
+      if (Math.abs(v.currentTime - expected) > SEEK_SNAP_TOLERANCE && retries++ < MAX_SEEK_RETRIES) {
+        v.currentTime = Math.min(expected, isFinite(v.duration) ? v.duration : expected);
+        v.addEventListener('seeked', handler, { once: true });
+      }
+    };
+    v.addEventListener('seeked', handler, { once: true });
+    // Case 2 fallback: retry when data is available (canplay = readyState ≥ 3).
+    v.addEventListener('canplay', () => {
+      if (Math.abs(v.currentTime - expected) > SEEK_SNAP_TOLERANCE) {
+        retries = 0; // give the seeked retry loop a fresh budget
+        v.currentTime = Math.min(expected, isFinite(v.duration) ? v.duration : expected);
+        v.addEventListener('seeked', handler, { once: true });
+      }
+    }, { once: true });
+  });
+}
+
 if (clipTimes) {
   const initSeek = () => {
     activeClip = resolveAdjustedClip();
-    seekAll(activeClip ? activeClip.start : 0);
+    seekAllWithVerify(activeClip ? activeClip.start : 0);
     scrubber.value = 0;
     updateTimeDisplay();
   };
@@ -944,11 +1132,13 @@ function getExportLayout(count) {
     for (let i = 0; i < count - 3; i++) positions.push({ x: bottomOffset + i * targetW, y: slotH });
   }
   const canvasW = (count >= 5 ? 3 : cols) * targetW;
-  const canvasH = rows * slotH;
+  const rawH = rows * slotH;
+  // libx264 (MOV) requires even dimensions; bump odd height by 1
+  const canvasH = rawH + (rawH % 2);
   return { canvasW, canvasH, targetW, cellH, labelH: LABEL_H, positions };
 }
 
-function drawExportFrame(ctx, layout) {
+function drawExportFrame(ctx, layout, clockTime) {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, layout.canvasW, layout.canvasH);
   for (let i = 0; i < raceVideos.length; i++) {
@@ -961,6 +1151,25 @@ function drawExportFrame(ctx, layout) {
     ctx.fillText(racerNames[i] || '', pos.x + layout.targetW / 2, pos.y + layout.labelH - 8);
     try { ctx.drawImage(v, pos.x, pos.y + layout.labelH, layout.targetW, layout.cellH); } catch {}
   }
+  // Clock overlay: matches the ffmpeg drawtext style in sidebyside.js
+  const t = clockTime != null ? clockTime : (primary ? (primary.currentTime || 0) : 0);
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = Math.floor(t % 60);
+  const ms = Math.floor((t % 1) * 1000);
+  const clockText = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(ms).padStart(3,'0')}`;
+  ctx.font = 'bold 18px monospace';
+  ctx.textAlign = 'center';
+  const metrics = ctx.measureText(clockText);
+  const tw = metrics.width;
+  const th = 22;
+  const pad = 4;
+  const cx = layout.canvasW / 2;
+  const cy = layout.canvasH - th - 10;
+  ctx.fillStyle = 'rgba(0,0,0,0.8)';
+  ctx.fillRect(cx - tw / 2 - pad, cy - th + pad, tw + pad * 2, th + pad);
+  ctx.fillStyle = '#fff';
+  ctx.fillText(clockText, cx, cy + pad);
 }
 
 // --- Browser-based format conversion via ffmpeg.wasm ---
@@ -1040,10 +1249,10 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
         args = trimArgs.concat(['-i', inFile, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', outFile]);
       }
       progressFill.style.width = '50%';
-      return ff.exec(args);
+      return ff.exec(args, 300000);
     }).then(exitCode => {
-      if (cancelled || exitCode == null) return;
-      if (exitCode !== 0) throw new Error('ffmpeg exited with code ' + exitCode + ' — conversion failed');
+      if (cancelled) return;
+      if (exitCode == null || exitCode !== 0) throw new Error('ffmpeg exited with code ' + exitCode + ' — conversion failed');
       progressFill.style.width = '90%';
       return ff.readFile(outFile);
     }).then(data => {
@@ -1073,9 +1282,13 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
     });
   }).catch(err => {
     revokeOutUrl();
+    // Terminate the ffmpeg worker on failure/timeout so it doesn't stay hung.
+    // Setting ffmpegInstance to null forces a fresh load on the next attempt.
     if (ffmpegInstance) {
       ffmpegInstance.deleteFile(inFile).catch(() => {});
       ffmpegInstance.deleteFile(outFile).catch(() => {});
+      try { ffmpegInstance.terminate(); } catch {}
+      ffmpegInstance = null;
     }
     statusEl.textContent = 'Conversion failed: ' + err.message;
     buttons.forEach(b => { b.disabled = false; });
@@ -1181,11 +1394,14 @@ async function startExport() {
   raceVideos.forEach(v => { if (v) { v.playbackRate = exportRate; v.play(); } });
   const speedLabel = exportRate !== 1 ? ' (' + exportRate + 'x)' : '';
 
+  let exportTimeOffset = null;
   function tick() {
     if (cancelled) return;
-    drawExportFrame(ctx, layout);
     const cur = Math.max(...raceVideos.map(v => v?.currentTime || 0));
-    const progress = totalDur > 0 ? Math.min(1, (cur - startTime) / totalDur) : 0;
+    if (exportTimeOffset === null) exportTimeOffset = cur;
+    const elapsed = cur - exportTimeOffset;
+    drawExportFrame(ctx, layout, elapsed);
+    const progress = totalDur > 0 ? Math.min(1, elapsed / totalDur) : 0;
     progressFill.style.width = (progress * 100).toFixed(1) + '%';
     statusEl.textContent = 'Recording' + speedLabel + '... ' + Math.round(progress * 100) + '%';
     const allDone = raceVideos.every((v, i) => !v || v.currentTime >= perVideoEnd[i] || v.ended);
@@ -1203,6 +1419,69 @@ if (exportBtn) {
   if (raceVideos.length < 2) exportBtn.style.display = 'none';
   exportBtn.addEventListener('click', startExport);
 }
+
+// --- Fullscreen mode ---
+
+const fullscreenBtn = document.getElementById('fullscreenBtn');
+const fullscreenWrapper = document.getElementById('fullscreenWrapper');
+
+function isFullscreen() {
+  return !!(document.fullscreenElement || document.webkitFullscreenElement);
+}
+
+function toggleFullscreen() {
+  if (!fullscreenWrapper) return;
+  try {
+    if (isFullscreen()) {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exit) exit.call(document)?.catch?.(() => {});
+    } else {
+      const request = fullscreenWrapper.requestFullscreen || fullscreenWrapper.webkitRequestFullscreen;
+      if (request) request.call(fullscreenWrapper)?.catch?.(() => {});
+    }
+  } catch (_) { /* unsupported */ }
+}
+
+let fsHideTimer = null;
+
+function showFsControls() {
+  if (!fullscreenWrapper) return;
+  fullscreenWrapper.classList.add('fs-controls-visible');
+  clearTimeout(fsHideTimer);
+  if (isFullscreen()) {
+    fsHideTimer = setTimeout(() => {
+      fullscreenWrapper.classList.remove('fs-controls-visible');
+    }, 2500);
+  }
+}
+
+function onFullscreenChange() {
+  const fs = isFullscreen();
+  if (fullscreenBtn) {
+    fullscreenBtn.textContent = fs ? '\u2716' : '\u26F6';
+    fullscreenBtn.title = fs ? 'Exit fullscreen (Esc)' : 'Fullscreen (F)';
+  }
+  if (fs) {
+    // Compute optimal grid columns: ceil(sqrt(visibleCount))
+    const visibleCount = raceVideos.length - hiddenRacers.size;
+    const cols = Math.ceil(Math.sqrt(visibleCount));
+    if (playerContainer) playerContainer.style.setProperty('--fs-cols', cols);
+    showFsControls();
+    fullscreenWrapper.addEventListener('mousemove', showFsControls);
+    fullscreenWrapper.addEventListener('click', showFsControls);
+  } else {
+    clearTimeout(fsHideTimer);
+    fullscreenWrapper.classList.remove('fs-controls-visible');
+    fullscreenWrapper.removeEventListener('mousemove', showFsControls);
+    fullscreenWrapper.removeEventListener('click', showFsControls);
+  }
+}
+
+if (fullscreenBtn) {
+  fullscreenBtn.addEventListener('click', toggleFullscreen);
+}
+document.addEventListener('fullscreenchange', onFullscreenChange);
+document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
 // --- Export HTML: self-contained zip with videos, profiles, baked adjustments ---
 
@@ -1300,7 +1579,7 @@ function createZipBuilder() {
   return { addFile, toBlob };
 }
 
-function buildExportHtml() {
+function buildExportHtml(pathOverrides = {}, { slim = false } = {}) {
   const doc = document.documentElement.cloneNode(true);
 
   // Defensive cleanup: if runtime state duplicated racer cards, keep one set.
@@ -1317,15 +1596,73 @@ function buildExportHtml() {
   if (calBtn) calBtn.remove();
 
   // Remove export buttons (HTML export already done, video export needs ffmpeg assets not in ZIP)
-  const htmlBtn = doc.querySelector('#exportHtmlBtn');
-  if (htmlBtn) htmlBtn.remove();
-  const expBtn = doc.querySelector('#exportBtn');
-  if (expBtn) expBtn.remove();
+  doc.querySelectorAll('#exportHtmlBtn, #exportBtn, #exportHtmlOnlyBtn').forEach(el => el.remove());
 
   // Remove any active export overlays
   doc.querySelectorAll('.export-overlay').forEach(el => el.remove());
 
-  // Bake adjusted clip times into the script
+  // Bake current notes into the exported HTML so they appear without localStorage
+  const notesEl = doc.querySelector('#notesTextarea');
+  if (notesEl && notesTextarea) {
+    notesEl.textContent = notesTextarea.value;
+  }
+
+  // Remove file links pointing to embedded videos (they're in the HTML, not as separate files)
+  if (Object.keys(pathOverrides).length > 0) {
+    doc.querySelectorAll('.file-links a').forEach(a => {
+      const href = a.getAttribute('href');
+      if (href && pathOverrides[href]) {
+        const li = a.closest('li');
+        if (li) li.remove(); else a.remove();
+      }
+    });
+  }
+
+  // In slim mode, strip non-essential sections for a minimal self-contained page
+  if (slim) {
+    doc.querySelectorAll('.file-links').forEach(el => {
+      const section = el.closest('details.section') || el.closest('.section');
+      if (section) section.remove(); else el.remove();
+    });
+    // Remove settings panel (segment nav, mode toggle, calibration)
+    const sp = doc.querySelector('#settingsPanel');
+    if (sp) sp.remove();
+    const stBtn = doc.querySelector('#settingsToggle');
+    if (stBtn) stBtn.remove();
+    // Remove share menu and toggle
+    const shBtn = doc.querySelector('#shareToggle');
+    if (shBtn) { const group = shBtn.closest('.header-icon-group'); if (group) group.remove(); else shBtn.remove(); }
+  }
+
+  // Clear dynamically-built UI so the script rebuilds it cleanly on load
+  // (cloneNode captures live DOM state; without clearing, buttons are doubled)
+  const racerFilter = doc.querySelector('#racerFilter');
+  if (racerFilter) { racerFilter.innerHTML = ''; racerFilter.style.display = 'none'; }
+  if (!slim) {
+    const segNav = doc.querySelector('#segmentNav');
+    if (segNav) { segNav.innerHTML = ''; segNav.style.display = 'none'; }
+  }
+
+  // Embed video paths: set data URIs directly on <video> src attributes so videos
+  // play immediately without JavaScript, and patch the JS config so resolveEmbeddedVideos
+  // can still upgrade them to seekable Blob URLs at runtime.
+  const hasOverrides = Object.keys(pathOverrides).length > 0;
+  if (hasOverrides) {
+    // Race video elements: raceVideoPaths[i] maps to <video id="v{i}">
+    raceVideoPaths.forEach((p, i) => {
+      if (!p || !pathOverrides[p]) return;
+      const vid = doc.querySelector('#v' + i);
+      if (vid) vid.setAttribute('src', pathOverrides[p]);
+    });
+    // Merged video element
+    const mv = doc.querySelector('#mergedVideo');
+    if (mv) {
+      const mvSrc = mv.getAttribute('src');
+      if (mvSrc && pathOverrides[mvSrc]) mv.setAttribute('src', pathOverrides[mvSrc]);
+    }
+  }
+
+  // Bake adjusted clip times into the script; also apply path overrides for video embedding
   const scripts = doc.querySelectorAll('script');
   for (const script of scripts) {
     let text = script.textContent;
@@ -1352,6 +1689,11 @@ function buildExportHtml() {
         /const clipTimes = [\s\S]+?;\n/,
         'const clipTimes = ' + JSON.stringify(baked) + ';\n'
       );
+    }
+    if (hasOverrides) {
+      for (const [oldPath, dataUri] of Object.entries(pathOverrides)) {
+        text = text.replaceAll(JSON.stringify(oldPath), JSON.stringify(dataUri));
+      }
     }
     script.textContent = text;
   }
@@ -1380,30 +1722,52 @@ async function startHtmlExport() {
     overlay.remove();
   });
 
-  // Collect all file paths to include
-  const filePaths = new Set();
-  const optionalFilePaths = new Set(['summary.json']);
-  raceVideoPaths.forEach(p => { if (p) filePaths.add(p); });
-  if (fullVideoPaths) fullVideoPaths.forEach(p => { if (p) filePaths.add(p); });
+  // Collect video paths to embed and non-video paths to bundle as separate ZIP entries
+  const videoPaths = new Set();
+  raceVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) videoPaths.add(p); });
+  if (fullVideoPaths) fullVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) videoPaths.add(p); });
   if (mergedVideo) {
-    const mergedPath = mergedVideo.getAttribute('src');
-    if (mergedPath) filePaths.add(mergedPath);
+    const mp = mergedVideo.getAttribute('src');
+    if (mp && !mp.startsWith('data:')) videoPaths.add(mp);
   }
-  // Scan file-links section for trace files and other assets
+
+  const otherPaths = new Set();
+  const optionalPaths = new Set(['summary.json']);
   document.querySelectorAll('.file-links a').forEach(a => {
     const href = a.getAttribute('href');
-    if (href && !href.startsWith('http') && !href.startsWith('//') && !href.startsWith('data:')) {
-      filePaths.add(href);
+    if (href && !href.startsWith('http') && !href.startsWith('//') && !href.startsWith('data:') && !videoPaths.has(href)) {
+      otherPaths.add(href);
     }
   });
-  filePaths.add('summary.json');
+  otherPaths.add('summary.json');
 
-  const zipBuilder = createZipBuilder();
+  const total = videoPaths.size + otherPaths.size;
   const failedFiles = [];
   let fetched = 0;
-  const total = filePaths.size;
 
-  for (const filePath of filePaths) {
+  // Embed videos as data URIs directly in the exported HTML
+  const pathOverrides = {};
+  for (const vPath of videoPaths) {
+    if (abortCtrl.signal.aborted) return;
+    fetched++;
+    statusEl.textContent = 'Embedding ' + vPath + ' (' + fetched + '/' + total + ')';
+    progressFill.style.width = (fetched / total * 80).toFixed(0) + '%';
+    try {
+      const resp = await fetch(vPath, { signal: abortCtrl.signal });
+      if (resp.ok) {
+        pathOverrides[vPath] = await blobToDataUri(await resp.blob());
+      } else {
+        failedFiles.push(vPath);
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      failedFiles.push(vPath);
+    }
+  }
+
+  // Bundle non-video assets (trace files, summary, etc.) as separate ZIP entries
+  const zipBuilder = createZipBuilder();
+  for (const filePath of otherPaths) {
     if (abortCtrl.signal.aborted) return;
     fetched++;
     statusEl.textContent = 'Fetching ' + filePath + ' (' + fetched + '/' + total + ')';
@@ -1411,22 +1775,21 @@ async function startHtmlExport() {
     try {
       const resp = await fetch(filePath, { signal: abortCtrl.signal });
       if (resp.ok) {
-        const data = new Uint8Array(await resp.arrayBuffer());
-        zipBuilder.addFile(filePath, data);
+        zipBuilder.addFile(filePath, new Uint8Array(await resp.arrayBuffer()));
       } else {
-        if (!optionalFilePaths.has(filePath)) failedFiles.push(filePath);
+        if (!optionalPaths.has(filePath)) failedFiles.push(filePath);
       }
     } catch (e) {
       if (e.name === 'AbortError') return;
-      if (!optionalFilePaths.has(filePath)) failedFiles.push(filePath);
+      if (!optionalPaths.has(filePath)) failedFiles.push(filePath);
     }
   }
 
   if (abortCtrl.signal.aborted) return;
 
   statusEl.textContent = 'Building HTML...';
-  progressFill.style.width = '85%';
-  const html = buildExportHtml();
+  progressFill.style.width = '90%';
+  const html = buildExportHtml(pathOverrides);
   zipBuilder.addFile('index.html', new TextEncoder().encode(html));
 
   statusEl.textContent = 'Creating ZIP...';
@@ -1455,5 +1818,90 @@ async function startHtmlExport() {
 const exportHtmlBtn = document.getElementById('exportHtmlBtn');
 if (exportHtmlBtn) {
   exportHtmlBtn.addEventListener('click', startHtmlExport);
+}
+
+/** Export a single self-contained HTML file (no ZIP, no extra assets). */
+async function startHtmlOnlyExport() {
+  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
+
+  const tmpl = document.getElementById('tmpl-export-overlay');
+  const overlay = tmpl.content.cloneNode(true).firstElementChild;
+  const canvas = overlay.querySelector('.export-canvas');
+  canvas.style.display = 'none';
+  const titleEl = overlay.querySelector('h3');
+  titleEl.textContent = 'Exporting HTML';
+  document.body.appendChild(overlay);
+
+  const progressFill = overlay.querySelector('.export-progress-fill');
+  const statusEl = overlay.querySelector('.export-status');
+  const actionsEl = overlay.querySelector('.export-actions');
+
+  const abortCtrl = new AbortController();
+  overlay.querySelector('.export-cancel').addEventListener('click', () => {
+    abortCtrl.abort();
+    overlay.remove();
+  });
+
+  // Collect video paths to embed as data URIs
+  const videoPaths = new Set();
+  raceVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) videoPaths.add(p); });
+  if (fullVideoPaths) fullVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) videoPaths.add(p); });
+  if (mergedVideo) {
+    const mp = mergedVideo.getAttribute('src');
+    if (mp && !mp.startsWith('data:')) videoPaths.add(mp);
+  }
+
+  const total = videoPaths.size;
+  const failedFiles = [];
+  let fetched = 0;
+
+  const pathOverrides = {};
+  for (const vPath of videoPaths) {
+    if (abortCtrl.signal.aborted) return;
+    fetched++;
+    statusEl.textContent = 'Embedding ' + vPath + ' (' + fetched + '/' + total + ')';
+    progressFill.style.width = (fetched / total * 90).toFixed(0) + '%';
+    try {
+      const resp = await fetch(vPath, { signal: abortCtrl.signal });
+      if (resp.ok) {
+        pathOverrides[vPath] = await blobToDataUri(await resp.blob());
+      } else {
+        failedFiles.push(vPath);
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      failedFiles.push(vPath);
+    }
+  }
+
+  if (abortCtrl.signal.aborted) return;
+
+  statusEl.textContent = 'Building HTML...';
+  progressFill.style.width = '95%';
+  const html = buildExportHtml(pathOverrides, { slim: true });
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+
+  let statusMsg = 'Export complete! (' + (blob.size / (1024 * 1024)).toFixed(1) + ' MB)';
+  if (failedFiles.length > 0) {
+    statusMsg += '\nSkipped ' + failedFiles.length + ' file(s): ' + failedFiles.join(', ');
+  }
+  statusEl.textContent = statusMsg;
+  progressFill.style.width = '100%';
+
+  const dlLink = document.createElement('a');
+  dlLink.href = url;
+  const baseName = document.title.replace(/[^a-zA-Z0-9-]/g, '_').replace(/_+/g, '_').toLowerCase();
+  dlLink.download = (baseName || 'race-export') + '.html';
+  dlLink.textContent = 'Download HTML';
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Close';
+  closeBtn.addEventListener('click', () => { URL.revokeObjectURL(url); overlay.remove(); });
+  actionsEl.replaceChildren(dlLink, closeBtn);
+}
+
+const exportHtmlOnlyBtn = document.getElementById('exportHtmlOnlyBtn');
+if (exportHtmlOnlyBtn) {
+  exportHtmlOnlyBtn.addEventListener('click', startHtmlOnlyExport);
 }
 
