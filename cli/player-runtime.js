@@ -199,7 +199,8 @@ function onMeta() {
   }
   // Recompute segment clip times after calibration (they depend on traceTsToClipPts
   // which uses the now-calibrated traceCalibration data on clipTimes entries).
-  if (convertedAny && activeSegmentName) {
+  // Skip for __all__ (uses base clipTimes) and __full__ (intentionally null).
+  if (convertedAny && activeSegmentName && activeSegmentName !== '__all__' && activeSegmentName !== '__full__') {
     activeSegmentClipTimes = getSegmentClipTimes(activeSegmentName);
   }
   activeClip = resolveAdjustedClip();
@@ -1190,9 +1191,13 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
     });
   }).catch(err => {
     revokeOutUrl();
+    // Terminate the ffmpeg worker on failure/timeout so it doesn't stay hung.
+    // Setting ffmpegInstance to null forces a fresh load on the next attempt.
     if (ffmpegInstance) {
       ffmpegInstance.deleteFile(inFile).catch(() => {});
       ffmpegInstance.deleteFile(outFile).catch(() => {});
+      try { ffmpegInstance.terminate(); } catch {}
+      ffmpegInstance = null;
     }
     statusEl.textContent = 'Conversion failed: ' + err.message;
     buttons.forEach(b => { b.disabled = false; });
