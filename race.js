@@ -141,22 +141,23 @@ function buildClipTimes(racerNames, getBrowserData, ffmpeg) {
  * @param {object} options
  * @param {string} options.runDir - output directory
  * @param {object} options.summary - race summary
- * @param {string[]} options.racerNames
  * @param {object} options.settings
  * @param {string[]} options.videoFiles
- * @param {object} options.playerExtras - additional fields merged into playerOptions
+ * @param {object} options.playerExtras - additional fields merged into playerOptions (may include altFiles)
  * @param {object} options.raceOptions - { skipCopyFFmpeg, ffmpegPathPrefix }
  */
 function writePlayerAndAssets({ runDir, summary, settings, videoFiles, playerExtras, raceOptions }) {
   const { format, ffmpeg, noWasm } = settings;
   const altFormat = ffmpeg && format !== 'webm' ? format : null;
+  // altFiles is passed as a separate arg to buildPlayerHtml, not via playerOptions
+  const { altFiles, ...restExtras } = playerExtras;
   const playerOptions = {
-    ...playerExtras,
+    ...restExtras,
     ffmpegPathPrefix: raceOptions.ffmpegPathPrefix || './',
   };
   fs.writeFileSync(
     path.join(runDir, 'index.html'),
-    buildPlayerHtml(summary, videoFiles, altFormat, playerExtras.altFiles || null, playerOptions)
+    buildPlayerHtml(summary, videoFiles, altFormat, altFiles || null, playerOptions)
   );
   if (!raceOptions.skipCopyFFmpeg && !noWasm) copyFFmpegFiles(runDir);
 }
