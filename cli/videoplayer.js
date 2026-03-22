@@ -30,6 +30,7 @@ import {
 } from './player-sections.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 const RAW_HTML = fs.readFileSync(path.join(__dirname, 'player.html'), 'utf-8');
 const RUNTIME = fs.readFileSync(path.join(__dirname, 'player-runtime.js'), 'utf-8');
 
@@ -61,7 +62,8 @@ function buildPlayerScript(config) {
 // ---------------------------------------------------------------------------
 
 export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, options = {}) {
-  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, runNavigation, clipTimes, ffmpegPathPrefix } = options;
+  let { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, runNavigation, clipTimes, ffmpegPathPrefix } = options;
+
   const ffmpegDir = (ffmpegPathPrefix || './') + 'ffmpeg/';
   const racers = summary.racers;
   const count = racers.length;
@@ -98,9 +100,10 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
       const trophyHtml = isWinner
         ? `<span class="trophy">${isTie ? '&#129309;' : '&#127942;'}</span> `
         : '';
+      const vSrc = videoFiles[origIdx].startsWith('data:') ? '' : ` src="${escHtml(videoFiles[origIdx])}"`;
       return `  <div class="racer">
     <div class="racer-label" style="color: ${color}">${trophyHtml}${escHtml(racer)}</div>
-    <video id="v${displayIdx}" src="${escHtml(videoFiles[origIdx])}" preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Race recording for ${escHtml(racer)}" data-racer-name="${escHtml(racer)}"></video>
+    <video id="v${displayIdx}"${vSrc} preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Race recording for ${escHtml(racer)}" data-racer-name="${escHtml(racer)}"></video>
   </div>`;
     }).join('\n');
 
