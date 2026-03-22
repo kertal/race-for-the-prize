@@ -343,4 +343,86 @@ describe('embed-export: ZIP export embeds videos in index.html', () => {
       await stopServer(extractServer);
     }
   });
+
+  it('Export HTML produces a slim single-file with no file links', async ({ skip }) => {
+    if (setupError) skip(setupError);
+
+    const { port } = server.address();
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'networkidle' });
+    await page.waitForFunction(() => {
+      const vs = Array.from(document.querySelectorAll('video'));
+      return vs.length >= 2 && vs.every(v => v.readyState >= 1);
+    }, { timeout: 15_000 });
+
+    // Click Export HTML and wait for the download link
+    await page.click('#exportHtmlOnlyBtn');
+    const dlLink = await page.waitForSelector('.export-actions a[download]', { timeout: 60_000 });
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 30_000 }),
+      dlLink.click(),
+    ]);
+
+    const dlPath = await download.path();
+    expect(dlPath).toBeTruthy();
+
+    const html = fs.readFileSync(dlPath, 'utf8');
+
+    // Must be a single .html file (not a ZIP)
+    expect(html).toContain('<!DOCTYPE html>');
+    expect(html).toContain('<html');
+
+    // Must contain embedded video data URIs
+    expect(html).toContain('data:video/webm;base64,');
+
+    // Must NOT contain file-links section element (slim mode strips it; CSS class defs may remain)
+    expect(html).not.toContain('class="file-links"');
+
+    // Must NOT contain export buttons
+    expect(html).not.toContain('id="exportHtmlBtn"');
+    expect(html).not.toContain('id="exportHtmlOnlyBtn"');
+    expect(html).not.toContain('id="exportBtn"');
+
+    // Serve the HTML and verify it works standalone
+    const slimDir = path.join(tmpDir, 'slim');
+    fs.mkdirSync(slimDir, { recursive: true });
+    fs.writeFileSync(path.join(slimDir, 'index.html'), html);
+    const slimServer = await startServer(slimDir);
+    const slimPort = slimServer.address().port;
+    const slimPage = await context.newPage();
+
+    try {
+      await slimPage.goto(`http://127.0.0.1:${slimPort}/`, { waitUntil: 'networkidle' });
+
+      // Videos should resolve to blob: URLs and be playable
+      const result = await slimPage.evaluate(() => new Promise(resolve => {
+        let timer;
+        const poll = setInterval(() => {
+          const vs = Array.from(document.querySelectorAll('video'));
+          if (vs.length >= 2 && vs.every(v => v.src.startsWith('blob:') && v.readyState >= 1)) {
+            clearInterval(poll);
+            clearTimeout(timer);
+            resolve({ ok: true, count: vs.length, durations: vs.map(v => v.duration) });
+          }
+        }, 100);
+        timer = setTimeout(() => {
+          clearInterval(poll);
+          const vs = Array.from(document.querySelectorAll('video'));
+          resolve({ ok: false, count: vs.length, srcs: vs.map(v => v.src.slice(0, 30)) });
+        }, 15_000);
+      }));
+
+      expect(result.ok, `Videos not ready: ${JSON.stringify(result)}`).toBe(true);
+      expect(result.count).toBe(2);
+      for (const dur of result.durations) {
+        expect(dur).toBeGreaterThan(0);
+      }
+
+      // No file-links in the DOM
+      const hasFileLinks = await slimPage.evaluate(() => !!document.querySelector('.file-links'));
+      expect(hasFileLinks).toBe(false);
+    } finally {
+      await slimPage.close().catch(() => {});
+      await stopServer(slimServer);
+    }
+  });
 });

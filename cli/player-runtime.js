@@ -1439,7 +1439,7 @@ function createZipBuilder() {
   return { addFile, toBlob };
 }
 
-function buildExportHtml(pathOverrides = {}) {
+function buildExportHtml(pathOverrides = {}, { slim = false } = {}) {
   const doc = document.documentElement.cloneNode(true);
 
   // Defensive cleanup: if runtime state duplicated racer cards, keep one set.
@@ -1461,12 +1461,27 @@ function buildExportHtml(pathOverrides = {}) {
   // Remove any active export overlays
   doc.querySelectorAll('.export-overlay').forEach(el => el.remove());
 
+  // In slim mode, strip non-essential sections for a minimal self-contained page
+  if (slim) {
+    doc.querySelectorAll('.file-links').forEach(el => {
+      const section = el.closest('details.section') || el.closest('.section');
+      if (section) section.remove(); else el.remove();
+    });
+    // Remove segment navigation (Whole Recording / Race Recording buttons)
+    const segNav = doc.querySelector('#segmentNav');
+    if (segNav) segNav.remove();
+    // Remove mode toggle (race/full/merged buttons)
+    doc.querySelectorAll('.mode-toggle').forEach(el => el.remove());
+  }
+
   // Clear dynamically-built UI so the script rebuilds it cleanly on load
   // (cloneNode captures live DOM state; without clearing, buttons are doubled)
   const racerFilter = doc.querySelector('#racerFilter');
   if (racerFilter) { racerFilter.innerHTML = ''; racerFilter.style.display = 'none'; }
-  const segNav = doc.querySelector('#segmentNav');
-  if (segNav) { segNav.innerHTML = ''; segNav.style.display = 'none'; }
+  if (!slim) {
+    const segNav = doc.querySelector('#segmentNav');
+    if (segNav) { segNav.innerHTML = ''; segNav.style.display = 'none'; }
+  }
 
   // Embed video paths: set data URIs directly on <video> src attributes so videos
   // play immediately without JavaScript, and patch the JS config so resolveEmbeddedVideos
@@ -1703,7 +1718,7 @@ async function startHtmlOnlyExport() {
 
   statusEl.textContent = 'Building HTML...';
   progressFill.style.width = '95%';
-  const html = buildExportHtml(pathOverrides);
+  const html = buildExportHtml(pathOverrides, { slim: true });
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
 
