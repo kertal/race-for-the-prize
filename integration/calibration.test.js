@@ -123,7 +123,7 @@ describe('calibration integration', () => {
         if (s.textContent.includes('applyCalibrationToClip')) {
           return {
             hasTracePath: s.textContent.includes('hasTraceCalibration(ct)'),
-            hasApplyCall: s.textContent.includes('applyCalibrationToClip(ct, tracePtsStart'),
+            hasApplyCall: s.textContent.includes('applyCalibrationToClip(clipEntry, tracePtsStart'),
             hasContinue: s.textContent.includes('continue;'),
           };
         }
@@ -185,7 +185,7 @@ describe('calibration integration', () => {
           return {
             hasStrictMessage: s.textContent.includes('Please calibrate manually.'),
             hasDisablePlay: s.textContent.includes('playBtn.disabled = true'),
-            hasThrow: s.textContent.includes('throw new Error(msg)'),
+            hasThrow: s.textContent.includes('console.error('),
           };
         }
       }

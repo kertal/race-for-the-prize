@@ -52,7 +52,10 @@ function failCalibration(msg) {
   if (frameDisplay) frameDisplay.textContent = 'manual calibration required';
   if (playBtn) playBtn.disabled = true;
   if (scrubber) scrubber.disabled = true;
-  throw new Error(msg);
+  // Log to console rather than throwing: this function is called from event
+  // listeners (loadedmetadata, durationchange) where an uncaught throw would
+  // surface as an unhandled exception without providing any extra information.
+  console.error('[player] calibration failed:', msg);
 }
 
 function applyCalibrationToClip(ct, ptsStart, videoDuration) {
@@ -61,7 +64,7 @@ function applyCalibrationToClip(ct, ptsStart, videoDuration) {
   ct.calibratedEnd = ptsStart + segDuration;
   ct._ptsScale = null;
   ct.start = ptsStart;
-  ct.end = Math.min(ptsStart + segDuration, videoDuration);
+  ct.end = isFinite(videoDuration) ? Math.min(ptsStart + segDuration, videoDuration) : ptsStart + segDuration;
   ct._converted = true;
 }
 
@@ -107,9 +110,15 @@ function canApplyTraceCalibration(ct) {
   return hasTraceCalibration(ct) && Number.isFinite(ct.traceCalibration.firstFrameTs);
 }
 
+const US_PER_SECOND = 1e6; // trace timestamps are in microseconds
+
 function traceTsToClipPts(ct, traceTs) {
   if (!hasTraceCalibration(ct) || !Number.isFinite(traceTs)) return null;
-  return (traceTs - ct.traceCalibration.recordingStartTs) / 1e6;
+  // Video PTS is measured from firstFrameTs (the first captured frame = PTS 0).
+  // Using recordingStartTs as the base would give time-since-recording-started,
+  // which is ct.start seconds too early once applyCalibrationToClip has set
+  // ct.start = (recordingStartTs - firstFrameTs) / US_PER_SECOND.
+  return (traceTs - ct.traceCalibration.firstFrameTs) / US_PER_SECOND;
 }
 
 function seekAll(t) {
@@ -130,28 +139,62 @@ function seekAll(t) {
 
 // --- Metadata & calibration ---
 
+// Chrome reports video.duration = Infinity for WebM files without a Duration
+// element in the container header (all Playwright recordings). Seeking requires
+// a finite duration. The fix: seek to 1e10 which forces Chrome to scan to the
+// end of the file, after which it fires durationchange with the real value.
+// _durationForced maps each video element to the src key for which the 1e10
+// seek was already triggered. Keyed by src (not element) so that switching
+// sources (e.g. race clip → full recording) re-triggers the scan if needed.
+const _durationForced = new WeakMap();
+
 function onMeta() {
   if (calibrationFatalError) return;
+
+  // Block calibration until every video has a finite duration.
+  // readyState >= 1 (HAVE_METADATA) means the duration field is populated.
+  // We must check ALL videos before proceeding: a second loadedmetadata
+  // listener must not race ahead and run calibration while the 1e10 seek for
+  // another video is still in progress.
+  // Note: runs unconditionally (not gated on clipTimes) so full-recording
+  // pages also get finite durations before any seek/UI is attempted.
+  for (const v of videos) {
+    if (!v || v.readyState < 1) continue; // readyState 1 = HAVE_METADATA
+    if (!isFinite(v.duration)) {
+      const srcKey = v.currentSrc || v.src || '';
+      if (_durationForced.get(v) !== srcKey) {
+        _durationForced.set(v, srcKey);
+        v.addEventListener('durationchange', onMeta, { once: true });
+        v.currentTime = 1e10; // seek past end → Chrome scans file → durationchange fires
+      }
+      return; // always wait — do not proceed until durationchange fires
+    }
+  }
+
   duration = Math.max(...videos.filter(v => v).map(v => v.duration || 0));
   let convertedAny = false;
   if (clipTimes) {
     for (let i = 0; i < clipTimes.length; i++) {
-      if (!isValidClipEntry(clipTimes[i]) || !videos[i] || !videos[i].duration) continue;
-      const ct = clipTimes[i];
-      if (ct._converted) continue;
-      const wasConverted = !!ct._converted;
-      if (ct._wcStart == null) { ct._wcStart = ct.start; ct._wcEnd = ct.end; }
-      if (!canApplyTraceCalibration(ct)) {
+      if (!isValidClipEntry(clipTimes[i]) || !videos[i] || (videos[i].readyState < 1)) continue;
+      const clipEntry = clipTimes[i];
+      if (clipEntry._converted) continue;
+      // _converted is always false here (the guard above skips converted entries),
+      // but we capture it before mutating so the convertedAny check below is explicit.
+      const wasConverted = !!clipEntry._converted;
+      if (clipEntry._wcStart == null) { clipEntry._wcStart = clipEntry.start; clipEntry._wcEnd = clipEntry.end; }
+      if (!canApplyTraceCalibration(clipEntry)) {
         failCalibration('Calibration error: missing trace calibration metadata. Please calibrate manually.');
         return;
       }
-      const tracePtsStart = (ct.traceCalibration.recordingStartTs - ct.traceCalibration.firstFrameTs) / 1e6;
+      // recordingStartTs − firstFrameTs gives the PTS offset (µs) where recording
+      // started relative to the first captured frame; divide to get seconds.
+      const tracePtsStart = (clipEntry.traceCalibration.recordingStartTs - clipEntry.traceCalibration.firstFrameTs) / US_PER_SECOND;
       if (!Number.isFinite(tracePtsStart) || tracePtsStart < 0) {
         failCalibration('Calibration error: invalid trace timestamps. Please calibrate manually.');
         return;
       }
-      applyCalibrationToClip(ct, tracePtsStart, videos[i].duration);
-      if (!wasConverted && ct._converted) convertedAny = true;
+      applyCalibrationToClip(clipEntry, tracePtsStart, videos[i].duration);
+      if (!wasConverted && clipEntry._converted) convertedAny = true;
     }
   }
   activeClip = resolveAdjustedClip();
@@ -159,16 +202,21 @@ function onMeta() {
   updateTimeDisplay();
   updateDebugStats();
 
-  if (pendingSeek && videos.every(v => !v || v.readyState >= 1)) {
-    const fn = pendingSeek;
-    pendingSeek = null;
-    fn();
-  } else if (convertedAny && !playing) {
-    // If conversion landed after the initial seek was already consumed,
-    // force one seek to the actual clip start to avoid stale startup frame.
-    seekAll(activeClip ? activeClip.start : 0);
-    scrubber.value = 0;
-    updateTimeDisplay();
+  if (videos.every(v => !v || v.readyState >= 1)) {
+    if (pendingSeek) {
+      const fn = pendingSeek;
+      pendingSeek = null;
+      fn();
+    }
+    // Always seek to calibrated start after calibration converts clip entries,
+    // even if the user already started playing or pendingSeek was consumed earlier.
+    // This ensures the video visibly jumps to the correct frame.
+    if (convertedAny) {
+      if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
+      seekAllWithVerify(activeClip ? activeClip.start : 0);
+      scrubber.value = 0;
+      updateTimeDisplay();
+    }
   }
 
 }
@@ -453,7 +501,7 @@ function updateDebugStats() {
     const toFrame = (pts) => pts != null && isFinite(pts) ? Math.round(pts / 0.04) : null;
     const fmtF = (pts) => { const f = toFrame(pts); return f != null ? '#' + f : '\u2014'; };
     const events = [];
-    events.push({ label: 'Context created', wc: -offset, ptsVal: 0 });
+    events.push({ label: 'Context created', wc: -(ct.recordingOffset || 0), ptsVal: 0 });
     events.push({ label: 'recordingStartTime (t=0)', wc: 0, ptsVal: toPts(0) });
     events.push({ label: 'raceRecordingStart()', wc: wcStart, ptsVal: ct.start });
     const measurements = ct.measurements || [];
@@ -747,8 +795,18 @@ function adjustDebugOffset(idx, frameDelta) {
   debugOffsets[idx] = newOffset;
   updateDebugDisplay();
   updateDebugStats();
+  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
   activeClip = resolveAdjustedClip();
-  seekAll(activeClip ? activeClip.start : 0);
+  // Force each video to seek to its adjusted start and render the frame.
+  // Use direct per-video currentTime assignment + pause to guarantee a visible update.
+  const adj = getAdjustedClipTimes();
+  const ct = adj || clipTimes;
+  videos.forEach((v, i) => {
+    if (!v) return;
+    const target = (activeClip && ct && isValidClipEntry(ct[i])) ? ct[i].start : (activeClip ? activeClip.start : 0);
+    v.currentTime = Math.min(target, v.duration || target);
+  });
+  updateFramePositions();
   scrubber.value = 0;
   updateTimeDisplay();
 }
@@ -789,8 +847,16 @@ if (debugPanel) {
       for (let i = 0; i < debugOffsets.length; i++) debugOffsets[i] = 0;
       updateDebugDisplay();
       updateDebugStats();
+      if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
       activeClip = resolveAdjustedClip();
-      seekAll(activeClip ? activeClip.start : 0);
+      const adj = getAdjustedClipTimes();
+      const ct = adj || clipTimes;
+      videos.forEach((v, i) => {
+        if (!v) return;
+        const target = (activeClip && ct && isValidClipEntry(ct[i])) ? ct[i].start : (activeClip ? activeClip.start : 0);
+        v.currentTime = Math.min(target, v.duration || target);
+      });
+      updateFramePositions();
       scrubber.value = 0;
       updateTimeDisplay();
     }
@@ -879,6 +945,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
   else if (e.key === 'Home') { e.preventDefault(); goToStart(); }
   else if (e.key === 'End') { e.preventDefault(); goToEnd(); }
+  else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFullscreen(); }
 });
 
 // --- Notes: persist in localStorage ---
@@ -905,10 +972,55 @@ buildRacerFilter();
 
 // --- Initial clip seek ---
 
+// Tolerance (seconds): if currentTime lands within this window of the target
+// we consider the seek successful and stop retrying.
+const SEEK_SNAP_TOLERANCE = 0.15;
+// Maximum number of seeked-event retries before giving up on a snap-back seek.
+const MAX_SEEK_RETRIES = 10;
+// Positions within 1ms of zero are treated as "start of video" — no seek needed.
+const ZERO_START_THRESHOLD = 0.001;
+
+// seekAllWithVerify handles two distinct Chrome/WebM seeking failure modes:
+//
+//  1. Seek snaps back (seeked fires but currentTime < expected − tolerance):
+//     Chrome can't find the target cluster without a seek table (Cues element).
+//     Retry via the 'seeked' event up to MAX_SEEK_RETRIES times as data buffers.
+//
+//  2. Seek silently ignored at readyState=1 (HAVE_METADATA, no buffered data):
+//     The seek is issued before any data is available, so Chrome drops it.
+//     Retry via 'canplay' (readyState ≥ 3) when enough data has loaded.
+//     The 'canplay' handler resets the retry counter so case-1 retries still work.
+function seekAllWithVerify(targetStart) {
+  const adj = getAdjustedClipTimes();
+  const ct = adj || clipTimes;
+  seekAll(targetStart);
+  raceVideos.forEach((v, i) => {
+    if (!v || !clipTimes) return;
+    const expected = ct && isValidClipEntry(ct[i]) ? ct[i].start : targetStart;
+    if (expected <= ZERO_START_THRESHOLD) return; // nothing to verify at start of video
+    let retries = 0;
+    const handler = () => {
+      if (Math.abs(v.currentTime - expected) > SEEK_SNAP_TOLERANCE && retries++ < MAX_SEEK_RETRIES) {
+        v.currentTime = Math.min(expected, isFinite(v.duration) ? v.duration : expected);
+        v.addEventListener('seeked', handler, { once: true });
+      }
+    };
+    v.addEventListener('seeked', handler, { once: true });
+    // Case 2 fallback: retry when data is available (canplay = readyState ≥ 3).
+    v.addEventListener('canplay', () => {
+      if (Math.abs(v.currentTime - expected) > SEEK_SNAP_TOLERANCE) {
+        retries = 0; // give the seeked retry loop a fresh budget
+        v.currentTime = Math.min(expected, isFinite(v.duration) ? v.duration : expected);
+        v.addEventListener('seeked', handler, { once: true });
+      }
+    }, { once: true });
+  });
+}
+
 if (clipTimes) {
   const initSeek = () => {
     activeClip = resolveAdjustedClip();
-    seekAll(activeClip ? activeClip.start : 0);
+    seekAllWithVerify(activeClip ? activeClip.start : 0);
     scrubber.value = 0;
     updateTimeDisplay();
   };
@@ -966,7 +1078,7 @@ function getExportLayout(count) {
   return { canvasW, canvasH, targetW, cellH, labelH: LABEL_H, positions };
 }
 
-function drawExportFrame(ctx, layout) {
+function drawExportFrame(ctx, layout, clockTime) {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, layout.canvasW, layout.canvasH);
   for (let i = 0; i < raceVideos.length; i++) {
@@ -979,6 +1091,25 @@ function drawExportFrame(ctx, layout) {
     ctx.fillText(racerNames[i] || '', pos.x + layout.targetW / 2, pos.y + layout.labelH - 8);
     try { ctx.drawImage(v, pos.x, pos.y + layout.labelH, layout.targetW, layout.cellH); } catch {}
   }
+  // Clock overlay: matches the ffmpeg drawtext style in sidebyside.js
+  const t = clockTime != null ? clockTime : (primary ? (primary.currentTime || 0) : 0);
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = Math.floor(t % 60);
+  const ms = Math.floor((t % 1) * 1000);
+  const clockText = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(ms).padStart(3,'0')}`;
+  ctx.font = 'bold 18px monospace';
+  ctx.textAlign = 'center';
+  const metrics = ctx.measureText(clockText);
+  const tw = metrics.width;
+  const th = 22;
+  const pad = 4;
+  const cx = layout.canvasW / 2;
+  const cy = layout.canvasH - th - 10;
+  ctx.fillStyle = 'rgba(0,0,0,0.8)';
+  ctx.fillRect(cx - tw / 2 - pad, cy - th + pad, tw + pad * 2, th + pad);
+  ctx.fillStyle = '#fff';
+  ctx.fillText(clockText, cx, cy + pad);
 }
 
 // --- Browser-based format conversion via ffmpeg.wasm ---
@@ -1201,8 +1332,8 @@ async function startExport() {
 
   function tick() {
     if (cancelled) return;
-    drawExportFrame(ctx, layout);
     const cur = Math.max(...raceVideos.map(v => v?.currentTime || 0));
+    drawExportFrame(ctx, layout, cur);
     const progress = totalDur > 0 ? Math.min(1, (cur - startTime) / totalDur) : 0;
     progressFill.style.width = (progress * 100).toFixed(1) + '%';
     statusEl.textContent = 'Recording' + speedLabel + '... ' + Math.round(progress * 100) + '%';
@@ -1221,6 +1352,42 @@ if (exportBtn) {
   if (raceVideos.length < 2) exportBtn.style.display = 'none';
   exportBtn.addEventListener('click', startExport);
 }
+
+// --- Fullscreen mode ---
+
+const fullscreenBtn = document.getElementById('fullscreenBtn');
+const fullscreenWrapper = document.getElementById('fullscreenWrapper');
+
+function isFullscreen() {
+  return !!(document.fullscreenElement || document.webkitFullscreenElement);
+}
+
+function toggleFullscreen() {
+  if (!fullscreenWrapper) return;
+  try {
+    if (isFullscreen()) {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exit) exit.call(document)?.catch?.(() => {});
+    } else {
+      const request = fullscreenWrapper.requestFullscreen || fullscreenWrapper.webkitRequestFullscreen;
+      if (request) request.call(fullscreenWrapper)?.catch?.(() => {});
+    }
+  } catch (_) { /* unsupported */ }
+}
+
+function onFullscreenChange() {
+  if (fullscreenBtn) {
+    const fs = isFullscreen();
+    fullscreenBtn.textContent = fs ? '\u2716' : '\u26F6';
+    fullscreenBtn.title = fs ? 'Exit fullscreen (Esc)' : 'Fullscreen (F)';
+  }
+}
+
+if (fullscreenBtn) {
+  fullscreenBtn.addEventListener('click', toggleFullscreen);
+}
+document.addEventListener('fullscreenchange', onFullscreenChange);
+document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
 // --- Export HTML: self-contained zip with videos, profiles, baked adjustments ---
 
@@ -1480,4 +1647,3 @@ const exportHtmlBtn = document.getElementById('exportHtmlBtn');
 if (exportHtmlBtn) {
   exportHtmlBtn.addEventListener('click', startHtmlExport);
 }
-

@@ -439,7 +439,7 @@ function sanitizeScript(script) {
  *   await page.raceStart(name)        — start a named stopwatch (async: syncs in parallel)
  *   page.raceEnd(name)                — stop the stopwatch (sync: just arithmetic)
  *   await page.raceRecordingStart()   — manually start a video segment (async: syncs)
- *   page.raceRecordingEnd()           — manually end a video segment (sync)
+ *   await page.raceRecordingEnd()     — manually end a video segment (async: flushes)
  *   page.raceMessage(text)            — send a message to the CLI terminal (sync)
  *   await page.raceWaitForVisualStability(opts?) — wait for rendering to settle (async)
  *
@@ -758,12 +758,12 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   } catch (error) {
     console.error(`[${id}] Script failed: ${error.message}`);
     throw new Error(`Script execution failed: ${error.message}`);
-  }
-
-  // Clean up CDP session used by raceWaitForVisualStability
-  if (cdpSession) {
-    try { await cdpSession.detach(); } catch {}
-    cdpSession = null;
+  } finally {
+    // Clean up CDP session used by raceWaitForVisualStability
+    if (cdpSession) {
+      try { await cdpSession.detach(); } catch {}
+      cdpSession = null;
+    }
   }
 
   if (currentSegmentStart !== null) await stopRecording();
@@ -789,6 +789,8 @@ const NETWORK_PRESETS = {
 async function applyThrottling(page, throttle, id) {
   if (!throttle) return;
   try {
+    // CDP session intentionally kept alive — detaching removes throttling.
+    // Session is cleaned up when the browser context closes.
     const client = await page.context().newCDPSession(page);
     const net = NETWORK_PRESETS[throttle.network];
     if (net) {
@@ -885,11 +887,12 @@ function trimVideoWithFfmpeg(outputDir, trimSegments, id) {
  * Called N times (once per racer) by runParallel or runSequential.
  */
 async function runBrowserRecording(config, barriers, isParallel, sharedState, opts = {}) {
-  const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, noRecording = false, ffmpeg = false, recordingsDir = null } = opts;
+  const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, noRecording = false, ffmpeg = false, har = false, recordingsDir = null, ignoreHTTPSErrors = false, viewportHeight: configViewportHeight = null } = opts;
   const { id, headless } = config;
   const outputDir = recordingsDir ? path.join(recordingsDir, id) : path.join(__dirname, 'recordings', id);
   let browser = null;
   let context = null;
+  let metricsCollector = null;
   let error = null;
 
   fs.mkdirSync(outputDir, { recursive: true });
@@ -907,14 +910,19 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     activeBrowsers.push(browser);
 
     const viewportWidth = isParallel ? layout.width - 20 : 1280;
-    const viewportHeight = isParallel ? layout.height - 100 : 720;
+    const viewportHeight = configViewportHeight ?? (isParallel ? layout.height - 100 : 720);
     const videoScale = slowmo > 0 ? 2 : 1;
     const contextCreationStart = Date.now();
+    const harPath = har ? path.join(outputDir, `${id}.har`) : null;
     const contextOpts = {
       viewport: { width: viewportWidth, height: viewportHeight },
+      ignoreHTTPSErrors: ignoreHTTPSErrors || false,
     };
     if (!noRecording) {
       contextOpts.recordVideo = { dir: outputDir, size: { width: viewportWidth * videoScale, height: viewportHeight * videoScale } };
+    }
+    if (harPath) {
+      contextOpts.recordHar = { path: harPath, mode: 'minimal' };
     }
     context = await browser.newContext(contextOpts);
     const recordingStartTime = Date.now();
@@ -928,7 +936,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     await setupClickTracker(context, recordingStartTime);
     await applyThrottling(page, throttle, id);
 
-    const metricsCollector = await startProfiling(page, browser, id);
+    metricsCollector = await startProfiling(page, browser, id);
 
     const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay, metricsCollector, noRecording);
     const markerSegments = result?.segments || [];
@@ -967,6 +975,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
         recordingOffset,
         wallClockDuration,
         calibratedStart: null,
+        traceCalibration: null,
         error: null
       };
     }
@@ -992,6 +1001,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
       videoPath: videoFile ? path.join(id, videoFile) : null,
       fullVideoPath: fullVideoFile ? path.join(id, fullVideoFile) : null,
       tracePath: tracePath ? path.join(id, path.basename(tracePath)) : null,
+      harPath: harPath && fs.existsSync(harPath) ? path.join(id, path.basename(harPath)) : null,
       clickEvents: adjustedClicks,
       measurements,
       profileMetrics,
@@ -1005,6 +1015,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
   } catch (e) {
     error = e;
     console.error(`[${id}] Error: ${e.message}`);
+    if (metricsCollector) { try { await metricsCollector.detach(); } catch {} }
     if (sharedState) { sharedState.hasError = true; sharedState.errorMessage = e.message; }
     if (barriers) {
       barriers.ready.releaseAll();
@@ -1021,10 +1032,15 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     videoPath: null,
     fullVideoPath: null,
     tracePath: null,
+    harPath: null,
     clickEvents: [],
     measurements: [],
     profileMetrics: null,
     recordingSegments: null,
+    recordingOffset: 0,
+    wallClockDuration: 0,
+    calibratedStart: null,
+    traceCalibration: null,
     error: error ? error.message : null
   };
 }
@@ -1075,8 +1091,8 @@ async function main() {
   try { config = JSON.parse(configJson); }
   catch (e) { console.error('Error: Invalid JSON:', e.message); process.exit(1); }
 
-  const { browsers, executionMode, throttle, headless, slowmo, noOverlay, noRecording, ffmpeg, recordingsDir } = config;
-  const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, recordingsDir };
+  const { browsers, executionMode, throttle, headless, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir, ignoreHTTPSErrors, viewportHeight } = config;
+  const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir, ignoreHTTPSErrors, viewportHeight };
 
   // Set headless flag on all browser configs
   for (const browser of browsers) {
@@ -1104,6 +1120,7 @@ async function main() {
       videoPath: r.videoPath || null,
       fullVideoPath: r.fullVideoPath || null,
       tracePath: r.tracePath || null,
+      harPath: r.harPath || null,
       clickEvents: r.clickEvents || [],
       measurements: r.measurements || [],
       profileMetrics: r.profileMetrics || null,

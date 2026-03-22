@@ -128,9 +128,18 @@ export function spawnRunner(ctx) {
     const sigHandler = () => child.kill('SIGTERM');
     process.on('SIGINT', sigHandler);
 
-    child.on('close', () => {
+    function cleanup() {
       process.removeListener('SIGINT', sigHandler);
       if (animation.interval) animation.stop();
+    }
+
+    child.on('error', (err) => {
+      cleanup();
+      reject(new Error(`Runner process failed to start: ${err.message}`));
+    });
+
+    child.on('close', () => {
+      cleanup();
 
       // Parse the last valid JSON line from runner stdout
       const lines = stdout.trim().split('\n');
@@ -260,6 +269,9 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
     }
 
     const traceFiles = racerNames.map(name => `${name}/${name}.trace.json`);
+    const harFiles = racerNames.map((name, i) => {
+      return results[i]?.harPath ? `${name}/${name}.har` : null;
+    });
 
     // Collect clip times from recording segments for player-level trimming (default mode).
     // Uses only the first segment per racer — multiple non-contiguous segments are not
@@ -283,6 +295,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
       fullVideoFiles,
       mergedVideoFile: sideBySidePath ? sideBySideName : null,
       traceFiles,
+      harFiles,
       raceScriptFiles,
       settingsFileCopied,
       runNavigation,
@@ -313,6 +326,9 @@ export function buildRaceContext({ racerNames, scripts, settings, rootDir = __di
     noOverlay: settings.noOverlay,
     noRecording: settings.noRecording,
     ffmpeg: settings.ffmpeg,
+    har: settings.har,
+    ignoreHTTPSErrors: settings.ignoreHTTPSErrors,
+    viewportHeight: settings.viewportHeight,
   };
 
   return { racerNames, settings, executionMode, throttle, runnerConfig, rootDir, raceDir, racerFiles };
@@ -334,6 +350,13 @@ const MIME_TYPES = {
 
 /**
  * Create an HTTP request handler that serves static files from `dir`.
+ *
+ * Security: rejects any path that resolves outside `dir` (path traversal).
+ * Range requests: advertises `Accept-Ranges: bytes` and responds with
+ * `206 Partial Content` so browsers can seek within media files (WebM, MP4).
+ * COOP/COEP headers are required for `SharedArrayBuffer` isolation used by
+ * FFmpeg.wasm in the browser player.
+ *
  * Exported for testing.
  */
 export function createStaticHandler(dir) {
@@ -347,24 +370,59 @@ export function createStaticHandler(dir) {
       return;
     }
     const filePath = path.resolve(path.join(dir, urlPath));
+    // Reject paths that escape the served directory. `filePath !== dir` allows
+    // the root directory itself to resolve (though in practice req.url='/' is
+    // rewritten to index.html above).
     if (!filePath.startsWith(dir + path.sep) && filePath !== dir) {
       res.writeHead(403);
       res.end('Forbidden');
       return;
     }
     const ext = path.extname(filePath).toLowerCase();
-    fs.readFile(filePath, (err, data) => {
-      if (err) {
+    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+    const baseHeaders = {
+      'Content-Type': contentType,
+      'Accept-Ranges': 'bytes',
+      // Required for SharedArrayBuffer isolation (FFmpeg.wasm uses COOP/COEP).
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    };
+    fs.stat(filePath, (statErr, stat) => {
+      if (statErr || !stat.isFile()) {
         res.writeHead(404);
         res.end('Not found');
         return;
       }
-      res.writeHead(200, {
-        'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
-        'Cross-Origin-Opener-Policy': 'same-origin',
-        'Cross-Origin-Embedder-Policy': 'require-corp',
-      });
-      res.end(data);
+      const total = stat.size;
+      const rangeHeader = req.headers['range'];
+
+      const pipeStream = (stream) => {
+        stream.on('error', () => { if (!res.writableEnded) res.end(); });
+        stream.pipe(res);
+      };
+
+      if (rangeHeader) {
+        const m = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
+        if (!m) { res.writeHead(416); res.end(); return; }
+        let start, end;
+        if (!m[1] && !m[2]) {
+          // bytes=- with no numbers is invalid
+          res.writeHead(416); res.end(); return;
+        } else if (!m[1]) {
+          // Suffix range: bytes=-N → last N bytes
+          start = Math.max(0, total - parseInt(m[2], 10));
+          end = total - 1;
+        } else {
+          start = parseInt(m[1], 10);
+          end = m[2] ? Math.min(parseInt(m[2], 10), total - 1) : total - 1;
+        }
+        if (start > end || start >= total) { res.writeHead(416); res.end(); return; }
+        res.writeHead(206, { ...baseHeaders, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${total}` });
+        pipeStream(fs.createReadStream(filePath, { start, end }));
+      } else {
+        res.writeHead(200, { ...baseHeaders, 'Content-Length': total });
+        pipeStream(fs.createReadStream(filePath));
+      }
     });
   };
 }
