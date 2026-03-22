@@ -989,7 +989,7 @@ document.getElementById('goStart').addEventListener('click', goToStart);
 document.getElementById('goEnd').addEventListener('click', goToEnd);
 
 document.addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'SELECT') return;
+  if (e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
   if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-STEP); }
   else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(STEP); }
   else if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
@@ -997,6 +997,24 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'End') { e.preventDefault(); goToEnd(); }
   else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFullscreen(); }
 });
+
+// --- Notes: persist in localStorage ---
+
+const notesTextarea = document.getElementById('notesTextarea');
+if (notesTextarea) {
+  const notesKey = 'race-notes:' + location.pathname;
+  try {
+    const stored = localStorage.getItem(notesKey);
+    // Use stored value if present; otherwise keep any baked-in content (from export)
+    if (stored !== null) notesTextarea.value = stored;
+  } catch (e) { /* storage unavailable (privacy mode / sandboxed) */ }
+
+  let notesTimer;
+  const saveNotes = () => { try { localStorage.setItem(notesKey, notesTextarea.value); } catch (e) {} };
+  notesTextarea.addEventListener('input', () => { clearTimeout(notesTimer); notesTimer = setTimeout(saveNotes, 400); });
+  notesTextarea.addEventListener('blur', saveNotes);
+  window.addEventListener('beforeunload', saveNotes, { once: true });
+}
 
 // --- Racer filter (3+ racers only) ---
 
@@ -1547,6 +1565,12 @@ function buildExportHtml(pathOverrides = {}, { slim = false } = {}) {
 
   // Remove any active export overlays
   doc.querySelectorAll('.export-overlay').forEach(el => el.remove());
+
+  // Bake current notes into the exported HTML so they appear without localStorage
+  const notesEl = doc.querySelector('#notesTextarea');
+  if (notesEl && notesTextarea) {
+    notesEl.textContent = notesTextarea.value;
+  }
 
   // Remove file links pointing to embedded videos (they're in the HTML, not as separate files)
   if (Object.keys(pathOverrides).length > 0) {

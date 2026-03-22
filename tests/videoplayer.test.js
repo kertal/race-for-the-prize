@@ -361,6 +361,10 @@ describe('buildPlayerHtml click counts', () => {
 
 describe('buildPlayerHtml clipTimes', () => {
   const withClips = (clips, opts = {}) => withOptions({ clipTimes: clips, ...opts }, opts.summary);
+  const defaultClips = () => [
+    { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+    { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+  ];
 
   it('does not show Race/Full mode buttons when clipTimes provided', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.5, end: 3 }]);
@@ -428,35 +432,25 @@ describe('buildPlayerHtml clipTimes', () => {
   });
 
   it('includes trace-based conversion logic in onMeta', () => {
-    const clips = [
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-    ];
-    const html = withClips(clips);
+    const html = withClips(defaultClips());
     expect(html).toContain('_converted');
     expect(html).toContain('tracePtsStart');
     expect(html).toContain('hasTraceCalibration(ct)');
   });
 
-  it('does not include canvas/localStorage fallback calibration code', () => {
-    const clips = [
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-    ];
-    const html = withClips(clips);
+  it('does not include canvas-based calibration fallback code (localStorage is present for notes only)', () => {
+    const html = withClips(defaultClips());
     expect(html).not.toContain('detectGreenCuePts');
     expect(html).not.toContain('calibrateFromCanvas');
     expect(html).not.toContain('isGreenCue');
     expect(html).not.toContain('restoreFromCache');
-    expect(html).not.toContain('localStorage');
+    // localStorage is now used for notes persistence (not calibration cache)
+    expect(html).not.toContain('calibrationCache');
+    expect(html).toContain('race-notes:');
   });
 
   it('includes strict calibration error for missing trace metadata', () => {
-    const clips = [
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-    ];
-    const html = withClips(clips);
+    const html = withClips(defaultClips());
     expect(html).toContain('Calibration error: missing trace calibration metadata. Please calibrate manually.');
     expect(html).toContain('manual calibration required');
     expect(html).toContain('playBtn.disabled = true');
@@ -491,11 +485,7 @@ describe('buildPlayerHtml clipTimes', () => {
   });
 
   it('does not include blob/canvas fallback helpers', () => {
-    const clips = [
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-    ];
-    const html = withClips(clips);
+    const html = withClips(defaultClips());
     expect(html).not.toContain('toBlobVideo');
     expect(html).not.toContain('detectGreenCuePts');
     expect(html).not.toContain('getImageData(0, 0, CUE_DETECT_SIZE, CUE_DETECT_SIZE)');

@@ -786,6 +786,22 @@
       animation-duration: 0.01ms !important;
     }
   }
+  .notes-textarea {
+    width: 100%;
+    min-height: 100px;
+    background: #2a2a2a;
+    color: #e8e0d0;
+    border: 1px solid #444;
+    border-radius: 4px;
+    padding: 0.6rem;
+    font-family: ui-monospace, 'Courier New', monospace;
+    font-size: 0.85rem;
+    resize: vertical;
+  }
+  .notes-textarea:focus {
+    outline: none;
+    border-color: #d4af37;
+  }
   @media (max-width: 600px) {
     .controls-row { min-width: auto; flex-wrap: wrap; }
     .time-display { min-width: auto; }
@@ -825,6 +841,14 @@
   <div class="section-body">
     {{raceInfo}}
     {{machineInfo}}
+  </div>
+</details>
+
+<details class="section">
+  <summary><h2>Notes</h2></summary>
+  <div class="section-body">
+    <label for="notesTextarea" class="sr-only">Race notes</label>
+    <textarea class="notes-textarea" id="notesTextarea" placeholder="Add notes about this race..."></textarea>
   </div>
 </details>
 
