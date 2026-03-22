@@ -241,6 +241,12 @@ function onMeta() {
       if (!wasConverted && clipEntry._converted) convertedAny = true;
     }
   }
+  // Recompute segment clip times after calibration (they depend on traceTsToClipPts
+  // which uses the now-calibrated traceCalibration data on clipTimes entries).
+  // Skip for __all__ (uses base clipTimes) and __full__ (intentionally null).
+  if (convertedAny && activeSegmentName && activeSegmentName !== '__all__' && activeSegmentName !== '__full__') {
+    activeSegmentClipTimes = getSegmentClipTimes(activeSegmentName);
+  }
   activeClip = resolveAdjustedClip();
   buildSegmentNav();
   updateTimeDisplay();
@@ -1100,7 +1106,9 @@ function getExportLayout(count) {
     for (let i = 0; i < count - 3; i++) positions.push({ x: bottomOffset + i * targetW, y: slotH });
   }
   const canvasW = (count >= 5 ? 3 : cols) * targetW;
-  const canvasH = rows * slotH;
+  const rawH = rows * slotH;
+  // libx264 (MOV) requires even dimensions; bump odd height by 1
+  const canvasH = rawH + (rawH % 2);
   return { canvasW, canvasH, targetW, cellH, labelH: LABEL_H, positions };
 }
 
@@ -1215,10 +1223,10 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
         args = trimArgs.concat(['-i', inFile, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', outFile]);
       }
       progressFill.style.width = '50%';
-      return ff.exec(args);
+      return ff.exec(args, 300000);
     }).then(exitCode => {
-      if (cancelled || exitCode == null) return;
-      if (exitCode !== 0) throw new Error('ffmpeg exited with code ' + exitCode + ' — conversion failed');
+      if (cancelled) return;
+      if (exitCode == null || exitCode !== 0) throw new Error('ffmpeg exited with code ' + exitCode + ' — conversion failed');
       progressFill.style.width = '90%';
       return ff.readFile(outFile);
     }).then(data => {
@@ -1248,9 +1256,13 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
     });
   }).catch(err => {
     revokeOutUrl();
+    // Terminate the ffmpeg worker on failure/timeout so it doesn't stay hung.
+    // Setting ffmpegInstance to null forces a fresh load on the next attempt.
     if (ffmpegInstance) {
       ffmpegInstance.deleteFile(inFile).catch(() => {});
       ffmpegInstance.deleteFile(outFile).catch(() => {});
+      try { ffmpegInstance.terminate(); } catch {}
+      ffmpegInstance = null;
     }
     statusEl.textContent = 'Conversion failed: ' + err.message;
     buttons.forEach(b => { b.disabled = false; });
@@ -1356,11 +1368,14 @@ async function startExport() {
   raceVideos.forEach(v => { if (v) { v.playbackRate = exportRate; v.play(); } });
   const speedLabel = exportRate !== 1 ? ' (' + exportRate + 'x)' : '';
 
+  let exportTimeOffset = null;
   function tick() {
     if (cancelled) return;
     const cur = Math.max(...raceVideos.map(v => v?.currentTime || 0));
-    drawExportFrame(ctx, layout, cur);
-    const progress = totalDur > 0 ? Math.min(1, (cur - startTime) / totalDur) : 0;
+    if (exportTimeOffset === null) exportTimeOffset = cur;
+    const elapsed = cur - exportTimeOffset;
+    drawExportFrame(ctx, layout, elapsed);
+    const progress = totalDur > 0 ? Math.min(1, elapsed / totalDur) : 0;
     progressFill.style.width = (progress * 100).toFixed(1) + '%';
     statusEl.textContent = 'Recording' + speedLabel + '... ' + Math.round(progress * 100) + '%';
     const allDone = raceVideos.every((v, i) => !v || v.currentTime >= perVideoEnd[i] || v.ended);
