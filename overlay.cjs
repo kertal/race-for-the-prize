@@ -101,21 +101,13 @@ async function hideRecordingIndicator(page) {
 
 /**
  * Show the placement medal (parallel mode) or finish flag (sequential mode).
+ * Pure presentation — caller handles finish order tracking and placement calculation.
  *
  * @param {Page} page - Playwright page
- * @param {Object} opts
- * @param {string} opts.id - Browser identifier
- * @param {boolean} opts.isParallel - Whether running in parallel mode
- * @param {Object} opts.sharedState - Shared state with finishOrder array
- * @param {number} opts.endTime - The end time for this racer
+ * @param {number|null} place - 1-based placement (null → sequential mode, shows finish flag)
  */
-async function showMedal(page, { id, isParallel, sharedState, endTime }) {
-  sharedState.finishOrder.push({ id, endTime });
-
-  if (isParallel) {
-    // Parallel mode: show placement medals based on actual end times
-    const sorted = [...sharedState.finishOrder].sort((a, b) => a.endTime - b.endTime);
-    const place = sorted.findIndex(f => f.id === id) + 1;
+async function showMedal(page, place) {
+  if (place) {
     const medals = ['\u{1F947}', '\u{1F948}', '\u{1F949}', '4\uFE0F\u20E3', '5\uFE0F\u20E3'];
     const ordinals = ['1st', '2nd', '3rd', '4th', '5th'];
     const medal = medals[place - 1] || `${place}`;
@@ -130,7 +122,6 @@ async function showMedal(page, { id, isParallel, sharedState, endTime }) {
       document.body.appendChild(el);
     }, { medal, ordinal });
   } else {
-    // Sequential mode: just show finish flag (no placement since they don't race simultaneously)
     await page.evaluate(() => {
       const el = document.createElement('div');
       el.id = '__race_medal';

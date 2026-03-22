@@ -20,7 +20,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { waitForStability } = require('./visual-stability.cjs');
 const { deriveTraceTiming } = require('./trace-calibration.cjs');
-const { flashCue, injectOverlay, showRecordingIndicator, hideRecordingIndicator, showFinishTime, showMedal, CUE_DURATION_MS, CUE_SIZE } = require('./overlay.cjs');
+const { flashCue, injectOverlay, showRecordingIndicator, hideRecordingIndicator, showFinishTime, showMedal } = require('./overlay.cjs');
 
 // Track active browsers/contexts for cleanup on SIGTERM/SIGINT
 let activeBrowsers = [];
@@ -531,11 +531,12 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
       if (sharedState) {
         const lastMeasurement = measurements[measurements.length - 1];
         const endTime = lastMeasurement ? lastMeasurement.endTime : (Date.now() - recordingStartTime) / 1000;
+        sharedState.finishOrder.push({ id, endTime });
         if (!noOverlay && !noRecording) {
-          await showMedal(page, { id, isParallel, sharedState, endTime });
-        } else {
-          // Still record finish order even when overlay is disabled
-          sharedState.finishOrder.push({ id, endTime });
+          // Calculate placement from finish order for the medal display
+          const sorted = [...sharedState.finishOrder].sort((a, b) => a.endTime - b.endTime);
+          const place = isParallel ? sorted.findIndex(f => f.id === id) + 1 : null;
+          await showMedal(page, place);
         }
       }
       if (!noRecording) await flashCue(page, CUE_COLOR_END);
