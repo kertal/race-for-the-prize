@@ -795,8 +795,18 @@ function adjustDebugOffset(idx, frameDelta) {
   debugOffsets[idx] = newOffset;
   updateDebugDisplay();
   updateDebugStats();
+  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
   activeClip = resolveAdjustedClip();
-  seekAllWithVerify(activeClip ? activeClip.start : 0);
+  // Force each video to seek to its adjusted start and render the frame.
+  // Use direct per-video currentTime assignment + pause to guarantee a visible update.
+  const adj = getAdjustedClipTimes();
+  const ct = adj || clipTimes;
+  videos.forEach((v, i) => {
+    if (!v) return;
+    const target = (activeClip && ct && isValidClipEntry(ct[i])) ? ct[i].start : (activeClip ? activeClip.start : 0);
+    v.currentTime = Math.min(target, v.duration || target);
+  });
+  updateFramePositions();
   scrubber.value = 0;
   updateTimeDisplay();
 }
@@ -837,8 +847,16 @@ if (debugPanel) {
       for (let i = 0; i < debugOffsets.length; i++) debugOffsets[i] = 0;
       updateDebugDisplay();
       updateDebugStats();
+      if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
       activeClip = resolveAdjustedClip();
-      seekAllWithVerify(activeClip ? activeClip.start : 0);
+      const adj = getAdjustedClipTimes();
+      const ct = adj || clipTimes;
+      videos.forEach((v, i) => {
+        if (!v) return;
+        const target = (activeClip && ct && isValidClipEntry(ct[i])) ? ct[i].start : (activeClip ? activeClip.start : 0);
+        v.currentTime = Math.min(target, v.duration || target);
+      });
+      updateFramePositions();
       scrubber.value = 0;
       updateTimeDisplay();
     }
