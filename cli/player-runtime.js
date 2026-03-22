@@ -796,7 +796,7 @@ function adjustDebugOffset(idx, frameDelta) {
   updateDebugDisplay();
   updateDebugStats();
   activeClip = resolveAdjustedClip();
-  seekAll(activeClip ? activeClip.start : 0);
+  seekAllWithVerify(activeClip ? activeClip.start : 0);
   scrubber.value = 0;
   updateTimeDisplay();
 }
@@ -838,7 +838,7 @@ if (debugPanel) {
       updateDebugDisplay();
       updateDebugStats();
       activeClip = resolveAdjustedClip();
-      seekAll(activeClip ? activeClip.start : 0);
+      seekAllWithVerify(activeClip ? activeClip.start : 0);
       scrubber.value = 0;
       updateTimeDisplay();
     }
