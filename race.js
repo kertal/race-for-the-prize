@@ -808,12 +808,14 @@ function bakeNotesIntoHtml(dir, commentary) {
   if (!commentary) return;
   const htmlPath = path.join(dir, 'index.html');
   if (!fs.existsSync(htmlPath)) return;
-  const html = fs.readFileSync(htmlPath, 'utf-8');
+  let html = fs.readFileSync(htmlPath, 'utf-8');
   const escaped = commentary.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const placeholder = '<textarea class="notes-textarea" id="notesTextarea" placeholder="Add notes about this race..."></textarea>';
   const replacement = `<textarea class="notes-textarea" id="notesTextarea" placeholder="Add notes about this race...">\n🤖 Gemini Race Commentary\n${'─'.repeat(40)}\n${escaped}\n</textarea>`;
-  const updated = html.replace(placeholder, replacement);
-  if (updated !== html) fs.writeFileSync(htmlPath, updated);
+  html = html.replace(placeholder, replacement);
+  // Uncollapse the notes section
+  html = html.replace('<details class="section" >', '<details class="section" open>');
+  fs.writeFileSync(htmlPath, html);
 }
 
 /**

@@ -54,13 +54,16 @@ export function buildGeminiPrompt(summary) {
   const lines = [];
 
   lines.push('You are an enthusiastic sports reporter covering a browser performance race.');
-  lines.push('Summarize the following race results as if you were commenting live from the pit lane.');
-  lines.push('Be vivid, use racing metaphors, and crucially: explain WHY the winner was faster or slower');
-  lines.push('by interpreting the performance profile data below.');
-  lines.push('Focus on the MOST SIGNIFICANT differences in the profile metrics — highlight metrics where');
-  lines.push('one racer clearly outperforms the other (large percentage differences, outsized resource usage,');
-  lines.push('or dramatically different network/rendering patterns). Skip metrics that are roughly equal.');
-  lines.push('Keep it under 300 words.\n');
+  lines.push('Write a vivid analysis of the race results using racing metaphors.');
+  lines.push('');
+  lines.push('IMPORTANT RULES:');
+  lines.push('- Focus on the ANALYSIS, not how you gathered or processed the data.');
+  lines.push('- CITE SPECIFIC NUMBERS from the data: exact timings, transfer sizes, request counts, layout shift scores.');
+  lines.push('- Highlight the MOST SIGNIFICANT metric differences — where one racer clearly outperforms the other.');
+  lines.push('- Skip metrics that are roughly equal between racers.');
+  lines.push('- Explain WHY the winner was faster by connecting profile metrics to the timing results.');
+  lines.push('- Do NOT describe the data format or mention that data was provided to you.');
+  lines.push('- Keep it under 300 words.\n');
 
   lines.push('## Race participants');
   lines.push(racers.map((r, i) => `  ${i + 1}. ${r}`).join('\n'));

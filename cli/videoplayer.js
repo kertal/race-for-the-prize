@@ -165,6 +165,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     notesContent: summary.geminiCommentary
       ? `🤖 Gemini Race Commentary\n${'─'.repeat(40)}\n${escHtml(summary.geminiCommentary)}`
       : '',
+    notesOpen: summary.geminiCommentary ? 'open' : '',
     scriptTag,
   });
 }
