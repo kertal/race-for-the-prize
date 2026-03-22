@@ -7,7 +7,8 @@
  * spawns the Playwright runner, collects results, and prints a report.
  *
  * Usage:
- *   node race.js ./races/my-race              Run a race
+ *   node race.js https://a.com https://b.com  Race page load times (URL mode)
+ *   node race.js ./races/my-race              Run a scripted race
  *   node race.js ./races/my-race --results    View recent results
  *   node race.js ./races/my-race --parallel   Run both browsers simultaneously
  *   node race.js ./races/my-race --headless   Run headless
@@ -21,7 +22,7 @@ import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c, FORMAT_EXTENSIONS } from './cli/colors.js';
-import { parseArgs, discoverRacers, applyOverrides } from './cli/config.js';
+import { parseArgs, discoverRacers, applyOverrides, applyDefaults, isUrl, deriveRacerName, buildDefaultRaceScript } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex, findMedianRunIndexPerRacer } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
@@ -188,6 +189,8 @@ export function spawnRunner(ctx) {
   const runnerPath = path.join(rootDir, 'runner.cjs');
 
   return new Promise((resolve, reject) => {
+    // NOSONAR — spawns runner.cjs subprocess with race config; this is the core
+    // execution mechanism equivalent to running `node runner.cjs <config>`
     const child = spawn('node', [runnerPath, JSON.stringify(runnerConfig)], {
       cwd: rootDir,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -481,6 +484,8 @@ export function createStaticHandler(dir) {
  * browser, and keep running until the process is killed.
  */
 export function serveResults(dir) {
+  // NOSONAR — local-only server for viewing race results; binds to 127.0.0.1
+  // with path traversal protection in createStaticHandler
   const server = http.createServer(createStaticHandler(dir));
 
   server.listen(0, '127.0.0.1', () => {
@@ -601,18 +606,7 @@ function loadRaceDir(raceDir) {
       console.error(`${c.yellow}Warning: Could not parse settings.json: ${e.message}${c.reset}`);
     }
   }
-  settings = applyOverrides(settings, boolFlags, kvFlags);
-  settings.parallel    = settings.parallel    ?? false;
-  settings.headless    = settings.headless    ?? false;
-  settings.noOverlay   = settings.noOverlay   ?? false;
-  settings.noRecording = settings.noRecording ?? false;
-  settings.ffmpeg      = settings.ffmpeg      ?? false;
-  settings.noWasm      = settings.noWasm      ?? false;
-  settings.format      = settings.format      ?? 'webm';
-  settings.network     = settings.network     ?? 'none';
-  settings.cpuThrottle = settings.cpuThrottle ?? 1;
-  settings.slowmo      = settings.slowmo      ?? 0;
-  settings.runs        = settings.runs        ?? 1;
+  settings = applyDefaults(applyOverrides(settings, boolFlags, kvFlags));
 
   const ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir, racerFiles });
   return { ctx, settings, racerNames };
@@ -654,10 +648,17 @@ ${c.dim}  ───────────────────────�
 
      ${c.bold}$${c.reset} ${c.cyan}node race.js ./races/lauda-vs-hunt${c.reset}
 
+${c.bold}  Quick Race (URL mode):${c.reset}
+${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
+  Pass 2+ URLs directly to measure page load times head-to-head:
+
+     ${c.bold}$${c.reset} ${c.cyan}node race.js https://react.dev https://angular.dev${c.reset}
+
 ${c.bold}  Commands:${c.reset}
 ${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
+  node race.js ${c.cyan}<url> <url> [url...]${c.reset}      Race page load times (2-5 URLs)
   node race.js ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset}               Scaffold a starter race (default: my-race/)
-  node race.js ${c.cyan}<dir>${c.reset}                       Run a race
+  node race.js ${c.cyan}<dir>${c.reset}                       Run a scripted race
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--results${c.reset}            View recent results
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--parallel${c.reset}           Run both browsers simultaneously
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--headless${c.reset}           Hide browsers
@@ -671,25 +672,97 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-recording${c.reset}      Skip video recording, just measure
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ffmpeg${c.reset}             Enable FFmpeg processing (trim, merge, convert)
 
-${c.dim}  CLI flags override settings.json values.${c.reset}
+${c.dim}  All flags except --results work with both URL mode and directory mode.${c.reset}
 ${c.dim}  Try the example:  node race.js ./races/lauda-vs-hunt${c.reset}
 `);
   process.exit(1);
 }
 
-const raceDir = path.resolve(positional[0]);
+// --- Detect URL mode vs directory mode ---
 
-if (!fs.existsSync(raceDir)) {
-  console.error(`${c.red}Error: Race directory not found: ${raceDir}${c.reset}`);
+if (positional.length === 1 && isUrl(positional[0])) {
+  console.error(`${c.red}Error: URL mode requires at least 2 URLs to race against each other${c.reset}`);
+  console.error(`${c.dim}  Example: node race.js https://react.dev https://angular.dev${c.reset}`);
   process.exit(1);
 }
 
-if (boolFlags.has('results')) {
-  printRecentRaces(raceDir);
-  process.exit(0);
+const urlMode = positional.length >= 2 && positional.every(p => isUrl(p));
+
+// Catch mixed URL/path inputs (e.g. "node race.js https://a.com ./dir")
+if (!urlMode && positional.length >= 2 && positional.some(p => isUrl(p))) {
+  const nonUrls = positional.filter(p => !isUrl(p));
+  console.error(`${c.red}Error: Cannot mix URLs and directory paths. These are not valid URLs: ${nonUrls.join(', ')}${c.reset}`);
+  console.error(`${c.dim}  For URL mode, pass only URLs: node race.js https://a.com https://b.com${c.reset}`);
+  console.error(`${c.dim}  For directory mode, pass a race directory: node race.js ./races/my-race${c.reset}`);
+  process.exit(1);
 }
 
-const { ctx, settings, racerNames } = loadRaceDir(raceDir);
+let raceDir;
+let ctx, settings, racerNames;
+
+if (urlMode) {
+  if (boolFlags.has('results')) {
+    console.error(`${c.red}Error: --results is not supported in URL mode${c.reset}`);
+    process.exit(1);
+  }
+
+  // URL mode: generate race scripts from URLs
+  if (positional.length > 5) {
+    console.error(`${c.yellow}Warning: Using first 5 URLs of ${positional.length} provided${c.reset}`);
+  }
+  const urls = positional.slice(0, 5);
+
+  // Derive names and deduplicate: first occurrence keeps its base name,
+  // subsequent duplicates get -2, -3, etc. Uses Object.create(null) to
+  // avoid inherited property collisions (e.g. "constructor", "toString").
+  const rawNames = urls.map(u => deriveRacerName(u));
+  const counts = Object.create(null);
+  for (const n of rawNames) counts[n] = (counts[n] || 0) + 1;
+  const used = Object.create(null);
+  const names = rawNames.map(n => {
+    if (counts[n] === 1) return n;
+    used[n] = (used[n] || 0) + 1;
+    return used[n] === 1 ? n : `${n}-${used[n]}`;
+  });
+  // Verify no duplicates remain (defensive — covers edge cases in deriveRacerName)
+  const seen = new Set();
+  for (let i = 0; i < names.length; i++) {
+    while (seen.has(names[i])) names[i] = names[i] + '-' + (i + 1);
+    seen.add(names[i]);
+  }
+
+  // SECURITY: URLs are validated by isUrl() (requires http(s) + valid hostname).
+  // buildDefaultRaceScript embeds them via JSON.stringify (safe escaping).
+  // Scripts execute in the same trust context as user .spec.js files.
+  const scripts = urls.map(u => buildDefaultRaceScript(u)); // NOSONAR — intentional code generation from validated URLs
+  // Create race directory under races/ to keep cwd clean.
+  // Results persist here so the user can re-serve them later.
+  // Names are sanitized by deriveRacerName (filesystem-safe, no traversal).
+  raceDir = path.resolve('races', names.join('-vs-'));
+  fs.mkdirSync(raceDir, { recursive: true }); // NOSONAR — directory from sanitized racer names
+
+  settings = applyDefaults(applyOverrides({}, boolFlags, kvFlags));
+  racerNames = names;
+  ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir });
+} else {
+  if (positional.length > 1) {
+    console.error(`${c.yellow}Warning: Directory mode expects 1 argument (the race directory), ignoring extra arguments: ${positional.slice(1).join(', ')}${c.reset}`);
+  }
+  raceDir = path.resolve(positional[0]);
+
+  if (!fs.existsSync(raceDir)) {
+    console.error(`${c.red}Error: Race directory not found: ${raceDir}${c.reset}`);
+    process.exit(1);
+  }
+
+  if (boolFlags.has('results')) {
+    printRecentRaces(raceDir);
+    process.exit(0);
+  }
+
+  ({ ctx, settings, racerNames } = loadRaceDir(raceDir));
+}
+
 const totalRuns = settings.runs;
 const resultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}`);
 

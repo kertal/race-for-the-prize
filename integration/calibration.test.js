@@ -173,19 +173,20 @@ describe('calibration integration', () => {
     expect(result.needsCalibration).toBe(false);
   });
 
-  it('throws strict manual calibration error when trace metadata is missing', async ({ skip }) => {
+  it('gracefully falls back when trace metadata is missing', async ({ skip }) => {
     if (setupError) skip(setupError.message);
 
     buildAndWrite(uncalibratedClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
+    // When trace calibration metadata is missing, the runtime should
+    // mark the clip as converted and use raw clip times without error.
     const result = await extractFromScripts(() => {
       for (const s of document.querySelectorAll('script')) {
-        if (s.textContent.includes('failCalibration(')) {
+        if (s.textContent.includes('canApplyTraceCalibration')) {
           return {
-            hasStrictMessage: s.textContent.includes('Please calibrate manually.'),
-            hasDisablePlay: s.textContent.includes('playBtn.disabled = true'),
-            hasThrow: s.textContent.includes('console.error('),
+            hasGracefulFallback: s.textContent.includes('_converted = true'),
+            noFatalError: !s.textContent.includes('failCalibration'),
           };
         }
       }
@@ -193,9 +194,8 @@ describe('calibration integration', () => {
     });
 
     expect(result).toBeTruthy();
-    expect(result.hasStrictMessage).toBe(true);
-    expect(result.hasDisablePlay).toBe(true);
-    expect(result.hasThrow).toBe(true);
+    expect(result.hasGracefulFallback).toBe(true);
+    expect(result.noFatalError).toBe(true);
   });
 
   it('does not include blob/security canvas fallback helpers', async ({ skip }) => {
