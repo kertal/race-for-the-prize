@@ -584,6 +584,7 @@ async function runScript(script, label) {
     let stdout = '';
     let stderr = '';
     let timedOut = false;
+    let settled = false;
 
     child.stdout.on('data', d => { stdout += d; });
     child.stderr.on('data', d => { stderr += d; });
@@ -597,8 +598,10 @@ async function runScript(script, label) {
       }, 5000);
     }, timeout);
 
-    child.on('close', code => {
+    child.on('close', (code) => {
       clearTimeout(timeoutId);
+      if (settled) return;
+      settled = true;
 
       if (timedOut) {
         progress.done(`${label} timed out after ${timeout}ms`);
@@ -655,6 +658,8 @@ async function runScript(script, label) {
 
     child.on('error', err => {
       clearTimeout(timeoutId);
+      if (settled) return;
+      settled = true;
       progress.done(`${label} error: ${err.message}`);
       reject(err);
     });

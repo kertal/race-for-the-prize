@@ -32,7 +32,9 @@ export function discoverRacers(raceDir) {
   let racerFiles = allFiles.filter(f => f.endsWith('.spec.js')).sort();
 
   if (racerFiles.length < 2) {
-    const jsFiles = allFiles.filter(f => f.endsWith('.js')).sort();
+    // Exclude setup/teardown hook files from racer fallback
+    const hookPattern = /\.(setup|teardown)\.js$/;
+    const jsFiles = allFiles.filter(f => f.endsWith('.js') && !hookPattern.test(f) && f !== 'setup.js' && f !== 'teardown.js').sort();
     if (jsFiles.length >= 2) {
       console.error(`Warning: Found ${racerFiles.length} .spec.js files, using .js files instead`);
       racerFiles = jsFiles;
