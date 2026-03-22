@@ -1215,7 +1215,7 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
         args = trimArgs.concat(['-i', inFile, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', outFile]);
       }
       progressFill.style.width = '50%';
-      return ff.exec(args);
+      return ff.exec(args, 300000);
     }).then(exitCode => {
       if (cancelled || exitCode == null) return;
       if (exitCode !== 0) throw new Error('ffmpeg exited with code ' + exitCode + ' — conversion failed');
