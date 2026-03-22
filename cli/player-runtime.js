@@ -1464,6 +1464,13 @@ function buildExportHtml(pathOverrides = {}) {
   // Remove any active export overlays
   doc.querySelectorAll('.export-overlay').forEach(el => el.remove());
 
+  // Clear dynamically-built UI so the script rebuilds it cleanly on load
+  // (cloneNode captures live DOM state; without clearing, buttons are doubled)
+  const racerFilter = doc.querySelector('#racerFilter');
+  if (racerFilter) { racerFilter.innerHTML = ''; racerFilter.style.display = 'none'; }
+  const segNav = doc.querySelector('#segmentNav');
+  if (segNav) { segNav.innerHTML = ''; segNav.style.display = 'none'; }
+
   // Embed video paths: set data URIs directly on <video> src attributes so videos
   // play immediately without JavaScript, and patch the JS config so resolveEmbeddedVideos
   // can still upgrade them to seekable Blob URLs at runtime.
