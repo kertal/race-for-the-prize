@@ -38,21 +38,24 @@ async function runScript(cmd, scriptPath, content, options = {}) {
   });
 }
 
-/** Helper to write an executable shell script and run it */
 function runShellScript(scriptPath, content, options = {}) {
   return runScript('bash', scriptPath, content, options);
 }
 
-/** Helper to write and run a Node.js script */
 function runNodeScript(scriptPath, content, options = {}) {
   return runScript('node', scriptPath, content, options);
+}
+
+/** Create minimal racer files in tmpDir for discovery tests */
+function writeRacerStubs() {
+  fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+  fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
 }
 
 describe('setup/teardown discovery edge cases', () => {
   it('handles race directory with only setup (no teardown)', () => {
     fs.writeFileSync(path.join(tmpDir, 'setup.sh'), '#!/bin/bash\necho "setup"');
-    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+    writeRacerStubs();
 
     const { setup, teardown } = discoverSetupTeardown(tmpDir);
     expect(setup).toBe('setup.sh');
@@ -61,8 +64,7 @@ describe('setup/teardown discovery edge cases', () => {
 
   it('handles race directory with only teardown (no setup)', () => {
     fs.writeFileSync(path.join(tmpDir, 'teardown.js'), 'console.log("teardown")');
-    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+    writeRacerStubs();
 
     const { setup, teardown } = discoverSetupTeardown(tmpDir);
     expect(setup).toBe(null);
@@ -71,8 +73,7 @@ describe('setup/teardown discovery edge cases', () => {
 
   it('handles empty settings object', () => {
     fs.writeFileSync(path.join(tmpDir, 'setup.sh'), '#!/bin/bash');
-    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+    writeRacerStubs();
 
     const { setup } = discoverSetupTeardown(tmpDir, {});
     expect(setup).toBe('setup.sh');
@@ -80,8 +81,7 @@ describe('setup/teardown discovery edge cases', () => {
 
   it('settings can set setup to empty string to disable', () => {
     fs.writeFileSync(path.join(tmpDir, 'setup.sh'), '#!/bin/bash');
-    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+    writeRacerStubs();
 
     // Empty string is falsy but not undefined, so it should override
     const { setup } = discoverSetupTeardown(tmpDir, { setup: '' });
@@ -90,16 +90,14 @@ describe('setup/teardown discovery edge cases', () => {
 
   it('settings can set setup to false to disable', () => {
     fs.writeFileSync(path.join(tmpDir, 'setup.sh'), '#!/bin/bash');
-    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+    writeRacerStubs();
 
     const { setup } = discoverSetupTeardown(tmpDir, { setup: false });
     expect(setup).toBe(false);
   });
 
   it('handles complex command object in settings', () => {
-    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+    writeRacerStubs();
 
     const settings = {
       setup: {
@@ -120,8 +118,7 @@ describe('setup/teardown discovery edge cases', () => {
   it('does not discover scripts with wrong extensions', () => {
     fs.writeFileSync(path.join(tmpDir, 'setup.py'), 'print("setup")');
     fs.writeFileSync(path.join(tmpDir, 'teardown.ts'), 'console.log("teardown")');
-    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+    writeRacerStubs();
 
     const { setup, teardown } = discoverSetupTeardown(tmpDir);
     expect(setup).toBe(null);
@@ -130,8 +127,7 @@ describe('setup/teardown discovery edge cases', () => {
 
   it('handles directories named setup.sh (should not match)', () => {
     fs.mkdirSync(path.join(tmpDir, 'setup.sh'));
-    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+    writeRacerStubs();
 
     // Directories are correctly filtered out by isFile() check
     const { setup } = discoverSetupTeardown(tmpDir);
@@ -304,12 +300,14 @@ describe('script execution integration', () => {
     expect(fs.readFileSync(markerFile, 'utf-8').trim()).toBe('executed');
   });
 
-  it('node script can write to file system', async () => {
+  it('node script can write to file system (ESM mode)', async () => {
     const markerFile = path.join(tmpDir, 'marker.txt');
     const setupScript = path.join(tmpDir, 'setup.js');
+    // Add package.json with type:module so Node treats .js as ESM (like production)
+    fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ type: 'module' }));
 
     await runNodeScript(setupScript, `
-      const fs = require('fs');
+      import fs from 'node:fs';
       fs.writeFileSync('${markerFile.replace(/\\/g, '\\\\')}', 'executed');
     `);
 
