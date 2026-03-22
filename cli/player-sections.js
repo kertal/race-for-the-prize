@@ -83,6 +83,29 @@ function buildMetricRowsHtml(entries, winner, formatDelta) {
 // Section Builders
 // ---------------------------------------------------------------------------
 
+export function buildResultFlagHtml(summary) {
+  const { racers, overallWinner, wins } = summary;
+  if (!overallWinner) return '';
+
+  let flagEmoji, winnerLabel, winnerColor, score;
+
+  if (overallWinner === 'tie') {
+    flagEmoji = '🤝';
+    winnerLabel = "It's a tie!";
+    winnerColor = '#d4af37';
+    score = racers.map(r => wins[r] ?? 0).join(' – ');
+  } else {
+    const winnerIdx = racers.indexOf(overallWinner);
+    flagEmoji = '🏁';
+    winnerLabel = escHtml(overallWinner) + ' wins!';
+    winnerColor = RACER_CSS_COLORS[winnerIdx % RACER_CSS_COLORS.length];
+    const winNums = racers.map(r => wins[r] ?? 0);
+    score = winNums.join(' – ');
+  }
+
+  return render(T['result-flag'], { flagEmoji, winnerLabel, winnerColor, score });
+}
+
 export function buildRunNavHtml(runNav) {
   if (!runNav) return '';
   const { currentRun, totalRuns, pathPrefix } = runNav;

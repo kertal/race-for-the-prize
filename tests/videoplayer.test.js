@@ -72,6 +72,25 @@ describe('buildPlayerHtml', () => {
     expect(withSummary({ overallWinner: 'tie' })).toContain('&#129309;');
   });
 
+  it('shows result flag with winner name and score', () => {
+    expect(defaultHtml).toContain('class="result-flag"');
+    expect(defaultHtml).toContain('lauda wins!');
+    expect(defaultHtml).toContain('1 – 0');
+    expect(defaultHtml).toContain('href="#measurementResults"');
+  });
+
+  it('shows result flag tie state', () => {
+    const html = withSummary({ overallWinner: 'tie', wins: { lauda: 1, hunt: 1 } });
+    expect(html).toContain('class="result-flag"');
+    expect(html).toContain("It's a tie!");
+    expect(html).toContain('1 – 1');
+  });
+
+  it('result flag is absent when no overall winner', () => {
+    const html = withSummary({ overallWinner: null });
+    expect(html).not.toContain('class="result-flag"');
+  });
+
   it('includes playback controls', () => {
     expect(defaultHtml).toContain('id="playBtn"');
     expect(defaultHtml).toContain('id="scrubber"');

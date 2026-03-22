@@ -21,6 +21,7 @@ import {
   buildRaceInfoHtml,
   buildMachineInfoHtml,
   buildErrorsHtml,
+  buildResultFlagHtml,
   buildResultsHtml,
   buildProfileSummaryHtml,
   buildProfileHtml,
@@ -75,7 +76,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     ? `Race: ${escHtml(racers[0])} vs ${escHtml(racers[1])}`
     : `Race: ${racers.map(escHtml).join(' vs ')}`;
 
-  const winnerBanner = '';
+  const winnerBanner = buildResultFlagHtml(summary);
 
   const hasVideos = videoFiles && videoFiles.length > 0;
   const placementOrder = getPlacementOrder(summary);

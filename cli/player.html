@@ -166,12 +166,32 @@
   }
   .winner-banner:empty { display: none; }
   .winner-banner {
-    text-align: center;
-    font-family: Georgia, serif;
-    font-size: 1.2rem;
-    color: #e8e0d0;
+    display: flex;
+    justify-content: center;
     padding-bottom: 1rem;
   }
+  .result-flag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: #222;
+    border: 1px solid #444;
+    border-radius: 6px;
+    padding: 0.5rem 1.1rem;
+    cursor: pointer;
+    text-decoration: none;
+    color: #e8e0d0;
+    font-family: ui-monospace, 'Courier New', monospace;
+    font-size: 1rem;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .result-flag:hover {
+    border-color: #d4af37;
+    background: #2a2a2a;
+  }
+  .result-flag-emoji { font-size: 1.3rem; line-height: 1; }
+  .result-flag-winner { font-weight: bold; }
+  .result-flag-score { color: #888; font-size: 0.85rem; }
   .trophy { font-size: 1.1rem; }
   .video-source-note {
     text-align: center;
@@ -964,7 +984,7 @@
 
 {{debugPanel}}
 
-<details class="section" open>
+<details class="section" id="measurementResults" open>
   <summary><h2>Measurement Results</h2></summary>
   <div class="section-body">
 {{results}}
@@ -994,6 +1014,14 @@
 </details>
 
 <div class="checkered-bar"></div>
+
+<template id="build-result-flag">
+<a class="result-flag" href="#measurementResults" title="View results">
+  <span class="result-flag-emoji">{{flagEmoji}}</span>
+  <span class="result-flag-winner" style="color: {{winnerColor}}">{{winnerLabel}}</span>
+  <span class="result-flag-score">{{score}}</span>
+</a>
+</template>
 
 <template id="build-info-item"><span class="info-item"><span class="info-label">{{label}}</span> {{value}}</span></template>
 
