@@ -449,11 +449,11 @@ describe('buildPlayerHtml clipTimes', () => {
     expect(html).toContain('race-notes:');
   });
 
-  it('includes strict calibration error for missing trace metadata', () => {
+  it('gracefully falls back when trace metadata is missing', () => {
     const html = withClips(defaultClips());
-    expect(html).toContain('Calibration error: missing trace calibration metadata. Please calibrate manually.');
-    expect(html).toContain('manual calibration required');
-    expect(html).toContain('playBtn.disabled = true');
+    // Should use raw clip times without fatal error
+    expect(html).toContain('_converted = true');
+    expect(html).not.toContain('failCalibration');
   });
 
   it('embeds trace calibration and uses trace-based conversion when present', () => {
