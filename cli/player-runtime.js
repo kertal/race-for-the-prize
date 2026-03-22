@@ -24,13 +24,16 @@ const mergedContainer = document.getElementById('mergedContainer');
 let resolvedRacePaths = raceVideoPaths ? raceVideoPaths.slice() : raceVideoPaths;
 let resolvedFullPaths = fullVideoPaths ? fullVideoPaths.slice() : fullVideoPaths;
 
+const _embeddedBlobUrls = [];
 (async function resolveEmbeddedVideos() {
   async function toBlobUrl(p) {
     if (!p || !p.startsWith('data:')) return p;
     try {
       const resp = await fetch(p);
       if (!resp.ok) return p;
-      return URL.createObjectURL(await resp.blob());
+      const url = URL.createObjectURL(await resp.blob());
+      _embeddedBlobUrls.push(url);
+      return url;
     } catch { return p; }
   }
   const hasData = arr => arr && arr.some(p => p && p.startsWith('data:'));
@@ -41,10 +44,15 @@ let resolvedFullPaths = fullVideoPaths ? fullVideoPaths.slice() : fullVideoPaths
     raceVideoPaths ? Promise.all(raceVideoPaths.map(toBlobUrl)) : Promise.resolve(raceVideoPaths),
     fullVideoPaths ? Promise.all(fullVideoPaths.map(toBlobUrl)) : Promise.resolve(fullVideoPaths),
   ]);
-  // Only update race videos (not full-mode) — full-mode src is set when user switches
-  raceVideos.forEach((v, i) => { if (resolvedRacePaths[i]) v.src = resolvedRacePaths[i]; });
+  // Update video src attributes with seekable blob: URLs
+  raceVideos.forEach((v, i) => {
+    if (!v) return;
+    const resolved = loadedSrcSet === 'full' && resolvedFullPaths ? resolvedFullPaths[i] : resolvedRacePaths[i];
+    if (resolved && resolved !== v.getAttribute('src')) v.src = resolved;
+  });
   if (mergedIsData) mergedVideo.src = await toBlobUrl(mergedSrc);
 })();
+window.addEventListener('pagehide', () => { _embeddedBlobUrls.forEach(u => URL.revokeObjectURL(u)); });
 
 // Convert a Blob to a base64 data URI (used when embedding videos in ZIP export)
 function blobToDataUri(blob) {

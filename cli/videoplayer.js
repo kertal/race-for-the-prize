@@ -31,7 +31,6 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-
 const RAW_HTML = fs.readFileSync(path.join(__dirname, 'player.html'), 'utf-8');
 const RUNTIME = fs.readFileSync(path.join(__dirname, 'player-runtime.js'), 'utf-8');
 
