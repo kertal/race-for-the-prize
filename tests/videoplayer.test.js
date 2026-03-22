@@ -5,7 +5,7 @@ import path from 'path';
 import { buildPlayerHtml } from '../cli/videoplayer.js';
 import { buildProfileComparison } from '../cli/profile-analysis.js';
 import { copyFFmpegFiles } from '../cli/results.js';
-import { fileURLToPath } from 'url';
+import { fileURLToPath } from 'node:url';
 
 const makeSummary = (overrides = {}) => ({
   racers: ['lauda', 'hunt'],
@@ -810,10 +810,9 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
     expect(defaultHtml).toContain('conversion failed');
   });
 
-  it('adds a timeout to ff.exec to prevent indefinite hangs', () => {
-    expect(defaultHtml).toContain('timeoutPromise');
-    expect(defaultHtml).toContain('Promise.race');
-    expect(defaultHtml).toContain('FFmpeg conversion timed out');
+  it('passes a timeout to ff.exec to prevent indefinite hangs', () => {
+    // ff.exec(args, 300000) uses the library's built-in timeout
+    expect(defaultHtml).toContain('ff.exec(args, 300000)');
   });
 });
 

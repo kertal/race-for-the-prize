@@ -12,13 +12,28 @@ import os from 'node:os';
 import path from 'node:path';
 import { convertVideos } from '../cli/results.js';
 
-function hasTool(name) {
-  try { execFileSync(name, ['-version'], { stdio: 'pipe', timeout: 5_000 }); return true; }
-  catch { return false; }
+/**
+ * Resolve the absolute path of a CLI tool to avoid relying on PATH.
+ * Returns null when the tool is not installed.
+ */
+function resolveToolPath(name) {
+  try {
+    return execFileSync('/usr/bin/which', [name], { stdio: 'pipe', timeout: 5_000 })
+      .toString().trim();
+  } catch {
+    return null;
+  }
 }
 
+const FFMPEG  = resolveToolPath('ffmpeg');
+const FFPROBE = resolveToolPath('ffprobe');
+const HAS_TOOLS = Boolean(FFMPEG && FFPROBE);
+
+/**
+ * Probe a video file and return its width, height, and codec name.
+ */
 function getVideoInfo(videoPath) {
-  const out = execFileSync('ffprobe', [
+  const out = execFileSync(FFPROBE, [
     '-v', 'quiet', '-print_format', 'json', '-show_streams', videoPath,
   ], { timeout: 10_000 });
   const info = JSON.parse(out.toString());
@@ -26,15 +41,35 @@ function getVideoInfo(videoPath) {
   return { width: v.width, height: v.height, codec: v.codec_name };
 }
 
+/**
+ * Generate a solid-colour WebM test fixture.
+ * Uses VP9 + yuv444p so odd dimensions are encoded without error.
+ */
 function createTestWebm(outputPath, width, height, durationSecs = 1) {
-  execFileSync('ffmpeg', [
+  execFileSync(FFMPEG, [
     '-f', 'lavfi', '-i', `color=red:size=${width}x${height}:rate=25`,
-    '-c:v', 'libvpx', '-pix_fmt', 'yuv420p',
-    '-t', String(durationSecs), '-y', outputPath,
+    '-t', String(durationSecs),
+    '-c:v', 'libvpx-vp9',
+    '-pix_fmt', 'yuv444p',
+    '-y', outputPath,
   ], { stdio: 'pipe', timeout: 30_000 });
 }
 
-const HAS_TOOLS = hasTool('ffmpeg') && hasTool('ffprobe');
+/**
+ * Convert a WebM to MOV via convertVideos() and verify even-dimension h264 output.
+ */
+function convertAndVerifyMov(webmPath, width, height) {
+  createTestWebm(webmPath, width, height);
+  const results = [{ videoPath: webmPath }];
+  convertVideos(results, 'mov');
+  const mov = webmPath.replace('.webm', '.mov');
+  expect(fs.existsSync(mov)).toBe(true);
+  const info = getVideoInfo(mov);
+  expect(info.codec).toBe('h264');
+  expect(info.width % 2).toBe(0);
+  expect(info.height % 2).toBe(0);
+  return { results, info };
+}
 
 describe('export format conversion', () => {
   let tmpDir;
@@ -49,44 +84,18 @@ describe('export format conversion', () => {
 
   it.skipIf(!HAS_TOOLS)('converts even-dimension WebM to MOV (default 720p)', () => {
     const webm = path.join(tmpDir, 'even.webm');
-    createTestWebm(webm, 1280, 720);
-    const results = [{ videoPath: webm }];
-    convertVideos(results, 'mov');
-    const mov = webm.replace('.webm', '.mov');
-    expect(fs.existsSync(mov)).toBe(true);
-    const info = getVideoInfo(mov);
-    expect(info.codec).toBe('h264');
-    expect(info.width % 2).toBe(0);
-    expect(info.height % 2).toBe(0);
-    expect(results[0].videoPath).toBe(mov);
+    const { results } = convertAndVerifyMov(webm, 1280, 720);
+    expect(results[0].videoPath).toBe(webm.replace('.webm', '.mov'));
   });
 
   it.skipIf(!HAS_TOOLS)('converts odd-height WebM to MOV without failing (custom --height)', () => {
     // height=751 triggers odd cellH in canvas export; libx264 rejects odd dimensions
     // without the scale=trunc(iw/2)*2:trunc(ih/2)*2 filter
-    const webm = path.join(tmpDir, 'odd-height.webm');
-    createTestWebm(webm, 1280, 751);
-    const results = [{ videoPath: webm }];
-    convertVideos(results, 'mov');
-    const mov = webm.replace('.webm', '.mov');
-    expect(fs.existsSync(mov)).toBe(true);
-    const info = getVideoInfo(mov);
-    expect(info.codec).toBe('h264');
-    expect(info.width % 2).toBe(0);
-    expect(info.height % 2).toBe(0);
+    convertAndVerifyMov(path.join(tmpDir, 'odd-height.webm'), 1280, 751);
   });
 
   it.skipIf(!HAS_TOOLS)('converts odd-width WebM to MOV without failing', () => {
-    const webm = path.join(tmpDir, 'odd-width.webm');
-    createTestWebm(webm, 1281, 720);
-    const results = [{ videoPath: webm }];
-    convertVideos(results, 'mov');
-    const mov = webm.replace('.webm', '.mov');
-    expect(fs.existsSync(mov)).toBe(true);
-    const info = getVideoInfo(mov);
-    expect(info.codec).toBe('h264');
-    expect(info.width % 2).toBe(0);
-    expect(info.height % 2).toBe(0);
+    convertAndVerifyMov(path.join(tmpDir, 'odd-width.webm'), 1281, 720);
   });
 
   it.skipIf(!HAS_TOOLS)('converts WebM to GIF', () => {

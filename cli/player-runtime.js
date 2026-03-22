@@ -1308,8 +1308,8 @@ async function startExport() {
     if (cancelled) return;
     const cur = Math.max(...raceVideos.map(v => v?.currentTime || 0));
     if (exportTimeOffset === null) exportTimeOffset = cur;
-    drawExportFrame(ctx, layout, cur - exportTimeOffset);
     const elapsed = cur - exportTimeOffset;
+    drawExportFrame(ctx, layout, elapsed);
     const progress = totalDur > 0 ? Math.min(1, elapsed / totalDur) : 0;
     progressFill.style.width = (progress * 100).toFixed(1) + '%';
     statusEl.textContent = 'Recording' + speedLabel + '... ' + Math.round(progress * 100) + '%';
