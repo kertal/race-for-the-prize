@@ -601,8 +601,9 @@ if (urlMode) {
   }
   const urls = positional.slice(0, 5);
 
-  // Derive names and deduplicate: first occurrence keeps its name,
-  // subsequent duplicates get -2, -3, etc.
+  // Derive names and deduplicate: first occurrence keeps its base name,
+  // subsequent duplicates get -2, -3, etc. Uses Object.create(null) to
+  // avoid inherited property collisions (e.g. "constructor", "toString").
   const rawNames = urls.map(u => deriveRacerName(u));
   const counts = Object.create(null);
   for (const n of rawNames) counts[n] = (counts[n] || 0) + 1;
@@ -612,9 +613,17 @@ if (urlMode) {
     used[n] = (used[n] || 0) + 1;
     return used[n] === 1 ? n : `${n}-${used[n]}`;
   });
+  // Verify no duplicates remain (defensive — covers edge cases in deriveRacerName)
+  const seen = new Set();
+  for (let i = 0; i < names.length; i++) {
+    while (seen.has(names[i])) names[i] = names[i] + '-' + (i + 1);
+    seen.add(names[i]);
+  }
 
   const scripts = urls.map(u => buildDefaultRaceScript(u));
-  raceDir = path.resolve(names.join('-vs-'));
+  // Create race directory under races/ to keep cwd clean.
+  // Results persist here so the user can re-serve them later.
+  raceDir = path.resolve('races', names.join('-vs-'));
   fs.mkdirSync(raceDir, { recursive: true });
 
   settings = applyDefaults(applyOverrides({}, boolFlags, kvFlags));

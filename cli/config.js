@@ -94,6 +94,11 @@ export function deriveRacerName(url) {
 /**
  * Build a default race script that measures page load time for a URL.
  * The script navigates to the URL and times the load event.
+ *
+ * SECURITY: The URL is embedded via JSON.stringify() which safely escapes
+ * all special characters. The generated script runs in the same trust
+ * context as user-provided .spec.js files (equivalent to `node <file>`).
+ * Only run URLs you trust — this is the same security model as Playwright.
  */
 export function buildDefaultRaceScript(url) {
   return `await page.raceStart('Page Load');
