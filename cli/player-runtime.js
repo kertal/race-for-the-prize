@@ -20,6 +20,50 @@ const mergedVideo = document.getElementById('mergedVideo');
 const playerContainer = document.getElementById('playerContainer');
 const mergedContainer = document.getElementById('mergedContainer');
 
+// Mutable resolved paths — data URIs replaced with seekable Blob URLs on init
+let resolvedRacePaths = raceVideoPaths ? raceVideoPaths.slice() : raceVideoPaths;
+let resolvedFullPaths = fullVideoPaths ? fullVideoPaths.slice() : fullVideoPaths;
+
+const _embeddedBlobUrls = [];
+(async function resolveEmbeddedVideos() {
+  async function toBlobUrl(p) {
+    if (!p || !p.startsWith('data:')) return p;
+    try {
+      const resp = await fetch(p);
+      if (!resp.ok) return p;
+      const url = URL.createObjectURL(await resp.blob());
+      _embeddedBlobUrls.push(url);
+      return url;
+    } catch { return p; }
+  }
+  const hasData = arr => arr && arr.some(p => p && p.startsWith('data:'));
+  const mergedSrc = mergedVideo && mergedVideo.getAttribute('src');
+  const mergedIsData = mergedSrc && mergedSrc.startsWith('data:');
+  if (!hasData(raceVideoPaths) && !hasData(fullVideoPaths) && !mergedIsData) return;
+  [resolvedRacePaths, resolvedFullPaths] = await Promise.all([
+    raceVideoPaths ? Promise.all(raceVideoPaths.map(toBlobUrl)) : Promise.resolve(raceVideoPaths),
+    fullVideoPaths ? Promise.all(fullVideoPaths.map(toBlobUrl)) : Promise.resolve(fullVideoPaths),
+  ]);
+  // Update video src attributes with seekable blob: URLs
+  raceVideos.forEach((v, i) => {
+    if (!v) return;
+    const resolved = loadedSrcSet === 'full' && resolvedFullPaths ? resolvedFullPaths[i] : resolvedRacePaths[i];
+    if (resolved && resolved !== v.getAttribute('src')) v.src = resolved;
+  });
+  if (mergedIsData) mergedVideo.src = await toBlobUrl(mergedSrc);
+})();
+window.addEventListener('pagehide', () => { _embeddedBlobUrls.forEach(u => URL.revokeObjectURL(u)); });
+
+// Convert a Blob to a base64 data URI (used when embedding videos in ZIP export)
+function blobToDataUri(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
 let videos = raceVideos;
 let primary = videos[0];
 const playBtn = document.getElementById('playBtn');
@@ -364,7 +408,7 @@ function resetSegmentState({ hide = false } = {}) {
 
 function switchToRace() {
   switchMode('race', raceVideos, modeRace, {
-    loadSrc() { raceVideos.forEach((v, i) => { v.src = raceVideoPaths[i]; }); },
+    loadSrc() { raceVideos.forEach((v, i) => { v.src = resolvedRacePaths[i]; }); },
     onActivate() {
       playerContainer.style.display = 'flex';
       if (mergedContainer) mergedContainer.style.display = 'none';
@@ -385,7 +429,7 @@ function switchToFull() {
   if (!fullVideoPaths && !clipTimes) return;
   const needsSrcSwitch = fullVideoPaths && loadedSrcSet !== 'full';
   switchMode(needsSrcSwitch ? 'full' : loadedSrcSet, raceVideos, modeFull, {
-    loadSrc: needsSrcSwitch ? () => { raceVideos.forEach((v, i) => { v.src = fullVideoPaths[i]; }); } : null,
+    loadSrc: needsSrcSwitch ? () => { raceVideos.forEach((v, i) => { v.src = resolvedFullPaths[i]; }); } : null,
     onActivate() {
       playerContainer.style.display = 'flex';
       if (mergedContainer) mergedContainer.style.display = 'none';
@@ -642,7 +686,7 @@ function buildSegmentNav() {
     if (fullVideoPaths && loadedSrcSet === 'full') {
       if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
       detachVideoListeners();
-      raceVideos.forEach((v, i) => { v.src = raceVideoPaths[i]; });
+      raceVideos.forEach((v, i) => { v.src = resolvedRacePaths[i]; });
       loadedSrcSet = 'race';
       videos = raceVideos;
       primary = videos[0];
@@ -667,7 +711,7 @@ function buildSegmentNav() {
     if (fullVideoPaths && loadedSrcSet !== 'full') {
       if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
       detachVideoListeners();
-      raceVideos.forEach((v, i) => { v.src = fullVideoPaths[i]; });
+      raceVideos.forEach((v, i) => { v.src = resolvedFullPaths[i]; });
       loadedSrcSet = 'full';
       videos = raceVideos;
       primary = videos[0];
@@ -1467,7 +1511,7 @@ function createZipBuilder() {
   return { addFile, toBlob };
 }
 
-function buildExportHtml() {
+function buildExportHtml(pathOverrides = {}, { slim = false } = {}) {
   const doc = document.documentElement.cloneNode(true);
 
   // Defensive cleanup: if runtime state duplicated racer cards, keep one set.
@@ -1484,15 +1528,64 @@ function buildExportHtml() {
   if (calBtn) calBtn.remove();
 
   // Remove export buttons (HTML export already done, video export needs ffmpeg assets not in ZIP)
-  const htmlBtn = doc.querySelector('#exportHtmlBtn');
-  if (htmlBtn) htmlBtn.remove();
-  const expBtn = doc.querySelector('#exportBtn');
-  if (expBtn) expBtn.remove();
+  doc.querySelectorAll('#exportHtmlBtn, #exportBtn, #exportHtmlOnlyBtn').forEach(el => el.remove());
 
   // Remove any active export overlays
   doc.querySelectorAll('.export-overlay').forEach(el => el.remove());
 
-  // Bake adjusted clip times into the script
+  // Remove file links pointing to embedded videos (they're in the HTML, not as separate files)
+  if (Object.keys(pathOverrides).length > 0) {
+    doc.querySelectorAll('.file-links a').forEach(a => {
+      const href = a.getAttribute('href');
+      if (href && pathOverrides[href]) {
+        const li = a.closest('li');
+        if (li) li.remove(); else a.remove();
+      }
+    });
+  }
+
+  // In slim mode, strip non-essential sections for a minimal self-contained page
+  if (slim) {
+    doc.querySelectorAll('.file-links').forEach(el => {
+      const section = el.closest('details.section') || el.closest('.section');
+      if (section) section.remove(); else el.remove();
+    });
+    // Remove segment navigation (Whole Recording / Race Recording buttons)
+    const segNav = doc.querySelector('#segmentNav');
+    if (segNav) segNav.remove();
+    // Remove mode toggle (race/full/merged buttons)
+    doc.querySelectorAll('.mode-toggle').forEach(el => el.remove());
+  }
+
+  // Clear dynamically-built UI so the script rebuilds it cleanly on load
+  // (cloneNode captures live DOM state; without clearing, buttons are doubled)
+  const racerFilter = doc.querySelector('#racerFilter');
+  if (racerFilter) { racerFilter.innerHTML = ''; racerFilter.style.display = 'none'; }
+  if (!slim) {
+    const segNav = doc.querySelector('#segmentNav');
+    if (segNav) { segNav.innerHTML = ''; segNav.style.display = 'none'; }
+  }
+
+  // Embed video paths: set data URIs directly on <video> src attributes so videos
+  // play immediately without JavaScript, and patch the JS config so resolveEmbeddedVideos
+  // can still upgrade them to seekable Blob URLs at runtime.
+  const hasOverrides = Object.keys(pathOverrides).length > 0;
+  if (hasOverrides) {
+    // Race video elements: raceVideoPaths[i] maps to <video id="v{i}">
+    raceVideoPaths.forEach((p, i) => {
+      if (!p || !pathOverrides[p]) return;
+      const vid = doc.querySelector('#v' + i);
+      if (vid) vid.setAttribute('src', pathOverrides[p]);
+    });
+    // Merged video element
+    const mv = doc.querySelector('#mergedVideo');
+    if (mv) {
+      const mvSrc = mv.getAttribute('src');
+      if (mvSrc && pathOverrides[mvSrc]) mv.setAttribute('src', pathOverrides[mvSrc]);
+    }
+  }
+
+  // Bake adjusted clip times into the script; also apply path overrides for video embedding
   const scripts = doc.querySelectorAll('script');
   for (const script of scripts) {
     let text = script.textContent;
@@ -1519,6 +1612,11 @@ function buildExportHtml() {
         /const clipTimes = [\s\S]+?;\n/,
         'const clipTimes = ' + JSON.stringify(baked) + ';\n'
       );
+    }
+    if (hasOverrides) {
+      for (const [oldPath, dataUri] of Object.entries(pathOverrides)) {
+        text = text.replaceAll(JSON.stringify(oldPath), JSON.stringify(dataUri));
+      }
     }
     script.textContent = text;
   }
@@ -1547,30 +1645,52 @@ async function startHtmlExport() {
     overlay.remove();
   });
 
-  // Collect all file paths to include
-  const filePaths = new Set();
-  const optionalFilePaths = new Set(['summary.json']);
-  raceVideoPaths.forEach(p => { if (p) filePaths.add(p); });
-  if (fullVideoPaths) fullVideoPaths.forEach(p => { if (p) filePaths.add(p); });
+  // Collect video paths to embed and non-video paths to bundle as separate ZIP entries
+  const videoPaths = new Set();
+  raceVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) videoPaths.add(p); });
+  if (fullVideoPaths) fullVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) videoPaths.add(p); });
   if (mergedVideo) {
-    const mergedPath = mergedVideo.getAttribute('src');
-    if (mergedPath) filePaths.add(mergedPath);
+    const mp = mergedVideo.getAttribute('src');
+    if (mp && !mp.startsWith('data:')) videoPaths.add(mp);
   }
-  // Scan file-links section for trace files and other assets
+
+  const otherPaths = new Set();
+  const optionalPaths = new Set(['summary.json']);
   document.querySelectorAll('.file-links a').forEach(a => {
     const href = a.getAttribute('href');
-    if (href && !href.startsWith('http') && !href.startsWith('//') && !href.startsWith('data:')) {
-      filePaths.add(href);
+    if (href && !href.startsWith('http') && !href.startsWith('//') && !href.startsWith('data:') && !videoPaths.has(href)) {
+      otherPaths.add(href);
     }
   });
-  filePaths.add('summary.json');
+  otherPaths.add('summary.json');
 
-  const zipBuilder = createZipBuilder();
+  const total = videoPaths.size + otherPaths.size;
   const failedFiles = [];
   let fetched = 0;
-  const total = filePaths.size;
 
-  for (const filePath of filePaths) {
+  // Embed videos as data URIs directly in the exported HTML
+  const pathOverrides = {};
+  for (const vPath of videoPaths) {
+    if (abortCtrl.signal.aborted) return;
+    fetched++;
+    statusEl.textContent = 'Embedding ' + vPath + ' (' + fetched + '/' + total + ')';
+    progressFill.style.width = (fetched / total * 80).toFixed(0) + '%';
+    try {
+      const resp = await fetch(vPath, { signal: abortCtrl.signal });
+      if (resp.ok) {
+        pathOverrides[vPath] = await blobToDataUri(await resp.blob());
+      } else {
+        failedFiles.push(vPath);
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      failedFiles.push(vPath);
+    }
+  }
+
+  // Bundle non-video assets (trace files, summary, etc.) as separate ZIP entries
+  const zipBuilder = createZipBuilder();
+  for (const filePath of otherPaths) {
     if (abortCtrl.signal.aborted) return;
     fetched++;
     statusEl.textContent = 'Fetching ' + filePath + ' (' + fetched + '/' + total + ')';
@@ -1578,22 +1698,21 @@ async function startHtmlExport() {
     try {
       const resp = await fetch(filePath, { signal: abortCtrl.signal });
       if (resp.ok) {
-        const data = new Uint8Array(await resp.arrayBuffer());
-        zipBuilder.addFile(filePath, data);
+        zipBuilder.addFile(filePath, new Uint8Array(await resp.arrayBuffer()));
       } else {
-        if (!optionalFilePaths.has(filePath)) failedFiles.push(filePath);
+        if (!optionalPaths.has(filePath)) failedFiles.push(filePath);
       }
     } catch (e) {
       if (e.name === 'AbortError') return;
-      if (!optionalFilePaths.has(filePath)) failedFiles.push(filePath);
+      if (!optionalPaths.has(filePath)) failedFiles.push(filePath);
     }
   }
 
   if (abortCtrl.signal.aborted) return;
 
   statusEl.textContent = 'Building HTML...';
-  progressFill.style.width = '85%';
-  const html = buildExportHtml();
+  progressFill.style.width = '90%';
+  const html = buildExportHtml(pathOverrides);
   zipBuilder.addFile('index.html', new TextEncoder().encode(html));
 
   statusEl.textContent = 'Creating ZIP...';
@@ -1623,3 +1742,89 @@ const exportHtmlBtn = document.getElementById('exportHtmlBtn');
 if (exportHtmlBtn) {
   exportHtmlBtn.addEventListener('click', startHtmlExport);
 }
+
+/** Export a single self-contained HTML file (no ZIP, no extra assets). */
+async function startHtmlOnlyExport() {
+  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
+
+  const tmpl = document.getElementById('tmpl-export-overlay');
+  const overlay = tmpl.content.cloneNode(true).firstElementChild;
+  const canvas = overlay.querySelector('.export-canvas');
+  canvas.style.display = 'none';
+  const titleEl = overlay.querySelector('h3');
+  titleEl.textContent = 'Exporting HTML';
+  document.body.appendChild(overlay);
+
+  const progressFill = overlay.querySelector('.export-progress-fill');
+  const statusEl = overlay.querySelector('.export-status');
+  const actionsEl = overlay.querySelector('.export-actions');
+
+  const abortCtrl = new AbortController();
+  overlay.querySelector('.export-cancel').addEventListener('click', () => {
+    abortCtrl.abort();
+    overlay.remove();
+  });
+
+  // Collect video paths to embed as data URIs
+  const videoPaths = new Set();
+  raceVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) videoPaths.add(p); });
+  if (fullVideoPaths) fullVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) videoPaths.add(p); });
+  if (mergedVideo) {
+    const mp = mergedVideo.getAttribute('src');
+    if (mp && !mp.startsWith('data:')) videoPaths.add(mp);
+  }
+
+  const total = videoPaths.size;
+  const failedFiles = [];
+  let fetched = 0;
+
+  const pathOverrides = {};
+  for (const vPath of videoPaths) {
+    if (abortCtrl.signal.aborted) return;
+    fetched++;
+    statusEl.textContent = 'Embedding ' + vPath + ' (' + fetched + '/' + total + ')';
+    progressFill.style.width = (fetched / total * 90).toFixed(0) + '%';
+    try {
+      const resp = await fetch(vPath, { signal: abortCtrl.signal });
+      if (resp.ok) {
+        pathOverrides[vPath] = await blobToDataUri(await resp.blob());
+      } else {
+        failedFiles.push(vPath);
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      failedFiles.push(vPath);
+    }
+  }
+
+  if (abortCtrl.signal.aborted) return;
+
+  statusEl.textContent = 'Building HTML...';
+  progressFill.style.width = '95%';
+  const html = buildExportHtml(pathOverrides, { slim: true });
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+
+  let statusMsg = 'Export complete! (' + (blob.size / (1024 * 1024)).toFixed(1) + ' MB)';
+  if (failedFiles.length > 0) {
+    statusMsg += '\nSkipped ' + failedFiles.length + ' file(s): ' + failedFiles.join(', ');
+  }
+  statusEl.textContent = statusMsg;
+  progressFill.style.width = '100%';
+
+  const dlLink = document.createElement('a');
+  dlLink.href = url;
+  const baseName = document.title.replace(/[^a-zA-Z0-9-]/g, '_').replace(/_+/g, '_').toLowerCase();
+  dlLink.download = (baseName || 'race-export') + '.html';
+  dlLink.textContent = 'Download HTML';
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Close';
+  closeBtn.addEventListener('click', () => { URL.revokeObjectURL(url); overlay.remove(); });
+  actionsEl.replaceChildren(dlLink, closeBtn);
+}
+
+const exportHtmlOnlyBtn = document.getElementById('exportHtmlOnlyBtn');
+if (exportHtmlOnlyBtn) {
+  exportHtmlOnlyBtn.addEventListener('click', startHtmlOnlyExport);
+}
+
