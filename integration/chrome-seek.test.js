@@ -267,4 +267,96 @@ describe('chrome-seek: calibrated start position via HTTP range requests', () =>
       expect(ct).toBeLessThan(CALIBRATED_START_S + SEEK_TOLERANCE_S);
     }
   });
+
+  it('calibration debug buttons (+1f/-1f) change the video position', async ({ skip }) => {
+    if (setupError) skip(setupError);
+
+    const { port } = server.address();
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'networkidle' });
+
+    // Wait for initial calibration to complete
+    await page.evaluate(
+      ({ expected, tolerance, timeoutMs }) => new Promise(resolve => {
+        let poll, timer;
+        const check = () => {
+          const vs = Array.from(document.querySelectorAll('video'));
+          if (vs.length >= 2 && vs.every(v => isFinite(v.duration) && Math.abs(v.currentTime - expected) <= tolerance)) {
+            clearInterval(poll); clearTimeout(timer); resolve(true);
+          }
+        };
+        poll = setInterval(check, 100); check();
+        timer = setTimeout(() => { clearInterval(poll); resolve(false); }, timeoutMs);
+      }),
+      { expected: CALIBRATED_START_S, tolerance: SEEK_TOLERANCE_S, timeoutMs: 12_000 },
+    );
+
+    // Open the calibration debug panel
+    const debugBtn = await page.$('#modeDebug');
+    if (!debugBtn) skip('no calibration button — debug panel not available');
+    await debugBtn.click();
+    await page.waitForSelector('#debugPanel', { state: 'visible', timeout: 3_000 });
+
+    // Record the initial position of racer 0 (alpha)
+    const initialTime = await page.evaluate(() => document.querySelector('video').currentTime);
+
+    // Click the +5f button for racer 0 (shifts start forward by 5 frames = 0.2s)
+    const plusBtn = await page.waitForSelector('.debug-frame-btn[data-idx="0"][data-delta="5"]', { timeout: 3_000 });
+    await plusBtn.click();
+    await page.waitForTimeout(500);
+
+    // Video should have moved to the new adjusted start (original + 0.2s)
+    const afterPlusTime = await page.evaluate(() => document.querySelector('video').currentTime);
+    const expectedShift = 5 * 0.04; // 5 frames * 0.04s per frame
+    expect(afterPlusTime).toBeGreaterThan(initialTime + expectedShift - SEEK_TOLERANCE_S);
+    expect(afterPlusTime).toBeLessThan(initialTime + expectedShift + SEEK_TOLERANCE_S);
+
+    // Now click -1f to shift back by 1 frame
+    const minusBtn = await page.waitForSelector('.debug-frame-btn[data-idx="0"][data-delta="-1"]', { timeout: 3_000 });
+    await minusBtn.click();
+    await page.waitForTimeout(500);
+
+    const afterMinusTime = await page.evaluate(() => document.querySelector('video').currentTime);
+    // Should be 4 frames ahead of initial (5 - 1 = 4 frames = 0.16s)
+    const expectedNet = 4 * 0.04;
+    expect(afterMinusTime).toBeGreaterThan(initialTime + expectedNet - SEEK_TOLERANCE_S);
+    expect(afterMinusTime).toBeLessThan(initialTime + expectedNet + SEEK_TOLERANCE_S);
+  });
+
+  it('calibration debug panel opens without ReferenceError', async ({ skip }) => {
+    if (setupError) skip(setupError);
+
+    const { port } = server.address();
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'networkidle' });
+
+    // Wait for calibration
+    await page.evaluate(
+      ({ expected, tolerance, timeoutMs }) => new Promise(resolve => {
+        let poll, timer;
+        const check = () => {
+          const vs = Array.from(document.querySelectorAll('video'));
+          if (vs.length >= 2 && vs.every(v => isFinite(v.duration) && Math.abs(v.currentTime - expected) <= tolerance)) {
+            clearInterval(poll); clearTimeout(timer); resolve(true);
+          }
+        };
+        poll = setInterval(check, 100); check();
+        timer = setTimeout(() => { clearInterval(poll); resolve(false); }, timeoutMs);
+      }),
+      { expected: CALIBRATED_START_S, tolerance: SEEK_TOLERANCE_S, timeoutMs: 12_000 },
+    );
+
+    // Capture any JS errors
+    const errors = [];
+    page.on('pageerror', err => errors.push(err.message));
+
+    // Open debug panel
+    const debugBtn = await page.$('#modeDebug');
+    if (!debugBtn) skip('no calibration button');
+    await debugBtn.click();
+    await page.waitForSelector('#debugPanel', { state: 'visible', timeout: 3_000 });
+
+    // The panel should render without errors (previously threw "offset is not defined")
+    await page.waitForTimeout(500);
+    const refErrors = errors.filter(e => e.includes('is not defined'));
+    expect(refErrors, `JS errors in debug panel: ${refErrors.join('; ')}`).toHaveLength(0);
+  });
 });
