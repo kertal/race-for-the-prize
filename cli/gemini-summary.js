@@ -19,6 +19,7 @@ export function invokeGemini(prompt) {
     input: prompt,
     encoding: 'utf-8',
     maxBuffer: 10 * 1024 * 1024,
+    timeout: 120_000, // 2 min — prevent indefinite hang on network issues
   });
 
   if (result.error) {
@@ -45,7 +46,7 @@ export function invokeGemini(prompt) {
  * Includes timing comparisons, profile metrics with descriptions, and machine info.
  */
 export function buildGeminiPrompt(summary) {
-  const { racers = [], comparisons, overallWinner, wins, profileComparison, machineInfo, settings } = summary;
+  const { racers = [], comparisons, overallWinner, wins, profileComparison, machineInfo, settings, runs } = summary;
 
   if (racers.length === 0) {
     throw new Error('Summary has no racers — cannot build prompt');
@@ -63,14 +64,19 @@ export function buildGeminiPrompt(summary) {
   lines.push('- Skip metrics that are roughly equal between racers.');
   lines.push('- Explain WHY the winner was faster by connecting profile metrics to the timing results.');
   lines.push('- Do NOT describe the data format or mention that data was provided to you.');
-  lines.push('- Keep it under 300 words.\n');
+  lines.push('- Keep it under 300 words.');
+  if (runs && runs > 1) {
+    lines.push(`- The data below is the MEDIAN of ${runs} runs — mention this to show statistical confidence.\n`);
+  } else {
+    lines.push('');
+  }
 
   lines.push('## Race participants');
   lines.push(racers.map((r, i) => `  ${i + 1}. ${r}`).join('\n'));
 
   lines.push('\n## Timing results');
   for (const comp of (comparisons || [])) {
-    const times = (comp.racers || []).map((r, i) => r ? `${racers[i]}: ${r.duration.toFixed(3)}s` : null).filter(Boolean);
+    const times = (comp.racers || []).map((r, i) => r?.duration != null ? `${racers[i]}: ${r.duration.toFixed(3)}s` : null).filter(Boolean);
     const winStr = comp.winner ? ` → winner: ${comp.winner} by ${comp.diff?.toFixed(3)}s (${comp.diffPercent?.toFixed(1)}% faster)` : ' → tie';
     lines.push(`  "${comp.name}": ${times.join(' vs ')}${winStr}`);
   }
@@ -91,7 +97,7 @@ export function buildGeminiPrompt(summary) {
       lines.push(`\n### ${scope === 'measured' ? 'During measured section' : 'Full session'}`);
 
       for (const metric of section.comparisons) {
-        const vals = (metric.racers || []).map((r, i) => r != null ? `${racers[i]}: ${formatMetricValue(metric.name, r)}` : null).filter(Boolean);
+        const vals = (metric.racers || []).map((r, i) => typeof r === 'number' && Number.isFinite(r) ? `${racers[i]}: ${formatMetricValue(metric.name, r)}` : null).filter(Boolean);
         if (vals.length === 0) continue;
         const winStr = metric.winner ? ` [${metric.winner} wins, ${metric.diffPercent?.toFixed(1)}% better]` : '';
         lines.push(`  ${metric.name}: ${vals.join(' vs ')}${winStr}`);

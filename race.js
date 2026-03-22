@@ -784,7 +784,6 @@ function generateGeminiCommentary(summary, outputDir) {
   if (!settings.gemini) return null;
   if (!isGeminiAvailable()) {
     console.error(`  ${c.yellow}⚠ Gemini CLI not found — install with: npm install -g @google/gemini-cli${c.reset}`);
-    summary.geminiCommentary = '⚠ Gemini CLI not available. Install with: npm install -g @google/gemini-cli';
     return null;
   }
   try {
@@ -798,7 +797,6 @@ function generateGeminiCommentary(summary, outputDir) {
     return commentary;
   } catch (e) {
     console.error(`  ${c.yellow}⚠ Gemini summary skipped: ${e.message}${c.reset}`);
-    summary.geminiCommentary = `⚠ Gemini commentary failed: ${e.message}`;
     return null;
   }
 }
@@ -810,11 +808,16 @@ function bakeNotesIntoHtml(dir, commentary) {
   if (!fs.existsSync(htmlPath)) return;
   let html = fs.readFileSync(htmlPath, 'utf-8');
   const escaped = commentary.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const placeholder = '<textarea class="notes-textarea" id="notesTextarea" placeholder="Add notes about this race..."></textarea>';
-  const replacement = `<textarea class="notes-textarea" id="notesTextarea" placeholder="Add notes about this race...">\n🤖 Gemini Race Commentary\n${'─'.repeat(40)}\n${escaped}\n</textarea>`;
+  // Replace the empty textarea with commentary content and open the notes section.
+  // Target the notes section specifically via the textarea id.
+  const placeholder = 'id="notesTextarea" placeholder="Add notes about this race..."></textarea>';
+  const replacement = `id="notesTextarea" placeholder="Add notes about this race...">\n🤖 Gemini Race Commentary\n${'─'.repeat(40)}\n${escaped}\n</textarea>`;
   html = html.replace(placeholder, replacement);
-  // Uncollapse the notes section
-  html = html.replace('<details class="section" >', '<details class="section" open>');
+  // Uncollapse the notes section — match the details that contains the notesTextarea
+  html = html.replace(
+    /(<details class="section" )(>[\s\S]*?id="notesTextarea")/,
+    '$1open$2'
+  );
   fs.writeFileSync(htmlPath, html);
 }
 
