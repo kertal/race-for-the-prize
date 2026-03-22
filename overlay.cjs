@@ -32,7 +32,7 @@ async function flashCue(page, color, durationMs) {
     sheet.textContent = '@keyframes __rcue{50%{opacity:.999}}';
     document.head.appendChild(sheet);
     document.documentElement.appendChild(el);
-    el.offsetHeight;
+    void el.offsetHeight; // Force reflow to ensure the cue is painted before setTimeout
     return new Promise(resolve => setTimeout(() => {
       el.remove(); sheet.remove(); resolve();
     }, ms));
@@ -107,30 +107,33 @@ async function hideRecordingIndicator(page) {
  * @param {number|null} place - 1-based placement (null → sequential mode, shows finish flag)
  */
 async function showMedal(page, place) {
+  const style = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483647;'
+    + 'pointer-events:none;background:rgba(0,0,0,0.6);color:#fff;padding:24px 48px;border-radius:16px;';
+
   if (place) {
     const medals = ['\u{1F947}', '\u{1F948}', '\u{1F949}', '4\uFE0F\u20E3', '5\uFE0F\u20E3'];
     const ordinals = ['1st', '2nd', '3rd', '4th', '5th'];
     const medal = medals[place - 1] || `${place}`;
     const ordinal = ordinals[place - 1] || `${place}th`;
-    await page.evaluate(({ medal, ordinal }) => {
+    await page.evaluate(({ medal, ordinal, style }) => {
+      const existing = document.getElementById('__race_medal');
+      if (existing) existing.remove();
       const el = document.createElement('div');
       el.id = '__race_medal';
       el.textContent = medal + ' ' + ordinal;
-      el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483647;'
-        + 'font:bold 64px/1 system-ui,sans-serif;pointer-events:none;'
-        + 'background:rgba(0,0,0,0.6);color:#fff;padding:24px 48px;border-radius:16px';
+      el.style.cssText = style + 'font:bold 64px/1 system-ui,sans-serif';
       document.body.appendChild(el);
-    }, { medal, ordinal });
+    }, { medal, ordinal, style });
   } else {
-    await page.evaluate(() => {
+    await page.evaluate((style) => {
+      const existing = document.getElementById('__race_medal');
+      if (existing) existing.remove();
       const el = document.createElement('div');
       el.id = '__race_medal';
       el.textContent = '\u{1F3C1}';
-      el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483647;'
-        + 'font:bold 80px/1 system-ui,sans-serif;pointer-events:none;'
-        + 'background:rgba(0,0,0,0.6);color:#fff;padding:24px 48px;border-radius:16px';
+      el.style.cssText = style + 'font:bold 80px/1 system-ui,sans-serif';
       document.body.appendChild(el);
-    });
+    }, style);
   }
   await page.waitForTimeout(MEDAL_DISPLAY_MS);
 }
