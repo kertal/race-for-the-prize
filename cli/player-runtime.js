@@ -27,7 +27,11 @@ let resolvedFullPaths = fullVideoPaths ? fullVideoPaths.slice() : fullVideoPaths
 (async function resolveEmbeddedVideos() {
   async function toBlobUrl(p) {
     if (!p || !p.startsWith('data:')) return p;
-    return URL.createObjectURL(await fetch(p).then(r => r.blob()));
+    try {
+      const resp = await fetch(p);
+      if (!resp.ok) return p;
+      return URL.createObjectURL(await resp.blob());
+    } catch { return p; }
   }
   const hasData = arr => arr && arr.some(p => p && p.startsWith('data:'));
   const mergedSrc = mergedVideo && mergedVideo.getAttribute('src');
@@ -37,16 +41,19 @@ let resolvedFullPaths = fullVideoPaths ? fullVideoPaths.slice() : fullVideoPaths
     raceVideoPaths ? Promise.all(raceVideoPaths.map(toBlobUrl)) : Promise.resolve(raceVideoPaths),
     fullVideoPaths ? Promise.all(fullVideoPaths.map(toBlobUrl)) : Promise.resolve(fullVideoPaths),
   ]);
+  // Only update race videos (not full-mode) — full-mode src is set when user switches
   raceVideos.forEach((v, i) => { if (resolvedRacePaths[i]) v.src = resolvedRacePaths[i]; });
   if (mergedIsData) mergedVideo.src = await toBlobUrl(mergedSrc);
 })();
 
 // Convert a Blob to a base64 data URI (used when embedding videos in ZIP export)
-async function blobToDataUri(blob) {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return `data:${blob.type};base64,${btoa(binary)}`;
+function blobToDataUri(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
 }
 
 let videos = raceVideos;
@@ -1460,6 +1467,17 @@ function buildExportHtml(pathOverrides = {}, { slim = false } = {}) {
 
   // Remove any active export overlays
   doc.querySelectorAll('.export-overlay').forEach(el => el.remove());
+
+  // Remove file links pointing to embedded videos (they're in the HTML, not as separate files)
+  if (Object.keys(pathOverrides).length > 0) {
+    doc.querySelectorAll('.file-links a').forEach(a => {
+      const href = a.getAttribute('href');
+      if (href && pathOverrides[href]) {
+        const li = a.closest('li');
+        if (li) li.remove(); else a.remove();
+      }
+    });
+  }
 
   // In slim mode, strip non-essential sections for a minimal self-contained page
   if (slim) {
