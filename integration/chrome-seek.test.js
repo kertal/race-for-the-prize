@@ -160,6 +160,76 @@ describe('chrome-seek: calibrated start position via HTTP range requests', () =>
     expect(res.headers['content-range']).toMatch(/^bytes 0-1023\//);
   });
 
+  it('calibration resets videos to calibrated start even from a different position', async ({ skip }) => {
+    if (setupError) skip(setupError);
+
+    const { port } = server.address();
+    // Build a page where calibration is deferred: clipTimes have traceCalibration
+    // but _converted is not set — calibration runs in onMeta() after metadata loads.
+    // Load the page, wait for videos to be ready, manually seek away from the start,
+    // then verify that calibration forces them back to the calibrated position.
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'networkidle' });
+
+    // Wait for calibration to complete and videos to land at calibrated position
+    await page.evaluate(
+      ({ expected, tolerance, timeoutMs }) => new Promise(resolve => {
+        let poll, timer;
+        const check = () => {
+          const vs = Array.from(document.querySelectorAll('video'));
+          if (vs.length >= 2 && vs.every(v => isFinite(v.duration) && Math.abs(v.currentTime - expected) <= tolerance)) {
+            clearInterval(poll);
+            clearTimeout(timer);
+            resolve(true);
+          }
+        };
+        poll = setInterval(check, 100);
+        check();
+        timer = setTimeout(() => { clearInterval(poll); resolve(false); }, timeoutMs);
+      }),
+      { expected: CALIBRATED_START_S, tolerance: SEEK_TOLERANCE_S, timeoutMs: 12_000 },
+    );
+
+    // Now manually seek both videos to a very different position (near the end)
+    await page.evaluate(() => {
+      document.querySelectorAll('video').forEach(v => { v.currentTime = v.duration - 1; });
+    });
+    // Wait for the manual seek to take effect
+    await page.waitForTimeout(500);
+    const movedResult = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('video')).map(v => v.currentTime),
+    );
+    // Videos should be near the end now (not at calibrated start)
+    for (const ct of movedResult) {
+      expect(ct).toBeGreaterThan(CALIBRATED_START_S + 1);
+    }
+
+    // Click "Go to start" button which should seek back to calibrated start
+    await page.click('#goStart');
+    const resetResult = await page.evaluate(
+      ({ expected, tolerance, timeoutMs }) => new Promise(resolve => {
+        let poll, timer;
+        const check = () => {
+          const vs = Array.from(document.querySelectorAll('video'));
+          if (vs.length >= 2 && vs.every(v => Math.abs(v.currentTime - expected) <= tolerance)) {
+            clearInterval(poll);
+            clearTimeout(timer);
+            resolve({ ok: true, times: vs.map(v => v.currentTime) });
+          }
+        };
+        poll = setInterval(check, 100);
+        check();
+        timer = setTimeout(() => {
+          clearInterval(poll);
+          const vs = Array.from(document.querySelectorAll('video'));
+          resolve({ ok: false, times: vs.map(v => v.currentTime) });
+        }, timeoutMs);
+      }),
+      { expected: CALIBRATED_START_S, tolerance: SEEK_TOLERANCE_S, timeoutMs: 8_000 },
+    );
+
+    expect(resetResult.ok, `Expected videos back at ${CALIBRATED_START_S}s but got ${JSON.stringify(resetResult)}`).toBe(true);
+  });
+
   it('Chrome seeks videos to calibrated start position', async ({ skip }) => {
     if (setupError) skip(setupError);
 
