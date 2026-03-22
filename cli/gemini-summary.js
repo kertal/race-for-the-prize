@@ -15,7 +15,7 @@ import { chromium } from 'playwright';
 
 /** Invoke the `gemini` CLI, passing `prompt` via stdin. Returns stdout string or throws. */
 export function invokeGemini(prompt) {
-  const result = spawnSync('gemini', [], {
+  const result = spawnSync('gemini', [], { // NOSONAR — gemini CLI resolved via PATH is intentional
     input: prompt,
     encoding: 'utf-8',
     maxBuffer: 10 * 1024 * 1024,
@@ -56,7 +56,11 @@ export function buildGeminiPrompt(summary) {
   lines.push('You are an enthusiastic sports reporter covering a browser performance race.');
   lines.push('Summarize the following race results as if you were commenting live from the pit lane.');
   lines.push('Be vivid, use racing metaphors, and crucially: explain WHY the winner was faster or slower');
-  lines.push('by interpreting the performance profile data. Keep it under 300 words.\n');
+  lines.push('by interpreting the performance profile data below.');
+  lines.push('Focus on the MOST SIGNIFICANT differences in the profile metrics — highlight metrics where');
+  lines.push('one racer clearly outperforms the other (large percentage differences, outsized resource usage,');
+  lines.push('or dramatically different network/rendering patterns). Skip metrics that are roughly equal.');
+  lines.push('Keep it under 300 words.\n');
 
   lines.push('## Race participants');
   lines.push(racers.map((r, i) => `  ${i + 1}. ${r}`).join('\n'));
@@ -160,8 +164,11 @@ export async function fetchPageHtml(url, browser, maxLength = HTML_MAX_LENGTH) {
  * Falls back to returning an empty array so callers can handle the case.
  */
 export function extractUrls(text) {
-  const matches = text.match(/https?:\/\/[^\s,;'"]+/gi) || [];
-  return [...new Set(matches.map(url => url.replace(/[)\].,;!?]+$/, '')))];
+  // Split on whitespace, strip enclosing punctuation, filter URLs.
+  const urls = text.split(/\s+/)
+    .map(t => t.replace(/^[(\['"]+/, '').replace(/[)\]'".,;!?]+$/, ''))
+    .filter(t => /^https?:\/\//i.test(t));
+  return [...new Set(urls)];
 }
 
 /**
@@ -224,12 +231,19 @@ export function buildSpecPrompt(userPrompt, htmlByUrl) {
 export function parseSpecOutput(geminiOutput) {
   const files = {};
   const allowedFiles = new Set(['racer-a.spec.js', 'racer-b.spec.js']);
-  const filePattern = /FILE:\s*([\w.-]+\.spec\.js)\s*```[a-zA-Z0-9-]*\s*([\s\S]*?)```/gi;
-  let match;
-  while ((match = filePattern.exec(geminiOutput)) !== null) {
-    if (allowedFiles.has(match[1])) {
-      files[match[1]] = match[2].trim();
-    }
+  // Split on fenced code block boundaries to avoid backtracking regex.
+  // Expected format: FILE: <name>\n```<lang>\n<content>\n```
+  const blocks = geminiOutput.split('```');
+  for (let i = 0; i < blocks.length - 1; i += 2) {
+    const header = blocks[i];
+    const codeBlock = blocks[i + 1] || '';
+    const fileMatch = header.match(/FILE:\s*([\w.-]+\.spec\.js)\s*$/m);
+    if (!fileMatch) continue;
+    const filename = fileMatch[1];
+    if (!allowedFiles.has(filename)) continue;
+    // Strip optional language tag from the first line of the code block
+    const content = codeBlock.replace(/^[a-zA-Z0-9-]*\n?/, '').trim();
+    if (content) files[filename] = content;
   }
   return files;
 }

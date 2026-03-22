@@ -17,7 +17,7 @@
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c, FORMAT_EXTENSIONS } from './cli/colors.js';
@@ -769,14 +769,51 @@ async function runRacerAlone(browserIdx, racerRunDir) {
 }
 
 /**
+ * Generate Gemini sports reporter commentary for a summary, if --gemini is enabled.
+ * Returns the commentary string or null. Adds it to the summary object and writes
+ * a separate text file alongside the summary.
+ */
+function isGeminiAvailable() {
+  try {
+    const result = spawnSync('gemini', ['--version'], { encoding: 'utf-8', timeout: 5000 });
+    return !result.error;
+  } catch { return false; }
+}
+
+function generateGeminiCommentary(summary, outputDir) {
+  if (!settings.gemini) return null;
+  if (!isGeminiAvailable()) {
+    console.error(`  ${c.yellow}⚠ Gemini CLI not found — install with: npm install -g @google/gemini-cli${c.reset}`);
+    summary.geminiCommentary = '⚠ Gemini CLI not available. Install with: npm install -g @google/gemini-cli';
+    return null;
+  }
+  try {
+    console.error(`\n  ${c.bold}${c.cyan}🤖 Gemini Race Commentary${c.reset}`);
+    console.error(`  ${c.dim}${'─'.repeat(50)}${c.reset}\n`);
+    const commentary = runGeminiSummary(summary);
+    console.error(commentary);
+    console.error(`\n  ${c.dim}${'─'.repeat(50)}${c.reset}\n`);
+    summary.geminiCommentary = commentary;
+    fs.writeFileSync(path.join(outputDir, 'gemini-commentary.txt'), commentary + '\n');
+    return commentary;
+  } catch (e) {
+    console.error(`  ${c.yellow}⚠ Gemini summary skipped: ${e.message}${c.reset}`);
+    summary.geminiCommentary = `⚠ Gemini commentary failed: ${e.message}`;
+    return null;
+  }
+}
+
+/**
  * Build the per-run output (summary.json + index.html) after all racers' recordings
  * for run `i` are already moved into their run directories.
  */
 function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts = {}) {
   const { ffmpeg } = settings;
+  const isFinalOutput = !runNav || runNav.totalRuns === 1;
 
   const progress = startProgress('Processing recordings…');
   const summary = buildSummary(racerNames, runMovedResults, settings, runDir);
+  if (isFinalOutput) generateGeminiCommentary(summary, runDir);
   fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
 
   const { raceScriptFiles, settingsFileCopied } = copyRaceAssets(ctx.raceDir, ctx.racerFiles, runDir);
@@ -871,34 +908,6 @@ async function main() {
       }
     }
 
-    // --- Gemini sports reporter summary ---
-    if (settings.gemini) {
-      const finalSummaryPath = path.join(resultsDir, 'summary.json');
-      if (fs.existsSync(finalSummaryPath)) {
-        try {
-          const finalSummary = JSON.parse(fs.readFileSync(finalSummaryPath, 'utf-8'));
-          console.error(`\n  ${c.bold}${c.cyan}🤖 Gemini Race Commentary${c.reset}`);
-          console.error(`  ${c.dim}${'─'.repeat(50)}${c.reset}\n`);
-          const commentary = runGeminiSummary(finalSummary);
-          console.error(commentary);
-          console.error(`\n  ${c.dim}${'─'.repeat(50)}${c.reset}\n`);
-          fs.writeFileSync(path.join(resultsDir, 'gemini-commentary.txt'), commentary + '\n');
-          // Inject commentary into the HTML notes section
-          const htmlPath = path.join(resultsDir, 'index.html');
-          if (fs.existsSync(htmlPath)) {
-            const html = fs.readFileSync(htmlPath, 'utf-8');
-            const escaped = commentary.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            const updated = html.replace(
-              '<textarea class="notes-textarea" id="notesTextarea" placeholder="Add notes about this race..."></textarea>',
-              `<textarea class="notes-textarea" id="notesTextarea" placeholder="Add notes about this race...">\n🤖 Gemini Race Commentary\n${'─'.repeat(40)}\n${escaped}\n</textarea>`
-            );
-            if (updated !== html) fs.writeFileSync(htmlPath, updated);
-          }
-        } catch (e) {
-          console.error(`  ${c.yellow}⚠ Gemini summary skipped: ${e.message}${c.reset}`);
-        }
-      }
-    }
 
     const { relResults, relHtml } = buildResultsPaths(resultsDir);
     console.error(`  ${c.dim}📂 ${relResults}${c.reset}`);
@@ -919,6 +928,7 @@ async function main() {
 
 function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
   const medianSummary = buildMedianSummary(summaries, resultsDir);
+  generateGeminiCommentary(medianSummary, resultsDir);
   fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(medianSummary, null, 2));
 
   if (!settings.noRecording) {
