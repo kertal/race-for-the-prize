@@ -202,19 +202,21 @@ function onMeta() {
   updateTimeDisplay();
   updateDebugStats();
 
-  if (pendingSeek && videos.every(v => !v || v.readyState >= 1)) {
-    const fn = pendingSeek;
-    pendingSeek = null;
-    fn();
-  } else if (convertedAny && !playing && videos.every(v => !v || v.readyState >= 1)) {
-    // If conversion landed after the initial seek was already consumed,
-    // force one seek to the actual clip start to avoid stale startup frame.
-    // Guard: all videos must be at HAVE_METADATA (readyState >= 1) before
-    // seeking — calling seekAllWithVerify while another video is still at
-    // readyState 0 seeds seeked/canplay listeners with stale clip positions.
-    seekAllWithVerify(activeClip ? activeClip.start : 0);
-    scrubber.value = 0;
-    updateTimeDisplay();
+  if (videos.every(v => !v || v.readyState >= 1)) {
+    if (pendingSeek) {
+      const fn = pendingSeek;
+      pendingSeek = null;
+      fn();
+    }
+    // Always seek to calibrated start after calibration converts clip entries,
+    // even if the user already started playing or pendingSeek was consumed earlier.
+    // This ensures the video visibly jumps to the correct frame.
+    if (convertedAny) {
+      if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
+      seekAllWithVerify(activeClip ? activeClip.start : 0);
+      scrubber.value = 0;
+      updateTimeDisplay();
+    }
   }
 
 }
