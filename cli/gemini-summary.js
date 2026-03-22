@@ -67,7 +67,7 @@ export function buildGeminiPrompt(summary) {
 
   lines.push('\n## Timing results');
   for (const comp of (comparisons || [])) {
-    const times = comp.racers.map((r, i) => r ? `${racers[i]}: ${r.duration.toFixed(3)}s` : null).filter(Boolean);
+    const times = (comp.racers || []).map((r, i) => r ? `${racers[i]}: ${r.duration.toFixed(3)}s` : null).filter(Boolean);
     const winStr = comp.winner ? ` → winner: ${comp.winner} by ${comp.diff?.toFixed(3)}s (${comp.diffPercent?.toFixed(1)}% faster)` : ' → tie';
     lines.push(`  "${comp.name}": ${times.join(' vs ')}${winStr}`);
   }
@@ -88,7 +88,7 @@ export function buildGeminiPrompt(summary) {
       lines.push(`\n### ${scope === 'measured' ? 'During measured section' : 'Full session'}`);
 
       for (const metric of section.comparisons) {
-        const vals = metric.racers.map((r, i) => r != null ? `${racers[i]}: ${formatMetricValue(metric.name, r)}` : null).filter(Boolean);
+        const vals = (metric.racers || []).map((r, i) => r != null ? `${racers[i]}: ${formatMetricValue(metric.name, r)}` : null).filter(Boolean);
         if (vals.length === 0) continue;
         const winStr = metric.winner ? ` [${metric.winner} wins, ${metric.diffPercent?.toFixed(1)}% better]` : '';
         lines.push(`  ${metric.name}: ${vals.join(' vs ')}${winStr}`);
