@@ -501,7 +501,7 @@ function updateDebugStats() {
     const toFrame = (pts) => pts != null && isFinite(pts) ? Math.round(pts / 0.04) : null;
     const fmtF = (pts) => { const f = toFrame(pts); return f != null ? '#' + f : '\u2014'; };
     const events = [];
-    events.push({ label: 'Context created', wc: -offset, ptsVal: 0 });
+    events.push({ label: 'Context created', wc: -(ct.recordingOffset || 0), ptsVal: 0 });
     events.push({ label: 'recordingStartTime (t=0)', wc: 0, ptsVal: toPts(0) });
     events.push({ label: 'raceRecordingStart()', wc: wcStart, ptsVal: ct.start });
     const measurements = ct.measurements || [];
