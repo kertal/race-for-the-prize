@@ -883,6 +883,17 @@ async function main() {
           console.error(commentary);
           console.error(`\n  ${c.dim}${'─'.repeat(50)}${c.reset}\n`);
           fs.writeFileSync(path.join(resultsDir, 'gemini-commentary.txt'), commentary + '\n');
+          // Inject commentary into the HTML notes section
+          const htmlPath = path.join(resultsDir, 'index.html');
+          if (fs.existsSync(htmlPath)) {
+            const html = fs.readFileSync(htmlPath, 'utf-8');
+            const escaped = commentary.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const updated = html.replace(
+              '<textarea class="notes-textarea" id="notesTextarea" placeholder="Add notes about this race..."></textarea>',
+              `<textarea class="notes-textarea" id="notesTextarea" placeholder="Add notes about this race...">\n🤖 Gemini Race Commentary\n${'─'.repeat(40)}\n${escaped}\n</textarea>`
+            );
+            if (updated !== html) fs.writeFileSync(htmlPath, updated);
+          }
         } catch (e) {
           console.error(`  ${c.yellow}⚠ Gemini summary skipped: ${e.message}${c.reset}`);
         }

@@ -45,7 +45,11 @@ export function invokeGemini(prompt) {
  * Includes timing comparisons, profile metrics with descriptions, and machine info.
  */
 export function buildGeminiPrompt(summary) {
-  const { racers, comparisons, overallWinner, wins, profileComparison, machineInfo, settings } = summary;
+  const { racers = [], comparisons, overallWinner, wins, profileComparison, machineInfo, settings } = summary;
+
+  if (racers.length === 0) {
+    throw new Error('Summary has no racers — cannot build prompt');
+  }
 
   const lines = [];
 
