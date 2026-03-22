@@ -17,8 +17,7 @@ afterEach(() => {
 
 /** Helper to write an executable shell script and run it */
 async function runShellScript(scriptPath, content, options = {}) {
-  fs.writeFileSync(scriptPath, content);
-  fs.chmodSync(scriptPath, 0o700); // Secure permissions (owner only)
+  fs.writeFileSync(scriptPath, content, { mode: 0o755 });
 
   return new Promise((resolve, reject) => {
     const child = spawn('bash', [scriptPath], {
@@ -40,7 +39,7 @@ async function runShellScript(scriptPath, content, options = {}) {
 
 /** Helper to write and run a Node.js script */
 async function runNodeScript(scriptPath, content, options = {}) {
-  fs.writeFileSync(scriptPath, content);
+  fs.writeFileSync(scriptPath, content, { mode: 0o644 });
 
   return new Promise((resolve, reject) => {
     const child = spawn('node', [scriptPath], {
@@ -356,7 +355,8 @@ describe('script execution integration', () => {
 
     await runShellScript(setupScript, `#!/bin/bash\npwd > "${markerFile}"`);
 
-    expect(fs.readFileSync(markerFile, 'utf-8').trim()).toBe(tmpDir);
+    // Use realpath to handle macOS /var -> /private/var symlink
+    expect(fs.readFileSync(markerFile, 'utf-8').trim()).toBe(fs.realpathSync(tmpDir));
   });
 });
 

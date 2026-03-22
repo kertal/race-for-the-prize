@@ -5,6 +5,8 @@
 import { c, RACER_COLORS } from './colors.js';
 
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const SPINNER_INTERVAL_MS = 100;
+const TICK_INTERVAL_MS = 120;
 
 export function startProgress(msg) {
   let idx = 0;
@@ -13,7 +15,7 @@ export function startProgress(msg) {
     idx = (idx + 1) % SPINNER.length;
   };
   write();
-  const interval = setInterval(write, 100);
+  const interval = setInterval(write, SPINNER_INTERVAL_MS);
   return {
     update(newMsg) { msg = newMsg; },
     done(doneMsg) {
@@ -50,7 +52,7 @@ export class RaceAnimation {
     let header = `\n  ${c.bold}RaceForThePrize${c.reset} 🏆  ${vsString}`;
     if (this.info) header += `\n  ${c.dim}${this.info}${c.reset}`;
     process.stderr.write(header + '\n\n');
-    this.interval = setInterval(() => this._tick(), 120);
+    this.interval = setInterval(() => this._tick(), TICK_INTERVAL_MS);
   }
 
   _tick() {

@@ -6,18 +6,27 @@
 import fs from 'fs';
 import path from 'path';
 
+const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'height']);
+
 export function parseArgs(argv) {
   const positional = [];
   const boolFlags = new Set();
   const kvFlags = {};
 
-  for (const arg of argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
     if (arg.startsWith('--')) {
       const eqIdx = arg.indexOf('=');
       if (eqIdx !== -1) {
         kvFlags[arg.slice(2, eqIdx)] = arg.slice(eqIdx + 1);
       } else {
-        boolFlags.add(arg.slice(2));
+        const name = arg.slice(2);
+        if (KV_FLAG_NAMES.has(name) && argv[i + 1] !== undefined && !argv[i + 1].startsWith('--')) {
+          kvFlags[name] = argv[i + 1];
+          i++;
+        } else {
+          boolFlags.add(name);
+        }
       }
     } else {
       positional.push(arg);
@@ -46,6 +55,11 @@ export function discoverRacers(raceDir) {
   }
 
   const racerNames = racerFiles.map(f => f.replace(/\.spec\.js$/, '').replace(/\.js$/, ''));
+  const dupes = racerNames.filter((n, i) => racerNames.indexOf(n) !== i);
+  if (dupes.length > 0) {
+    const unique = [...new Set(dupes)].join(', ');
+    throw new Error(`Duplicate racer names detected: ${unique}. Rename files so each racer has a unique name.`);
+  }
   return { racerFiles, racerNames };
 }
 
@@ -59,7 +73,10 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('no-overlay')) s.noOverlay = true;
   if (boolFlags.has('no-recording')) s.noRecording = true;
   if (boolFlags.has('ffmpeg')) s.ffmpeg = true;
+  if (boolFlags.has('har')) s.har = true;
   if (boolFlags.has('no-wasm')) s.noWasm = true;
+  if (boolFlags.has('pause')) s.pauseBetweenRuns = true;
+  if (boolFlags.has('ignore-https-errors')) s.ignoreHTTPSErrors = true;
   if (kvFlags.network !== undefined) {
     if (!VALID_NETWORKS.includes(kvFlags.network)) {
       console.error(`Warning: Unknown network preset "${kvFlags.network}", valid values: ${VALID_NETWORKS.join(', ')}`);
@@ -84,6 +101,10 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
     const slowmo = Number(kvFlags.slowmo);
     s.slowmo = Number.isFinite(slowmo) && slowmo >= 0 ? Math.min(slowmo, 20) : 0;
   }
+  if (kvFlags.height !== undefined) {
+    const height = Number(kvFlags.height);
+    s.viewportHeight = Number.isFinite(height) ? Math.min(Math.max(Math.round(height), 480), 4320) : 720;
+  }
   return s;
 }
 
@@ -99,11 +120,10 @@ function isFile(filePath) {
 }
 
 /**
- * Get platform-appropriate script order (.js preferred on Windows, .sh elsewhere).
+ * Get script order for discovery. Always prefers .sh over .js.
  */
 function getScriptOrder(base) {
-  const isWindows = process.platform === 'win32';
-  return isWindows ? [`${base}.js`, `${base}.sh`] : [`${base}.sh`, `${base}.js`];
+  return [`${base}.sh`, `${base}.js`];
 }
 
 /**
@@ -118,7 +138,7 @@ function getScriptOrder(base) {
 export function discoverSetupTeardown(raceDir, settings = {}) {
   const allFiles = fs.readdirSync(raceDir).filter(f => !f.startsWith('.'));
 
-  // Convention-based discovery (platform-aware: .js on Windows, .sh elsewhere)
+  // Convention-based discovery (.sh preferred over .js)
   const setupOrder = getScriptOrder('setup');
   const teardownOrder = getScriptOrder('teardown');
 
@@ -150,7 +170,7 @@ export function discoverSetupTeardown(raceDir, settings = {}) {
 export function discoverRacerSetupTeardown(raceDir, racerName, settings = {}) {
   const allFiles = fs.readdirSync(raceDir).filter(f => !f.startsWith('.'));
 
-  // Convention-based discovery (platform-aware: .js on Windows, .sh elsewhere)
+  // Convention-based discovery (.sh preferred over .js)
   const setupOrder = getScriptOrder(`${racerName}.setup`);
   const teardownOrder = getScriptOrder(`${racerName}.teardown`);
 

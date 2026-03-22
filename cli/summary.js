@@ -154,6 +154,7 @@ export function buildSummary(racerNames, results, settings, resultsDir) {
       [racerNames[i], r.videoPath || null],
       [`${racerNames[i]}_full`, r.fullVideoPath || null],
     ])),
+    harFiles: Object.fromEntries(racerNames.map((n, i) => [n, results[i].harPath || null])),
     clickCounts: Object.fromEntries(racerNames.map((n, i) => [n, (results[i].clickEvents || []).length])),
     profileMetrics: results.map(r => r.profileMetrics || null),
     profileComparison: buildProfileComparison(racerNames, results.map(r => r.profileMetrics || null)),
@@ -398,6 +399,7 @@ export function findMedianRunIndexPerRacer(summaries, medianSummary) {
  * Returns an array (one per racer) of profile metric objects { total: {...}, measured: {...} }.
  */
 function buildMedianProfileMetrics(summaries) {
+  if (!summaries || summaries.length === 0) return null;
   const racers = summaries[0].racers;
   const hasAny = summaries.some(s => s.profileMetrics?.some(Boolean));
   if (!hasAny) return null;

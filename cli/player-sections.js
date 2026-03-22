@@ -16,7 +16,12 @@ let T = {};
 /** Store build-time templates extracted from player.html. */
 export function setTemplates(templates) { T = templates; }
 
-/** Replace {{key}} placeholders in a template string with data values. */
+/**
+ * Replace {{key}} placeholders in a template string with data values.
+ * IMPORTANT: This does NOT auto-escape values. Callers MUST use escHtml() on
+ * any user-supplied strings before passing them as data values. Pre-built HTML
+ * snippets (e.g. nested template output) should be passed without escaping.
+ */
 export function render(tmpl, data) {
   return tmpl.replace(/\{\{(\w+)\}\}/g, (_, key) => data[key] ?? '');
 }
@@ -264,7 +269,7 @@ export function buildProfileHtml(profileComparison, racers) {
 }
 
 export function buildFilesHtml(racers, videoFiles, options) {
-  const { fullVideoFiles, mergedVideoFile, traceFiles, raceScriptFiles, settingsFileCopied, altFormat, altFiles, placementOrder } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, altFormat, altFiles, placementOrder } = options;
   const links = [];
   const order = placementOrder || racers.map((_, i) => i);
 
@@ -287,6 +292,11 @@ export function buildFilesHtml(racers, videoFiles, options) {
   if (traceFiles) {
     order.forEach(i => {
       if (traceFiles[i]) links.push(render(T['file-link'], { href: escHtml(traceFiles[i]), attrs: 'title="Open in chrome://tracing or ui.perfetto.dev"', text: `${escHtml(racers[i])} (profile)` }));
+    });
+  }
+  if (harFiles) {
+    order.forEach(i => {
+      if (harFiles[i]) links.push(render(T['file-link'], { href: escHtml(harFiles[i]), attrs: 'download title="HTTP Archive — open in browser DevTools or har.tech"', text: `${escHtml(racers[i])} (HAR)` }));
     });
   }
   if (raceScriptFiles && raceScriptFiles.length > 0) {
