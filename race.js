@@ -13,6 +13,7 @@
  *   node race.js ./races/my-race --parallel   Run both browsers simultaneously
  *   node race.js ./races/my-race --headless   Run headless
  *   node race.js ./races/my-race --network=fast-3g --cpu=4
+ *   node race.js ./races/my-race --har --no-wasm --no-serve
  */
 
 import fs from 'fs';
@@ -671,6 +672,11 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-overlay${c.reset}         Record videos without overlays
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-recording${c.reset}      Skip video recording, just measure
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ffmpeg${c.reset}             Enable FFmpeg processing (trim, merge, convert)
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--har${c.reset}                Record network HAR files alongside videos
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-wasm${c.reset}            Skip copying ffmpeg.wasm files (~25 MB) to results
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--height${c.reset}=${c.green}900${c.reset}          Viewport/recording height in pixels (480–4320, default 720)
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ignore-https-errors${c.reset} Accept invalid/self-signed TLS certificates
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-serve${c.reset}           Don't open results in browser after race
 
 ${c.dim}  All flags except --results work with both URL mode and directory mode.${c.reset}
 ${c.dim}  Try the example:  node race.js ./races/lauda-vs-hunt${c.reset}
@@ -896,8 +902,7 @@ async function main() {
     console.error(`  ${c.dim}📂 ${relResults}${c.reset}`);
 
     if (!settings.noRecording) {
-      const shouldServe = kvFlags.serve !== 'false';
-      if (shouldServe) {
+      if (!settings.noServe) {
         serveResults(resultsDir);
       } else {
         console.error(`  ${c.cyan}${c.bold}open ${relHtml}${c.reset}`);
@@ -958,6 +963,6 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
 }
 
 await main();
-if (kvFlags.serve === 'false' || settings.noRecording) process.exit(0);
+if (settings.noServe || settings.noRecording) process.exit(0);
 
 } // end isMainModule

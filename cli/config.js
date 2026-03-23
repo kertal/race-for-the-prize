@@ -129,7 +129,12 @@ export function applyDefaults(settings) {
     noOverlay: false,
     noRecording: false,
     ffmpeg: false,
+    har: false,
     noWasm: false,
+    noServe: false,
+    pauseBetweenRuns: false,
+    ignoreHTTPSErrors: false,
+    viewportHeight: 720,
     format: 'webm',
     network: 'none',
     cpuThrottle: 1,
@@ -151,6 +156,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('ffmpeg')) s.ffmpeg = true;
   if (boolFlags.has('har')) s.har = true;
   if (boolFlags.has('no-wasm')) s.noWasm = true;
+  if (boolFlags.has('no-serve')) s.noServe = true;
   if (boolFlags.has('pause')) s.pauseBetweenRuns = true;
   if (boolFlags.has('ignore-https-errors')) s.ignoreHTTPSErrors = true;
   if (kvFlags.network !== undefined) {
