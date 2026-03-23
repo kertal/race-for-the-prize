@@ -129,6 +129,7 @@ export function applyDefaults(settings) {
     noOverlay: false,
     noRecording: false,
     ffmpeg: false,
+    har: true,
     noWasm: false,
     format: 'webm',
     network: 'none',

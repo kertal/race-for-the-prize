@@ -221,6 +221,8 @@ node race.js <dir> --slowmo=2            # Slow-motion replay (2x, 3x, etc.)
 node race.js <dir> --no-overlay          # Record videos without overlays
 node race.js <dir> --no-recording        # Skip video recording, just measure
 node race.js <dir> --ffmpeg              # Enable FFmpeg processing (trim, merge, convert)
+node race.js <dir> --har                 # Save HTTP Archive (.har) for each racer (default: on)
+node race.js <dir> --no-wasm            # Disable in-browser WebAssembly (FFmpeg.wasm)
 node race.js <dir> --serve=false         # Don't open results in browser after race
 node race.js <dir> --pause               # Pause between runs — press Enter to continue (multi-run)
 node race.js <dir> --height=900          # Set viewport/recording height in pixels (480–4320, default 720)
@@ -294,6 +296,7 @@ The terminal delivers the verdict in style:
   "slowmo": 0,
   "format": "webm",
   "ffmpeg": false,
+  "har": true,
   "noOverlay": false,
   "noRecording": false,
   "noWasm": false,
@@ -312,6 +315,7 @@ The terminal delivers the verdict in style:
 | `slowmo` | `0` (off) to `20` (multiplier) | `0` |
 | `format` | `webm`, `mov`, `gif` | `webm` |
 | `ffmpeg` | `true` / `false` | `false` |
+| `har` | `true` / `false` | `true` |
 | `noOverlay` | `true` / `false` | `false` |
 | `noRecording` | `true` / `false` | `false` |
 | `noWasm` | `true` / `false` | `false` |
