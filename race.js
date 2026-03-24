@@ -17,7 +17,7 @@
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c, FORMAT_EXTENSIONS } from './cli/colors.js';
@@ -750,6 +750,18 @@ async function runScript(script, label) {
     throw new Error(`${label} script has unsupported extension '${ext}' (expected .sh or .js)`);
   }
 
+  // On Windows, warn if trying to run .sh without bash available
+  if (ext === '.sh' && process.platform === 'win32') {
+    try {
+      execSync('bash --version', { stdio: 'ignore' });
+    } catch {
+      throw new Error(
+        `${label} script '${command}' requires bash, which was not found. ` +
+        `Install Git Bash or WSL, or use a .js script instead.`
+      );
+    }
+  }
+
   const progress = startProgress(`Running ${label.toLowerCase()}…`);
 
   return new Promise((resolve, reject) => {
@@ -798,6 +810,22 @@ async function runScript(script, label) {
 
         // If waitFor is specified, poll for the condition
         if (waitFor) {
+          if (typeof waitFor !== 'object' || Array.isArray(waitFor)) {
+            reject(new Error(`${label} waitFor must be an object with a 'url' field`));
+            return;
+          }
+          if (typeof waitFor.url !== 'string' || !waitFor.url.trim()) {
+            reject(new Error(`${label} waitFor.url must be a non-empty string`));
+            return;
+          }
+          if (waitFor.timeout !== undefined && (!Number.isFinite(waitFor.timeout) || waitFor.timeout <= 0)) {
+            reject(new Error(`${label} waitFor.timeout must be a positive number`));
+            return;
+          }
+          if (waitFor.interval !== undefined && (!Number.isFinite(waitFor.interval) || waitFor.interval <= 0)) {
+            reject(new Error(`${label} waitFor.interval must be a positive number`));
+            return;
+          }
           const { url, timeout: waitTimeout = 30000, interval = 1000 } = waitFor;
           if (url) {
             const waitProgress = startProgress(`Waiting for ${url}…`);
@@ -1006,7 +1034,7 @@ async function main() {
   } catch (e) {
     const phase = setupCompleted ? 'Race' : 'Setup';
     console.error(`\n${c.red}${c.bold}${phase} failed:${c.reset} ${e.message}\n`);
-    throw e; // Re-throw to trigger teardown via finally
+    if (!process.exitCode) process.exitCode = 1;
   } finally {
     // Run per-racer teardown scripts (even on failure)
     for (const racer of racerScripts) {

@@ -5,6 +5,7 @@ import os from 'os';
 import { spawn } from 'child_process';
 import { discoverSetupTeardown, discoverRacerSetupTeardown } from '../cli/config.js';
 
+const isWindows = process.platform === 'win32';
 let tmpDir;
 
 beforeEach(() => {
@@ -290,7 +291,7 @@ describe('combined global and per-racer discovery', () => {
 });
 
 describe('script execution integration', () => {
-  it('shell script can write to file system', async () => {
+  it.skipIf(isWindows)('shell script can write to file system', async () => {
     const markerFile = path.join(tmpDir, 'marker.txt');
     const setupScript = path.join(tmpDir, 'setup.sh');
 
@@ -315,7 +316,7 @@ describe('script execution integration', () => {
     expect(fs.readFileSync(markerFile, 'utf-8').trim()).toBe('executed');
   });
 
-  it('script receives RACE_DIR environment variable', async () => {
+  it.skipIf(isWindows)('script receives RACE_DIR environment variable', async () => {
     const markerFile = path.join(tmpDir, 'env-marker.txt');
     const setupScript = path.join(tmpDir, 'setup.sh');
 
@@ -328,7 +329,7 @@ describe('script execution integration', () => {
     expect(fs.readFileSync(markerFile, 'utf-8').trim()).toBe(tmpDir);
   });
 
-  it('failing script returns non-zero exit code', async () => {
+  it.skipIf(isWindows)('failing script returns non-zero exit code', async () => {
     const setupScript = path.join(tmpDir, 'setup.sh');
 
     const exitCode = await runShellScript(setupScript, '#!/bin/bash\nexit 1', { expectFailure: true });
@@ -336,7 +337,7 @@ describe('script execution integration', () => {
     expect(exitCode).toBe(1);
   });
 
-  it('scripts run in correct working directory', async () => {
+  it.skipIf(isWindows)('scripts run in correct working directory', async () => {
     const markerFile = path.join(tmpDir, 'cwd-marker.txt');
     const setupScript = path.join(tmpDir, 'setup.sh');
 
@@ -347,7 +348,7 @@ describe('script execution integration', () => {
   });
 });
 
-describe('execution order verification', () => {
+describe.skipIf(isWindows)('execution order verification', () => {
   it('setup scripts run and complete before main process continues', async () => {
     const logFile = path.join(tmpDir, 'order.log');
     const setupScript = path.join(tmpDir, 'setup.sh');
