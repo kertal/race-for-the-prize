@@ -157,6 +157,9 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('har')) s.har = true;
   if (boolFlags.has('no-wasm')) s.noWasm = true;
   if (boolFlags.has('no-serve')) s.noServe = true;
+  // Backward compatibility: legacy --serve=false / --serve=true
+  if (kvFlags.serve === 'false') s.noServe = true;
+  else if (kvFlags.serve === 'true') s.noServe = false;
   if (boolFlags.has('pause')) s.pauseBetweenRuns = true;
   if (boolFlags.has('ignore-https-errors')) s.ignoreHTTPSErrors = true;
   if (kvFlags.network !== undefined) {
