@@ -54,7 +54,7 @@ setTemplates(BUILD_TEMPLATES);
 // ---------------------------------------------------------------------------
 
 function buildStyles(layoutCss) {
-  return '<style>\n' + render(CSS, { layoutCss }) + '\n</style>';
+  return '<style>\n' + CSS + '  ' + layoutCss + '\n</style>';
 }
 
 function buildPlayerScript(config) {
