@@ -75,7 +75,7 @@ describe('buildGeminiPrompt', () => {
           comparisons: [
             {
               name: 'Script Execution',
-              racers: [120, 80],
+              values: [120, 80],  // correct field name from buildProfileComparison
               winner: 'hunt',
               diffPercent: 33.3,
               description: 'Time spent executing JavaScript.',
@@ -89,6 +89,27 @@ describe('buildGeminiPrompt', () => {
     expect(prompt).toContain('Script Execution');
     expect(prompt).toContain('Time spent executing JavaScript.');
     expect(prompt).toContain('hunt wins');
+  });
+
+  it('profile section is populated (metric.values not metric.racers)', () => {
+    // Regression: metric data must appear in the prompt — silently empty output
+    // indicates the wrong property name was used.
+    const summary = {
+      ...baseSummary,
+      profileComparison: {
+        measured: {
+          comparisons: [
+            { name: 'Task Duration', values: [50, 90], winner: 'lauda', diffPercent: 80, description: 'Main thread busyness.' },
+          ],
+        },
+        total: null,
+      },
+    };
+    const prompt = buildGeminiPrompt(summary);
+    // Both racer values must appear — if metric.racers was used they'd be absent
+    expect(prompt).toContain('lauda:');
+    expect(prompt).toContain('hunt:');
+    expect(prompt).toContain('Task Duration');
   });
 
   it('includes network/cpu throttle conditions', () => {
@@ -323,6 +344,25 @@ await page.goto('https://b.com');
 \`\`\``;
     const files = parseSpecOutput(output);
     expect(files['racer-a.spec.js']).toBe("await page.goto('https://a.com');");
+  });
+
+  it('does not corrupt code when Gemini omits the language tag', () => {
+    // Regression: the strip regex must not eat the first line of code when
+    // Gemini writes ``` with no language tag immediately followed by code.
+    const output = `FILE: racer-a.spec.js
+\`\`\`
+await page.goto('https://a.com');
+page.raceEnd('Load');
+\`\`\`
+FILE: racer-b.spec.js
+\`\`\`
+await page.goto('https://b.com');
+page.raceEnd('Load');
+\`\`\``;
+    const files = parseSpecOutput(output);
+    // The "await" keyword must not be stripped from the first line
+    expect(files['racer-a.spec.js']).toContain("await page.goto('https://a.com')");
+    expect(files['racer-b.spec.js']).toContain("await page.goto('https://b.com')");
   });
 });
 

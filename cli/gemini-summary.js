@@ -97,7 +97,7 @@ export function buildGeminiPrompt(summary) {
       lines.push(`\n### ${scope === 'measured' ? 'During measured section' : 'Full session'}`);
 
       for (const metric of section.comparisons) {
-        const vals = (metric.racers || []).map((r, i) => typeof r === 'number' && Number.isFinite(r) ? `${racers[i]}: ${formatMetricValue(metric.name, r)}` : null).filter(Boolean);
+        const vals = (metric.values || []).map((r, i) => typeof r === 'number' && Number.isFinite(r) ? `${racers[i]}: ${formatMetricValue(metric.name, r)}` : null).filter(Boolean);
         if (vals.length === 0) continue;
         const winStr = metric.winner ? ` [${metric.winner} wins, ${metric.diffPercent?.toFixed(1)}% better]` : '';
         lines.push(`  ${metric.name}: ${vals.join(' vs ')}${winStr}`);
@@ -279,8 +279,11 @@ export function parseSpecOutput(geminiOutput) {
     if (!fileMatch) continue;
     const filename = fileMatch[1];
     if (!allowedFiles.has(filename)) continue;
-    // Strip optional language tag from the first line of the code block
-    const content = codeBlock.replace(/^[a-zA-Z0-9-]*\n?/, '').trim();
+    // Strip language tag only when it is a pure word followed by a newline,
+    // e.g. "javascript\n" or "js\n". Using + (not *) and a required \n
+    // prevents accidentally removing the first line of code when Gemini
+    // omits the language tag entirely.
+    const content = codeBlock.replace(/^[a-zA-Z0-9-]+\n/, '').trim();
     if (content) files[filename] = content;
   }
   return files;
