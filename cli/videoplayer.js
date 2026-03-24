@@ -50,7 +50,7 @@ const { mainTemplate: TEMPLATE, templates: BUILD_TEMPLATES } = extractBuildTempl
 setTemplates(BUILD_TEMPLATES);
 
 // ---------------------------------------------------------------------------
-// Player Script Builder — reads player-runtime.js and injects config
+// Style & Script Builders — read from external files and inline at export
 // ---------------------------------------------------------------------------
 
 function buildStyles(layoutCss) {
