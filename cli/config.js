@@ -130,6 +130,7 @@ export function applyDefaults(settings) {
     noRecording: false,
     ffmpeg: false,
     noWasm: false,
+    serious: false,
     format: 'webm',
     network: 'none',
     cpuThrottle: 1,
@@ -153,6 +154,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('no-wasm')) s.noWasm = true;
   if (boolFlags.has('pause')) s.pauseBetweenRuns = true;
   if (boolFlags.has('ignore-https-errors')) s.ignoreHTTPSErrors = true;
+  if (boolFlags.has('serious')) s.serious = true;
   if (kvFlags.network !== undefined) {
     if (!VALID_NETWORKS.includes(kvFlags.network)) {
       console.error(`Warning: Unknown network preset "${kvFlags.network}", valid values: ${VALID_NETWORKS.join(', ')}`);

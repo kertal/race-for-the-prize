@@ -30,9 +30,10 @@ export function startProgress(msg) {
 }
 
 export class RaceAnimation {
-  constructor(names, info) {
+  constructor(names, info, options = {}) {
     this.names = names;
     this.info = info || null;
+    this.serious = options.serious || false;
     this.finished = new Array(names.length).fill(false);
     this.messages = new Array(names.length).fill(null);
     this.interval = null;
@@ -49,7 +50,12 @@ export class RaceAnimation {
       return `${color}${c.bold}${name}${c.reset}`;
     });
     const vsString = coloredNames.join(` ${c.dim}vs${c.reset} `);
-    let header = `\n  ${c.bold}RaceForThePrize${c.reset} 🏆  ${vsString}`;
+    let header;
+    if (this.serious) {
+      header = `\n  ${c.bold}Performance Benchmark${c.reset}  ${vsString}`;
+    } else {
+      header = `\n  ${c.bold}RaceForThePrize${c.reset} 🏆  ${vsString}`;
+    }
     if (this.info) header += `\n  ${c.dim}${this.info}${c.reset}`;
     process.stderr.write(header + '\n\n');
     this.interval = setInterval(() => this._tick(), TICK_INTERVAL_MS);
@@ -60,7 +66,7 @@ export class RaceAnimation {
     const ms = Date.now() - this.startTime;
     const elapsed = (ms / 1000).toFixed(1);
     const allDone = this.finished.every(Boolean);
-    const emoji = allDone ? '🏁' : ms < 1000 ? '🔫' : '🏎️';
+    const emoji = this.serious ? '' : (allDone ? '🏁' : ms < 1000 ? '🔫' : '🏎️');
 
     if (this.lines > 0) process.stderr.write(`\x1b[${this.lines}A`);
 
@@ -92,6 +98,6 @@ export class RaceAnimation {
     this.interval = null;
     this.finished = this.finished.map(() => true);
     process.stderr.write(c.showCursor);
-    process.stderr.write(`  ${c.dim}Calculating results…${c.reset}\n`);
+    process.stderr.write(`  ${c.dim}Processing results…${c.reset}\n`);
   }
 }

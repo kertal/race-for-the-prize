@@ -177,7 +177,7 @@ export function spawnRunner(ctx) {
   if (settings.noRecording) flags.push('no-recording');
   if (settings.ffmpeg) flags.push('ffmpeg');
 
-  const animation = new RaceAnimation(racerNames, flags.join(' · '));
+  const animation = new RaceAnimation(racerNames, flags.join(' · '), { serious: settings.serious });
   animation.start();
 
   // Pre-compile message regexes to avoid recreating them on every stderr event
@@ -756,7 +756,7 @@ if (urlMode) {
   }
 
   if (boolFlags.has('results')) {
-    printRecentRaces(raceDir);
+    printRecentRaces(raceDir, { serious: boolFlags.has('serious') });
     process.exit(0);
   }
 
