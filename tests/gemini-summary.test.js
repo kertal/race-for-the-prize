@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { buildGeminiPrompt, buildSpecPrompt, parseSpecOutput, extractUrls, isPrivateUrl } from '../cli/gemini-summary.js';
 
 // ---------------------------------------------------------------------------
@@ -375,9 +375,13 @@ vi.mock('child_process', async (importOriginal) => {
   return { ...actual, spawnSync: vi.fn() };
 });
 
-describe('invokeGemini', async () => {
-  const { spawnSync } = await import('child_process');
-  const { invokeGemini } = await import('../cli/gemini-summary.js');
+describe('invokeGemini', () => {
+  let spawnSync, invokeGemini;
+
+  beforeAll(async () => {
+    ({ spawnSync } = await import('child_process'));
+    ({ invokeGemini } = await import('../cli/gemini-summary.js'));
+  });
 
   it('throws a helpful install message when gemini CLI is not found (ENOENT)', () => {
     spawnSync.mockReturnValue({ error: { code: 'ENOENT' }, status: null, stdout: '', stderr: '' });

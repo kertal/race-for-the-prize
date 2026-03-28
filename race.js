@@ -602,7 +602,7 @@ ${c.bold}Run it:${c.reset}
     } catch (e) {
       console.error(`${c.red}Gemini spec generation failed: ${e.message}${c.reset}`);
       console.error(`${c.dim}Falling back to default scaffold…${c.reset}`);
-      // Fall through to default scaffold below by re-running without gemini-spec
+      // Write default scaffold files and exit
       fs.writeFileSync(path.join(targetDir, 'racer-a.spec.js'), defaultRacerA);
       fs.writeFileSync(path.join(targetDir, 'racer-b.spec.js'), defaultRacerB);
       fs.writeFileSync(path.join(targetDir, 'settings.json'), JSON.stringify({ parallel: false, headless: false, runs: 3 }, null, 2) + '\n');
