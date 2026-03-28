@@ -50,6 +50,17 @@ describe('buildPlayerHtml', () => {
     expect(defaultHtml).toContain('</html>');
   });
 
+  it('inlines CSS from player.css with layoutCss appended', () => {
+    expect(defaultHtml).toContain('<style>');
+    expect(defaultHtml).toContain('</style>');
+    // Known selectors from player.css
+    expect(defaultHtml).toContain('.checkered-bar');
+    expect(defaultHtml).toContain('.player-container');
+    // Dynamic layoutCss rules injected at build time (2 racers → 1400px / 680px)
+    expect(defaultHtml).toContain('max-width: 1400px');
+    expect(defaultHtml).toContain('max-width: 680px');
+  });
+
   it('embeds racer names and video sources', () => {
     expect(defaultHtml).toContain('lauda');
     expect(defaultHtml).toContain('hunt');
