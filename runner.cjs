@@ -667,8 +667,8 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   // process. Only run scripts you trust — this is equivalent to `node <file>`.
   const sanitized = sanitizeScript(raceScript);
   try {
-    const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
-    const fn = new AsyncFunction('page', '__startRecording', '__stopRecording', '__startMeasure', '__endMeasure', sanitized);
+    const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor; // NOSONAR — intentional: executes user-provided race scripts
+    const fn = new AsyncFunction('page', '__startRecording', '__stopRecording', '__startMeasure', '__endMeasure', sanitized); // NOSONAR
     await fn(page, startRecording, stopRecording, startMeasure, endMeasure);
   } catch (error) {
     console.error(`[${id}] Script failed: ${error.message}`);

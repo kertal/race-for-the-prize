@@ -87,20 +87,6 @@ const hiddenRacers = new Set();
 const STEP = 0.1;
 let loadedSrcSet = 'race';
 let pendingSeek = null;
-let calibrationFatalError = null;
-
-function failCalibration(msg) {
-  if (calibrationFatalError) return;
-  calibrationFatalError = msg;
-  if (timeDisplay) timeDisplay.textContent = msg;
-  if (frameDisplay) frameDisplay.textContent = 'manual calibration required';
-  if (playBtn) playBtn.disabled = true;
-  if (scrubber) scrubber.disabled = true;
-  // Log to console rather than throwing: this function is called from event
-  // listeners (loadedmetadata, durationchange) where an uncaught throw would
-  // surface as an unhandled exception without providing any extra information.
-  console.error('[player] calibration failed:', msg);
-}
 
 function applyCalibrationToClip(ct, ptsStart, videoDuration) {
   const segDuration = ct._wcEnd - ct._wcStart;
@@ -193,8 +179,6 @@ function seekAll(t) {
 const _durationForced = new WeakMap();
 
 function onMeta() {
-  if (calibrationFatalError) return;
-
   // Block calibration until every video has a finite duration.
   // readyState >= 1 (HAVE_METADATA) means the duration field is populated.
   // We must check ALL videos before proceeding: a second loadedmetadata
@@ -227,15 +211,19 @@ function onMeta() {
       const wasConverted = !!clipEntry._converted;
       if (clipEntry._wcStart == null) { clipEntry._wcStart = clipEntry.start; clipEntry._wcEnd = clipEntry.end; }
       if (!canApplyTraceCalibration(clipEntry)) {
-        failCalibration('Calibration error: missing trace calibration metadata. Please calibrate manually.');
-        return;
+        // No trace calibration metadata — use raw clip times as-is (e.g. URL mode races)
+        clipEntry._converted = true;
+        convertedAny = true;
+        continue;
       }
       // recordingStartTs − firstFrameTs gives the PTS offset (µs) where recording
       // started relative to the first captured frame; divide to get seconds.
       const tracePtsStart = (clipEntry.traceCalibration.recordingStartTs - clipEntry.traceCalibration.firstFrameTs) / US_PER_SECOND;
       if (!Number.isFinite(tracePtsStart) || tracePtsStart < 0) {
-        failCalibration('Calibration error: invalid trace timestamps. Please calibrate manually.');
-        return;
+        // Invalid trace timestamps — use raw clip times as-is
+        clipEntry._converted = true;
+        convertedAny = true;
+        continue;
       }
       applyCalibrationToClip(clipEntry, tracePtsStart, videos[i].duration);
       if (!wasConverted && clipEntry._converted) convertedAny = true;

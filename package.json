@@ -1,6 +1,6 @@
 {
   "name": "race-for-the-prize",
-  "version": "0.3.0",
+  "version": "0.4.1",
   "description": "🏆 Race browsers head-to-head and crown a champion",
   "type": "module",
   "bin": {
@@ -11,8 +11,8 @@
     "runner.cjs",
     "sync-barrier.cjs",
     "cli/",
-    "races/**/*.spec.js",
-    "races/**/settings.json",
+    "races/*/*.spec.js",
+    "races/*/settings.json",
     "ReadMe.md",
     "INSTALLATION.md"
   ],
