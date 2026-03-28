@@ -238,6 +238,21 @@ describe('settings override', () => {
     expect(s.pauseBetweenRuns).toBe(true);
   });
 
+  it('CLI --no-serve sets noServe', () => {
+    const s = applyOverrides({}, new Set(['no-serve']), {});
+    expect(s.noServe).toBe(true);
+  });
+
+  it('legacy --serve=false sets noServe for backward compatibility', () => {
+    const s = applyOverrides({}, new Set(), { serve: 'false' });
+    expect(s.noServe).toBe(true);
+  });
+
+  it('legacy --serve=true explicitly enables serving', () => {
+    const s = applyOverrides({ noServe: true }, new Set(), { serve: 'true' });
+    expect(s.noServe).toBe(false);
+  });
+
   it('CLI --no-recording sets noRecording', () => {
     const s = applyOverrides({}, new Set(['no-recording']), {});
     expect(s.noRecording).toBe(true);

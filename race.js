@@ -7,11 +7,13 @@
  * spawns the Playwright runner, collects results, and prints a report.
  *
  * Usage:
- *   node race.js ./races/my-race              Run a race
+ *   node race.js https://a.com https://b.com  Race page load times (URL mode)
+ *   node race.js ./races/my-race              Run a scripted race
  *   node race.js ./races/my-race --results    View recent results
  *   node race.js ./races/my-race --parallel   Run both browsers simultaneously
  *   node race.js ./races/my-race --headless   Run headless
  *   node race.js ./races/my-race --network=fast-3g --cpu=4
+ *   node race.js ./races/my-race --har --no-wasm --no-serve
  */
 
 import fs from 'fs';
@@ -21,7 +23,7 @@ import { spawn, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c, FORMAT_EXTENSIONS } from './cli/colors.js';
-import { parseArgs, discoverRacers, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown } from './cli/config.js';
+import { parseArgs, discoverRacers, applyOverrides, applyDefaults, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex, findMedianRunIndexPerRacer } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
@@ -188,6 +190,8 @@ export function spawnRunner(ctx) {
   const runnerPath = path.join(rootDir, 'runner.cjs');
 
   return new Promise((resolve, reject) => {
+    // NOSONAR — spawns runner.cjs subprocess with race config; this is the core
+    // execution mechanism equivalent to running `node runner.cjs <config>`
     const child = spawn('node', [runnerPath, JSON.stringify(runnerConfig)], {
       cwd: rootDir,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -481,6 +485,8 @@ export function createStaticHandler(dir) {
  * browser, and keep running until the process is killed.
  */
 export function serveResults(dir) {
+  // NOSONAR — local-only server for viewing race results; binds to 127.0.0.1
+  // with path traversal protection in createStaticHandler
   const server = http.createServer(createStaticHandler(dir));
 
   server.listen(0, '127.0.0.1', () => {
@@ -601,18 +607,7 @@ function loadRaceDir(raceDir) {
       console.error(`${c.yellow}Warning: Could not parse settings.json: ${e.message}${c.reset}`);
     }
   }
-  settings = applyOverrides(settings, boolFlags, kvFlags);
-  settings.parallel    = settings.parallel    ?? false;
-  settings.headless    = settings.headless    ?? false;
-  settings.noOverlay   = settings.noOverlay   ?? false;
-  settings.noRecording = settings.noRecording ?? false;
-  settings.ffmpeg      = settings.ffmpeg      ?? false;
-  settings.noWasm      = settings.noWasm      ?? false;
-  settings.format      = settings.format      ?? 'webm';
-  settings.network     = settings.network     ?? 'none';
-  settings.cpuThrottle = settings.cpuThrottle ?? 1;
-  settings.slowmo      = settings.slowmo      ?? 0;
-  settings.runs        = settings.runs        ?? 1;
+  settings = applyDefaults(applyOverrides(settings, boolFlags, kvFlags));
 
   const ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir, racerFiles });
   return { ctx, settings, racerNames };
@@ -658,10 +653,17 @@ ${c.dim}  ───────────────────────�
 
      ${c.bold}$${c.reset} ${c.cyan}node race.js ./races/lauda-vs-hunt${c.reset}
 
+${c.bold}  Quick Race (URL mode):${c.reset}
+${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
+  Pass 2+ URLs directly to measure page load times head-to-head:
+
+     ${c.bold}$${c.reset} ${c.cyan}node race.js https://react.dev https://angular.dev${c.reset}
+
 ${c.bold}  Commands:${c.reset}
 ${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
+  node race.js ${c.cyan}<url> <url> [url...]${c.reset}      Race page load times (2-5 URLs)
   node race.js ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset}               Scaffold a starter race (default: my-race/)
-  node race.js ${c.cyan}<dir>${c.reset}                       Run a race
+  node race.js ${c.cyan}<dir>${c.reset}                       Run a scripted race
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--results${c.reset}            View recent results
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--parallel${c.reset}           Run both browsers simultaneously
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--headless${c.reset}           Hide browsers
@@ -674,26 +676,103 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-overlay${c.reset}         Record videos without overlays
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-recording${c.reset}      Skip video recording, just measure
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ffmpeg${c.reset}             Enable FFmpeg processing (trim, merge, convert)
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--har${c.reset}                Record network HAR files alongside videos
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-wasm${c.reset}            Skip copying ffmpeg.wasm files (~25 MB) to results
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--height${c.reset}=${c.green}900${c.reset}          Viewport/recording height in pixels (480–4320, default 720)
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ignore-https-errors${c.reset}  Accept invalid/self-signed TLS certificates
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-serve${c.reset}           Don't start local results server (CI/headless; open index.html manually)
 
-${c.dim}  CLI flags override settings.json values.${c.reset}
+${c.dim}  All flags except --results work with both URL mode and directory mode.${c.reset}
 ${c.dim}  Try the example:  node race.js ./races/lauda-vs-hunt${c.reset}
 `);
   process.exit(1);
 }
 
-const raceDir = path.resolve(positional[0]);
+// --- Detect URL mode vs directory mode ---
 
-if (!fs.existsSync(raceDir)) {
-  console.error(`${c.red}Error: Race directory not found: ${raceDir}${c.reset}`);
+if (positional.length === 1 && isUrl(positional[0])) {
+  console.error(`${c.red}Error: URL mode requires at least 2 URLs to race against each other${c.reset}`);
+  console.error(`${c.dim}  Example: node race.js https://react.dev https://angular.dev${c.reset}`);
   process.exit(1);
 }
 
-if (boolFlags.has('results')) {
-  printRecentRaces(raceDir);
-  process.exit(0);
+const urlMode = positional.length >= 2 && positional.every(p => isUrl(p));
+
+// Catch mixed URL/path inputs (e.g. "node race.js https://a.com ./dir")
+if (!urlMode && positional.length >= 2 && positional.some(p => isUrl(p))) {
+  const nonUrls = positional.filter(p => !isUrl(p));
+  console.error(`${c.red}Error: Cannot mix URLs and directory paths. These are not valid URLs: ${nonUrls.join(', ')}${c.reset}`);
+  console.error(`${c.dim}  For URL mode, pass only URLs: node race.js https://a.com https://b.com${c.reset}`);
+  console.error(`${c.dim}  For directory mode, pass a race directory: node race.js ./races/my-race${c.reset}`);
+  process.exit(1);
 }
 
-const { ctx, settings, racerNames } = loadRaceDir(raceDir);
+let raceDir;
+let ctx, settings, racerNames;
+
+if (urlMode) {
+  if (boolFlags.has('results')) {
+    console.error(`${c.red}Error: --results is not supported in URL mode${c.reset}`);
+    process.exit(1);
+  }
+
+  // URL mode: generate race scripts from URLs
+  if (positional.length > 5) {
+    console.error(`${c.yellow}Warning: Using first 5 URLs of ${positional.length} provided${c.reset}`);
+  }
+  const urls = positional.slice(0, 5);
+
+  // Derive names and deduplicate: first occurrence keeps its base name,
+  // subsequent duplicates get -2, -3, etc. Uses Object.create(null) to
+  // avoid inherited property collisions (e.g. "constructor", "toString").
+  const rawNames = urls.map(u => deriveRacerName(u));
+  const counts = Object.create(null);
+  for (const n of rawNames) counts[n] = (counts[n] || 0) + 1;
+  const used = Object.create(null);
+  const names = rawNames.map(n => {
+    if (counts[n] === 1) return n;
+    used[n] = (used[n] || 0) + 1;
+    return used[n] === 1 ? n : `${n}-${used[n]}`;
+  });
+  // Verify no duplicates remain (defensive — covers edge cases in deriveRacerName)
+  const seen = new Set();
+  for (let i = 0; i < names.length; i++) {
+    while (seen.has(names[i])) names[i] = names[i] + '-' + (i + 1);
+    seen.add(names[i]);
+  }
+
+  // SECURITY: URLs are validated by isUrl() (requires http(s) + valid hostname).
+  // buildDefaultRaceScript embeds them via JSON.stringify (safe escaping).
+  // Scripts execute in the same trust context as user .spec.js files.
+  const scripts = urls.map(u => buildDefaultRaceScript(u)); // NOSONAR — intentional code generation from validated URLs
+  // Create race directory under races/ to keep cwd clean.
+  // Results persist here so the user can re-serve them later.
+  // Names are sanitized by deriveRacerName (filesystem-safe, no traversal).
+  raceDir = path.resolve('races', names.join('-vs-'));
+  fs.mkdirSync(raceDir, { recursive: true }); // NOSONAR — directory from sanitized racer names
+
+  settings = applyDefaults(applyOverrides({}, boolFlags, kvFlags));
+  racerNames = names;
+  ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir });
+} else {
+  if (positional.length > 1) {
+    console.error(`${c.yellow}Warning: Directory mode expects 1 argument (the race directory), ignoring extra arguments: ${positional.slice(1).join(', ')}${c.reset}`);
+  }
+  raceDir = path.resolve(positional[0]);
+
+  if (!fs.existsSync(raceDir)) {
+    console.error(`${c.red}Error: Race directory not found: ${raceDir}${c.reset}`);
+    process.exit(1);
+  }
+
+  if (boolFlags.has('results')) {
+    printRecentRaces(raceDir);
+    process.exit(0);
+  }
+
+  ({ ctx, settings, racerNames } = loadRaceDir(raceDir));
+}
+
 
 // --- Setup/Teardown discovery ---
 
@@ -725,25 +804,35 @@ async function runScript(script, label) {
     throw new Error(`${label} script config missing valid 'command' field`);
   }
 
+  // Validate timeout bounds
+  if (config.timeout !== undefined && (!Number.isFinite(config.timeout) || config.timeout <= 0)) {
+    throw new Error(`${label} timeout must be a positive number`);
+  }
+
   const scriptPath = path.resolve(raceDir, command);
   const ext = path.extname(scriptPath);
 
-  // Validate script exists and is a file with supported extension
-  if (!fs.existsSync(scriptPath)) {
-    console.error(`${c.yellow}Warning: ${label} script not found: ${scriptPath}${c.reset}`);
-    return;
+  // Security: ensure resolved path stays within the race directory
+  const normalizedScript = path.normalize(scriptPath);
+  const normalizedRaceDir = path.normalize(raceDir);
+  if (!normalizedScript.startsWith(normalizedRaceDir + path.sep) && normalizedScript !== normalizedRaceDir) {
+    throw new Error(`${label} script path must be within race directory: ${command}`);
   }
 
+  // Validate script exists and is a regular file (lstatSync rejects symlinks)
+  let stat;
   try {
-    if (!fs.statSync(scriptPath).isFile()) {
-      throw new Error(`${label} script path is not a file: ${scriptPath}`);
-    }
+    stat = fs.lstatSync(scriptPath);
   } catch (e) {
     if (e.code === 'ENOENT') {
       console.error(`${c.yellow}Warning: ${label} script not found: ${scriptPath}${c.reset}`);
       return;
     }
     throw e;
+  }
+
+  if (!stat.isFile()) {
+    throw new Error(`${label} script path is not a regular file: ${scriptPath}`);
   }
 
   if (ext !== '.sh' && ext !== '.js') {
@@ -753,7 +842,7 @@ async function runScript(script, label) {
   // On Windows, warn if trying to run .sh without bash available
   if (ext === '.sh' && process.platform === 'win32') {
     try {
-      execSync('bash --version', { stdio: 'ignore' });
+      execSync('bash --version', { stdio: 'ignore' }); // NOSONAR — bash resolved via PATH is intentional
     } catch {
       throw new Error(
         `${label} script '${command}' requires bash, which was not found. ` +
@@ -775,13 +864,12 @@ async function runScript(script, label) {
       env: { ...process.env, RACE_DIR: raceDir },
     });
 
-    let stdout = '';
     let stderr = '';
     let timedOut = false;
     let settled = false;
     let sigkillTimeoutId = null;
 
-    child.stdout.on('data', d => { stdout += d; });
+    child.stdout.on('data', () => {}); // drain stdout
     child.stderr.on('data', d => { stderr += d; });
 
     const timeoutId = setTimeout(() => {
@@ -830,21 +918,26 @@ async function runScript(script, label) {
           if (url) {
             const waitProgress = startProgress(`Waiting for ${url}…`);
             const startTime = Date.now();
+            let waitSettled = false;
 
             const poll = async () => {
+              if (waitSettled) return;
               const remaining = waitTimeout - (Date.now() - startTime);
               if (remaining <= 0) {
+                if (waitSettled) return;
+                waitSettled = true;
                 waitProgress.done(`Timeout waiting for ${url}`);
                 reject(new Error(`Timeout waiting for ${url} after ${waitTimeout}ms`));
                 return;
               }
 
               try {
-                // Use AbortSignal to enforce per-request timeout
                 const res = await fetch(url, {
                   signal: AbortSignal.timeout(Math.min(remaining, interval * 2)),
                 });
                 if (res.ok) {
+                  if (waitSettled) return;
+                  waitSettled = true;
                   waitProgress.done(`Service ready at ${url}`);
                   resolve();
                   return;
@@ -853,7 +946,7 @@ async function runScript(script, label) {
                 // Connection failed or timed out, will retry
               }
 
-              setTimeout(poll, interval);
+              if (!waitSettled) setTimeout(poll, interval);
             };
             poll();
             return;
@@ -1024,8 +1117,7 @@ async function main() {
     console.error(`  ${c.dim}📂 ${relResults}${c.reset}`);
 
     if (!settings.noRecording) {
-      const shouldServe = kvFlags.serve !== 'false';
-      if (shouldServe) {
+      if (!settings.noServe) {
         serveResults(resultsDir);
       } else {
         console.error(`  ${c.cyan}${c.bold}open ${relHtml}${c.reset}`);
@@ -1105,6 +1197,6 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
 }
 
 await main();
-if (kvFlags.serve === 'false' || settings.noRecording) process.exit(0);
+if (settings.noServe || settings.noRecording) process.exit(0);
 
 } // end isMainModule

@@ -63,6 +63,90 @@ export function discoverRacers(raceDir) {
   return { racerFiles, racerNames };
 }
 
+/**
+ * Check if a string is a valid http(s) URL with a hostname.
+ */
+export function isUrl(str) {
+  try {
+    const u = new URL(str);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    const h = u.hostname;
+    if (!h || h === '.' || h === '..' || h.replace(/\./g, '') === '') return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Derive a short, filesystem-safe racer name from a URL.
+ * Uses the hostname, stripping "www." prefix and sanitizing.
+ */
+export function deriveRacerName(url) {
+  let name;
+  try {
+    name = new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    name = url.replaceAll(/^https?:\/\//g, '').replaceAll(/[^a-zA-Z0-9.-]/g, '_');
+  }
+  // Sanitize: remove filesystem-unsafe chars (e.g. IPv6 colons),
+  // collapse consecutive dots, strip leading/trailing dots, and truncate.
+  // Uses split/filter/join instead of quantified dot regexes to avoid ReDoS.
+  name = name.replaceAll(/[^a-zA-Z0-9.-]/g, '_').split('.').filter(Boolean).join('.').slice(0, 40);
+  // Reject dangerous names that resolve to current/parent directory
+  if (!name || name === '.' || name === '..') return 'url';
+  return name;
+}
+
+/**
+ * Build a default race script that measures page load time for a URL.
+ * The script navigates to the URL and times the load event.
+ *
+ * SECURITY: The URL is embedded via JSON.stringify() which safely escapes
+ * all special characters. The generated script runs in the same trust
+ * context as user-provided .spec.js files (equivalent to `node <file>`).
+ * Only run URLs you trust — this is the same security model as Playwright.
+ */
+export function buildDefaultRaceScript(url) {
+  return `await page.raceStart('Page Load');
+try {
+  await page.goto(${JSON.stringify(url)}, { waitUntil: 'load' });
+} finally {
+  page.raceEnd('Page Load');
+}
+`;
+}
+
+/**
+ * Apply default values for all settings properties.
+ * Call after applyOverrides to ensure every key has a defined value.
+ * Strips null/undefined values so they don't shadow defaults.
+ */
+export function applyDefaults(settings) {
+  const cleaned = Object.fromEntries(
+    Object.entries(settings).filter(([, v]) => v != null)
+  );
+  return {
+    parallel: false,
+    headless: false,
+    noOverlay: false,
+    noRecording: false,
+    ffmpeg: false,
+    har: false,
+    noWasm: false,
+    noServe: false,
+    pauseBetweenRuns: false,
+    ignoreHTTPSErrors: false,
+    viewportHeight: 720,
+    format: 'webm',
+    network: 'none',
+    cpuThrottle: 1,
+    slowmo: 0,
+    runs: 1,
+    ...cleaned,
+  };
+}
+
 const VALID_NETWORKS = ['none', 'slow-3g', 'fast-3g', '4g'];
 const VALID_FORMATS = ['webm', 'mov', 'gif'];
 
@@ -75,6 +159,10 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('ffmpeg')) s.ffmpeg = true;
   if (boolFlags.has('har')) s.har = true;
   if (boolFlags.has('no-wasm')) s.noWasm = true;
+  if (boolFlags.has('no-serve')) s.noServe = true;
+  // Backward compatibility: legacy --serve=false / --serve=true
+  if (kvFlags.serve === 'false') s.noServe = true;
+  else if (kvFlags.serve === 'true') s.noServe = false;
   if (boolFlags.has('pause')) s.pauseBetweenRuns = true;
   if (boolFlags.has('ignore-https-errors')) s.ignoreHTTPSErrors = true;
   if (kvFlags.network !== undefined) {

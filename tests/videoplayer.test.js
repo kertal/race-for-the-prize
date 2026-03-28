@@ -5,6 +5,7 @@ import path from 'path';
 import { buildPlayerHtml } from '../cli/videoplayer.js';
 import { buildProfileComparison } from '../cli/profile-analysis.js';
 import { copyFFmpegFiles } from '../cli/results.js';
+import { fileURLToPath } from 'node:url';
 
 const makeSummary = (overrides = {}) => ({
   racers: ['lauda', 'hunt'],
@@ -47,6 +48,17 @@ describe('buildPlayerHtml', () => {
   it('returns a complete HTML document', () => {
     expect(defaultHtml).toContain('<!DOCTYPE html>');
     expect(defaultHtml).toContain('</html>');
+  });
+
+  it('inlines CSS from player.css with layoutCss appended', () => {
+    expect(defaultHtml).toContain('<style>');
+    expect(defaultHtml).toContain('</style>');
+    // Known selectors from player.css
+    expect(defaultHtml).toContain('.checkered-bar');
+    expect(defaultHtml).toContain('.player-container');
+    // Dynamic layoutCss rules injected at build time (2 racers → 1400px / 680px)
+    expect(defaultHtml).toContain('max-width: 1400px');
+    expect(defaultHtml).toContain('max-width: 680px');
   });
 
   it('embeds racer names and video sources', () => {
@@ -360,6 +372,10 @@ describe('buildPlayerHtml click counts', () => {
 
 describe('buildPlayerHtml clipTimes', () => {
   const withClips = (clips, opts = {}) => withOptions({ clipTimes: clips, ...opts }, opts.summary);
+  const defaultClips = () => [
+    { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+    { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+  ];
 
   it('does not show Race/Full mode buttons when clipTimes provided', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.5, end: 3 }]);
@@ -427,38 +443,28 @@ describe('buildPlayerHtml clipTimes', () => {
   });
 
   it('includes trace-based conversion logic in onMeta', () => {
-    const clips = [
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-    ];
-    const html = withClips(clips);
+    const html = withClips(defaultClips());
     expect(html).toContain('_converted');
     expect(html).toContain('tracePtsStart');
     expect(html).toContain('hasTraceCalibration(ct)');
   });
 
-  it('does not include canvas/localStorage fallback calibration code', () => {
-    const clips = [
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-    ];
-    const html = withClips(clips);
+  it('does not include canvas-based calibration fallback code (localStorage is present for notes only)', () => {
+    const html = withClips(defaultClips());
     expect(html).not.toContain('detectGreenCuePts');
     expect(html).not.toContain('calibrateFromCanvas');
     expect(html).not.toContain('isGreenCue');
     expect(html).not.toContain('restoreFromCache');
-    expect(html).not.toContain('localStorage');
+    // localStorage is now used for notes persistence (not calibration cache)
+    expect(html).not.toContain('calibrationCache');
+    expect(html).toContain('race-notes:');
   });
 
-  it('includes strict calibration error for missing trace metadata', () => {
-    const clips = [
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-    ];
-    const html = withClips(clips);
-    expect(html).toContain('Calibration error: missing trace calibration metadata. Please calibrate manually.');
-    expect(html).toContain('manual calibration required');
-    expect(html).toContain('playBtn.disabled = true');
+  it('gracefully falls back when trace metadata is missing', () => {
+    const html = withClips(defaultClips());
+    // Should use raw clip times without fatal error
+    expect(html).toContain('_converted = true');
+    expect(html).not.toContain('failCalibration');
   });
 
   it('embeds trace calibration and uses trace-based conversion when present', () => {
@@ -490,11 +496,7 @@ describe('buildPlayerHtml clipTimes', () => {
   });
 
   it('does not include blob/canvas fallback helpers', () => {
-    const clips = [
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-    ];
-    const html = withClips(clips);
+    const html = withClips(defaultClips());
     expect(html).not.toContain('toBlobVideo');
     expect(html).not.toContain('detectGreenCuePts');
     expect(html).not.toContain('getImageData(0, 0, CUE_DETECT_SIZE, CUE_DETECT_SIZE)');
@@ -565,10 +567,10 @@ describe('buildPlayerHtml debug mode', () => {
     expect(debugHtml).toContain('>Calibration<');
   });
 
-  it('hides Debug button when no clipTimes or all null', () => {
-    expect(defaultHtml).not.toContain('id="modeDebug"');
-    const nullClips = withOptions({ clipTimes: [null, null] });
-    expect(nullClips).not.toContain('id="modeDebug"');
+  it('calibration button is always in template, hidden by default', () => {
+    // Button is in the player template with display:none; runtime shows it when clip times exist
+    expect(defaultHtml).toContain('id="modeDebug"');
+    expect(defaultHtml).toContain('style="display:none"');
   });
 
   it('renders debug panel with per-racer rows', () => {
@@ -718,8 +720,24 @@ describe('buildPlayerHtml export', () => {
     }
   });
 
-  it('does not render Export button when no videos', () => {
-    expect(noVideosHtml).not.toContain('id="exportBtn"');
+  it('renders Export button in header for all pages', () => {
+    // Export buttons are always in the header; runtime hides them when < 2 racers
+    expect(noVideosHtml).toContain('id="exportBtn"');
+    expect(defaultHtml).toContain('id="exportBtn"');
+  });
+
+  it('getExportLayout ensures even canvasH for libx264 compatibility', () => {
+    // canvasH = rawH + (rawH % 2) rounds odd heights up to even
+    expect(defaultHtml).toContain('rawH % 2');
+  });
+
+  it('export timer starts from 0 using exportTimeOffset', () => {
+    expect(defaultHtml).toContain('exportTimeOffset');
+    expect(defaultHtml).toContain('cur - exportTimeOffset');
+  });
+
+  it('export modal canvas has max-height to keep buttons visible', () => {
+    expect(defaultHtml).toContain('max-height: 50vh');
   });
 });
 
@@ -789,10 +807,15 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
   });
 
 
-  it('checks ff.exec exit code and throws a human-readable error on non-zero', () => {
-    expect(defaultHtml).toContain('exitCode !== 0');
+  it('checks ff.exec exit code and throws a human-readable error on non-zero or null', () => {
+    expect(defaultHtml).toContain('exitCode == null || exitCode !== 0');
     expect(defaultHtml).toContain('ffmpeg exited with code');
     expect(defaultHtml).toContain('conversion failed');
+  });
+
+  it('passes a timeout to ff.exec to prevent indefinite hangs', () => {
+    // ff.exec(args, 300000) uses the library's built-in timeout
+    expect(defaultHtml).toContain('ff.exec(args, 300000)');
   });
 });
 
@@ -912,6 +935,15 @@ describe('buildPlayerHtml seekAllWithVerify', () => {
     expect(initSeekFn).not.toMatch(/(^|\W)seekAll\(/); // no plain seekAll call (only seekAllWithVerify)
   });
 
+  it('onMeta recomputes activeSegmentClipTimes after calibration', () => {
+    const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
+    const onMetaStart = html.indexOf('function onMeta(');
+    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
+    const onMetaFn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 2000);
+    expect(onMetaFn).toContain('convertedAny && activeSegmentName');
+    expect(onMetaFn).toContain('activeSegmentClipTimes = getSegmentClipTimes(activeSegmentName)');
+  });
+
   it('onMeta convertedAny branch uses seekAllWithVerify', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
     const onMetaStart = html.indexOf('function onMeta(');
@@ -991,6 +1023,17 @@ describe('buildPlayerHtml onMeta _durationForced (Chrome WebM Infinity duration)
     expect(getGuardIdx).toBeGreaterThan(-1);
     expect(setIdx).toBeGreaterThan(getGuardIdx);
     expect(seek1e10Idx).toBeGreaterThan(getGuardIdx);
+  });
+});
+
+// --- convertVideos scale filter for MOV ---
+
+describe('convertVideos MOV scale filter', () => {
+  it('includes scale=trunc for MOV to ensure even dimensions', () => {
+    // Read results.js source directly to verify the scale filter is present
+    const src = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'cli', 'results.js'), 'utf-8');
+    expect(src).toContain("'scale=trunc(iw/2)*2:trunc(ih/2)*2'");
+    expect(src).toContain("format === 'mov'");
   });
 });
 

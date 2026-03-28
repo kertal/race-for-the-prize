@@ -2,7 +2,8 @@
  * Generates a self-contained HTML file with a retro Grand Prix styled
  * video player for race results. Supports 2-5 racers.
  *
- * The HTML structure and CSS live in player.html (a real HTML template).
+ * The HTML structure lives in player.html (a real HTML template).
+ * The CSS lives in player.css (inlined into the exported HTML at build time).
  * Section builders live in player-sections.js.
  * The browser-side player runtime lives in player-runtime.js.
  * This module wires everything together via {{placeholder}} replacement.
@@ -33,6 +34,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const RAW_HTML = fs.readFileSync(path.join(__dirname, 'player.html'), 'utf-8');
 const RUNTIME = fs.readFileSync(path.join(__dirname, 'player-runtime.js'), 'utf-8');
+const CSS = fs.readFileSync(path.join(__dirname, 'player.css'), 'utf-8');
 
 // Extract build-time templates (build-*) from HTML and strip them from the main template
 function extractBuildTemplates(html) {
@@ -48,8 +50,12 @@ const { mainTemplate: TEMPLATE, templates: BUILD_TEMPLATES } = extractBuildTempl
 setTemplates(BUILD_TEMPLATES);
 
 // ---------------------------------------------------------------------------
-// Player Script Builder — reads player-runtime.js and injects config
+// Style & Script Builders — read from external files and inline at export
 // ---------------------------------------------------------------------------
+
+function buildStyles(layoutCss) {
+  return '<style>\n' + CSS + '  ' + layoutCss + '\n</style>';
+}
 
 function buildPlayerScript(config) {
   return '<script>\n(function() {\n' +
@@ -113,8 +119,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
 </div>` : '';
 
     debugPanelOut = hasClipTimes ? buildDebugPanelHtml(racers, placementOrder, clipTimes) : '';
-    const calibrationBtn = hasClipTimes ? '<button class="export-btn" id="modeDebug" title="Calibrate clip start times">Calibration</button>' : '';
-    playerSection = buildPlayerSectionHtml(videoElements, mergedVideoElement, { calibrationBtn });
+    playerSection = buildPlayerSectionHtml(videoElements, mergedVideoElement);
 
     const videoIds = placementOrder.map((_, i) => `v${i}`);
     const orderedVideoFiles = placementOrder.map(i => videoFiles[i]);
@@ -145,9 +150,10 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     ${mergedBtn}
   </div>` : '';
 
+  const layoutCss = `.player-container { max-width: ${containerMaxWidth}px; }\n  .racer { max-width: ${maxWidth}px; }`;
   return render(TEMPLATE, {
     title,
-    layoutCss: `.player-container { max-width: ${containerMaxWidth}px; }\n  .racer { max-width: ${maxWidth}px; }`,
+    styles: buildStyles(layoutCss),
     runNav: buildRunNavHtml(runNavigation),
     winnerBanner,
     videoSourceNote: '',

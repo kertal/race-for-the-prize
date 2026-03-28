@@ -87,20 +87,6 @@ const hiddenRacers = new Set();
 const STEP = 0.1;
 let loadedSrcSet = 'race';
 let pendingSeek = null;
-let calibrationFatalError = null;
-
-function failCalibration(msg) {
-  if (calibrationFatalError) return;
-  calibrationFatalError = msg;
-  if (timeDisplay) timeDisplay.textContent = msg;
-  if (frameDisplay) frameDisplay.textContent = 'manual calibration required';
-  if (playBtn) playBtn.disabled = true;
-  if (scrubber) scrubber.disabled = true;
-  // Log to console rather than throwing: this function is called from event
-  // listeners (loadedmetadata, durationchange) where an uncaught throw would
-  // surface as an unhandled exception without providing any extra information.
-  console.error('[player] calibration failed:', msg);
-}
 
 function applyCalibrationToClip(ct, ptsStart, videoDuration) {
   const segDuration = ct._wcEnd - ct._wcStart;
@@ -193,8 +179,6 @@ function seekAll(t) {
 const _durationForced = new WeakMap();
 
 function onMeta() {
-  if (calibrationFatalError) return;
-
   // Block calibration until every video has a finite duration.
   // readyState >= 1 (HAVE_METADATA) means the duration field is populated.
   // We must check ALL videos before proceeding: a second loadedmetadata
@@ -227,19 +211,29 @@ function onMeta() {
       const wasConverted = !!clipEntry._converted;
       if (clipEntry._wcStart == null) { clipEntry._wcStart = clipEntry.start; clipEntry._wcEnd = clipEntry.end; }
       if (!canApplyTraceCalibration(clipEntry)) {
-        failCalibration('Calibration error: missing trace calibration metadata. Please calibrate manually.');
-        return;
+        // No trace calibration metadata — use raw clip times as-is (e.g. URL mode races)
+        clipEntry._converted = true;
+        convertedAny = true;
+        continue;
       }
       // recordingStartTs − firstFrameTs gives the PTS offset (µs) where recording
       // started relative to the first captured frame; divide to get seconds.
       const tracePtsStart = (clipEntry.traceCalibration.recordingStartTs - clipEntry.traceCalibration.firstFrameTs) / US_PER_SECOND;
       if (!Number.isFinite(tracePtsStart) || tracePtsStart < 0) {
-        failCalibration('Calibration error: invalid trace timestamps. Please calibrate manually.');
-        return;
+        // Invalid trace timestamps — use raw clip times as-is
+        clipEntry._converted = true;
+        convertedAny = true;
+        continue;
       }
       applyCalibrationToClip(clipEntry, tracePtsStart, videos[i].duration);
       if (!wasConverted && clipEntry._converted) convertedAny = true;
     }
+  }
+  // Recompute segment clip times after calibration (they depend on traceTsToClipPts
+  // which uses the now-calibrated traceCalibration data on clipTimes entries).
+  // Skip for __all__ (uses base clipTimes) and __full__ (intentionally null).
+  if (convertedAny && activeSegmentName && activeSegmentName !== '__all__' && activeSegmentName !== '__full__') {
+    activeSegmentClipTimes = getSegmentClipTimes(activeSegmentName);
   }
   activeClip = resolveAdjustedClip();
   buildSegmentNav();
@@ -344,6 +338,32 @@ const modeMerged = document.getElementById('modeMerged');
 const modeDebug = document.getElementById('modeDebug');
 const debugPanel = document.getElementById('debugPanel');
 const segmentNav = document.getElementById('segmentNav');
+const settingsToggle = document.getElementById('settingsToggle');
+const settingsPanel = document.getElementById('settingsPanel');
+
+if (settingsToggle && settingsPanel) {
+  settingsToggle.addEventListener('click', () => {
+    const visible = settingsPanel.classList.toggle('visible');
+    settingsToggle.classList.toggle('active', visible);
+  });
+}
+
+const shareToggle = document.getElementById('shareToggle');
+const shareMenu = document.getElementById('shareMenu');
+
+if (shareToggle && shareMenu) {
+  shareToggle.addEventListener('click', () => {
+    const visible = shareMenu.classList.toggle('visible');
+    shareToggle.classList.toggle('active', visible);
+  });
+  // Close menu when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!shareToggle.contains(e.target) && !shareMenu.contains(e.target)) {
+      shareMenu.classList.remove('visible');
+      shareToggle.classList.remove('active');
+    }
+  });
+}
 
 function setActiveMode(btn) {
   [modeRace, modeFull, modeMerged].forEach(b => b?.classList.remove('active'));
@@ -387,23 +407,15 @@ function switchMode(targetSrcSet, targetVideos, modeBtn, opts) {
 
 function hideCalibration() {
   if (debugPanel) debugPanel.style.display = 'none';
-  if (modeDebug) { modeDebug.classList.remove('active'); modeDebug.style.display = 'none'; }
-}
-
-function showCalibrationBtn() {
-  if (modeDebug) modeDebug.style.display = '';
+  if (modeDebug) modeDebug.classList.remove('active');
 }
 
 function resetSegmentState({ hide = false } = {}) {
   activeSegmentName = null;
   activeSegmentClipTimes = null;
   if (!segmentNav) return;
-  segmentNav.querySelectorAll('.segment-btn').forEach((b) => {
-    b.classList.remove('active');
-  });
-  const allBtn = segmentNav.querySelector('.segment-btn[data-segment="__all__"]');
-  if (allBtn) allBtn.classList.add('active');
-  segmentNav.style.display = hide ? 'none' : (segmentNavBuilt ? 'flex' : 'none');
+  segmentNav.value = '__all__';
+  segmentNav.style.display = hide ? 'none' : (segmentNavBuilt ? 'inline-block' : 'none');
 }
 
 function switchToRace() {
@@ -413,7 +425,6 @@ function switchToRace() {
       playerContainer.style.display = 'flex';
       if (mergedContainer) mergedContainer.style.display = 'none';
       hideCalibration();
-      showCalibrationBtn();
       resetSegmentState({ hide: false });
     },
     doSeek() {
@@ -676,11 +687,6 @@ function buildSegmentNav() {
   segmentNavBuilt = true;
   segmentNav.innerHTML = '';
 
-  function setActiveSegBtn(btn) {
-    segmentNav.querySelectorAll('.segment-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-  }
-
   // Switch to race-clip videos if we were in whole-recording (full) mode
   function ensureRaceMode(callback) {
     if (fullVideoPaths && loadedSrcSet === 'full') {
@@ -698,73 +704,69 @@ function buildSegmentNav() {
     }
   }
 
-  // "Whole Recording" — shows full unclipped recording
-  const fullBtn = document.createElement('button');
-  fullBtn.className = 'segment-btn';
-  fullBtn.textContent = 'Whole Recording';
-  fullBtn.dataset.segment = '__full__';
-  fullBtn.addEventListener('click', () => {
-    setActiveSegBtn(fullBtn);
-    activeSegmentName = '__full__';
-    activeSegmentClipTimes = null;
-    const doSeek = () => { activeClip = null; seekAll(0); scrubber.value = 0; updateTimeDisplay(); };
-    if (fullVideoPaths && loadedSrcSet !== 'full') {
-      if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
-      detachVideoListeners();
-      raceVideos.forEach((v, i) => { v.src = resolvedFullPaths[i]; });
-      loadedSrcSet = 'full';
-      videos = raceVideos;
-      primary = videos[0];
-      attachVideoListeners();
-      duration = 0;
-      pendingSeek = doSeek;
-    } else {
-      doSeek();
-    }
-  });
-  segmentNav.appendChild(fullBtn);
+  // Build dropdown options
+  const fullOpt = document.createElement('option');
+  fullOpt.value = '__full__';
+  fullOpt.textContent = 'Whole Recording';
+  segmentNav.appendChild(fullOpt);
 
-  // "All" — shows all measurements combined
-  const allBtn = document.createElement('button');
-  allBtn.className = 'segment-btn active';
-  allBtn.textContent = 'Race Recording';
-  allBtn.dataset.segment = '__all__';
-  allBtn.addEventListener('click', () => {
-    setActiveSegBtn(allBtn);
-    activeSegmentName = null;
-    activeSegmentClipTimes = null;
-    ensureRaceMode(() => {
-      activeClip = resolveAdjustedClip();
-      seekAll(activeClip ? activeClip.start : 0);
-      scrubber.value = 0;
-      updateTimeDisplay();
-    });
-  });
-  segmentNav.appendChild(allBtn);
+  const allOpt = document.createElement('option');
+  allOpt.value = '__all__';
+  allOpt.textContent = 'Race Recording';
+  allOpt.selected = true;
+  segmentNav.appendChild(allOpt);
 
-  // Individual measurement buttons — only shown when there are multiple measurements
   if (names.length > 1) {
     for (const name of names) {
-      const btn = document.createElement('button');
-      btn.className = 'segment-btn';
-      btn.textContent = name;
-      btn.dataset.segment = name;
-      btn.addEventListener('click', () => {
-        setActiveSegBtn(btn);
-        activeSegmentName = name;
-        activeSegmentClipTimes = getSegmentClipTimes(name);
-        ensureRaceMode(() => {
-          activeClip = resolveAdjustedClip();
-          seekAll(activeClip ? activeClip.start : 0);
-          scrubber.value = 0;
-          updateTimeDisplay();
-        });
-      });
-      segmentNav.appendChild(btn);
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      segmentNav.appendChild(opt);
     }
   }
 
-  segmentNav.style.display = 'flex';
+  segmentNav.addEventListener('change', () => {
+    const val = segmentNav.value;
+    if (val === '__full__') {
+      activeSegmentName = '__full__';
+      activeSegmentClipTimes = null;
+      const doSeek = () => { activeClip = null; seekAll(0); scrubber.value = 0; updateTimeDisplay(); };
+      if (fullVideoPaths && loadedSrcSet !== 'full') {
+        if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
+        detachVideoListeners();
+        raceVideos.forEach((v, i) => { v.src = resolvedFullPaths[i]; });
+        loadedSrcSet = 'full';
+        videos = raceVideos;
+        primary = videos[0];
+        attachVideoListeners();
+        duration = 0;
+        pendingSeek = doSeek;
+      } else {
+        doSeek();
+      }
+    } else if (val === '__all__') {
+      activeSegmentName = null;
+      activeSegmentClipTimes = null;
+      ensureRaceMode(() => {
+        activeClip = resolveAdjustedClip();
+        seekAll(activeClip ? activeClip.start : 0);
+        scrubber.value = 0;
+        updateTimeDisplay();
+      });
+    } else {
+      activeSegmentName = val;
+      activeSegmentClipTimes = getSegmentClipTimes(val);
+      ensureRaceMode(() => {
+        activeClip = resolveAdjustedClip();
+        seekAll(activeClip ? activeClip.start : 0);
+        scrubber.value = 0;
+        updateTimeDisplay();
+      });
+    }
+  });
+
+  segmentNav.style.display = 'inline-block';
+  if (modeDebug) modeDebug.style.display = '';
 }
 
 function buildRacerFilter() {
@@ -983,7 +985,7 @@ document.getElementById('goStart').addEventListener('click', goToStart);
 document.getElementById('goEnd').addEventListener('click', goToEnd);
 
 document.addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'SELECT') return;
+  if (e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
   if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-STEP); }
   else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(STEP); }
   else if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
@@ -991,6 +993,24 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'End') { e.preventDefault(); goToEnd(); }
   else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFullscreen(); }
 });
+
+// --- Notes: persist in localStorage ---
+
+const notesTextarea = document.getElementById('notesTextarea');
+if (notesTextarea) {
+  const notesKey = 'race-notes:' + location.pathname;
+  try {
+    const stored = localStorage.getItem(notesKey);
+    // Use stored value if present; otherwise keep any baked-in content (from export)
+    if (stored !== null) notesTextarea.value = stored;
+  } catch (e) { /* storage unavailable (privacy mode / sandboxed) */ }
+
+  let notesTimer;
+  const saveNotes = () => { try { localStorage.setItem(notesKey, notesTextarea.value); } catch (e) {} };
+  notesTextarea.addEventListener('input', () => { clearTimeout(notesTimer); notesTimer = setTimeout(saveNotes, 400); });
+  notesTextarea.addEventListener('blur', saveNotes);
+  window.addEventListener('beforeunload', saveNotes, { once: true });
+}
 
 // --- Racer filter (3+ racers only) ---
 
@@ -1100,7 +1120,9 @@ function getExportLayout(count) {
     for (let i = 0; i < count - 3; i++) positions.push({ x: bottomOffset + i * targetW, y: slotH });
   }
   const canvasW = (count >= 5 ? 3 : cols) * targetW;
-  const canvasH = rows * slotH;
+  const rawH = rows * slotH;
+  // libx264 (MOV) requires even dimensions; bump odd height by 1
+  const canvasH = rawH + (rawH % 2);
   return { canvasW, canvasH, targetW, cellH, labelH: LABEL_H, positions };
 }
 
@@ -1215,10 +1237,10 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
         args = trimArgs.concat(['-i', inFile, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', outFile]);
       }
       progressFill.style.width = '50%';
-      return ff.exec(args);
+      return ff.exec(args, 300000);
     }).then(exitCode => {
-      if (cancelled || exitCode == null) return;
-      if (exitCode !== 0) throw new Error('ffmpeg exited with code ' + exitCode + ' — conversion failed');
+      if (cancelled) return;
+      if (exitCode == null || exitCode !== 0) throw new Error('ffmpeg exited with code ' + exitCode + ' — conversion failed');
       progressFill.style.width = '90%';
       return ff.readFile(outFile);
     }).then(data => {
@@ -1248,9 +1270,13 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
     });
   }).catch(err => {
     revokeOutUrl();
+    // Terminate the ffmpeg worker on failure/timeout so it doesn't stay hung.
+    // Setting ffmpegInstance to null forces a fresh load on the next attempt.
     if (ffmpegInstance) {
       ffmpegInstance.deleteFile(inFile).catch(() => {});
       ffmpegInstance.deleteFile(outFile).catch(() => {});
+      try { ffmpegInstance.terminate(); } catch {}
+      ffmpegInstance = null;
     }
     statusEl.textContent = 'Conversion failed: ' + err.message;
     buttons.forEach(b => { b.disabled = false; });
@@ -1356,11 +1382,14 @@ async function startExport() {
   raceVideos.forEach(v => { if (v) { v.playbackRate = exportRate; v.play(); } });
   const speedLabel = exportRate !== 1 ? ' (' + exportRate + 'x)' : '';
 
+  let exportTimeOffset = null;
   function tick() {
     if (cancelled) return;
     const cur = Math.max(...raceVideos.map(v => v?.currentTime || 0));
-    drawExportFrame(ctx, layout, cur);
-    const progress = totalDur > 0 ? Math.min(1, (cur - startTime) / totalDur) : 0;
+    if (exportTimeOffset === null) exportTimeOffset = cur;
+    const elapsed = cur - exportTimeOffset;
+    drawExportFrame(ctx, layout, elapsed);
+    const progress = totalDur > 0 ? Math.min(1, elapsed / totalDur) : 0;
     progressFill.style.width = (progress * 100).toFixed(1) + '%';
     statusEl.textContent = 'Recording' + speedLabel + '... ' + Math.round(progress * 100) + '%';
     const allDone = raceVideos.every((v, i) => !v || v.currentTime >= perVideoEnd[i] || v.ended);
@@ -1401,11 +1430,38 @@ function toggleFullscreen() {
   } catch (_) { /* unsupported */ }
 }
 
+let fsHideTimer = null;
+
+function showFsControls() {
+  if (!fullscreenWrapper) return;
+  fullscreenWrapper.classList.add('fs-controls-visible');
+  clearTimeout(fsHideTimer);
+  if (isFullscreen()) {
+    fsHideTimer = setTimeout(() => {
+      fullscreenWrapper.classList.remove('fs-controls-visible');
+    }, 2500);
+  }
+}
+
 function onFullscreenChange() {
+  const fs = isFullscreen();
   if (fullscreenBtn) {
-    const fs = isFullscreen();
     fullscreenBtn.textContent = fs ? '\u2716' : '\u26F6';
     fullscreenBtn.title = fs ? 'Exit fullscreen (Esc)' : 'Fullscreen (F)';
+  }
+  if (fs) {
+    // Compute optimal grid columns: ceil(sqrt(visibleCount))
+    const visibleCount = raceVideos.length - hiddenRacers.size;
+    const cols = Math.ceil(Math.sqrt(visibleCount));
+    if (playerContainer) playerContainer.style.setProperty('--fs-cols', cols);
+    showFsControls();
+    fullscreenWrapper.addEventListener('mousemove', showFsControls);
+    fullscreenWrapper.addEventListener('click', showFsControls);
+  } else {
+    clearTimeout(fsHideTimer);
+    fullscreenWrapper.classList.remove('fs-controls-visible');
+    fullscreenWrapper.removeEventListener('mousemove', showFsControls);
+    fullscreenWrapper.removeEventListener('click', showFsControls);
   }
 }
 
@@ -1533,6 +1589,12 @@ function buildExportHtml(pathOverrides = {}, { slim = false } = {}) {
   // Remove any active export overlays
   doc.querySelectorAll('.export-overlay').forEach(el => el.remove());
 
+  // Bake current notes into the exported HTML so they appear without localStorage
+  const notesEl = doc.querySelector('#notesTextarea');
+  if (notesEl && notesTextarea) {
+    notesEl.textContent = notesTextarea.value;
+  }
+
   // Remove file links pointing to embedded videos (they're in the HTML, not as separate files)
   if (Object.keys(pathOverrides).length > 0) {
     doc.querySelectorAll('.file-links a').forEach(a => {
@@ -1550,11 +1612,14 @@ function buildExportHtml(pathOverrides = {}, { slim = false } = {}) {
       const section = el.closest('details.section') || el.closest('.section');
       if (section) section.remove(); else el.remove();
     });
-    // Remove segment navigation (Whole Recording / Race Recording buttons)
-    const segNav = doc.querySelector('#segmentNav');
-    if (segNav) segNav.remove();
-    // Remove mode toggle (race/full/merged buttons)
-    doc.querySelectorAll('.mode-toggle').forEach(el => el.remove());
+    // Remove settings panel (segment nav, mode toggle, calibration)
+    const sp = doc.querySelector('#settingsPanel');
+    if (sp) sp.remove();
+    const stBtn = doc.querySelector('#settingsToggle');
+    if (stBtn) stBtn.remove();
+    // Remove share menu and toggle
+    const shBtn = doc.querySelector('#shareToggle');
+    if (shBtn) { const group = shBtn.closest('.header-icon-group'); if (group) group.remove(); else shBtn.remove(); }
   }
 
   // Clear dynamically-built UI so the script rebuilds it cleanly on load

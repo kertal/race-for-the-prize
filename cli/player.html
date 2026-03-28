@@ -6,800 +6,40 @@
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#1a1a1a">
 <title>{{title}}</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: #1a1a1a;
-    color: #e8e0d0;
-    font-family: ui-monospace, 'Courier New', monospace;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-  .checkered-bar {
-    width: 100%;
-    height: 20px;
-    background: repeating-conic-gradient(#222 0% 25%, #d4af37 0% 50%) 0 0 / 20px 20px;
-  }
-  .run-nav {
-    display: flex;
-    gap: 0.4rem;
-    padding: 0.7rem 1rem 0;
-    justify-content: center;
-    flex-wrap: wrap;
-  }
-  .run-nav-btn {
-    background: #2a2a2a;
-    color: #999;
-    border: 1px solid #444;
-    border-radius: 4px;
-    padding: 0.3rem 0.8rem;
-    font-size: 0.8rem;
-    text-decoration: none;
-    font-family: ui-monospace, 'Courier New', monospace;
-    transition: all 0.2s;
-  }
-  .run-nav-btn:hover {
-    background: #3a3a3a;
-    border-color: #d4af37;
-    color: #e8e0d0;
-  }
-  .run-nav-btn.active {
-    background: #d4af37;
-    color: #1a1a1a;
-    border-color: #d4af37;
-    font-weight: bold;
-    cursor: default;
-  }
-  h1 {
-    font-family: Georgia, 'Times New Roman', serif;
-    font-size: 1.8rem;
-    color: #d4af37;
-    text-align: center;
-    padding: 1.2rem 0 0.3rem;
-    text-transform: uppercase;
-    letter-spacing: 0.15em;
-  }
-  .winner-banner:empty { display: none; }
-  .winner-banner {
-    text-align: center;
-    font-family: Georgia, serif;
-    font-size: 1.2rem;
-    color: #e8e0d0;
-    padding-bottom: 1rem;
-  }
-  .trophy { font-size: 1.1rem; }
-  .video-source-note {
-    text-align: center;
-    font-size: 0.8rem;
-    color: #777;
-    padding-bottom: 0.5rem;
-  }
-  .race-info, .machine-info {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-    gap: 0.1rem 1.5rem;
-    font-size: 0.8rem;
-    color: #ccc;
-    padding: 0.1rem 0;
-  }
-  .info-item {
-    white-space: nowrap;
-  }
-  .info-label {
-    color: #999;
-    margin-right: 0.4rem;
-  }
-  .errors {
-    max-width: 900px;
-    width: 100%;
-    padding: 0.3rem 1.5rem;
-  }
-  .errors ul {
-    list-style: none;
-    font-size: 0.85rem;
-    color: #e74c3c;
-  }
-  .errors li::before { content: "\26A0  "; }
-  .mode-toggle {
-    display: flex;
-    gap: 0.5rem;
-    padding: 0.5rem 0 1rem;
-    justify-content: center;
-  }
-  .mode-btn {
-    background: #2a2a2a;
-    color: #999;
-    border: 1px solid #555;
-    border-radius: 4px;
-    padding: 0.4rem 1rem;
-    font-size: 0.85rem;
-    cursor: pointer;
-    font-family: ui-monospace, 'Courier New', monospace;
-    transition: all 0.2s;
-  }
-  .mode-btn:hover {
-    background: #3a3a3a;
-    border-color: #d4af37;
-    color: #e8e0d0;
-  }
-  .mode-btn.active {
-    background: #d4af37;
-    color: #1a1a1a;
-    border-color: #d4af37;
-    font-weight: bold;
-  }
-  .racer-filter {
-    display: none;
-    gap: 0.4rem;
-    padding: 0.5rem 0 0.8rem;
-    justify-content: center;
-    flex-wrap: wrap;
-  }
-  .racer-filter-btn {
-    border: 1px solid currentColor;
-    border-radius: 4px;
-    padding: 0.3rem 0.9rem;
-    font-size: 0.82rem;
-    cursor: pointer;
-    font-family: ui-monospace, 'Courier New', monospace;
-    background: #2a2a2a;
-    transition: opacity 0.2s, background 0.2s;
-    opacity: 0.35;
-  }
-  .racer-filter-btn.active { opacity: 1; }
-  .racer-filter-btn:not(.active):hover { background: #3a3a3a; opacity: 0.6; }
-  .racer-filter-btn.active:hover { background: #3a3a3a; }
-  .segment-export-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    max-width: 1440px;
-    padding: 0 1.5rem 0.4rem;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
-  .export-btns {
-    display: flex;
-    gap: 0.5rem;
-    flex-shrink: 0;
-  }
-  .segment-nav {
-    display: none;
-    gap: 0.4rem;
-    padding: 0;
-    justify-content: flex-start;
-    flex-wrap: wrap;
-    flex: 1;
-  }
-  .segment-btn {
-    background: #2a2a2a;
-    color: #999;
-    border: 1px solid #555;
-    border-radius: 4px;
-    padding: 0.3rem 0.9rem;
-    font-size: 0.82rem;
-    cursor: pointer;
-    font-family: ui-monospace, 'Courier New', monospace;
-    transition: all 0.2s;
-  }
-  .segment-btn:hover {
-    background: #3a3a3a;
-    border-color: #d4af37;
-    color: #e8e0d0;
-  }
-  .segment-btn.active {
-    background: #1a3a1a;
-    color: #7de07d;
-    border-color: #5cb85c;
-    font-weight: bold;
-  }
-  .player-container {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1rem;
-    padding: 0 1.5rem;
-    width: 100%;
-    justify-content: center;
-  }
-  .racer {
-    flex: 1;
-    min-width: 280px;
-    text-align: center;
-  }
-  .racer-label {
-    font-family: Georgia, serif;
-    font-size: 1.1rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    padding: 0.5rem 0;
-  }
-  video {
-    width: 100%;
-    border: 2px solid #333;
-    border-radius: 4px;
-    background: #000;
-  }
-  .merged-container {
-    max-width: 1200px;
-    width: 100%;
-    padding: 0 1.5rem;
-  }
-  .merged-container video { width: 100%; }
-  .controls {
-    max-width: 900px;
-    width: 100%;
-    padding: 1rem 1.5rem;
-    display: flex;
-    align-items: center;
-    gap: 0.8rem;
-    flex-wrap: wrap;
-  }
-  .controls-row {
-    display: flex;
-    align-items: center;
-    gap: 0.8rem;
-    flex: 1;
-    min-width: 300px;
-  }
-  .play-btn {
-    background: #d4af37;
-    color: #1a1a1a;
-    border: none;
-    border-radius: 4px;
-    width: 44px;
-    height: 34px;
-    font-size: 1.1rem;
-    cursor: pointer;
-    font-weight: bold;
-    flex-shrink: 0;
-  }
-  .play-btn:hover { background: #e8c445; }
-  .frame-btn {
-    background: #2a2a2a;
-    color: #d4af37;
-    border: 1px solid #555;
-    border-radius: 4px;
-    width: 34px;
-    height: 34px;
-    font-size: 0.7rem;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  .frame-btn:hover { background: #3a3a3a; border-color: #d4af37; }
-  .scrubber {
-    flex: 1;
-    accent-color: #d4af37;
-    height: 6px;
-    cursor: pointer;
-  }
-  .time-display {
-    font-size: 0.75rem;
-    color: #999;
-    min-width: 140px;
-    text-align: center;
-    flex-shrink: 0;
-  }
-  .frame-display {
-    font-size: 0.75rem;
-    color: #777;
-    min-width: 80px;
-    text-align: center;
-    flex-shrink: 0;
-  }
-  .speed-select {
-    background: #2a2a2a;
-    color: #e8e0d0;
-    border: 1px solid #555;
-    border-radius: 4px;
-    padding: 0.3rem 0.4rem;
-    font-size: 0.8rem;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  .section {
-    max-width: 900px;
-    width: 100%;
-    padding: 0.8rem 1.5rem 0.5rem;
-  }
-  .section > summary {
-    cursor: pointer;
-    list-style: none;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.2rem 0;
-  }
-  .section > summary::-webkit-details-marker { display: none; }
-  .section > summary::before {
-    content: "\25B6";
-    font-size: 0.55rem;
-    color: #666;
-    display: inline-block;
-    transition: transform 0.2s;
-    flex-shrink: 0;
-  }
-  .section[open] > summary::before {
-    transform: rotate(90deg);
-  }
-  .section > summary h2 {
-    font-family: Georgia, serif;
-    color: #d4af37;
-    font-size: 1rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin: 0;
-  }
-  .section-body {
-    padding-top: 0.4rem;
-  }
-.profile-note {
-    color: #777;
-    font-size: 0.8rem;
-    margin-bottom: 1rem;
-  }
-  .profile-scope-desc {
-    color: #888;
-    font-size: 0.78rem;
-    font-style: italic;
-    margin: -0.2rem 0 0.8rem;
-  }
-  .profile-category-desc {
-    color: #777;
-    font-size: 0.75rem;
-    margin: -0.2rem 0 0.5rem;
-  }
-  .profile-metric-desc {
-    color: #777;
-    font-size: 0.73rem;
-    margin: 0 0 0.2rem 0;
-    line-height: 1.4;
-  }
-  .profile-info-icon {
-    color: #888;
-    font-size: 0.7rem;
-    cursor: help;
-  }
-  .section h3 {
-    color: #e8e0d0;
-    font-size: 0.95rem;
-    margin: 1rem 0 0.5rem;
-    border-bottom: 1px solid #444;
-    padding-bottom: 0.3rem;
-  }
-  .section h4 {
-    color: #999;
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin: 0.8rem 0 0.4rem;
-  }
-  .profile-metric { margin-bottom: 0.6rem; }
-  .profile-metric-name {
-    color: #888;
-    font-size: 0.8rem;
-    margin-bottom: 0.2rem;
-  }
-  .profile-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.15rem 0;
-    font-size: 0.82rem;
-  }
-  .profile-racer {
-    font-weight: bold;
-    min-width: 110px;
-    flex-shrink: 0;
-  }
-  .profile-bar-track {
-    flex: 1;
-    height: 10px;
-    background: #2a2a2a;
-    border-radius: 3px;
-    overflow: hidden;
-  }
-  .profile-bar-fill {
-    display: block;
-    height: 100%;
-    border-radius: 3px;
-    opacity: 0.8;
-  }
-  .profile-value {
-    min-width: 140px;
-    flex-shrink: 0;
-    text-align: right;
-    color: #ccc;
-    white-space: nowrap;
-  }
-  .profile-delta {
-    color: #888;
-    font-size: 0.75rem;
-    margin-left: 0.3rem;
-  }
-  .profile-medal { font-size: 0.85rem; }
-  .profile-winner {
-    font-size: 0.9rem;
-    font-weight: bold;
-    margin-top: 0.2rem;
-  }
-  .profile-collapsible {
-    margin-top: 1rem;
-  }
-  .profile-collapsible summary {
-    cursor: pointer;
-    list-style: none;
-    color: #e8e0d0;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .profile-collapsible summary::-webkit-details-marker { display: none; }
-  .profile-collapsible summary::before {
-    content: "\25B6";
-    font-size: 0.55rem;
-    color: #666;
-    transition: transform 0.2s;
-    display: inline-block;
-    flex-shrink: 0;
-  }
-  .profile-collapsible[open] summary::before {
-    transform: rotate(90deg);
-  }
-  .file-links {
-    display: flex;
-    gap: 0.6rem;
-    flex-wrap: wrap;
-  }
-  .file-links a {
-    color: #e8e0d0;
-    background: #2a2a2a;
-    border: 1px solid #555;
-    border-radius: 4px;
-    padding: 0.4rem 0.8rem;
-    text-decoration: none;
-    font-size: 0.85rem;
-  }
-  .file-links a:hover {
-    background: #3a3a3a;
-    border-color: #d4af37;
-  }
-  .debug-panel {
-    max-width: 900px;
-    width: 100%;
-    padding: 0.8rem 1.5rem;
-    background: #2a2218;
-    border: 1px solid #e67e22;
-    border-radius: 6px;
-    margin: 0 auto;
-    display: none;
-  }
-  .debug-panel h3 {
-    color: #e67e22;
-    font-family: Georgia, serif;
-    font-size: 0.95rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-bottom: 0.6rem;
-  }
-  .debug-row {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    padding: 0.3rem 0;
-    font-size: 0.85rem;
-    flex-wrap: wrap;
-  }
-  .debug-row .racer-name {
-    font-weight: bold;
-    min-width: 90px;
-  }
-  .debug-row .start-info {
-    color: #999;
-    min-width: 150px;
-  }
-  .debug-frame-btn {
-    background: #2a2a2a;
-    color: #e67e22;
-    border: 1px solid #e67e22;
-    border-radius: 3px;
-    padding: 0.2rem 0.5rem;
-    font-size: 0.75rem;
-    cursor: pointer;
-    font-family: ui-monospace, 'Courier New', monospace;
-    transition: all 0.2s;
-  }
-  .debug-frame-btn:hover {
-    background: #e67e22;
-    color: #1a1a1a;
-  }
-  .debug-footer {
-    display: flex;
-    align-items: center;
-    gap: 0.8rem;
-    margin-top: 0.6rem;
-    padding-top: 0.5rem;
-    border-top: 1px solid #444;
-    font-size: 0.75rem;
-    color: #777;
-    flex-wrap: wrap;
-  }
-  .debug-action-btn {
-    background: #2a2a2a;
-    color: #e67e22;
-    border: 1px solid #e67e22;
-    border-radius: 4px;
-    padding: 0.3rem 0.8rem;
-    font-size: 0.8rem;
-    cursor: pointer;
-    font-family: ui-monospace, 'Courier New', monospace;
-    transition: all 0.2s;
-  }
-  .debug-action-btn:hover {
-    background: #e67e22;
-    color: #1a1a1a;
-  }
-  .debug-stats {
-    margin-top: 0.6rem;
-    padding-top: 0.5rem;
-    border-top: 1px solid #444;
-  }
-  .debug-stats-header {
-    color: #e67e22;
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-bottom: 0.3rem;
-  }
-  .debug-stats-row {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    padding: 0.15rem 0;
-    font-size: 0.8rem;
-    color: #999;
-    flex-wrap: wrap;
-  }
-  .debug-stats-row .racer-name {
-    font-weight: bold;
-    min-width: 90px;
-  }
-  .debug-frames {
-    margin-top: 0.6rem;
-    padding-top: 0.5rem;
-    border-top: 1px solid #444;
-  }
-  .debug-timing {
-    margin-top: 0.6rem;
-    padding-top: 0.5rem;
-    border-top: 1px solid #444;
-  }
-  .debug-timing-racer {
-    margin-bottom: 0.5rem;
-  }
-  .debug-timing-racer .racer-name {
-    font-weight: bold;
-    font-size: 0.8rem;
-    display: block;
-    margin-bottom: 0.2rem;
-  }
-  .debug-timing-events {
-    font-size: 0.75rem;
-    color: #999;
-  }
-  .debug-timing-event {
-    display: flex;
-    gap: 0.5rem;
-    padding: 0.1rem 0;
-    border-bottom: 1px solid #333;
-  }
-  .debug-timing-label {
-    flex: 1;
-    min-width: 150px;
-  }
-  .debug-timing-val {
-    min-width: 70px;
-    text-align: right;
-    color: #bbb;
-  }
-  .export-btn {
-    background: #2a2a2a;
-    color: #d4af37;
-    border: 1px solid #d4af37;
-    border-radius: 4px;
-    padding: 0.3rem 0.7rem;
-    font-size: 0.8rem;
-    cursor: pointer;
-    font-family: ui-monospace, 'Courier New', monospace;
-    flex-shrink: 0;
-    transition: all 0.2s;
-  }
-  .export-btn:hover { background: #d4af37; color: #1a1a1a; }
-  .export-overlay {
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.85);
-    z-index: 1000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .export-modal {
-    background: #1a1a1a;
-    border: 2px solid #d4af37;
-    border-radius: 8px;
-    padding: 1.5rem;
-    max-width: 90vw;
-    max-height: 90vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 1rem;
-  }
-  .export-modal h3 {
-    font-family: Georgia, serif;
-    color: #d4af37;
-    font-size: 1rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin: 0;
-  }
-  .export-modal canvas {
-    border: 1px solid #333;
-    border-radius: 4px;
-    max-width: 100%;
-  }
-  .export-progress-bar {
-    width: 100%;
-    height: 8px;
-    background: #2a2a2a;
-    border-radius: 4px;
-    overflow: hidden;
-  }
-  .export-progress-fill {
-    height: 100%;
-    background: #d4af37;
-    border-radius: 4px;
-    width: 0%;
-    transition: width 0.2s;
-  }
-  .export-actions {
-    display: flex;
-    gap: 0.8rem;
-    align-items: center;
-  }
-  .export-actions button, .export-actions a {
-    background: #2a2a2a;
-    color: #e8e0d0;
-    border: 1px solid #555;
-    border-radius: 4px;
-    padding: 0.4rem 1rem;
-    font-size: 0.85rem;
-    cursor: pointer;
-    font-family: ui-monospace, 'Courier New', monospace;
-    text-decoration: none;
-    transition: all 0.2s;
-  }
-  .export-actions button:hover, .export-actions a:hover {
-    background: #3a3a3a;
-    border-color: #d4af37;
-  }
-  .export-status {
-    color: #999;
-    font-size: 0.85rem;
-  }
-  .export-convert-row {
-    display: flex;
-    gap: 0.6rem;
-    align-items: center;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-  .export-convert-row button {
-    background: #2a2a2a;
-    color: #d4af37;
-    border: 1px solid #d4af37;
-    border-radius: 4px;
-    padding: 0.4rem 1rem;
-    font-size: 0.85rem;
-    cursor: pointer;
-    font-family: ui-monospace, 'Courier New', monospace;
-    transition: all 0.2s;
-  }
-  .export-convert-row button:hover { background: #d4af37; color: #1a1a1a; }
-  .export-convert-row button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-    background: #2a2a2a;
-    color: #999;
-    border-color: #555;
-  }
-  .fullscreen-wrapper {
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-  .fullscreen-btn {
-    background: #2a2a2a;
-    color: #d4af37;
-    border: 1px solid #555;
-    border-radius: 4px;
-    width: 34px;
-    height: 34px;
-    font-size: 1rem;
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: all 0.2s;
-  }
-  .fullscreen-btn:hover { background: #3a3a3a; border-color: #d4af37; }
-  .fullscreen-wrapper:fullscreen,
-  .fullscreen-wrapper:-webkit-full-screen {
-    background: #1a1a1a;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    padding: 1rem;
-  }
-  .fullscreen-wrapper:fullscreen .player-container,
-  .fullscreen-wrapper:-webkit-full-screen .player-container {
-    flex: 1;
-    min-height: 0;
-    align-items: center;
-  }
-  .fullscreen-wrapper:fullscreen video,
-  .fullscreen-wrapper:-webkit-full-screen video {
-    max-height: calc(100vh - 80px);
-    object-fit: contain;
-  }
-  .fullscreen-wrapper:fullscreen .merged-container,
-  .fullscreen-wrapper:-webkit-full-screen .merged-container {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    max-width: 100%;
-  }
-  .fullscreen-wrapper:fullscreen .merged-container video,
-  .fullscreen-wrapper:-webkit-full-screen .merged-container video {
-    max-height: calc(100vh - 80px);
-    object-fit: contain;
-  }
-  .fullscreen-wrapper:fullscreen .controls,
-  .fullscreen-wrapper:-webkit-full-screen .controls {
-    padding-bottom: 0.5rem;
-  }
-  .sr-only {
-    position: absolute; width: 1px; height: 1px;
-    padding: 0; margin: -1px; overflow: hidden;
-    clip: rect(0,0,0,0); white-space: nowrap; border: 0;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after {
-      transition-duration: 0.01ms !important;
-      animation-duration: 0.01ms !important;
-    }
-  }
-  @media (max-width: 600px) {
-    .controls-row { min-width: auto; flex-wrap: wrap; }
-    .time-display { min-width: auto; }
-  }
-  {{layoutCss}}
-</style>
+{{styles}}
 </head>
 <body>
 
 <div class="checkered-bar"></div>
 {{runNav}}
-<h1>Race for the Prize</h1>
+<div class="header-bar">
+  <span class="header-icon header-icon-left">🏆</span>
+  <h1>Race for the Prize</h1>
+  <span class="header-icon header-icon-right">
+    <button class="header-action-btn" id="fullscreenBtn" title="Fullscreen (F)" aria-label="Toggle fullscreen">&#x26F6;</button>
+    <span class="header-icon-group">
+      <button class="header-action-btn" id="shareToggle" title="Export / Share" aria-label="Export and share menu">&#x1F4E4;</button>
+      <div class="share-menu" id="shareMenu">
+        <button class="share-menu-item" id="exportBtn">Export Recording</button>
+        <button class="share-menu-item" id="exportHtmlBtn">Export Zip</button>
+        <button class="share-menu-item" id="exportHtmlOnlyBtn">Export HTML</button>
+      </div>
+    </span>
+    <button class="header-action-btn" id="settingsToggle" title="Settings" aria-label="Toggle settings">&#x2699;</button>
+  </span>
+</div>
 <div class="winner-banner">{{winnerBanner}}</div>
 {{videoSourceNote}}
 {{errors}}
-{{modeToggle}}
+<div class="settings-panel" id="settingsPanel">
+  <div class="settings-left">
+    <div id="racerFilter" class="racer-filter"></div>
+  </div>
+  <div class="settings-right">
+    <select id="segmentNav" class="segment-nav" aria-label="Recording segment"></select>
+    {{modeToggle}}
+  </div>
+</div>
 
 {{playerSection}}
 
@@ -823,6 +63,14 @@
   <div class="section-body">
     {{raceInfo}}
     {{machineInfo}}
+  </div>
+</details>
+
+<details class="section">
+  <summary><h2>Notes</h2></summary>
+  <div class="section-body">
+    <label for="notesTextarea" class="sr-only">Race notes</label>
+    <textarea class="notes-textarea" id="notesTextarea" placeholder="Add notes about this race..."></textarea>
   </div>
 </details>
 
@@ -853,21 +101,12 @@
 <template id="build-racer-name"><span class="racer-name" style="color: {{color}}">{{name}}</span></template>
 
 <template id="build-player-section">
-<div id="racerFilter" class="racer-filter"></div>
 <div class="fullscreen-wrapper" id="fullscreenWrapper">
 <div class="player-container" id="playerContainer">
 {{videoElements}}
 </div>
 {{mergedVideoElement}}
 
-<div class="segment-export-row">
-  <div id="segmentNav" class="segment-nav"></div>
-  <div class="export-btns">
-    <button class="export-btn" id="exportBtn" title="Export side-by-side video">Export Recording</button>
-    <button class="export-btn" id="exportHtmlBtn" title="Export as self-contained HTML zip">Export Zip</button>
-    <button class="export-btn" id="exportHtmlOnlyBtn" title="Export as single self-contained HTML file">Export HTML</button>
-  </div>
-</div>
 <div class="controls">
   <div class="controls-row">
     <button class="frame-btn" id="goStart" title="Go to start (Home)" aria-label="Go to start">&#x23EE;</button>
@@ -882,13 +121,12 @@
   <span class="frame-display" id="frameDisplay">0.0s</span>
   <label for="speedSelect" class="sr-only">Playback speed</label>
   <select class="speed-select" id="speedSelect" aria-label="Playback speed">
-    <option value="0.25">0.25x</option>
-    <option value="0.5">0.5x</option>
-    <option value="1" selected>1x</option>
-    <option value="2">2x</option>
+    <option value="0.25">🚲 0.25x</option>
+    <option value="0.5">🐎 0.5x</option>
+    <option value="1" selected>🚙 1x</option>
+    <option value="2">🏎️ 2x</option>
   </select>
-  {{calibrationBtn}}
-  <button class="fullscreen-btn" id="fullscreenBtn" title="Fullscreen (F)" aria-label="Toggle fullscreen">&#x26F6;</button>
+  <button class="frame-btn" id="modeDebug" title="Calibration" aria-label="Toggle calibration" style="display:none">🎛️</button>
 </div>
 </div>
 </template>
@@ -929,7 +167,9 @@
 
 <template id="build-debug-panel">
 <div class="debug-panel" id="debugPanel">
-  <h3>Calibration</h3>{{debugRows}}
+  <h3>Calibration</h3>
+  <p class="calibration-note">Video recordings don't start at exactly the same moment &mdash; each browser context begins capturing slightly earlier or later. Use the frame offsets below to align the starting points so racers are visually synchronized during playback.</p>
+  {{debugRows}}
   <div class="debug-stats" id="debugStats">
     <div class="debug-stats-header">VIDEO INFO</div>
 {{statsRows}}

@@ -137,31 +137,17 @@ describe('setup/teardown discovery edge cases', () => {
 });
 
 describe('per-racer setup/teardown discovery edge cases', () => {
-  it('handles racer names with hyphens', () => {
-    fs.writeFileSync(path.join(tmpDir, 'my-app-v1.setup.sh'), '#!/bin/bash');
-    fs.writeFileSync(path.join(tmpDir, 'my-app-v1.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'my-app-v2.spec.js'), '');
+  it.each([
+    { desc: 'hyphens', name: 'my-app-v1', other: 'my-app-v2', ext: '.sh', content: '#!/bin/bash' },
+    { desc: 'dots', name: 'app.v1.0', other: 'app.v2.0', ext: '.sh', content: '#!/bin/bash' },
+    { desc: 'underscores', name: 'my_app', other: 'other_app', ext: '.js', content: 'console.log("setup")' },
+  ])('handles racer names with $desc', ({ name, other, ext, content }) => {
+    fs.writeFileSync(path.join(tmpDir, `${name}.setup${ext}`), content);
+    fs.writeFileSync(path.join(tmpDir, `${name}.spec.js`), '');
+    fs.writeFileSync(path.join(tmpDir, `${other}.spec.js`), '');
 
-    const { setup } = discoverRacerSetupTeardown(tmpDir, 'my-app-v1');
-    expect(setup).toBe('my-app-v1.setup.sh');
-  });
-
-  it('handles racer names with dots', () => {
-    fs.writeFileSync(path.join(tmpDir, 'app.v1.0.setup.sh'), '#!/bin/bash');
-    fs.writeFileSync(path.join(tmpDir, 'app.v1.0.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'app.v2.0.spec.js'), '');
-
-    const { setup } = discoverRacerSetupTeardown(tmpDir, 'app.v1.0');
-    expect(setup).toBe('app.v1.0.setup.sh');
-  });
-
-  it('handles racer names with underscores', () => {
-    fs.writeFileSync(path.join(tmpDir, 'my_app.setup.js'), 'console.log("setup")');
-    fs.writeFileSync(path.join(tmpDir, 'my_app.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'other_app.spec.js'), '');
-
-    const { setup } = discoverRacerSetupTeardown(tmpDir, 'my_app');
-    expect(setup).toBe('my_app.setup.js');
+    const { setup } = discoverRacerSetupTeardown(tmpDir, name);
+    expect(setup).toBe(`${name}.setup${ext}`);
   });
 
   it('multiple racers can have independent setup/teardown', () => {
