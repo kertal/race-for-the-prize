@@ -223,8 +223,8 @@ node race.js <dir> --no-recording         # Skip video recording, just measure
 node race.js <dir> --ffmpeg               # Enable FFmpeg processing (trim, merge, convert)
 node race.js <dir> --har                  # Record network HAR files alongside videos
 node race.js <dir> --no-wasm              # Skip copying ffmpeg.wasm files (~25 MB) to results
-node race.js <dir> --no-serve             # Don't open results in browser after race
-node race.js <dir> --pause                # Pause between runs — press Enter to continue (multi-run)
+node race.js <dir> --no-serve             # Don't start local results server or auto-open; print results HTML path
+node race.js <dir> --pause                # Pause between racers — run all laps for each racer, then press Enter for the next
 node race.js <dir> --height=900           # Set viewport/recording height in pixels (480–4320, default 720)
 node race.js <dir> --ignore-https-errors  # Accept invalid/self-signed TLS certificates
 ```

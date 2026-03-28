@@ -676,7 +676,7 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-wasm${c.reset}            Skip copying ffmpeg.wasm files (~25 MB) to results
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--height${c.reset}=${c.green}900${c.reset}          Viewport/recording height in pixels (480–4320, default 720)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ignore-https-errors${c.reset}  Accept invalid/self-signed TLS certificates
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-serve${c.reset}           Don't open results in browser after race
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-serve${c.reset}           Don't start local results server (CI/headless; open index.html manually)
 
 ${c.dim}  All flags except --results work with both URL mode and directory mode.${c.reset}
 ${c.dim}  Try the example:  node race.js ./races/lauda-vs-hunt${c.reset}
