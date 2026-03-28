@@ -1,0 +1,395 @@
+#!/usr/bin/env node
+
+/**
+ * webapp.js — Web UI for browsing and triggering races.
+ *
+ * Usage:
+ *   node webapp.js                  # Start on default port 3000
+ *   node webapp.js --port=8080      # Start on custom port
+ *
+ * Provides:
+ *   GET  /                          — Web UI
+ *   GET  /api/races                 — List all race directories
+ *   GET  /api/races/:name           — Race details (settings, racers, results list)
+ *   GET  /api/races/:name/results/:dir          — summary.json for a result
+ *   GET  /api/races/:name/results/:dir/files/*  — Static files (videos, JSON, etc.)
+ *   POST /api/races/:name/run       — Trigger a new race execution
+ */
+
+import fs from 'fs';
+import http from 'http';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { spawn } from 'child_process';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const RACES_DIR = path.join(__dirname, 'races');
+
+const MIME_TYPES = {
+  '.html': 'text/html',
+  '.js': 'application/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.webm': 'video/webm',
+  '.mp4': 'video/mp4',
+  '.gif': 'image/gif',
+  '.mov': 'video/quicktime',
+  '.wasm': 'application/wasm',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+};
+
+// --- Helpers ---
+
+function jsonResponse(res, data, status = 200) {
+  const body = JSON.stringify(data);
+  res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
+  res.end(body);
+}
+
+function errorResponse(res, message, status = 400) {
+  jsonResponse(res, { error: message }, status);
+}
+
+/** List subdirectories of a directory. */
+function listDirs(dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true })
+    .filter(d => d.isDirectory() && !d.name.startsWith('.'))
+    .map(d => d.name)
+    .sort();
+}
+
+/** List result directories (results-*) inside a race dir, newest first. */
+function listResultDirs(raceDir) {
+  if (!fs.existsSync(raceDir)) return [];
+  return fs.readdirSync(raceDir, { withFileTypes: true })
+    .filter(d => d.isDirectory() && d.name.startsWith('results-'))
+    .map(d => d.name)
+    .sort()
+    .reverse();
+}
+
+/** Safely resolve a path within a base directory. Returns null if it escapes. */
+function safePath(base, ...segments) {
+  const resolved = path.resolve(base, ...segments);
+  if (!resolved.startsWith(base + path.sep) && resolved !== base) return null;
+  return resolved;
+}
+
+// --- Active race tracking ---
+const activeRaces = new Map(); // raceId -> { name, status, output, startTime }
+let raceIdCounter = 0;
+
+// --- API handlers ---
+
+function handleListRaces(req, res) {
+  const raceDirs = listDirs(RACES_DIR);
+  const races = raceDirs.map(name => {
+    const raceDir = path.join(RACES_DIR, name);
+    const settingsPath = path.join(raceDir, 'settings.json');
+    let settings = null;
+    try {
+      if (fs.existsSync(settingsPath)) {
+        settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      }
+    } catch { /* ignore */ }
+
+    // Discover racers (*.spec.js files)
+    const files = fs.readdirSync(raceDir).filter(f => f.endsWith('.spec.js')).sort();
+    const racerNames = files.map(f => f.replace(/\.spec\.js$/, ''));
+
+    // Count results
+    const resultDirs = listResultDirs(raceDir);
+
+    return { name, racerNames, settings, resultCount: resultDirs.length };
+  });
+
+  jsonResponse(res, { races });
+}
+
+function handleRaceDetail(req, res, raceName) {
+  const raceDir = safePath(RACES_DIR, raceName);
+  if (!raceDir || !fs.existsSync(raceDir)) {
+    return errorResponse(res, 'Race not found', 404);
+  }
+
+  const settingsPath = path.join(raceDir, 'settings.json');
+  let settings = null;
+  try {
+    if (fs.existsSync(settingsPath)) {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    }
+  } catch { /* ignore */ }
+
+  const files = fs.readdirSync(raceDir).filter(f => f.endsWith('.spec.js')).sort();
+  const racerNames = files.map(f => f.replace(/\.spec\.js$/, ''));
+
+  // Read racer scripts
+  const racerScripts = {};
+  for (const f of files) {
+    const name = f.replace(/\.spec\.js$/, '');
+    try {
+      racerScripts[name] = fs.readFileSync(path.join(raceDir, f), 'utf-8');
+    } catch { /* ignore */ }
+  }
+
+  const resultDirs = listResultDirs(raceDir);
+  const results = resultDirs.map(dir => {
+    const summaryPath = path.join(raceDir, dir, 'summary.json');
+    let summary = null;
+    try {
+      if (fs.existsSync(summaryPath)) {
+        summary = JSON.parse(fs.readFileSync(summaryPath, 'utf-8'));
+      }
+    } catch { /* ignore */ }
+    return { dir, summary };
+  });
+
+  jsonResponse(res, { name: raceName, racerNames, settings, racerScripts, results });
+}
+
+function handleResultDetail(req, res, raceName, resultDir) {
+  const raceDir = safePath(RACES_DIR, raceName);
+  if (!raceDir) return errorResponse(res, 'Invalid race name', 400);
+  const fullResultDir = safePath(raceDir, resultDir);
+  if (!fullResultDir) return errorResponse(res, 'Invalid result dir', 400);
+
+  const summaryPath = path.join(fullResultDir, 'summary.json');
+  if (!fs.existsSync(summaryPath)) {
+    return errorResponse(res, 'Result not found', 404);
+  }
+
+  try {
+    const summary = JSON.parse(fs.readFileSync(summaryPath, 'utf-8'));
+    jsonResponse(res, { dir: resultDir, summary });
+  } catch (e) {
+    errorResponse(res, 'Failed to read summary', 500);
+  }
+}
+
+function handleResultFile(req, res, raceName, resultDir, filePath) {
+  const raceDir = safePath(RACES_DIR, raceName);
+  if (!raceDir) return errorResponse(res, 'Invalid path', 400);
+  const fullResultDir = safePath(raceDir, resultDir);
+  if (!fullResultDir) return errorResponse(res, 'Invalid path', 400);
+  const fullPath = safePath(fullResultDir, filePath);
+  if (!fullPath) return errorResponse(res, 'Invalid path', 400);
+
+  fs.stat(fullPath, (err, stat) => {
+    if (err || !stat.isFile()) {
+      res.writeHead(404);
+      res.end('Not found');
+      return;
+    }
+
+    const ext = path.extname(fullPath).toLowerCase();
+    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+    const total = stat.size;
+    const rangeHeader = req.headers['range'];
+
+    const baseHeaders = {
+      'Content-Type': contentType,
+      'Accept-Ranges': 'bytes',
+    };
+
+    if (rangeHeader) {
+      const m = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
+      if (!m) { res.writeHead(416); res.end(); return; }
+      let start, end;
+      if (!m[1] && !m[2]) { res.writeHead(416); res.end(); return; }
+      if (!m[1]) {
+        start = Math.max(0, total - parseInt(m[2], 10));
+        end = total - 1;
+      } else {
+        start = parseInt(m[1], 10);
+        end = m[2] ? Math.min(parseInt(m[2], 10), total - 1) : total - 1;
+      }
+      if (start > end || start >= total) { res.writeHead(416); res.end(); return; }
+      res.writeHead(206, { ...baseHeaders, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${total}` });
+      fs.createReadStream(fullPath, { start, end }).pipe(res);
+    } else {
+      res.writeHead(200, { ...baseHeaders, 'Content-Length': total });
+      fs.createReadStream(fullPath).pipe(res);
+    }
+  });
+}
+
+function handleRunRace(req, res, raceName) {
+  const raceDir = safePath(RACES_DIR, raceName);
+  if (!raceDir || !fs.existsSync(raceDir)) {
+    return errorResponse(res, 'Race not found', 404);
+  }
+
+  // Check if race is already running
+  for (const [, race] of activeRaces) {
+    if (race.name === raceName && race.status === 'running') {
+      return errorResponse(res, 'Race is already running', 409);
+    }
+  }
+
+  // Parse optional body for flags
+  let body = '';
+  req.on('data', chunk => { body += chunk; });
+  req.on('end', () => {
+    let flags = [];
+    try {
+      if (body) {
+        const opts = JSON.parse(body);
+        if (opts.headless !== false) flags.push('--headless');
+        if (opts.parallel) flags.push('--parallel');
+        if (opts.runs) flags.push(`--runs=${opts.runs}`);
+        if (opts.network) flags.push(`--network=${opts.network}`);
+        if (opts.cpu) flags.push(`--cpu=${opts.cpu}`);
+        if (opts.noRecording) flags.push('--no-recording');
+      } else {
+        flags.push('--headless');
+      }
+    } catch {
+      flags = ['--headless'];
+    }
+
+    flags.push('--no-serve');
+
+    const raceId = ++raceIdCounter;
+    const raceState = {
+      id: raceId,
+      name: raceName,
+      status: 'running',
+      output: '',
+      startTime: Date.now(),
+      endTime: null,
+    };
+    activeRaces.set(raceId, raceState);
+
+    const raceProcess = spawn('node', [path.join(__dirname, 'race.js'), raceDir, ...flags], {
+      cwd: __dirname,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    raceProcess.stdout.on('data', d => { raceState.output += d.toString(); });
+    raceProcess.stderr.on('data', d => { raceState.output += d.toString(); });
+
+    raceProcess.on('close', (code) => {
+      raceState.status = code === 0 ? 'completed' : 'failed';
+      raceState.endTime = Date.now();
+      // Clean up after 10 minutes
+      setTimeout(() => activeRaces.delete(raceId), 10 * 60 * 1000);
+    });
+
+    raceProcess.on('error', (err) => {
+      raceState.status = 'failed';
+      raceState.output += `\nProcess error: ${err.message}`;
+      raceState.endTime = Date.now();
+    });
+
+    jsonResponse(res, { raceId, status: 'running', message: `Race "${raceName}" started` });
+  });
+}
+
+function handleRaceStatus(req, res, raceId) {
+  const id = parseInt(raceId, 10);
+  const race = activeRaces.get(id);
+  if (!race) return errorResponse(res, 'Race not found', 404);
+  jsonResponse(res, { id: race.id, name: race.name, status: race.status, startTime: race.startTime, endTime: race.endTime, output: race.output });
+}
+
+// --- Static file serving for webapp UI ---
+
+function serveStaticFile(res, filePath) {
+  const absPath = safePath(path.join(__dirname, 'webapp'), filePath);
+  if (!absPath || !fs.existsSync(absPath)) {
+    res.writeHead(404);
+    res.end('Not found');
+    return;
+  }
+  const ext = path.extname(absPath).toLowerCase();
+  const contentType = MIME_TYPES[ext] || 'text/html';
+  const content = fs.readFileSync(absPath);
+  res.writeHead(200, { 'Content-Type': contentType, 'Content-Length': content.length });
+  res.end(content);
+}
+
+// --- Router ---
+
+function route(req, res) {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const pathname = url.pathname;
+
+  // CORS headers for local dev
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  // API routes
+  const apiMatch = pathname.match(/^\/api\/(.+)$/);
+  if (apiMatch) {
+    const apiPath = apiMatch[1];
+
+    // GET /api/races
+    if (apiPath === 'races' && req.method === 'GET') {
+      return handleListRaces(req, res);
+    }
+
+    // GET /api/races/:name/results/:dir/files/*
+    const fileMatch = apiPath.match(/^races\/([^/]+)\/results\/([^/]+)\/files\/(.+)$/);
+    if (fileMatch && req.method === 'GET') {
+      return handleResultFile(req, res, fileMatch[1], fileMatch[2], fileMatch[3]);
+    }
+
+    // GET /api/races/:name/results/:dir
+    const resultMatch = apiPath.match(/^races\/([^/]+)\/results\/([^/]+)$/);
+    if (resultMatch && req.method === 'GET') {
+      return handleResultDetail(req, res, resultMatch[1], resultMatch[2]);
+    }
+
+    // POST /api/races/:name/run
+    const runMatch = apiPath.match(/^races\/([^/]+)\/run$/);
+    if (runMatch && req.method === 'POST') {
+      return handleRunRace(req, res, runMatch[1]);
+    }
+
+    // GET /api/races/:name/status/:id
+    const statusMatch = apiPath.match(/^races\/status\/(\d+)$/);
+    if (statusMatch && req.method === 'GET') {
+      return handleRaceStatus(req, res, statusMatch[1]);
+    }
+
+    // GET /api/races/:name
+    const raceMatch = apiPath.match(/^races\/([^/]+)$/);
+    if (raceMatch && req.method === 'GET') {
+      return handleRaceDetail(req, res, raceMatch[1]);
+    }
+
+    return errorResponse(res, 'Not found', 404);
+  }
+
+  // Serve frontend
+  if (pathname === '/' || pathname === '/index.html') {
+    return serveStaticFile(res, 'index.html');
+  }
+
+  // Serve other static webapp files
+  return serveStaticFile(res, pathname.slice(1));
+}
+
+// --- Start server ---
+
+const args = process.argv.slice(2);
+let port = 3000;
+for (const arg of args) {
+  const m = arg.match(/^--port=(\d+)$/);
+  if (m) port = parseInt(m[1], 10);
+}
+
+const server = http.createServer(route);
+server.listen(port, () => {
+  console.log(`Race Viewer running at http://localhost:${port}/`);
+  console.log(`Serving races from: ${RACES_DIR}`);
+});
