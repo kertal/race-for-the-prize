@@ -232,7 +232,7 @@ h1 {
   align-items: center;
 }
 .racer-filter-btn {
-  border: 1px solid currentColor;
+  border: 1px solid currentcolor;
   border-radius: 4px;
   padding: 0.3rem 0.9rem;
   font-size: 0.82rem;
