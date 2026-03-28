@@ -675,7 +675,7 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--har${c.reset}                Record network HAR files alongside videos
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-wasm${c.reset}            Skip copying ffmpeg.wasm files (~25 MB) to results
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--height${c.reset}=${c.green}900${c.reset}          Viewport/recording height in pixels (480–4320, default 720)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ignore-https-errors${c.reset} Accept invalid/self-signed TLS certificates
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ignore-https-errors${c.reset}  Accept invalid/self-signed TLS certificates
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-serve${c.reset}           Don't open results in browser after race
 
 ${c.dim}  All flags except --results work with both URL mode and directory mode.${c.reset}
