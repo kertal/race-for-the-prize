@@ -162,24 +162,25 @@ export function buildSummary(racerNames, results, settings, resultsDir) {
   };
 }
 
-function printBar(label, duration, maxDuration, color, isWinner, width = 30) {
+function printBar(label, duration, maxDuration, color, isWinner, width = 30, serious = false) {
   const filled = maxDuration > 0 ? Math.round((duration / maxDuration) * width) : 0;
   const bar = '▓'.repeat(filled) + '░'.repeat(width - filled);
-  const medal = isWinner ? ' 🏆' : '';
+  const medal = serious ? (isWinner ? ` ${c.bold}*${c.reset}` : '') : (isWinner ? ' 🏆' : '');
   return `    ${color}${c.bold}${label.padEnd(12)}${c.reset} ${color}${bar}${c.reset}  ${c.bold}${duration.toFixed(3)}s${c.reset}${medal}`;
 }
 
 export function printSummary(summary) {
-  const { racers, comparisons, overallWinner, wins, errors, clickCounts, profileComparison } = summary;
+  const { racers, comparisons, overallWinner, wins, errors, clickCounts, profileComparison, settings } = summary;
+  const serious = settings?.serious || false;
   const w = 54;
 
   const write = (s) => process.stderr.write(s);
 
-  write(`\n  ${c.dim}🏁 Results${c.reset}\n`);
+  write(`\n  ${c.dim}${serious ? 'Results' : '🏁 Results'}${c.reset}\n`);
   write(`  ${c.dim}${'─'.repeat(w)}${c.reset}\n`);
 
   if (errors.length > 0) {
-    write(`  ${c.red}${c.bold}⚠ Errors:${c.reset}\n`);
+    write(`  ${c.red}${c.bold}${serious ? 'Errors:' : '⚠ Errors:'}${c.reset}\n`);
     errors.forEach(err => write(`    ${c.red}${err}${c.reset}\n`));
   }
 
@@ -200,7 +201,7 @@ export function printSummary(summary) {
         });
       const bestDur = sorted[0].racer ? sorted[0].racer.duration : null;
 
-      write(`  ${c.dim}⏱ ${comp.name}${c.reset}\n`);
+      write(`  ${c.dim}${serious ? '' : '⏱ '}${comp.name}${c.reset}\n`);
       for (const entry of sorted) {
         const color = RACER_COLORS[entry.index % RACER_COLORS.length];
         if (entry.racer) {
@@ -209,7 +210,7 @@ export function printSummary(summary) {
           if (bestDur !== null && entry.racer.duration !== bestDur) {
             delta = ` ${c.dim}(+${(entry.racer.duration - bestDur).toFixed(3)}s)${c.reset}`;
           }
-          write(`${printBar(entry.name, entry.racer.duration, maxDur, color, isWinner)}${delta}\n`);
+          write(`${printBar(entry.name, entry.racer.duration, maxDur, color, isWinner, 30, serious)}${delta}\n`);
         } else {
           write(`    ${color}${c.bold}${entry.name.padEnd(12)}${c.reset} ${c.dim}(no data)${c.reset}\n`);
         }
@@ -219,18 +220,26 @@ export function printSummary(summary) {
 
   write(`  ${c.dim}${'─'.repeat(w)}${c.reset}\n`);
   if (overallWinner === 'tie') {
-    write(`  ${c.yellow}${c.bold}🤝 It's a tie!${c.reset}\n`);
+    if (serious) {
+      write(`  ${c.bold}Result: Tie${c.reset}\n`);
+    } else {
+      write(`  ${c.yellow}${c.bold}🤝 It's a tie!${c.reset}\n`);
+    }
   } else if (overallWinner) {
     const winnerIdx = racers.indexOf(overallWinner);
     const winColor = RACER_COLORS[winnerIdx % RACER_COLORS.length];
-    write(`  🏆 ${winColor}${c.bold}${overallWinner.toUpperCase()}${c.reset} ${c.bold}wins!${c.reset}\n`);
+    if (serious) {
+      write(`  ${c.bold}Winner:${c.reset} ${winColor}${c.bold}${overallWinner}${c.reset}\n`);
+    } else {
+      write(`  🏆 ${winColor}${c.bold}${overallWinner.toUpperCase()}${c.reset} ${c.bold}wins!${c.reset}\n`);
+    }
   }
   write(`  ${c.dim}${'─'.repeat(w)}${c.reset}\n`);
 
   // Click events — only show if there are any
   const totalClicks = racers.reduce((sum, r) => sum + (clickCounts[r] || 0), 0);
   if (totalClicks > 0) {
-    write(`  ${c.bold}🖱  Clicks${c.reset}\n`);
+    write(`  ${c.bold}${serious ? 'Click Events' : '🖱  Clicks'}${c.reset}\n`);
     racers.forEach((r, i) => {
       const color = RACER_COLORS[i % RACER_COLORS.length];
       write(`    ${color}${r}${c.reset}: ${clickCounts[r]}\n`);
@@ -246,25 +255,32 @@ export function printSummary(summary) {
 
 export function buildMarkdownSummary(summary, sideBySideName) {
   const { racers, comparisons, overallWinner, wins, errors, videos, clickCounts, settings, timestamp, profileComparison, machineInfo } = summary;
+  const serious = settings?.serious || false;
   const lines = [];
 
-  // ASCII art header
-  lines.push('```');
-  lines.push('    ____                   ____              _   _            ____       _          ');
-  lines.push('   / __ \\____ _________   / __/___  _____   / |_/ /_  ___   / __ \\_____(_)_______  ');
-  lines.push('  / /_/ / __ `/ ___/ _ \\ / /_/ __ \\/ ___/  / __/ __ \\/ _ \\ / /_/ / ___/ / ___/ _ \\ ');
-  lines.push(' / _, _/ /_/ / /__/  __// __/ /_/ / /     / /_/ / / /  __// ____/ /  / / /__/  __/ ');
-  lines.push('/_/ |_|\\__,_/\\___/\\___//_/  \\____/_/      \\__/_/ /_/\\___//_/   /_/  /_/\\___/\\___/  ');
-  lines.push('```');
-  lines.push('');
+  if (serious) {
+    // Clean header for serious mode
+    lines.push('# Performance Benchmark Report');
+    lines.push('');
+  } else {
+    // ASCII art header
+    lines.push('```');
+    lines.push('    ____                   ____              _   _            ____       _          ');
+    lines.push('   / __ \\____ _________   / __/___  _____   / |_/ /_  ___   / __ \\_____(_)_______  ');
+    lines.push('  / /_/ / __ `/ ___/ _ \\ / /_/ __ \\/ ___/  / __/ __ \\/ _ \\ / /_/ / ___/ / ___/ _ \\ ');
+    lines.push(' / _, _/ /_/ / /__/  __// __/ /_/ / /     / /_/ / / /  __// ____/ /  / / /__/  __/ ');
+    lines.push('/_/ |_|\\__,_/\\___/\\___//_/  \\____/_/      \\__/_/ /_/\\___//_/   /_/  /_/\\___/\\___/  ');
+    lines.push('```');
+    lines.push('');
+  }
 
   // Winner announcement
   if (overallWinner === 'tie') {
     const winsStr = racers.map(r => `${r} ${wins[r]}`).join(' - ');
-    lines.push(`## It's a Tie! ${winsStr}`);
+    lines.push(serious ? `## Outcome: Tie (${winsStr})` : `## It's a Tie! ${winsStr}`);
   } else if (overallWinner) {
     const winsStr = racers.map(r => wins[r]).join(' - ');
-    lines.push(`## Winner: ${overallWinner} (${winsStr})`);
+    lines.push(serious ? `## Outcome: ${overallWinner} (${winsStr})` : `## Winner: ${overallWinner} (${winsStr})`);
   }
   lines.push('');
 
@@ -475,7 +491,7 @@ export function buildMultiRunMarkdown(medianSummary, summaries) {
   return md + lines.join('\n');
 }
 
-export function printRecentRaces(raceDir) {
+export function printRecentRaces(raceDir, options = {}) {
   let entries;
   try {
     entries = fs.readdirSync(raceDir)
@@ -499,17 +515,22 @@ export function printRecentRaces(raceDir) {
     return;
   }
 
+  const serious = options.serious || false;
   const raceName = path.basename(raceDir);
   const dbl = '═'.repeat(56);
   const line = '─'.repeat(56);
   const write = (s) => process.stderr.write(s);
 
   write(`\n  ${c.bold}${dbl}${c.reset}\n`);
-  write(`  ${c.bold}   📜  RECENT RACES: ${c.cyan}${raceName}${c.reset}\n`);
+  if (serious) {
+    write(`  ${c.bold}   Recent Results: ${c.cyan}${raceName}${c.reset}\n`);
+  } else {
+    write(`  ${c.bold}   📜  RECENT RACES: ${c.cyan}${raceName}${c.reset}\n`);
+  }
   write(`  ${c.bold}${dbl}${c.reset}\n\n`);
 
   if (entries.length === 0) {
-    write(`  ${c.dim}No results found. Run a race first!${c.reset}\n\n`);
+    write(`  ${c.dim}No results found.${c.reset}\n\n`);
     return;
   }
 
@@ -524,21 +545,27 @@ export function printRecentRaces(raceDir) {
       const racers = s.racers;
 
       let badge = '';
-      if (s.overallWinner === 'tie') badge = `${c.yellow}🤝 Tie${c.reset}`;
-      else if (s.overallWinner) {
+      if (s.overallWinner === 'tie') {
+        badge = serious ? `${c.dim}Tie${c.reset}` : `${c.yellow}🤝 Tie${c.reset}`;
+      } else if (s.overallWinner) {
         const winnerIdx = racers.indexOf(s.overallWinner);
         const wc = RACER_COLORS[winnerIdx % RACER_COLORS.length];
-        badge = `${wc}🏆 ${s.overallWinner}${c.reset}`;
+        badge = serious ? `${wc}${s.overallWinner}${c.reset}` : `${wc}🏆 ${s.overallWinner}${c.reset}`;
       }
 
       write(`  ${num}  ${c.dim}${dateStr}${c.reset}  ${badge}\n`);
 
       for (const comp of s.comparisons) {
         const durations = comp.racers.map((r, j) => r ? `${r.duration.toFixed(3)}s` : '-');
-        // Assign medals based on ranking
+        // Assign medals/ranks based on ranking
         const medals = racers.map(r => {
           if (!comp.rankings || comp.rankings.length === 0) return '';
           const rank = comp.rankings.indexOf(r);
+          if (serious) {
+            if (rank === 0) return '#1';
+            if (rank >= 0) return `#${rank + 1}`;
+            return '';
+          }
           if (rank === 0) return '🥇';
           if (rank === 1) return '🥈';
           if (rank === 2) return '🥉';
@@ -554,7 +581,7 @@ export function printRecentRaces(raceDir) {
       }
 
       if (s.errors?.length > 0) {
-        write(`      ${c.red}⚠ ${s.errors.length} error(s)${c.reset}\n`);
+        write(`      ${c.red}${serious ? '' : '⚠ '}${s.errors.length} error(s)${c.reset}\n`);
       }
     }
 
