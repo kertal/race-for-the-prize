@@ -174,8 +174,14 @@ export async function fetchPageHtml(url, browser, maxLength = HTML_MAX_LENGTH) {
  */
 export function extractUrls(text) {
   // Split on whitespace, strip enclosing punctuation, filter URLs.
+  // Uses atomic-friendly patterns: split first so tokens are short, then strip
+  // a fixed set of leading/trailing characters without nested quantifiers.
   const urls = text.split(/\s+/)
-    .map(t => t.replace(/^[(\['"]+/, '').replace(/[)\]'".,;!?]+$/, ''))
+    .map(t => {
+      while (t.length > 0 && '([\'\"'.includes(t[0])) t = t.slice(1);
+      while (t.length > 0 && ')]\'\".,;!?'.includes(t[t.length - 1])) t = t.slice(0, -1);
+      return t;
+    })
     .filter(t => /^https?:\/\//i.test(t));
   return [...new Set(urls)];
 }
