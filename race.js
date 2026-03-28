@@ -13,6 +13,7 @@
  *   node race.js ./races/my-race --parallel   Run both browsers simultaneously
  *   node race.js ./races/my-race --headless   Run headless
  *   node race.js ./races/my-race --network=fast-3g --cpu=4
+ *   node race.js ./races/my-race --har --no-wasm --no-serve
  */
 
 import fs from 'fs';
@@ -721,6 +722,11 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-overlay${c.reset}         Record videos without overlays
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-recording${c.reset}      Skip video recording, just measure
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ffmpeg${c.reset}             Enable FFmpeg processing (trim, merge, convert)
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--har${c.reset}                Record network HAR files alongside videos
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-wasm${c.reset}            Skip copying ffmpeg.wasm files (~25 MB) to results
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--height${c.reset}=${c.green}900${c.reset}          Viewport/recording height in pixels (480–4320, default 720)
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ignore-https-errors${c.reset}  Accept invalid/self-signed TLS certificates
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-serve${c.reset}           Don't start local results server (CI/headless; open index.html manually)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--gemini${c.reset}             Gemini CLI sports reporter commentary after race
   node race.js ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset} ${c.yellow}--gemini-spec${c.reset}=${c.green}"prompt"${c.reset}  Generate specs via Gemini + Playwright HTML research
 
@@ -1008,8 +1014,7 @@ async function main() {
     console.error(`  ${c.dim}📂 ${relResults}${c.reset}`);
 
     if (!settings.noRecording) {
-      const shouldServe = kvFlags.serve !== 'false';
-      if (shouldServe) {
+      if (!settings.noServe) {
         serveResults(resultsDir);
       } else {
         console.error(`  ${c.cyan}${c.bold}open ${relHtml}${c.reset}`);
@@ -1071,6 +1076,6 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
 }
 
 await main();
-if (kvFlags.serve === 'false' || settings.noRecording) process.exit(0);
+if (settings.noServe || settings.noRecording) process.exit(0);
 
 } // end isMainModule

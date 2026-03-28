@@ -217,14 +217,16 @@ node race.js <dir> --cpu=4                # Ballast penalty (CPU throttle)
 node race.js <dir> --format=mov           # Broadcast-ready replay format (requires --ffmpeg)
 node race.js <dir> --format=gif           # Quick highlight reel (requires --ffmpeg)
 node race.js <dir> --runs=3               # Best of 3 — median wins
-node race.js <dir> --slowmo=2            # Slow-motion replay (2x, 3x, etc.)
-node race.js <dir> --no-overlay          # Record videos without overlays
-node race.js <dir> --no-recording        # Skip video recording, just measure
-node race.js <dir> --ffmpeg              # Enable FFmpeg processing (trim, merge, convert)
-node race.js <dir> --serve=false         # Don't open results in browser after race
-node race.js <dir> --pause               # Pause between runs — press Enter to continue (multi-run)
-node race.js <dir> --height=900          # Set viewport/recording height in pixels (480–4320, default 720)
-node race.js <dir> --ignore-https-errors # Accept invalid/self-signed TLS certificates
+node race.js <dir> --slowmo=2             # Slow-motion replay (2x, 3x, etc.)
+node race.js <dir> --no-overlay           # Record videos without overlays
+node race.js <dir> --no-recording         # Skip video recording, just measure
+node race.js <dir> --ffmpeg               # Enable FFmpeg processing (trim, merge, convert)
+node race.js <dir> --har                  # Record network HAR files alongside videos
+node race.js <dir> --no-wasm              # Skip copying ffmpeg.wasm files (~25 MB) to results
+node race.js <dir> --no-serve             # Don't start local results server or auto-open; print results HTML path
+node race.js <dir> --pause                # Pause between racers — run all laps for each racer, then press Enter for the next
+node race.js <dir> --height=900           # Set viewport/recording height in pixels (480–4320, default 720)
+node race.js <dir> --ignore-https-errors  # Accept invalid/self-signed TLS certificates
 ```
 
 CLI flags always override `settings.json`. The stewards have spoken.
@@ -294,29 +296,35 @@ The terminal delivers the verdict in style:
   "slowmo": 0,
   "format": "webm",
   "ffmpeg": false,
+  "har": false,
   "noOverlay": false,
   "noRecording": false,
   "noWasm": false,
+  "noServe": false,
+  "pauseBetweenRuns": false,
   "ignoreHTTPSErrors": false,
   "viewportHeight": 720
 }
 ```
 
-| Field | Values | Default |
-|---|---|---|
-| `parallel` | `true` / `false` | `false` |
-| `network` | `none`, `slow-3g`, `fast-3g`, `4g` | `none` |
-| `cpuThrottle` | `1` (none) to any multiplier | `1` |
-| `headless` | `true` / `false` | `false` |
-| `runs` | integer ≥ 1 (median of N runs) | `1` |
-| `slowmo` | `0` (off) to `20` (multiplier) | `0` |
-| `format` | `webm`, `mov`, `gif` | `webm` |
-| `ffmpeg` | `true` / `false` | `false` |
-| `noOverlay` | `true` / `false` | `false` |
-| `noRecording` | `true` / `false` | `false` |
-| `noWasm` | `true` / `false` | `false` |
-| `ignoreHTTPSErrors` | `true` / `false` | `false` |
-| `viewportHeight` | integer, 480–4320 | `720` |
+| Field | CLI flag | Values | Default |
+|---|---|---|---|
+| `parallel` | `--parallel` | `true` / `false` | `false` |
+| `network` | `--network=<preset>` | `none`, `slow-3g`, `fast-3g`, `4g` | `none` |
+| `cpuThrottle` | `--cpu=<n>` | `1` (none) to any multiplier | `1` |
+| `headless` | `--headless` | `true` / `false` | `false` |
+| `runs` | `--runs=<n>` | integer ≥ 1 (median of N runs) | `1` |
+| `slowmo` | `--slowmo=<n>` | `0` (off) to `20` (multiplier) | `0` |
+| `format` | `--format=<fmt>` | `webm`, `mov`, `gif` | `webm` |
+| `ffmpeg` | `--ffmpeg` | `true` / `false` | `false` |
+| `har` | `--har` | `true` / `false` | `false` |
+| `noOverlay` | `--no-overlay` | `true` / `false` | `false` |
+| `noRecording` | `--no-recording` | `true` / `false` | `false` |
+| `noWasm` | `--no-wasm` | `true` / `false` | `false` |
+| `noServe` | `--no-serve` | `true` / `false` | `false` |
+| `pauseBetweenRuns` | `--pause` | `true` / `false` | `false` |
+| `ignoreHTTPSErrors` | `--ignore-https-errors` | `true` / `false` | `false` |
+| `viewportHeight` | `--height=<px>` | integer, 480–4320 | `720` |
 
 ## Prerequisites
 
