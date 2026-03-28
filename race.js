@@ -371,7 +371,11 @@ export function buildRaceContext({ racerNames, scripts, settings, rootDir = __di
   const throttle = { network: settings.network, cpu: settings.cpuThrottle };
 
   const runnerConfig = {
-    browsers: racerNames.map((name, i) => ({ id: name, script: scripts[i] })),
+    browsers: racerNames.map((name, i) => ({
+      id: name,
+      script: scripts[i],
+      vars: settings.racers?.[name]?.vars,
+    })),
     executionMode,
     throttle,
     headless: settings.headless,
@@ -516,6 +520,7 @@ if (isMainModule) {
 // --- Argument parsing ---
 
 const { positional, boolFlags, kvFlags } = parseArgs(process.argv.slice(2));
+const verbose = boolFlags.has('verbose');
 
 // --- --init: scaffold a starter race directory ---
 
@@ -537,6 +542,8 @@ if (boolFlags.has('init')) {
 //   page.raceEnd('name')              — end a measurement (sync)
 //   page.raceMessage('text')          — send a message to the CLI
 //   await page.raceRecordingEnd()     — end video segment (optional)
+//   race.name                         — this racer's name (from filename)
+//   race.vars                         — per-racer vars from settings.json
 
 await page.goto('https://example.com');
 await page.raceRecordingStart();
@@ -553,6 +560,8 @@ await page.raceRecordingEnd();
 //   page.raceEnd('name')              — end a measurement (sync)
 //   page.raceMessage('text')          — send a message to the CLI
 //   await page.raceRecordingEnd()     — end video segment (optional)
+//   race.name                         — this racer's name (from filename)
+//   race.vars                         — per-racer vars from settings.json
 
 await page.goto('https://example.org');
 await page.raceRecordingStart();
@@ -596,7 +605,6 @@ function loadRaceDir(raceDir) {
   if (racerFiles.length > 5) {
     console.error(`${c.yellow}Warning: Found ${racerFiles.length} script files, using first five: ${racerFiles.slice(0, 5).join(', ')}${c.reset}`);
   }
-  const scripts = racerFiles.map(f => fs.readFileSync(path.join(raceDir, f), 'utf-8'));
 
   let settings = {};
   const settingsPath = path.join(raceDir, 'settings.json');
@@ -608,6 +616,13 @@ function loadRaceDir(raceDir) {
     }
   }
   settings = applyDefaults(applyOverrides(settings, boolFlags, kvFlags));
+
+  const scripts = racerFiles.map((f, i) => {
+    const name = racerNames[i];
+    const racerScript = settings.racers?.[name]?.script;
+    const file = racerScript || f;
+    return fs.readFileSync(path.join(raceDir, file), 'utf-8');
+  });
 
   const ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir, racerFiles });
   return { ctx, settings, racerNames };
@@ -633,7 +648,7 @@ ${c.dim}  ───────────────────────�
        ${c.dim}settings.json${c.reset}        ${c.dim}# Optional: { parallel, network, cpuThrottle, setup, teardown }${c.reset}
        ${c.dim}setup.sh${c.reset}             ${c.dim}# Optional: global setup before race${c.reset}
        ${c.dim}teardown.sh${c.reset}          ${c.dim}# Optional: global teardown after race${c.reset}
-       ${c.dim}contender-a.setup.sh${c.reset} ${c.dim}# Optional: per-racer setup${c.reset}
+       ${c.dim}contender-a.setup.sh${c.reset} ${c.dim}# Optional: per-racer setup (runs before this racer)${c.reset}
        ${c.dim}contender-a.teardown.sh${c.reset} ${c.dim}# Optional: per-racer teardown${c.reset}
 
   ${c.bold}2.${c.reset} Each script gets a Playwright ${c.cyan}page${c.reset} with race helpers:
@@ -646,6 +661,8 @@ ${c.dim}  ───────────────────────�
      page.raceEnd(${c.green}'Load Time'${c.reset});              ${c.dim}// end measurement (sync)${c.reset}
      page.raceMessage(${c.green}'I win!'${c.reset});              ${c.dim}// send message to CLI${c.reset}
      ${c.dim}await${c.reset} page.raceRecordingEnd();          ${c.dim}// optional: end video segment${c.reset}
+     race.name                              ${c.dim}// this racer's name${c.reset}
+     race.vars                              ${c.dim}// per-racer vars from settings.json${c.reset}
 
      ${c.dim}If raceRecordingStart/End are omitted, recording wraps raceStart to raceEnd.${c.reset}
 
@@ -797,7 +814,7 @@ async function runScript(script, label) {
   if (!script) return;
 
   const config = typeof script === 'string' ? { command: script } : script;
-  const { command, timeout = 60000, waitFor } = config;
+  const { command, timeout = 300000, waitFor } = config;
 
   // Validate command is a non-empty string
   if (typeof command !== 'string' || !command.trim()) {
@@ -869,8 +886,8 @@ async function runScript(script, label) {
     let settled = false;
     let sigkillTimeoutId = null;
 
-    child.stdout.on('data', () => {}); // drain stdout
-    child.stderr.on('data', d => { stderr += d; });
+    child.stdout.on('data', d => { if (verbose) process.stdout.write(d); });
+    child.stderr.on('data', d => { stderr += d; if (verbose) process.stderr.write(d); });
 
     const timeoutId = setTimeout(() => {
       timedOut = true;
@@ -1036,15 +1053,10 @@ async function main() {
     // Run global setup script before races
     await runScript(setupScript, 'Setup');
 
-    // Run per-racer setup scripts
-    for (const racer of racerScripts) {
-      if (racer.setup) {
-        await runScript(racer.setup, `Setup [${racer.name}]`);
-      }
-    }
+    const hasRacerSetups = racerScripts.some(r => r.setup);
 
     setupCompleted = true;
-    if (!settings.pauseBetweenRuns) {
+    if (!settings.pauseBetweenRuns && !hasRacerSetups) {
       // --- Normal mode: both racers run together per run ---
       if (totalRuns === 1) {
         const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir);
@@ -1067,8 +1079,9 @@ async function main() {
         buildMedianOutput(summaries, sideBySideNames, allClipTimes);
       }
     } else {
-      // --- Split mode: all runs of each racer in sequence, pause between racers ---
-      // A₁ → A₂ → … → Aₙ → [PAUSE] → B₁ → B₂ → … → Bₙ
+      // --- Split mode: all runs of each racer in sequence ---
+      // Activated when per-racer setup scripts exist or --pause is set.
+      // Pattern: setupA → A₁, A₂, …, Aₙ → setupB → B₁, B₂, …, Bₙ
       fs.mkdirSync(resultsDir, { recursive: true });
       const multiRun = totalRuns > 1;
 
@@ -1077,8 +1090,12 @@ async function main() {
       const movedResults = racerNames.map(() => Array(totalRuns).fill(null));
 
       for (let ri = 0; ri < racerNames.length; ri++) {
-        if (ri > 0) {
+        if (ri > 0 && settings.pauseBetweenRuns && !racerScripts[ri].setup) {
           await waitForEnter(`\n  ${c.bold}${c.yellow}⏸  Paused — press Enter to start ${racerNames[ri]}...${c.reset} `);
+        }
+        // Run per-racer setup right before this racer's runs
+        if (racerScripts[ri].setup) {
+          await runScript(racerScripts[ri].setup, `Setup [${racerScripts[ri].name}]`);
         }
         for (let i = 0; i < totalRuns; i++) {
           const label = multiRun ? `${racerNames[ri]}: Run ${i + 1} of ${totalRuns}` : racerNames[ri];

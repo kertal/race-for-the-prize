@@ -386,10 +386,13 @@ For more control, configure scripts in `settings.json` with timeouts and service
 ### Execution order
 
 1. Global setup
-2. Per-racer setup (for each racer)
-3. Race runs
-4. Per-racer teardown (for each racer, even on failure)
-5. Global teardown (even on failure)
+2. For each racer, in order:
+   - Per-racer setup (e.g., `contender-a.setup.sh`)
+   - All runs of that racer
+3. Per-racer teardown (for each racer, even on failure)
+4. Global teardown (even on failure)
+
+When per-racer setup scripts exist, racers run one at a time (split mode) so each setup can prepare the environment before its racer's runs. Without per-racer setups, all racers run together in each run.
 
 Set `setup` or `teardown` to `false` or `""` in settings to explicitly disable a discovered script.
 

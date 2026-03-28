@@ -454,7 +454,7 @@ function sanitizeScript(script) {
  * Returns { segments, measurements } for video trimming and result comparison.
  */
 async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay = false, metricsCollector = null, noRecording = false) {
-  const { id, script: raceScript } = config;
+  const { id, script: raceScript, vars } = config;
 
   const segments = [];
   let currentSegmentStart = null;
@@ -666,10 +666,11 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   // SECURITY: Race scripts execute with the full privileges of this Node.js
   // process. Only run scripts you trust — this is equivalent to `node <file>`.
   const sanitized = sanitizeScript(raceScript);
+  const raceContext = Object.freeze({ name: id, vars: Object.freeze(vars || {}) });
   try {
     const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor; // NOSONAR — intentional: executes user-provided race scripts
-    const fn = new AsyncFunction('page', '__startRecording', '__stopRecording', '__startMeasure', '__endMeasure', sanitized); // NOSONAR
-    await fn(page, startRecording, stopRecording, startMeasure, endMeasure);
+    const fn = new AsyncFunction('page', 'race', '__startRecording', '__stopRecording', '__startMeasure', '__endMeasure', sanitized); // NOSONAR
+    await fn(page, raceContext, startRecording, stopRecording, startMeasure, endMeasure);
   } catch (error) {
     console.error(`[${id}] Script failed: ${error.message}`);
     throw new Error(`Script execution failed: ${error.message}`);
