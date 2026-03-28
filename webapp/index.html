@@ -20,16 +20,22 @@
       --cyan: #22d3ee;
       --orange: #fb923c;
     }
-
     * { margin: 0; padding: 0; box-sizing: border-box; }
-
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
     }
+  </style>
+</head>
+<body>
 
+<!-- ─── Templates ───────────────────────────────────────────── -->
+
+<template id="tmpl-app">
+  <style>
+    :host { display: block; }
     .header {
       padding: 24px 32px;
       border-bottom: 1px solid var(--border);
@@ -37,15 +43,13 @@
       align-items: center;
       gap: 16px;
     }
-
     .header h1 {
       font-size: 20px;
       font-weight: 600;
       cursor: pointer;
+      color: var(--text);
     }
-
     .header h1:hover { color: var(--accent); }
-
     .breadcrumb {
       display: flex;
       align-items: center;
@@ -53,52 +57,57 @@
       color: var(--text-dim);
       font-size: 14px;
     }
-
-    .breadcrumb a {
-      color: var(--text-dim);
-      text-decoration: none;
-    }
-
+    .breadcrumb a { color: var(--text-dim); text-decoration: none; cursor: pointer; }
     .breadcrumb a:hover { color: var(--text); }
     .breadcrumb .sep { color: var(--border); }
-
     .container { max-width: 1200px; margin: 0 auto; padding: 24px 32px; }
-
-    /* Race list */
+    .empty-state {
+      text-align: center;
+      padding: 48px 24px;
+      color: var(--text-dim);
+    }
+    .empty-state .icon { font-size: 48px; margin-bottom: 16px; }
+    .empty-state p { font-size: 15px; }
     .race-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
       gap: 16px;
     }
+    @media (max-width: 600px) {
+      .header { padding: 16px; }
+      .container { padding: 16px; }
+      .race-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+  <div class="header">
+    <h1>Race for the Prize</h1>
+    <nav class="breadcrumb"></nav>
+  </div>
+  <div class="container">
+    <div class="race-grid" hidden></div>
+    <div class="empty-state" hidden><div class="icon"></div><p></p></div>
+    <slot></slot>
+  </div>
+</template>
 
-    .race-card {
+<template id="tmpl-race-card">
+  <style>
+    :host { display: block; cursor: pointer; }
+    .card {
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: 12px;
       padding: 20px;
-      cursor: pointer;
       transition: all 0.15s;
     }
-
-    .race-card:hover {
+    .card:hover {
       background: var(--bg-hover);
       border-color: var(--accent);
       transform: translateY(-1px);
     }
-
-    .race-card h3 {
-      font-size: 18px;
-      font-weight: 600;
-      margin-bottom: 8px;
-    }
-
-    .race-card .racers {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      margin-bottom: 12px;
-    }
-
+    h3 { font-size: 18px; font-weight: 600; margin-bottom: 8px; color: var(--text); }
+    .racers { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .tags { display: flex; gap: 8px; flex-wrap: wrap; }
     .tag {
       display: inline-block;
       padding: 2px 10px;
@@ -106,796 +115,862 @@
       font-size: 12px;
       font-weight: 500;
     }
-
     .tag-racer { background: #1e3a5f; color: var(--blue); }
     .tag-results { background: #1a2e1a; color: var(--green); font-size: 11px; }
     .tag-setting { background: #2d2318; color: var(--orange); font-size: 11px; }
+  </style>
+  <div class="card">
+    <h3></h3>
+    <div class="racers"></div>
+    <div class="tags"></div>
+  </div>
+</template>
 
-    .race-card .meta {
-      color: var(--text-dim);
-      font-size: 13px;
-    }
-
-    /* Race detail */
+<template id="tmpl-race-detail">
+  <style>
+    :host { display: block; }
     .detail-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 24px;
-      flex-wrap: wrap;
-      gap: 12px;
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 24px; flex-wrap: wrap; gap: 12px;
     }
-
-    .detail-header h2 { font-size: 24px; }
-
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 8px 18px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: var(--bg-card);
-      color: var(--text);
-      font-size: 14px;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-
-    .btn:hover { background: var(--bg-hover); border-color: var(--text-dim); }
-    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
+    .detail-header h2 { font-size: 24px; color: var(--text); }
     .btn-primary {
-      background: var(--accent);
-      color: #000;
-      border-color: var(--accent);
-      font-weight: 600;
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 18px; border: 1px solid var(--accent);
+      border-radius: 8px; background: var(--accent); color: #000;
+      font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.15s;
     }
-
     .btn-primary:hover { background: #e6b430; }
-
-    /* Scripts */
-    .scripts-section { margin-bottom: 32px; }
-
-    .scripts-section h3 {
-      font-size: 16px;
-      margin-bottom: 12px;
-      color: var(--text-dim);
-    }
-
-    .script-tabs {
-      display: flex;
-      gap: 4px;
-      margin-bottom: 0;
-    }
-
-    .script-tab {
-      padding: 6px 16px;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-bottom: none;
-      border-radius: 8px 8px 0 0;
-      color: var(--text-dim);
-      cursor: pointer;
-      font-size: 13px;
-    }
-
-    .script-tab.active {
-      background: var(--bg-card);
-      color: var(--text);
-      border-color: var(--border);
-    }
-
-    .script-content {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 0 8px 8px 8px;
-      padding: 16px;
-      overflow-x: auto;
-    }
-
-    .script-content pre {
-      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
-      font-size: 13px;
-      line-height: 1.6;
-      white-space: pre;
-      color: var(--text);
-    }
-
-    /* Settings panel */
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
     .settings-panel {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px 20px;
-      margin-bottom: 24px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 16px 20px; margin-bottom: 24px;
     }
-
     .settings-panel h4 {
-      font-size: 13px;
-      color: var(--text-dim);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 8px;
+      font-size: 13px; color: var(--text-dim); text-transform: uppercase;
+      letter-spacing: 0.05em; margin-bottom: 8px;
     }
-
-    .settings-grid {
-      display: flex;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
-
-    .setting-item {
-      font-size: 13px;
-    }
-
+    .settings-grid { display: flex; gap: 16px; flex-wrap: wrap; }
+    .setting-item { font-size: 13px; }
     .setting-item .key { color: var(--text-dim); }
     .setting-item .val { color: var(--text); font-weight: 500; }
-
-    /* Results list */
-    .results-section h3 {
-      font-size: 16px;
-      margin-bottom: 16px;
-      color: var(--text-dim);
+    .results-heading {
+      font-size: 16px; margin-bottom: 16px; color: var(--text-dim);
     }
-
-    .result-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      margin-bottom: 12px;
-      overflow: hidden;
-    }
-
-    .result-header {
-      padding: 16px 20px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      transition: background 0.15s;
-    }
-
-    .result-header:hover { background: var(--bg-hover); }
-
-    .result-header .timestamp { font-weight: 500; }
-
-    .result-header .winner {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 14px;
-    }
-
-    .result-header .winner .trophy { font-size: 16px; }
-
-    .result-body {
-      display: none;
-      padding: 0 20px 20px;
-      border-top: 1px solid var(--border);
-    }
-
-    .result-body.open { display: block; padding-top: 16px; }
-
-    /* Comparison bars */
-    .comparison {
-      margin-bottom: 20px;
-    }
-
-    .comparison .comp-name {
-      font-size: 13px;
-      color: var(--text-dim);
-      margin-bottom: 8px;
-    }
-
-    .bar-row {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 4px;
-    }
-
-    .bar-label {
-      width: 100px;
-      font-size: 13px;
-      font-weight: 500;
-      text-align: right;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .bar-track {
-      flex: 1;
-      height: 24px;
-      background: var(--bg);
-      border-radius: 4px;
-      overflow: hidden;
-      position: relative;
-    }
-
-    .bar-fill {
-      height: 100%;
-      border-radius: 4px;
-      transition: width 0.3s ease;
-      min-width: 2px;
-    }
-
-    .bar-value {
-      width: 80px;
-      font-size: 13px;
-      font-family: 'SF Mono', monospace;
-      text-align: right;
-    }
-
-    .bar-badge {
-      font-size: 14px;
-      width: 24px;
-      text-align: center;
-    }
-
-    /* Videos */
-    .videos-section {
-      margin-top: 20px;
-    }
-
-    .videos-section h4 {
-      font-size: 13px;
-      color: var(--text-dim);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 12px;
-    }
-
-    .video-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 16px;
-    }
-
-    .video-item {
-      background: var(--bg);
-      border-radius: 8px;
-      overflow: hidden;
-    }
-
-    .video-item video {
-      width: 100%;
-      display: block;
-    }
-
-    .video-item .video-label {
-      padding: 8px 12px;
-      font-size: 13px;
-      font-weight: 500;
-    }
-
-    /* Raw data */
-    .raw-data-section { margin-top: 16px; }
-
-    .raw-toggle {
-      font-size: 13px;
-      color: var(--text-dim);
-      cursor: pointer;
-      user-select: none;
-    }
-
-    .raw-toggle:hover { color: var(--text); }
-
-    .raw-content {
-      display: none;
-      margin-top: 8px;
-      background: var(--bg);
-      border-radius: 8px;
-      padding: 16px;
-      overflow-x: auto;
-      max-height: 400px;
-      overflow-y: auto;
-    }
-
-    .raw-content.open { display: block; }
-
-    .raw-content pre {
-      font-family: 'SF Mono', monospace;
-      font-size: 12px;
-      line-height: 1.5;
-      color: var(--text-dim);
-    }
-
-    /* Run dialog */
-    .run-status {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px 20px;
-      margin-bottom: 24px;
-    }
-
-    .run-status .status-line {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 14px;
-    }
-
-    .spinner {
-      display: inline-block;
-      width: 16px;
-      height: 16px;
-      border: 2px solid var(--border);
-      border-top-color: var(--accent);
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    .run-output {
-      margin-top: 12px;
-      background: var(--bg);
-      border-radius: 8px;
-      padding: 12px;
-      max-height: 200px;
-      overflow-y: auto;
-      font-family: 'SF Mono', monospace;
-      font-size: 12px;
-      line-height: 1.5;
-      color: var(--text-dim);
-      white-space: pre-wrap;
-      word-break: break-all;
-    }
-
-    /* Machine info */
-    .machine-info {
-      margin-top: 16px;
-      font-size: 12px;
-      color: var(--text-dim);
-    }
-
-    .machine-info span { margin-right: 16px; }
-
-    /* No results */
     .empty-state {
-      text-align: center;
-      padding: 48px 24px;
-      color: var(--text-dim);
+      text-align: center; padding: 48px 24px; color: var(--text-dim);
     }
-
     .empty-state .icon { font-size: 48px; margin-bottom: 16px; }
-    .empty-state p { font-size: 15px; margin-bottom: 16px; }
-
-    /* Run options */
-    .run-options {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-      align-items: center;
-      margin-bottom: 16px;
-    }
-
-    .run-options label {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 13px;
-      color: var(--text-dim);
-      cursor: pointer;
-    }
-
-    .run-options input[type="checkbox"] { accent-color: var(--accent); }
-    .run-options input[type="number"],
-    .run-options select {
-      background: var(--bg);
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 4px 8px;
-      border-radius: 6px;
-      font-size: 13px;
-      width: 80px;
-    }
-
-    /* Responsive */
+    .empty-state p { font-size: 15px; }
     @media (max-width: 600px) {
-      .header { padding: 16px; }
-      .container { padding: 16px; }
-      .race-grid { grid-template-columns: 1fr; }
       .detail-header { flex-direction: column; align-items: flex-start; }
     }
   </style>
-</head>
-<body>
-  <div class="header">
-    <h1 onclick="navigateTo('list')">Race for the Prize</h1>
-    <div class="breadcrumb" id="breadcrumb"></div>
+  <div class="detail-header">
+    <h2></h2>
+    <button class="btn-primary" type="button">Run Race</button>
   </div>
-  <div class="container" id="app"></div>
+  <slot name="run-controls"></slot>
+  <div class="settings-panel" hidden>
+    <h4>Default Settings</h4>
+    <div class="settings-grid"></div>
+  </div>
+  <slot name="script-viewer"></slot>
+  <div class="results-section">
+    <h3 class="results-heading"></h3>
+    <div class="empty-state" hidden>
+      <div class="icon"></div><p></p>
+    </div>
+    <slot name="results"></slot>
+  </div>
+</template>
 
-  <script>
-    const RACER_COLORS = ['#60a5fa', '#f87171', '#4ade80', '#a78bfa', '#fb923c'];
-    let currentView = 'list';
-    let currentRace = null;
-    let pollingTimer = null;
+<template id="tmpl-run-controls">
+  <style>
+    :host { display: block; margin-bottom: 16px; }
+    .run-options {
+      display: flex; gap: 12px; flex-wrap: wrap;
+      align-items: center; margin-bottom: 16px;
+    }
+    label {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 13px; color: var(--text-dim); cursor: pointer;
+    }
+    input[type="checkbox"] { accent-color: var(--accent); }
+    input[type="number"], select {
+      background: var(--bg); border: 1px solid var(--border);
+      color: var(--text); padding: 4px 8px; border-radius: 6px;
+      font-size: 13px; width: 80px;
+    }
+    .status { display: none; }
+    .status.visible {
+      display: block;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 16px 20px; margin-bottom: 16px;
+    }
+    .status-line {
+      display: flex; align-items: center; gap: 8px; font-size: 14px;
+      color: var(--text);
+    }
+    .spinner {
+      display: inline-block; width: 16px; height: 16px;
+      border: 2px solid var(--border); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .output {
+      display: none; margin-top: 12px; background: var(--bg);
+      border-radius: 8px; padding: 12px; max-height: 200px;
+      overflow-y: auto; font-family: 'SF Mono', monospace;
+      font-size: 12px; line-height: 1.5; color: var(--text-dim);
+      white-space: pre-wrap; word-break: break-all;
+    }
+    .output.visible { display: block; }
+  </style>
+  <div class="run-options">
+    <label><input type="checkbox" name="parallel"> Parallel</label>
+    <label><input type="checkbox" name="headless" checked> Headless</label>
+    <label><input type="checkbox" name="noRecording"> No Recording</label>
+    <label>Runs: <input type="number" name="runs" value="1" min="1" max="20"></label>
+    <label>Network: <select name="network">
+      <option value="">none</option>
+      <option value="slow-3g">slow-3g</option>
+      <option value="fast-3g">fast-3g</option>
+      <option value="4g">4g</option>
+    </select></label>
+    <label>CPU: <input type="number" name="cpu" value="1" min="1" max="20"></label>
+  </div>
+  <div class="status">
+    <div class="status-line"><span class="status-icon"></span> <span class="status-msg"></span></div>
+    <div class="output"></div>
+  </div>
+</template>
 
-    // --- Navigation ---
+<template id="tmpl-script-viewer">
+  <style>
+    :host { display: block; margin-bottom: 32px; }
+    h3 { font-size: 16px; margin-bottom: 12px; color: var(--text-dim); }
+    .tabs { display: flex; gap: 4px; }
+    .tab {
+      padding: 6px 16px; background: var(--bg); border: 1px solid var(--border);
+      border-bottom: none; border-radius: 8px 8px 0 0; color: var(--text-dim);
+      cursor: pointer; font-size: 13px;
+    }
+    .tab.active { background: var(--bg-card); color: var(--text); }
+    .content {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 0 8px 8px 8px; padding: 16px; overflow-x: auto;
+    }
+    pre {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 13px; line-height: 1.6; white-space: pre; color: var(--text);
+      display: none;
+    }
+    pre.active { display: block; }
+  </style>
+  <h3>Racer Scripts</h3>
+  <div class="tabs"></div>
+  <div class="content"></div>
+</template>
 
-    function navigateTo(view, race = null) {
-      currentView = view;
-      currentRace = race;
-      if (pollingTimer) { clearInterval(pollingTimer); pollingTimer = null; }
-      render();
-      window.history.pushState({ view, race }, '', view === 'list' ? '/' : `#${race}`);
+<template id="tmpl-result-card">
+  <style>
+    :host { display: block; margin-bottom: 12px; }
+    .card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden;
+    }
+    .header {
+      padding: 16px 20px; cursor: pointer; display: flex;
+      align-items: center; justify-content: space-between;
+      transition: background 0.15s;
+    }
+    .header:hover { background: var(--bg-hover); }
+    .timestamp { font-weight: 500; color: var(--text); }
+    .winner {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 14px; color: var(--text);
+    }
+    .winner .no-winner { color: var(--text-dim); }
+    .body {
+      display: none; padding: 0 20px 20px;
+      border-top: 1px solid var(--border);
+    }
+    .body.open { display: block; padding-top: 16px; }
+    .videos-heading {
+      font-size: 13px; color: var(--text-dim); text-transform: uppercase;
+      letter-spacing: 0.05em; margin: 20px 0 12px;
+    }
+    .video-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 16px;
+    }
+    .video-item { background: var(--bg); border-radius: 8px; overflow: hidden; }
+    .video-item video { width: 100%; display: block; }
+    .video-label { padding: 8px 12px; font-size: 13px; font-weight: 500; color: var(--text); }
+    .machine-info { margin-top: 16px; font-size: 12px; color: var(--text-dim); }
+    .machine-info span { margin-right: 16px; }
+    .raw-section { margin-top: 16px; }
+    .raw-toggle {
+      font-size: 13px; color: var(--text-dim); cursor: pointer; user-select: none;
+    }
+    .raw-toggle:hover { color: var(--text); }
+    .raw-content {
+      display: none; margin-top: 8px; background: var(--bg);
+      border-radius: 8px; padding: 16px; overflow-x: auto;
+      max-height: 400px; overflow-y: auto;
+    }
+    .raw-content.open { display: block; }
+    .raw-content pre {
+      font-family: 'SF Mono', monospace; font-size: 12px;
+      line-height: 1.5; color: var(--text-dim);
+    }
+  </style>
+  <div class="card">
+    <div class="header">
+      <span class="timestamp"></span>
+      <span class="winner"></span>
+    </div>
+    <div class="body">
+      <div class="comparisons"></div>
+      <div class="videos" hidden>
+        <h4 class="videos-heading">Recordings</h4>
+        <div class="video-grid"></div>
+      </div>
+      <div class="machine-info" hidden></div>
+      <div class="raw-section">
+        <div class="raw-toggle"></div>
+        <div class="raw-content"><pre></pre></div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<template id="tmpl-comparison-chart">
+  <style>
+    :host { display: block; margin-bottom: 20px; }
+    .comp-name { font-size: 13px; color: var(--text-dim); margin-bottom: 8px; }
+    .bar-row {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 4px;
+    }
+    .bar-label {
+      width: 100px; font-size: 13px; font-weight: 500; text-align: right;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .bar-track {
+      flex: 1; height: 24px; background: var(--bg);
+      border-radius: 4px; overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%; border-radius: 4px;
+      transition: width 0.3s ease; min-width: 2px;
+    }
+    .bar-value {
+      width: 80px; font-size: 13px;
+      font-family: 'SF Mono', monospace; text-align: right;
+      color: var(--text);
+    }
+    .bar-badge { font-size: 14px; width: 24px; text-align: center; }
+  </style>
+  <div class="comp-name"></div>
+  <div class="rows"></div>
+</template>
+
+<!-- ─── Web Components ──────────────────────────────────────── -->
+
+<script>
+  const RACER_COLORS = ['#60a5fa', '#f87171', '#4ade80', '#a78bfa', '#fb923c'];
+
+  // --- Shared helpers ---
+
+  function formatRaceName(name) {
+    return name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  function formatResultDir(dir) {
+    const m = dir.match(/^results-(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})$/);
+    return m ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}` : dir;
+  }
+
+  async function api(path, options = {}) {
+    const res = await fetch(`/api/${path}`, options);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `HTTP ${res.status}`);
+    }
+    return res.json();
+  }
+
+  /** Clone a <template> by id and return its shadow-ready content. */
+  function cloneTemplate(id) {
+    return document.getElementById(id).content.cloneNode(true);
+  }
+
+  // --- <race-app> ---
+
+  class RaceApp extends HTMLElement {
+    #view = 'list';
+    #race = null;
+    #pollingTimer = null;
+
+    constructor() {
+      super();
+      this.attachShadow({ mode: 'open' });
+      this.shadowRoot.appendChild(cloneTemplate('tmpl-app'));
     }
 
-    window.addEventListener('popstate', (e) => {
-      if (e.state) {
-        currentView = e.state.view;
-        currentRace = e.state.race;
-      } else {
-        currentView = 'list';
-        currentRace = null;
+    connectedCallback() {
+      this.shadowRoot.querySelector('h1').addEventListener('click', () => this.navigate('list'));
+
+      window.addEventListener('popstate', (e) => {
+        if (e.state) { this.#view = e.state.view; this.#race = e.state.race; }
+        else { this.#view = 'list'; this.#race = null; }
+        this.#render();
+      });
+
+      // Listen for navigation events from child components
+      this.addEventListener('navigate-race', (e) => this.navigate('detail', e.detail.name));
+      this.addEventListener('race-completed', () => {
+        if (this.#race) this.navigate('detail', this.#race);
+      });
+
+      // Init from hash
+      if (window.location.hash) {
+        this.#view = 'detail';
+        this.#race = decodeURIComponent(window.location.hash.slice(1));
       }
-      render();
-    });
-
-    // Init from hash
-    if (window.location.hash) {
-      currentView = 'detail';
-      currentRace = window.location.hash.slice(1);
+      this.#render();
     }
 
-    // --- API ---
-
-    async function api(path, options = {}) {
-      const res = await fetch(`/api/${path}`, options);
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `HTTP ${res.status}`);
-      }
-      return res.json();
+    navigate(view, race = null) {
+      this.#view = view;
+      this.#race = race;
+      this.clearPolling();
+      this.#render();
+      const url = view === 'list' ? '/' : `#${encodeURIComponent(race)}`;
+      window.history.pushState({ view, race }, '', url);
     }
 
-    // --- Render ---
+    clearPolling() {
+      if (this.#pollingTimer) { clearInterval(this.#pollingTimer); this.#pollingTimer = null; }
+    }
 
-    async function render() {
-      const app = document.getElementById('app');
-      const bc = document.getElementById('breadcrumb');
+    set pollingTimer(t) { this.#pollingTimer = t; }
+    get pollingTimer() { return this.#pollingTimer; }
+
+    async #render() {
+      const container = this.shadowRoot.querySelector('.container');
+      const grid = this.shadowRoot.querySelector('.race-grid');
+      const empty = this.shadowRoot.querySelector('.empty-state');
+      const breadcrumb = this.shadowRoot.querySelector('.breadcrumb');
+
+      // Clear slotted children
+      this.textContent = '';
+      grid.hidden = true;
+      empty.hidden = true;
 
       try {
-        if (currentView === 'list') {
-          bc.innerHTML = '';
-          app.innerHTML = '<div style="text-align:center;padding:48px;color:var(--text-dim)">Loading...</div>';
+        if (this.#view === 'list') {
+          breadcrumb.textContent = '';
           const data = await api('races');
-          renderRaceList(app, data.races);
-        } else if (currentView === 'detail' && currentRace) {
-          bc.innerHTML = `<a href="#" onclick="event.preventDefault();navigateTo('list')">Races</a><span class="sep">/</span><span>${escapeHtml(currentRace)}</span>`;
-          app.innerHTML = '<div style="text-align:center;padding:48px;color:var(--text-dim)">Loading...</div>';
-          const data = await api(`races/${encodeURIComponent(currentRace)}`);
-          renderRaceDetail(app, data);
+          this.#renderList(grid, empty, data.races);
+        } else if (this.#view === 'detail' && this.#race) {
+          this.#renderBreadcrumb(breadcrumb);
+          const data = await api(`races/${encodeURIComponent(this.#race)}`);
+          this.#renderDetail(data);
         }
       } catch (err) {
-        app.innerHTML = `<div class="empty-state"><div class="icon">⚠</div><p>${escapeHtml(err.message)}</p></div>`;
+        empty.hidden = false;
+        empty.querySelector('.icon').textContent = '\u26A0';
+        empty.querySelector('p').textContent = err.message;
       }
     }
 
-    function renderRaceList(app, races) {
+    #renderBreadcrumb(nav) {
+      nav.textContent = '';
+      const link = document.createElement('a');
+      link.textContent = 'Races';
+      link.addEventListener('click', (e) => { e.preventDefault(); this.navigate('list'); });
+      const sep = document.createElement('span');
+      sep.className = 'sep';
+      sep.textContent = '/';
+      const current = document.createElement('span');
+      current.textContent = this.#race;
+      nav.append(link, sep, current);
+    }
+
+    #renderList(grid, empty, races) {
       if (!races || races.length === 0) {
-        app.innerHTML = `<div class="empty-state"><div class="icon">🏎</div><p>No races found in the races/ directory.</p></div>`;
+        empty.hidden = false;
+        empty.querySelector('.icon').textContent = '\uD83C\uDFCE';
+        empty.querySelector('p').textContent = 'No races found in the races/ directory.';
         return;
       }
-
-      let html = '<div class="race-grid">';
+      grid.hidden = false;
+      grid.textContent = '';
       for (const race of races) {
-        const settingsTags = race.settings
-          ? Object.entries(race.settings).map(([k, v]) => `<span class="tag tag-setting">${escapeHtml(k)}: ${escapeHtml(String(v))}</span>`).join('')
-          : '';
-        html += `
-          <div class="race-card" onclick="navigateTo('detail', '${escapeAttr(race.name)}')">
-            <h3>${escapeHtml(formatRaceName(race.name))}</h3>
-            <div class="racers">
-              ${race.racerNames.map(n => `<span class="tag tag-racer">${escapeHtml(n)}</span>`).join('')}
-            </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-              ${settingsTags}
-              ${race.resultCount > 0 ? `<span class="tag tag-results">${race.resultCount} result${race.resultCount !== 1 ? 's' : ''}</span>` : ''}
-            </div>
-          </div>`;
+        const card = document.createElement('race-card');
+        card.data = race;
+        grid.appendChild(card);
       }
-      html += '</div>';
-      app.innerHTML = html;
     }
 
-    function renderRaceDetail(app, data) {
-      if (data.error) {
-        app.innerHTML = `<div class="empty-state"><div class="icon">🚫</div><p>${data.error}</p></div>`;
-        return;
+    #renderDetail(data) {
+      const detail = document.createElement('race-detail');
+      detail.data = data;
+      this.appendChild(detail);
+    }
+  }
+
+  // --- <race-card> ---
+
+  class RaceCard extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: 'open' });
+      this.shadowRoot.appendChild(cloneTemplate('tmpl-race-card'));
+    }
+
+    set data(race) {
+      this.shadowRoot.querySelector('h3').textContent = formatRaceName(race.name);
+
+      const racersEl = this.shadowRoot.querySelector('.racers');
+      racersEl.textContent = '';
+      for (const name of race.racerNames) {
+        const tag = document.createElement('span');
+        tag.className = 'tag tag-racer';
+        tag.textContent = name;
+        racersEl.appendChild(tag);
       }
 
-      let html = '';
+      const tagsEl = this.shadowRoot.querySelector('.tags');
+      tagsEl.textContent = '';
+      if (race.settings) {
+        for (const [k, v] of Object.entries(race.settings)) {
+          const tag = document.createElement('span');
+          tag.className = 'tag tag-setting';
+          tag.textContent = `${k}: ${v}`;
+          tagsEl.appendChild(tag);
+        }
+      }
+      if (race.resultCount > 0) {
+        const tag = document.createElement('span');
+        tag.className = 'tag tag-results';
+        tag.textContent = `${race.resultCount} result${race.resultCount !== 1 ? 's' : ''}`;
+        tagsEl.appendChild(tag);
+      }
 
-      // Header with run button
-      html += `<div class="detail-header">
-        <h2>${escapeHtml(formatRaceName(data.name))}</h2>
-        <button class="btn btn-primary" id="run-btn" onclick="startRace('${escapeAttr(data.name)}')">Run Race</button>
-      </div>`;
+      this.shadowRoot.querySelector('.card').addEventListener('click', () => {
+        this.dispatchEvent(new CustomEvent('navigate-race', {
+          bubbles: true, composed: true,
+          detail: { name: race.name },
+        }));
+      });
+    }
+  }
 
-      // Run status area
-      html += '<div id="run-status"></div>';
+  // --- <race-detail> ---
 
-      // Run options
-      html += `<div class="run-options" id="run-options">
-        <label><input type="checkbox" id="opt-parallel"> Parallel</label>
-        <label><input type="checkbox" id="opt-headless" checked> Headless</label>
-        <label><input type="checkbox" id="opt-no-recording"> No Recording</label>
-        <label>Runs: <input type="number" id="opt-runs" value="1" min="1" max="20"></label>
-        <label>Network: <select id="opt-network">
-          <option value="">none</option>
-          <option value="slow-3g">slow-3g</option>
-          <option value="fast-3g">fast-3g</option>
-          <option value="4g">4g</option>
-        </select></label>
-        <label>CPU: <input type="number" id="opt-cpu" value="1" min="1" max="20"></label>
-      </div>`;
+  class RaceDetail extends HTMLElement {
+    #raceName = '';
+
+    constructor() {
+      super();
+      this.attachShadow({ mode: 'open' });
+      this.shadowRoot.appendChild(cloneTemplate('tmpl-race-detail'));
+    }
+
+    set data(data) {
+      this.#raceName = data.name;
+      const root = this.shadowRoot;
+
+      // Title
+      root.querySelector('h2').textContent = formatRaceName(data.name);
+
+      // Run button
+      const btn = root.querySelector('.btn-primary');
+      btn.addEventListener('click', () => this.#triggerRun(btn));
+
+      // Run controls
+      const controls = document.createElement('run-controls');
+      controls.slot = 'run-controls';
+      this.appendChild(controls);
+      this._controls = controls;
 
       // Settings
-      if (data.settings) {
-        html += `<div class="settings-panel">
-          <h4>Default Settings</h4>
-          <div class="settings-grid">
-            ${Object.entries(data.settings).map(([k, v]) =>
-              `<div class="setting-item"><span class="key">${escapeHtml(k)}:</span> <span class="val">${escapeHtml(String(v))}</span></div>`
-            ).join('')}
-          </div>
-        </div>`;
+      if (data.settings && Object.keys(data.settings).length > 0) {
+        const panel = root.querySelector('.settings-panel');
+        panel.hidden = false;
+        const grid = panel.querySelector('.settings-grid');
+        for (const [k, v] of Object.entries(data.settings)) {
+          const item = document.createElement('div');
+          item.className = 'setting-item';
+          const keyEl = document.createElement('span');
+          keyEl.className = 'key';
+          keyEl.textContent = `${k}: `;
+          const valEl = document.createElement('span');
+          valEl.className = 'val';
+          valEl.textContent = String(v);
+          item.append(keyEl, valEl);
+          grid.appendChild(item);
+        }
       }
 
-      // Racer scripts
+      // Script viewer
       if (data.racerScripts && Object.keys(data.racerScripts).length > 0) {
-        const names = Object.keys(data.racerScripts);
-        html += `<div class="scripts-section">
-          <h3>Racer Scripts</h3>
-          <div class="script-tabs">
-            ${names.map((n, i) => `<div class="script-tab${i === 0 ? ' active' : ''}" onclick="switchTab(this, '${escapeAttr(n)}')">${escapeHtml(n)}</div>`).join('')}
-          </div>
-          <div class="script-content">
-            ${names.map((n, i) => `<pre id="script-${n}" style="${i > 0 ? 'display:none' : ''}">${escapeHtml(data.racerScripts[n])}</pre>`).join('')}
-          </div>
-        </div>`;
+        const viewer = document.createElement('script-viewer');
+        viewer.slot = 'script-viewer';
+        viewer.data = data.racerScripts;
+        this.appendChild(viewer);
       }
 
       // Results
-      html += '<div class="results-section">';
-      html += `<h3>Results (${data.results.length})</h3>`;
+      const heading = root.querySelector('.results-heading');
+      heading.textContent = `Results (${data.results.length})`;
 
       if (data.results.length === 0) {
-        html += '<div class="empty-state"><div class="icon">📊</div><p>No results yet. Run a race to see results here.</p></div>';
+        const empty = root.querySelector('.empty-state');
+        empty.hidden = false;
+        empty.querySelector('.icon').textContent = '\uD83D\uDCCA';
+        empty.querySelector('p').textContent = 'No results yet. Run a race to see results here.';
       } else {
         for (const result of data.results) {
-          html += renderResultCard(data.name, result);
+          const card = document.createElement('result-card');
+          card.slot = 'results';
+          card.data = { raceName: data.name, ...result };
+          this.appendChild(card);
         }
       }
-
-      html += '</div>';
-      app.innerHTML = html;
     }
 
-    function renderResultCard(raceName, result) {
-      const { dir, summary } = result;
-      const id = dir.replace(/[^a-zA-Z0-9-]/g, '_');
+    async #triggerRun(btn) {
+      const controls = this._controls;
+      btn.disabled = true;
+      btn.textContent = 'Starting...';
 
-      if (!summary) {
-        return `<div class="result-card">
-          <div class="result-header"><span class="timestamp">${formatResultDir(dir)}</span><span style="color:var(--text-dim)">No summary</span></div>
-        </div>`;
+      const opts = controls.getOptions();
+
+      try {
+        const data = await api(`races/${encodeURIComponent(this.#raceName)}/run`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(opts),
+        });
+
+        controls.showStatus('running', 'Race is running...');
+
+        // Get the app element for polling management
+        const app = this.closest('race-app');
+
+        const timer = setInterval(async () => {
+          try {
+            const status = await api(`races/status/${data.raceId}`);
+            controls.setOutput(status.output || '');
+
+            if (status.status !== 'running') {
+              clearInterval(timer);
+              if (app) app.pollingTimer = null;
+
+              if (status.status === 'completed') {
+                controls.showStatus('success', 'Race completed! Refreshing results...');
+              } else {
+                controls.showStatus('error', 'Race failed. Check output below.');
+              }
+
+              btn.disabled = false;
+              btn.textContent = 'Run Race';
+
+              setTimeout(() => {
+                this.dispatchEvent(new CustomEvent('race-completed', {
+                  bubbles: true, composed: true,
+                }));
+              }, 1500);
+            }
+          } catch { /* transient poll error */ }
+        }, 2000);
+
+        if (app) app.pollingTimer = timer;
+      } catch (err) {
+        controls.showStatus('error', `Failed to start race: ${err.message}`);
+        btn.disabled = false;
+        btn.textContent = 'Run Race';
+      }
+    }
+  }
+
+  // --- <run-controls> ---
+
+  class RunControls extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: 'open' });
+      this.shadowRoot.appendChild(cloneTemplate('tmpl-run-controls'));
+    }
+
+    getOptions() {
+      const root = this.shadowRoot;
+      const opts = {};
+      if (root.querySelector('[name="parallel"]').checked) opts.parallel = true;
+      opts.headless = root.querySelector('[name="headless"]').checked;
+      if (root.querySelector('[name="noRecording"]').checked) opts.noRecording = true;
+      const runs = parseInt(root.querySelector('[name="runs"]').value, 10);
+      if (runs > 1) opts.runs = runs;
+      const network = root.querySelector('[name="network"]').value;
+      if (network) opts.network = network;
+      const cpu = parseInt(root.querySelector('[name="cpu"]').value, 10);
+      if (cpu > 1) opts.cpu = cpu;
+      return opts;
+    }
+
+    showStatus(type, message) {
+      const root = this.shadowRoot;
+      const status = root.querySelector('.status');
+      const iconEl = root.querySelector('.status-icon');
+      const msgEl = root.querySelector('.status-msg');
+      const output = root.querySelector('.output');
+
+      status.classList.add('visible');
+      msgEl.textContent = message;
+
+      // Clear previous icon content
+      iconEl.textContent = '';
+      if (type === 'running') {
+        const spinner = document.createElement('span');
+        spinner.className = 'spinner';
+        iconEl.appendChild(spinner);
+        output.classList.add('visible');
+      } else {
+        iconEl.textContent = type === 'success' ? '\u2705' : '\u274C';
+        output.classList.remove('visible');
+      }
+    }
+
+    setOutput(text) {
+      const output = this.shadowRoot.querySelector('.output');
+      output.textContent = text;
+      output.scrollTop = output.scrollHeight;
+    }
+  }
+
+  // --- <script-viewer> ---
+
+  class ScriptViewer extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: 'open' });
+      this.shadowRoot.appendChild(cloneTemplate('tmpl-script-viewer'));
+    }
+
+    set data(scripts) {
+      const root = this.shadowRoot;
+      const tabs = root.querySelector('.tabs');
+      const content = root.querySelector('.content');
+      const names = Object.keys(scripts);
+
+      for (let i = 0; i < names.length; i++) {
+        const name = names[i];
+
+        // Tab button
+        const tab = document.createElement('div');
+        tab.className = i === 0 ? 'tab active' : 'tab';
+        tab.textContent = name;
+        tab.addEventListener('click', () => this.#switchTo(name));
+        tabs.appendChild(tab);
+
+        // Code block
+        const pre = document.createElement('pre');
+        pre.dataset.name = name;
+        pre.className = i === 0 ? 'active' : '';
+        pre.textContent = scripts[name];
+        content.appendChild(pre);
+      }
+    }
+
+    #switchTo(name) {
+      const root = this.shadowRoot;
+      for (const tab of root.querySelectorAll('.tab')) {
+        tab.classList.toggle('active', tab.textContent === name);
+      }
+      for (const pre of root.querySelectorAll('pre')) {
+        pre.classList.toggle('active', pre.dataset.name === name);
+      }
+    }
+  }
+
+  // --- <result-card> ---
+
+  class ResultCard extends HTMLElement {
+    #open = false;
+
+    constructor() {
+      super();
+      this.attachShadow({ mode: 'open' });
+      this.shadowRoot.appendChild(cloneTemplate('tmpl-result-card'));
+    }
+
+    set data({ raceName, dir, summary }) {
+      const root = this.shadowRoot;
+
+      // Header
+      root.querySelector('.timestamp').textContent = formatResultDir(dir);
+
+      const winnerEl = root.querySelector('.winner');
+      if (summary && summary.overallWinner) {
+        winnerEl.textContent = '';
+        const trophy = document.createElement('span');
+        trophy.textContent = '\uD83C\uDFC6';
+        const name = document.createTextNode(` ${summary.overallWinner}`);
+        winnerEl.append(trophy, name);
+      } else {
+        const noWin = document.createElement('span');
+        noWin.className = 'no-winner';
+        noWin.textContent = summary ? 'No winner' : 'No summary';
+        winnerEl.appendChild(noWin);
       }
 
-      const winner = summary.overallWinner;
-      const racers = summary.racers || [];
+      // Toggle
+      root.querySelector('.header').addEventListener('click', () => {
+        this.#open = !this.#open;
+        root.querySelector('.body').classList.toggle('open', this.#open);
+      });
 
-      let body = '';
+      if (!summary) return;
+
+      const racers = summary.racers || [];
 
       // Comparisons
       if (summary.comparisons && summary.comparisons.length > 0) {
+        const container = root.querySelector('.comparisons');
         for (const comp of summary.comparisons) {
-          const maxDur = Math.max(...comp.racers.map(r => r?.duration || 0));
-          body += `<div class="comparison"><div class="comp-name">${escapeHtml(comp.name)}</div>`;
-          for (let i = 0; i < racers.length; i++) {
-            const r = comp.racers[i];
-            const dur = r?.duration || 0;
-            const pct = maxDur > 0 ? (dur / maxDur * 100) : 0;
-            const color = RACER_COLORS[i % RACER_COLORS.length];
-            const isWinner = comp.winner === racers[i];
-            body += `<div class="bar-row">
-              <div class="bar-label" style="color:${color}">${escapeHtml(racers[i])}</div>
-              <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
-              <div class="bar-value">${dur ? dur.toFixed(3) + 's' : 'N/A'}</div>
-              <div class="bar-badge">${isWinner ? '🏆' : ''}</div>
-            </div>`;
-          }
-          body += '</div>';
+          const chart = document.createElement('comparison-chart');
+          chart.data = { comp, racers };
+          container.appendChild(chart);
         }
       }
 
       // Videos
       if (summary.videos) {
-        const videoEntries = racers.filter(name => summary.videos[name]).map(name => ({
-          name,
-          path: summary.videos[name]
+        const entries = racers.filter(n => summary.videos[n]).map(n => ({
+          name: n, path: summary.videos[n],
         }));
-
-        if (videoEntries.length > 0) {
-          body += `<div class="videos-section"><h4>Recordings</h4><div class="video-grid">`;
-          for (const v of videoEntries) {
-            const videoUrl = `/api/races/${raceName}/results/${dir}/files/${v.path}`;
-            body += `<div class="video-item">
-              <video controls preload="metadata" src="${escapeAttr(videoUrl)}"></video>
-              <div class="video-label">${escapeHtml(v.name)}</div>
-            </div>`;
+        if (entries.length > 0) {
+          const videosEl = root.querySelector('.videos');
+          videosEl.hidden = false;
+          const grid = root.querySelector('.video-grid');
+          for (const v of entries) {
+            const item = document.createElement('div');
+            item.className = 'video-item';
+            const video = document.createElement('video');
+            video.controls = true;
+            video.preload = 'metadata';
+            video.src = `/api/races/${encodeURIComponent(raceName)}/results/${encodeURIComponent(dir)}/files/${v.path}`;
+            const label = document.createElement('div');
+            label.className = 'video-label';
+            label.textContent = v.name;
+            item.append(video, label);
+            grid.appendChild(item);
           }
-          body += '</div></div>';
         }
       }
 
       // Machine info
       if (summary.machineInfo) {
         const mi = summary.machineInfo;
-        body += `<div class="machine-info">
-          <span>${escapeHtml((mi.platform || '') + ' ' + (mi.arch || ''))}</span>
-          <span>${escapeHtml(mi.cpuModel || '')}</span>
-          <span>${escapeHtml(String(mi.cpuCores || '?'))} cores</span>
-          <span>${mi.totalMemoryMB ? Math.round(mi.totalMemoryMB / 1024) + ' GB RAM' : ''}</span>
-          <span>Node ${escapeHtml(mi.nodeVersion || '?')}</span>
-        </div>`;
-      }
-
-      // Raw JSON toggle
-      body += `<div class="raw-data-section">
-        <div class="raw-toggle" onclick="toggleRaw('${escapeAttr(id)}')">▸ Raw summary.json</div>
-        <div class="raw-content" id="raw-${escapeAttr(id)}"><pre>${escapeHtml(JSON.stringify(summary, null, 2))}</pre></div>
-      </div>`;
-
-      return `<div class="result-card">
-        <div class="result-header" onclick="toggleResult('${escapeAttr(id)}')">
-          <span class="timestamp">${escapeHtml(formatResultDir(dir))}</span>
-          <span class="winner">${winner ? `<span class="trophy">🏆</span> ${escapeHtml(winner)}` : '<span style="color:var(--text-dim)">No winner</span>'}</span>
-        </div>
-        <div class="result-body" id="result-${escapeAttr(id)}">${body}</div>
-      </div>`;
-    }
-
-    // --- Actions ---
-
-    async function startRace(name) {
-      const btn = document.getElementById('run-btn');
-      btn.disabled = true;
-      btn.textContent = 'Starting...';
-
-      const opts = {};
-      if (document.getElementById('opt-parallel')?.checked) opts.parallel = true;
-      opts.headless = document.getElementById('opt-headless')?.checked !== false;
-      if (document.getElementById('opt-no-recording')?.checked) opts.noRecording = true;
-      const runs = parseInt(document.getElementById('opt-runs')?.value || '1', 10);
-      if (runs > 1) opts.runs = runs;
-      const network = document.getElementById('opt-network')?.value;
-      if (network) opts.network = network;
-      const cpu = parseInt(document.getElementById('opt-cpu')?.value || '1', 10);
-      if (cpu > 1) opts.cpu = cpu;
-
-      try {
-        const data = await api(`races/${encodeURIComponent(name)}/run`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(opts),
-        });
-
-        if (data.error) {
-          showRunStatus('error', data.error);
-          btn.disabled = false;
-          btn.textContent = 'Run Race';
-          return;
-        }
-
-        showRunStatus('running', 'Race is running...');
-
-        // Poll for status
-        pollingTimer = setInterval(async () => {
-          try {
-            const status = await api(`races/status/${data.raceId}`);
-            const outputEl = document.getElementById('run-output');
-            if (outputEl) {
-              outputEl.textContent = status.output || '';
-              outputEl.scrollTop = outputEl.scrollHeight;
-            }
-
-            if (status.status !== 'running') {
-              clearInterval(pollingTimer);
-              pollingTimer = null;
-
-              if (status.status === 'completed') {
-                showRunStatus('success', 'Race completed! Refreshing results...');
-              } else {
-                showRunStatus('error', 'Race failed. Check output below.');
-              }
-
-              btn.disabled = false;
-              btn.textContent = 'Run Race';
-
-              // Refresh the detail view
-              setTimeout(() => navigateTo('detail', name), 1500);
-            }
-          } catch {
-            // Ignore transient fetch errors during polling
+        const infoEl = root.querySelector('.machine-info');
+        infoEl.hidden = false;
+        const parts = [
+          `${mi.platform || ''} ${mi.arch || ''}`,
+          mi.cpuModel || '',
+          `${mi.cpuCores || '?'} cores`,
+          mi.totalMemoryMB ? `${Math.round(mi.totalMemoryMB / 1024)} GB RAM` : '',
+          `Node ${mi.nodeVersion || '?'}`,
+        ];
+        for (const text of parts) {
+          if (text.trim()) {
+            const span = document.createElement('span');
+            span.textContent = text;
+            infoEl.appendChild(span);
           }
-        }, 2000);
-      } catch (err) {
-        showRunStatus('error', `Failed to start race: ${err.message}`);
-        btn.disabled = false;
-        btn.textContent = 'Run Race';
+        }
+      }
+
+      // Raw JSON
+      const toggle = root.querySelector('.raw-toggle');
+      const rawContent = root.querySelector('.raw-content');
+      toggle.textContent = '\u25B8 Raw summary.json';
+      rawContent.querySelector('pre').textContent = JSON.stringify(summary, null, 2);
+      toggle.addEventListener('click', () => {
+        const open = rawContent.classList.toggle('open');
+        toggle.textContent = (open ? '\u25BE' : '\u25B8') + ' Raw summary.json';
+      });
+    }
+  }
+
+  // --- <comparison-chart> ---
+
+  class ComparisonChart extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: 'open' });
+      this.shadowRoot.appendChild(cloneTemplate('tmpl-comparison-chart'));
+    }
+
+    set data({ comp, racers }) {
+      const root = this.shadowRoot;
+      root.querySelector('.comp-name').textContent = comp.name;
+
+      const maxDur = Math.max(...comp.racers.map(r => r?.duration || 0));
+      const rows = root.querySelector('.rows');
+
+      for (let i = 0; i < racers.length; i++) {
+        const r = comp.racers[i];
+        const dur = r?.duration || 0;
+        const pct = maxDur > 0 ? (dur / maxDur * 100) : 0;
+        const color = RACER_COLORS[i % RACER_COLORS.length];
+        const isWinner = comp.winner === racers[i];
+
+        const row = document.createElement('div');
+        row.className = 'bar-row';
+
+        const label = document.createElement('div');
+        label.className = 'bar-label';
+        label.textContent = racers[i];
+        label.style.color = color;
+
+        const track = document.createElement('div');
+        track.className = 'bar-track';
+        const fill = document.createElement('div');
+        fill.className = 'bar-fill';
+        fill.style.width = `${pct}%`;
+        fill.style.background = color;
+        track.appendChild(fill);
+
+        const value = document.createElement('div');
+        value.className = 'bar-value';
+        value.textContent = dur ? `${dur.toFixed(3)}s` : 'N/A';
+
+        const badge = document.createElement('div');
+        badge.className = 'bar-badge';
+        badge.textContent = isWinner ? '\uD83C\uDFC6' : '';
+
+        row.append(label, track, value, badge);
+        rows.appendChild(row);
       }
     }
+  }
 
-    function showRunStatus(type, message) {
-      const el = document.getElementById('run-status');
-      if (!el) return;
+  // --- Register all components ---
 
-      const icon = type === 'running' ? '<span class="spinner"></span>'
-        : type === 'success' ? '✅'
-        : '❌';
+  customElements.define('race-app', RaceApp);
+  customElements.define('race-card', RaceCard);
+  customElements.define('race-detail', RaceDetail);
+  customElements.define('run-controls', RunControls);
+  customElements.define('script-viewer', ScriptViewer);
+  customElements.define('result-card', ResultCard);
+  customElements.define('comparison-chart', ComparisonChart);
+</script>
 
-      el.innerHTML = `<div class="run-status">
-        <div class="status-line">${icon} ${escapeHtml(message)}</div>
-        ${type === 'running' ? '<div class="run-output" id="run-output"></div>' : ''}
-      </div>`;
-    }
+<race-app></race-app>
 
-    // --- UI helpers ---
-
-    function toggleResult(id) {
-      const el = document.getElementById('result-' + id);
-      if (el) el.classList.toggle('open');
-    }
-
-    function toggleRaw(id) {
-      const el = document.getElementById('raw-' + id);
-      if (el) {
-        el.classList.toggle('open');
-        const toggle = el.previousElementSibling;
-        if (toggle) toggle.textContent = el.classList.contains('open') ? '▾ Raw summary.json' : '▸ Raw summary.json';
-      }
-    }
-
-    function switchTab(tabEl, name) {
-      const tabs = tabEl.parentElement.children;
-      const container = tabEl.parentElement.nextElementSibling;
-      for (const t of tabs) t.classList.remove('active');
-      tabEl.classList.add('active');
-      for (const pre of container.children) pre.style.display = 'none';
-      const target = document.getElementById('script-' + name);
-      if (target) target.style.display = '';
-    }
-
-    function formatRaceName(name) {
-      return name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-    }
-
-    function formatResultDir(dir) {
-      const m = dir.match(/^results-(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})$/);
-      if (m) {
-        return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}`;
-      }
-      return dir;
-    }
-
-    function escapeHtml(str) {
-      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-    }
-
-    /** Escape a value for use inside an HTML attribute (single or double quoted). */
-    function escapeAttr(str) {
-      return escapeHtml(str);
-    }
-
-    // --- Init ---
-    render();
-  </script>
 </body>
 </html>
