@@ -21,9 +21,13 @@ import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
+import { discoverRacers } from './cli/config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const RACES_DIR = path.join(__dirname, 'races');
+
+const MAX_REQUEST_BODY = 64 * 1024; // 64 KB
+const MAX_OUTPUT_BUFFER = 512 * 1024; // 512 KB
 
 const MIME_TYPES = {
   '.html': 'text/html',
@@ -78,8 +82,45 @@ function safePath(base, ...segments) {
 }
 
 // --- Active race tracking ---
-const activeRaces = new Map(); // raceId -> { name, status, output, startTime }
+const activeRaces = new Map(); // raceId -> { name, status, output, startTime, process }
 let raceIdCounter = 0;
+
+/** Load settings.json and discover racers for a race directory. */
+function loadRaceInfo(raceDir) {
+  let settings = null;
+  const settingsPath = path.join(raceDir, 'settings.json');
+  try {
+    if (fs.existsSync(settingsPath)) {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    }
+  } catch { /* ignore */ }
+
+  let racerFiles = [], racerNames = [];
+  try {
+    ({ racerFiles, racerNames } = discoverRacers(raceDir));
+  } catch { /* ignore */ }
+
+  return { settings, racerFiles, racerNames };
+}
+
+/** Read a request body with a size limit. Rejects if exceeded. */
+function readBody(req, maxBytes = MAX_REQUEST_BODY) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    let size = 0;
+    req.on('data', chunk => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        req.destroy();
+        reject(new Error('Request body too large'));
+        return;
+      }
+      body += chunk;
+    });
+    req.on('end', () => resolve(body));
+    req.on('error', reject);
+  });
+}
 
 // --- API handlers ---
 
@@ -87,21 +128,8 @@ function handleListRaces(req, res) {
   const raceDirs = listDirs(RACES_DIR);
   const races = raceDirs.map(name => {
     const raceDir = path.join(RACES_DIR, name);
-    const settingsPath = path.join(raceDir, 'settings.json');
-    let settings = null;
-    try {
-      if (fs.existsSync(settingsPath)) {
-        settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-      }
-    } catch { /* ignore */ }
-
-    // Discover racers (*.spec.js files)
-    const files = fs.readdirSync(raceDir).filter(f => f.endsWith('.spec.js')).sort();
-    const racerNames = files.map(f => f.replace(/\.spec\.js$/, ''));
-
-    // Count results
+    const { settings, racerNames } = loadRaceInfo(raceDir);
     const resultDirs = listResultDirs(raceDir);
-
     return { name, racerNames, settings, resultCount: resultDirs.length };
   });
 
@@ -114,21 +142,11 @@ function handleRaceDetail(req, res, raceName) {
     return errorResponse(res, 'Race not found', 404);
   }
 
-  const settingsPath = path.join(raceDir, 'settings.json');
-  let settings = null;
-  try {
-    if (fs.existsSync(settingsPath)) {
-      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-    }
-  } catch { /* ignore */ }
+  const { settings, racerFiles, racerNames } = loadRaceInfo(raceDir);
 
-  const files = fs.readdirSync(raceDir).filter(f => f.endsWith('.spec.js')).sort();
-  const racerNames = files.map(f => f.replace(/\.spec\.js$/, ''));
-
-  // Read racer scripts
   const racerScripts = {};
-  for (const f of files) {
-    const name = f.replace(/\.spec\.js$/, '');
+  for (const f of racerFiles) {
+    const name = f.replace(/\.spec\.js$/, '').replace(/\.js$/, '');
     try {
       racerScripts[name] = fs.readFileSync(path.join(raceDir, f), 'utf-8');
     } catch { /* ignore */ }
@@ -215,7 +233,9 @@ function handleResultFile(req, res, raceName, resultDir, filePath) {
   });
 }
 
-function handleRunRace(req, res, raceName) {
+const VALID_NETWORKS = new Set(['', 'none', 'slow-3g', 'fast-3g', '4g']);
+
+async function handleRunRace(req, res, raceName) {
   const raceDir = safePath(RACES_DIR, raceName);
   if (!raceDir || !fs.existsSync(raceDir)) {
     return errorResponse(res, 'Race not found', 404);
@@ -228,63 +248,80 @@ function handleRunRace(req, res, raceName) {
     }
   }
 
-  // Parse optional body for flags
-  let body = '';
-  req.on('data', chunk => { body += chunk; });
-  req.on('end', () => {
-    let flags = [];
-    try {
-      if (body) {
-        const opts = JSON.parse(body);
-        if (opts.headless !== false) flags.push('--headless');
-        if (opts.parallel) flags.push('--parallel');
-        if (opts.runs) flags.push(`--runs=${opts.runs}`);
-        if (opts.network) flags.push(`--network=${opts.network}`);
-        if (opts.cpu) flags.push(`--cpu=${opts.cpu}`);
-        if (opts.noRecording) flags.push('--no-recording');
-      } else {
-        flags.push('--headless');
-      }
-    } catch {
-      flags = ['--headless'];
+  let body;
+  try {
+    body = await readBody(req);
+  } catch {
+    return errorResponse(res, 'Request body too large', 413);
+  }
+
+  let flags = [];
+  try {
+    if (body) {
+      const opts = JSON.parse(body);
+      if (opts.headless !== false) flags.push('--headless');
+      if (opts.parallel) flags.push('--parallel');
+      const runs = parseInt(opts.runs, 10);
+      if (runs > 0 && runs <= 20) flags.push(`--runs=${runs}`);
+      if (opts.network && VALID_NETWORKS.has(opts.network)) flags.push(`--network=${opts.network}`);
+      const cpu = parseInt(opts.cpu, 10);
+      if (cpu > 1 && cpu <= 20) flags.push(`--cpu=${cpu}`);
+      if (opts.noRecording) flags.push('--no-recording');
+    } else {
+      flags.push('--headless');
     }
+  } catch {
+    flags = ['--headless'];
+  }
 
-    flags.push('--no-serve');
+  flags.push('--no-serve');
 
-    const raceId = ++raceIdCounter;
-    const raceState = {
-      id: raceId,
-      name: raceName,
-      status: 'running',
-      output: '',
-      startTime: Date.now(),
-      endTime: null,
-    };
-    activeRaces.set(raceId, raceState);
+  const raceId = ++raceIdCounter;
+  const raceState = {
+    id: raceId,
+    name: raceName,
+    status: 'running',
+    output: '',
+    startTime: Date.now(),
+    endTime: null,
+    process: null,
+  };
+  activeRaces.set(raceId, raceState);
 
-    const raceProcess = spawn('node', [path.join(__dirname, 'race.js'), raceDir, ...flags], {
-      cwd: __dirname,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    raceProcess.stdout.on('data', d => { raceState.output += d.toString(); });
-    raceProcess.stderr.on('data', d => { raceState.output += d.toString(); });
-
-    raceProcess.on('close', (code) => {
-      raceState.status = code === 0 ? 'completed' : 'failed';
-      raceState.endTime = Date.now();
-      // Clean up after 10 minutes
-      setTimeout(() => activeRaces.delete(raceId), 10 * 60 * 1000);
-    });
-
-    raceProcess.on('error', (err) => {
-      raceState.status = 'failed';
-      raceState.output += `\nProcess error: ${err.message}`;
-      raceState.endTime = Date.now();
-    });
-
-    jsonResponse(res, { raceId, status: 'running', message: `Race "${raceName}" started` });
+  const raceProcess = spawn('node', [path.join(__dirname, 'race.js'), raceDir, ...flags], {
+    cwd: __dirname,
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
+  raceState.process = raceProcess;
+
+  const appendOutput = (d) => {
+    const chunk = d.toString();
+    if (raceState.output.length + chunk.length > MAX_OUTPUT_BUFFER) {
+      raceState.output = raceState.output.slice(-MAX_OUTPUT_BUFFER / 2) + chunk.slice(0, MAX_OUTPUT_BUFFER / 2);
+    } else {
+      raceState.output += chunk;
+    }
+  };
+
+  raceProcess.stdout.on('data', appendOutput);
+  raceProcess.stderr.on('data', appendOutput);
+
+  raceProcess.on('close', (code) => {
+    raceState.status = code === 0 ? 'completed' : 'failed';
+    raceState.endTime = Date.now();
+    raceState.process = null;
+    // Clean up after 10 minutes
+    setTimeout(() => activeRaces.delete(raceId), 10 * 60 * 1000);
+  });
+
+  raceProcess.on('error', (err) => {
+    raceState.status = 'failed';
+    raceState.output += `\nProcess error: ${err.message}`;
+    raceState.endTime = Date.now();
+    raceState.process = null;
+  });
+
+  jsonResponse(res, { raceId, status: 'running', message: `Race "${raceName}" started` });
 }
 
 function handleRaceStatus(req, res, raceId) {
@@ -292,6 +329,17 @@ function handleRaceStatus(req, res, raceId) {
   const race = activeRaces.get(id);
   if (!race) return errorResponse(res, 'Race not found', 404);
   jsonResponse(res, { id: race.id, name: race.name, status: race.status, startTime: race.startTime, endTime: race.endTime, output: race.output });
+}
+
+function handleRaceCancel(req, res, raceId) {
+  const id = parseInt(raceId, 10);
+  const race = activeRaces.get(id);
+  if (!race) return errorResponse(res, 'Race not found', 404);
+  if (race.status !== 'running' || !race.process) {
+    return errorResponse(res, 'Race is not running', 409);
+  }
+  race.process.kill('SIGTERM');
+  jsonResponse(res, { id: race.id, status: 'cancelling' });
 }
 
 // --- Static file serving for webapp UI ---
@@ -316,12 +364,11 @@ function route(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathname = url.pathname;
 
-  // CORS headers for local dev
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
+  // Only allow CORS for GET requests; POST (mutations) require same-origin
   if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     res.writeHead(204);
     res.end();
     return;
@@ -355,10 +402,16 @@ function route(req, res) {
       return handleRunRace(req, res, runMatch[1]);
     }
 
-    // GET /api/races/:name/status/:id
+    // GET /api/races/status/:id
     const statusMatch = apiPath.match(/^races\/status\/(\d+)$/);
     if (statusMatch && req.method === 'GET') {
       return handleRaceStatus(req, res, statusMatch[1]);
+    }
+
+    // POST /api/races/status/:id/cancel
+    const cancelMatch = apiPath.match(/^races\/status\/(\d+)\/cancel$/);
+    if (cancelMatch && req.method === 'POST') {
+      return handleRaceCancel(req, res, cancelMatch[1]);
     }
 
     // GET /api/races/:name
