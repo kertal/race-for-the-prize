@@ -617,14 +617,18 @@ function loadRaceDir(raceDir) {
   }
   settings = applyDefaults(applyOverrides(settings, boolFlags, kvFlags));
 
-  const scripts = racerFiles.map((f, i) => {
+  // Compute effective racer files (may be overridden by settings.racers[name].script)
+  const effectiveRacerFiles = racerFiles.map((f, i) => {
     const name = racerNames[i];
     const racerScript = settings.racers?.[name]?.script;
-    const file = racerScript || f;
-    return fs.readFileSync(path.join(raceDir, file), 'utf-8');
+    return racerScript || f;
   });
 
-  const ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir, racerFiles });
+  const scripts = effectiveRacerFiles.map(f =>
+    fs.readFileSync(path.join(raceDir, f), 'utf-8')
+  );
+
+  const ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir, racerFiles: effectiveRacerFiles });
   return { ctx, settings, racerNames };
 }
 
@@ -836,7 +840,7 @@ async function runScript(script, label) {
     throw new Error(`${label} script path must be within race directory: ${command}`);
   }
 
-  // Validate script exists and is a regular file (lstatSync rejects symlinks)
+  // Validate script exists and is a regular file (not a directory or symlink)
   let stat;
   try {
     stat = fs.lstatSync(scriptPath);
@@ -848,6 +852,7 @@ async function runScript(script, label) {
     throw e;
   }
 
+  // lstatSync returns stats for the link itself; isFile() is false for symlinks and directories
   if (!stat.isFile()) {
     throw new Error(`${label} script path is not a regular file: ${scriptPath}`);
   }
@@ -898,7 +903,7 @@ async function runScript(script, label) {
       }, 5000);
     }, timeout);
 
-    child.on('close', (code) => {
+    child.on('close', (code, signal) => {
       clearTimeout(timeoutId);
       if (sigkillTimeoutId) clearTimeout(sigkillTimeoutId);
       if (settled) return;
@@ -907,6 +912,14 @@ async function runScript(script, label) {
       if (timedOut) {
         progress.done(`${label} timed out after ${timeout}ms`);
         reject(new Error(`${label} script timed out after ${timeout}ms`));
+        return;
+      }
+
+      // Handle process killed by signal (code is null)
+      if (code === null && signal) {
+        progress.done(`${label} killed by ${signal}`);
+        if (stderr) console.error(`${c.dim}${stderr}${c.reset}`);
+        reject(new Error(`${label} script was killed by ${signal}`));
         return;
       }
 
@@ -1214,6 +1227,6 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
 }
 
 await main();
-if (settings.noServe || settings.noRecording) process.exit(0);
+if (settings.noServe || settings.noRecording) process.exit(process.exitCode || 0);
 
 } // end isMainModule

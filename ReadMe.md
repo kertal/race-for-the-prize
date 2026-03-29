@@ -345,7 +345,7 @@ races/my-race/
   settings.json
 ```
 
-Supported extensions: `.sh` (shell, requires bash) and `.js` (Node.js, runs as ESM). When both exist, `.sh` takes priority.
+Supported extensions: `.sh` (shell, requires bash) and `.js` (Node.js). When both exist, `.sh` takes priority. Note: `.js` files run according to Node's module resolution rules (ESM or CommonJS depends on the nearest `package.json` with `"type": "module"`).
 
 Scripts receive the `RACE_DIR` environment variable pointing to the race directory.
 
@@ -378,7 +378,7 @@ For more control, configure scripts in `settings.json` with timeouts and service
 |---|---|---|
 | `setup` / `teardown` | `string` or `object` | Script path (relative to race dir) or config object |
 | `command` | `string` | Script path when using object form |
-| `timeout` | `number` | Max execution time in ms (default: 60000) |
+| `timeout` | `number` | Max execution time in ms (default: 300000) |
 | `waitFor.url` | `string` | Poll this URL after script completes |
 | `waitFor.timeout` | `number` | Max polling time in ms (default: 30000) |
 | `waitFor.interval` | `number` | Polling interval in ms (default: 1000) |

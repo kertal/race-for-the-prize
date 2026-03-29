@@ -120,11 +120,14 @@ try {
 /**
  * Apply default values for all settings properties.
  * Call after applyOverrides to ensure every key has a defined value.
- * Strips null/undefined values so they don't shadow defaults.
+ * Strips null/undefined values so they don't shadow defaults, except for
+ * setup/teardown keys where null explicitly disables convention-based discovery.
  */
 export function applyDefaults(settings) {
+  // Keys where null is meaningful (disables convention-based discovery)
+  const preserveNullKeys = new Set(['setup', 'teardown']);
   const cleaned = Object.fromEntries(
-    Object.entries(settings).filter(([, v]) => v != null)
+    Object.entries(settings).filter(([k, v]) => v != null || preserveNullKeys.has(k))
   );
   return {
     parallel: false,
@@ -197,11 +200,12 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
 }
 
 /**
- * Check if a path is a regular file (not a directory).
+ * Check if a path is a regular file (not a directory or symlink).
+ * Uses lstatSync so symlinks are rejected consistently with execution.
  */
 function isFile(filePath) {
   try {
-    return fs.statSync(filePath).isFile();
+    return fs.lstatSync(filePath).isFile();
   } catch {
     return false;
   }
