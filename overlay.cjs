@@ -28,7 +28,7 @@ async function flashCue(page, color, durationMs) {
     el.id = '__race_cue';
     // CSS animation forces compositor updates → guarantees screencast frame capture
     el.style.cssText = 'position:fixed;top:0;left:0;width:' + size + 'px;height:' + size + 'px;z-index:2147483647;background:' + c + ';animation:__rcue 16ms steps(2) infinite';
-    var sheet = document.createElement('style');
+    const sheet = document.createElement('style');
     sheet.textContent = '@keyframes __rcue{50%{opacity:.999}}';
     document.head.appendChild(sheet);
     document.documentElement.appendChild(el);
@@ -40,63 +40,38 @@ async function flashCue(page, color, durationMs) {
 }
 
 /**
- * Inject or update the recording overlay indicator element.
+ * Set or remove overlay indicators in one evaluate call.
  *
  * @param {Page} page - Playwright page
- * @param {string} text - Text to display
- * @param {string} bg - CSS background color
+ * @param {boolean} dot - Show recording dot (left)
+ * @param {string|null} right - Right indicator emoji (e.g. stopwatch/flag) or null to hide
  */
-async function injectOverlay(page, text, bg) {
-  await page.evaluate(({ text, bg }) => {
-    let el = document.getElementById('__race_rec_indicator');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = '__race_rec_indicator';
-      el.style.cssText = 'position:fixed;top:12px;right:12px;z-index:2147483647;'
-        + 'color:#fff;padding:4px 10px;border-radius:6px;'
-        + 'font:bold 14px/1 system-ui,sans-serif;pointer-events:none';
-      document.body.appendChild(el);
+async function setOverlay(page, dot, right) {
+  await page.evaluate(({ d, r }) => {
+    let el = document.getElementById('__race_ol');
+    if (d) {
+      if (!el) {
+        el = document.createElement('div');
+        el.id = '__race_ol';
+        el.style.cssText = 'position:fixed;top:12px;left:12px;z-index:2147483647;width:10px;height:10px;border-radius:50%;background:#e00;pointer-events:none';
+        document.body.appendChild(el);
+      }
+    } else if (el) {
+      el.remove();
     }
-    el.textContent = text;
-    el.style.background = bg;
-  }, { text, bg });
-}
-
-/**
- * Show the recording indicator (red "REC" badge).
- *
- * @param {Page} page - Playwright page
- * @returns {{ text: string, bg: string }} The overlay state for tracking
- */
-async function showRecordingIndicator(page) {
-  const state = { text: '\u{1F4F9} REC', bg: 'rgba(220,38,38,0.85)' };
-  await injectOverlay(page, state.text, state.bg);
-  return state;
-}
-
-/**
- * Show the finish time overlay (green badge with duration).
- *
- * @param {Page} page - Playwright page
- * @param {number} duration - Race duration in seconds
- * @returns {{ text: string, bg: string }} The overlay state for tracking
- */
-function showFinishTime(page, duration) {
-  const state = { text: '\u{1F3C1} ' + duration.toFixed(1) + 's', bg: 'rgba(22,163,74,0.85)' };
-  injectOverlay(page, state.text, state.bg).catch(() => {});
-  return state;
-}
-
-/**
- * Hide the recording indicator overlay.
- *
- * @param {Page} page - Playwright page
- */
-async function hideRecordingIndicator(page) {
-  await page.evaluate(() => {
-    const el = document.getElementById('__race_rec_indicator');
-    if (el) el.remove();
-  });
+    el = document.getElementById('__race_or');
+    if (r) {
+      if (!el) {
+        el = document.createElement('div');
+        el.id = '__race_or';
+        el.style.cssText = 'position:fixed;top:8px;right:12px;z-index:2147483647;font:32px/1 sans-serif;pointer-events:none';
+        document.body.appendChild(el);
+      }
+      el.textContent = r;
+    } else if (el) {
+      el.remove();
+    }
+  }, { d: dot, r: right });
 }
 
 /**
@@ -137,13 +112,61 @@ async function showMedal(page, place) {
   }
 }
 
+/**
+ * Stateful overlay controller — manages recording dot, stopwatch/flag,
+ * and re-injection after navigations. Keeps all overlay state and DOM
+ * interaction out of runner.cjs.
+ */
+class OverlayController {
+  constructor(page, { noOverlay = false, noRecording = false } = {}) {
+    this._page = page;
+    this._disabled = noOverlay || noRecording;
+    this.dot = false;
+    this.right = null;
+
+    if (!this._disabled) {
+      page.on('load', () => {
+        if (this.dot || this.right) {
+          setOverlay(page, this.dot, this.right).catch(() => {});
+        }
+      });
+    }
+  }
+
+  async onStartRecording() {
+    if (this._disabled) return;
+    this.dot = true;
+    await setOverlay(this._page, true, this.right);
+  }
+
+  async onMeasureStart() {
+    if (this._disabled) return;
+    this.right = '\u23F1\uFE0F';
+    await setOverlay(this._page, this.dot, this.right);
+  }
+
+  onMeasureEnd() {
+    if (this._disabled) return;
+    this.right = '\u{1F3C1}';
+  }
+
+  async onStopRecording() {
+    if (this._disabled) return;
+    this.dot = false;
+    await setOverlay(this._page, false, this.right);
+  }
+
+  async onFinish(place) {
+    if (this._disabled) return;
+    await showMedal(this._page, place);
+  }
+}
+
 module.exports = {
   flashCue,
-  injectOverlay,
-  showRecordingIndicator,
-  hideRecordingIndicator,
-  showFinishTime,
+  setOverlay,
   showMedal,
+  OverlayController,
   CUE_DURATION_MS,
   CUE_SIZE,
 

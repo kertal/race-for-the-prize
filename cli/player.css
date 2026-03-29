@@ -453,6 +453,31 @@ video {
   border-bottom: 1px solid #444;
   padding-bottom: 0.3rem;
 }
+.run-comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+.run-comparison-table th,
+.run-comparison-table td {
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+  border-bottom: 1px solid #333;
+}
+.run-comparison-table th {
+  color: #888;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.run-comparison-table td {
+  color: #ccc;
+}
+.run-comparison-median td {
+  border-top: 2px solid #d4af37;
+  color: #d4af37;
+}
 .section h4 {
   color: #999;
   font-size: 0.8rem;

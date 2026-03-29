@@ -1213,6 +1213,7 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
       runNavigation: medianNav,
       medianRunLabel,
       clipTimes: medianClipTimes,
+      runSummaries: summaries,
     };
     fs.writeFileSync(
       path.join(resultsDir, 'index.html'),

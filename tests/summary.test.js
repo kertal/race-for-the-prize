@@ -382,6 +382,57 @@ describe('buildMultiRunMarkdown', () => {
     expect(md).toContain('### Run 3');
     expect(md).toContain('1.000s');
     expect(md).toContain('5.000s');
+
+    // Run-by-run comparison section
+    expect(md).toContain('<details>');
+    expect(md).toContain('Run-by-Run Comparison');
+    expect(md).toContain('#### Load');
+    expect(md).toContain('| **Median** |');
+    expect(md).toContain('**2.000s**');
+    expect(md).toContain('</details>');
+  });
+
+  it('includes profile metrics in comparison when available', () => {
+    const medianSummary = {
+      racers: ['a', 'b'],
+      comparisons: [{ name: 'Load', racers: [{ duration: 2.0 }, { duration: 4.0 }], winner: 'a', diff: 2.0, diffPercent: 100.0 }],
+      overallWinner: 'a',
+      wins: { a: 1, b: 0 },
+      errors: [],
+      videos: {},
+      clickCounts: { a: 0, b: 0 },
+      settings: { parallel: true },
+      timestamp: '2025-01-01T00:00:00.000Z',
+      runs: 2,
+      profileMetrics: [
+        { measured: { scriptDuration: 110 }, total: {} },
+        { measured: { scriptDuration: 190 }, total: {} },
+      ],
+    };
+    const summaries = [
+      {
+        racers: ['a', 'b'],
+        comparisons: [{ name: 'Load', racers: [{ duration: 1.0 }, { duration: 3.0 }], winner: 'a', diffPercent: 200 }],
+        errors: [],
+        profileMetrics: [
+          { measured: { scriptDuration: 100 }, total: {} },
+          { measured: { scriptDuration: 200 }, total: {} },
+        ],
+      },
+      {
+        racers: ['a', 'b'],
+        comparisons: [{ name: 'Load', racers: [{ duration: 2.0 }, { duration: 4.0 }], winner: 'a', diffPercent: 100 }],
+        errors: [],
+        profileMetrics: [
+          { measured: { scriptDuration: 120 }, total: {} },
+          { measured: { scriptDuration: 180 }, total: {} },
+        ],
+      },
+    ];
+    const md = buildMultiRunMarkdown(medianSummary, summaries);
+    expect(md).toContain('Performance: During Measurement');
+    expect(md).toContain('Script Execution');
+    expect(md).toContain('| **Median** |');
   });
 
   it('includes errors from individual runs', () => {

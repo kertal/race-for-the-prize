@@ -456,10 +456,117 @@ export function buildMedianSummary(summaries, resultsDir) {
   };
 }
 
+/** Build a collapsible run-by-run comparison table grouped by measurement. */
+function buildRunComparisonSection(medianSummary, summaries) {
+  const racers = medianSummary.racers;
+  const allNames = new Set(summaries.flatMap(s => s.comparisons.map(c => c.name)));
+  const hasProfileData = summaries.some(s => s.profileMetrics?.some(Boolean));
+  if (allNames.size === 0 && !hasProfileData) return '';
+
+  const lines = ['', '<details>', '<summary><b>Run-by-Run Comparison</b></summary>', ''];
+
+  for (const name of allNames) {
+    lines.push(`#### ${name}`, '');
+    const headerCols = ['Run', ...racers, 'Winner', 'Diff'];
+    lines.push(`| ${headerCols.join(' | ')} |`);
+    lines.push(`|${headerCols.map(() => '---').join('|')}|`);
+
+    for (let i = 0; i < summaries.length; i++) {
+      const comp = summaries[i].comparisons.find(c => c.name === name);
+      if (!comp) {
+        lines.push(`| ${i + 1} | ${racers.map(() => '-').join(' | ')} | - | - |`);
+        continue;
+      }
+      const durations = racers.map((_, j) =>
+        comp.racers[j] ? `${comp.racers[j].duration.toFixed(3)}s` : '-'
+      );
+      const winner = comp.winner || '-';
+      const diff = comp.diffPercent != null ? `${comp.diffPercent.toFixed(1)}%` : '-';
+      lines.push(`| ${i + 1} | ${durations.join(' | ')} | ${winner} | ${diff} |`);
+    }
+
+    // Median row
+    const medComp = medianSummary.comparisons.find(c => c.name === name);
+    if (medComp) {
+      const durations = racers.map((_, j) =>
+        medComp.racers[j] ? `**${medComp.racers[j].duration.toFixed(3)}s**` : '-'
+      );
+      const winner = medComp.winner ? `**${medComp.winner}**` : '-';
+      const diff = medComp.diffPercent != null ? `**${medComp.diffPercent.toFixed(1)}%**` : '-';
+      lines.push(`| **Median** | ${durations.join(' | ')} | ${winner} | ${diff} |`);
+    }
+    lines.push('');
+  }
+
+  // --- Performance metrics ---
+  if (hasProfileData) {
+    const metricsWithData = [];
+    for (const [key, metric] of Object.entries(PROFILE_METRICS)) {
+      const [scope, metricName] = key.split('.');
+      const hasData = summaries.some(s =>
+        racers.some((_, j) => s.profileMetrics?.[j]?.[scope]?.[metricName] != null)
+      );
+      if (hasData) metricsWithData.push({ metric, scope, metricName });
+    }
+
+    const scopes = [
+      { scope: 'measured', title: 'Performance: During Measurement' },
+      { scope: 'total', title: 'Performance: Total Session' },
+    ];
+    for (const { scope: scopeName, title: scopeTitle } of scopes) {
+      const scopeMetrics = metricsWithData.filter(m => m.scope === scopeName);
+      if (scopeMetrics.length === 0) continue;
+
+      lines.push(`#### ${scopeTitle}`, '');
+
+      for (const { metric, metricName } of scopeMetrics) {
+        lines.push(`**${metric.name}**`, '');
+        const headerCols = ['Run', ...racers, 'Winner', 'Diff'];
+        lines.push(`| ${headerCols.join(' | ')} |`);
+        lines.push(`|${headerCols.map(() => '---').join('|')}|`);
+
+        for (let i = 0; i < summaries.length; i++) {
+          const vals = racers.map((_, j) => summaries[i].profileMetrics?.[j]?.[scopeName]?.[metricName] ?? null);
+          const formatted = vals.map(v => v != null ? metric.format(v) : '-');
+          const withData = vals.map((v, j) => v != null ? { j, v } : null).filter(Boolean).sort((a, b) => a.v - b.v);
+          let winner = '-';
+          let diff = '-';
+          if (withData.length >= 2 && withData[0].v !== withData[withData.length - 1].v) {
+            winner = racers[withData[0].j];
+            diff = withData[0].v > 0 ? `${((withData[withData.length - 1].v - withData[0].v) / withData[0].v * 100).toFixed(1)}%` : '-';
+          }
+          lines.push(`| ${i + 1} | ${formatted.join(' | ')} | ${winner} | ${diff} |`);
+        }
+
+        // Median row
+        const medVals = racers.map((_, j) => medianSummary.profileMetrics?.[j]?.[scopeName]?.[metricName] ?? null);
+        const medWithData = medVals.map((v, j) => v != null ? { j, v } : null).filter(Boolean).sort((a, b) => a.v - b.v);
+        if (medVals.some(v => v != null)) {
+          const formatted = medVals.map(v => v != null ? `**${metric.format(v)}**` : '-');
+          let winner = '-';
+          let diff = '-';
+          if (medWithData.length >= 2 && medWithData[0].v !== medWithData[medWithData.length - 1].v) {
+            winner = `**${racers[medWithData[0].j]}**`;
+            diff = medWithData[0].v > 0 ? `**${((medWithData[medWithData.length - 1].v - medWithData[0].v) / medWithData[0].v * 100).toFixed(1)}%**` : '-';
+          }
+          lines.push(`| **Median** | ${formatted.join(' | ')} | ${winner} | ${diff} |`);
+        }
+        lines.push('');
+      }
+    }
+  }
+
+  lines.push('</details>', '');
+  return lines.join('\n');
+}
+
 /** Build markdown report for multi-run races with individual run details. */
 export function buildMultiRunMarkdown(medianSummary, summaries) {
   let md = buildMarkdownSummary(medianSummary, null);
   md = md.replace('### Race Info', `### Median Results (${summaries.length} runs)\n\n### Race Info`);
+
+  // Add collapsible run-by-run comparison table
+  md += buildRunComparisonSection(medianSummary, summaries);
 
   const lines = ['\n---\n', '## Individual Runs', ''];
   for (let i = 0; i < summaries.length; i++) {

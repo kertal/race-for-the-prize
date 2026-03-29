@@ -23,6 +23,7 @@ import {
   buildMachineInfoHtml,
   buildErrorsHtml,
   buildResultsHtml,
+  buildRunComparisonHtml,
   buildProfileSummaryHtml,
   buildProfileHtml,
   buildFilesHtml,
@@ -68,7 +69,7 @@ function buildPlayerScript(config) {
 // ---------------------------------------------------------------------------
 
 export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, options = {}) {
-  let { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, runNavigation, clipTimes, ffmpegPathPrefix } = options;
+  let { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, runNavigation, clipTimes, ffmpegPathPrefix, runSummaries } = options;
 
   const ffmpegDir = (ffmpegPathPrefix || './') + 'ffmpeg/';
   const racers = summary.racers;
@@ -164,6 +165,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     playerSection,
     debugPanel: debugPanelOut,
     results: buildResultsHtml(summary.comparisons || [], racers, summary.clickCounts),
+    runComparison: buildRunComparisonHtml(runSummaries || null, summary, racers),
     profileSummary: buildProfileSummaryHtml(summary.profileComparison || null, racers),
     profile: buildProfileHtml(summary.profileComparison || null, racers),
     files: buildFilesHtml(racers, videoFiles, {
