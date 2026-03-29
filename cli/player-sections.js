@@ -80,6 +80,63 @@ function buildMetricRowsHtml(entries, winner, formatDelta) {
 }
 
 // ---------------------------------------------------------------------------
+// Race Summary (copy-pasteable for GitHub reviews)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a Markdown summary suitable for pasting into a GitHub PR review.
+ * Returns the raw markdown string (not HTML).
+ */
+export function buildGitHubSummaryText(summary) {
+  const { racers, comparisons, overallWinner, wins, settings, clickCounts } = summary;
+  const lines = [];
+
+  // Winner announcement
+  if (overallWinner === 'tie') {
+    const winsStr = racers.map(r => `${r} ${wins[r]}`).join(' - ');
+    lines.push(`## \u{1f3c1} Race Result: It's a Tie! ${winsStr}`);
+  } else if (overallWinner) {
+    const winsStr = racers.map(r => wins[r]).join(' - ');
+    lines.push(`## \u{1f3c1} Race Result: ${overallWinner} wins! (${winsStr})`);
+  } else {
+    lines.push('## \u{1f3c1} Race Result');
+  }
+  lines.push('');
+
+  // Results table
+  if (comparisons.length > 0) {
+    const headerCols = ['Measurement', ...racers, 'Winner', 'Diff'];
+    lines.push(`| ${headerCols.join(' | ')} |`);
+    lines.push(`|${headerCols.map(() => '---').join('|')}|`);
+    for (const comp of comparisons) {
+      const durations = racers.map((_, i) =>
+        comp.racers[i] ? `${comp.racers[i].duration.toFixed(3)}s` : '-'
+      );
+      const winner = comp.winner || '-';
+      const diff = comp.diffPercent != null ? `${comp.diffPercent.toFixed(1)}%` : '-';
+      lines.push(`| ${comp.name} | ${durations.join(' | ')} | ${winner} | ${diff} |`);
+    }
+    lines.push('');
+  }
+
+  // Settings info
+  const infoParts = [];
+  if (settings) {
+    const mode = settings.parallel === false ? 'sequential' : 'parallel';
+    infoParts.push(`**Mode:** ${mode}`);
+    if (settings.network && settings.network !== 'none') infoParts.push(`**Network:** ${settings.network}`);
+    if (settings.cpuThrottle && settings.cpuThrottle > 1) infoParts.push(`**CPU Throttle:** ${settings.cpuThrottle}x`);
+    if (settings.runs && settings.runs > 1) infoParts.push(`**Runs:** ${settings.runs}`);
+  }
+  if (infoParts.length > 0) {
+    lines.push(infoParts.join(' | '));
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
 // Section Builders
 // ---------------------------------------------------------------------------
 

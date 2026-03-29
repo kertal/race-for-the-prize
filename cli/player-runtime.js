@@ -1896,3 +1896,20 @@ if (exportHtmlOnlyBtn) {
   exportHtmlOnlyBtn.addEventListener('click', startHtmlOnlyExport);
 }
 
+// --- Copy race summary for GitHub ---
+const copySummaryBtn = document.getElementById('copySummaryBtn');
+if (copySummaryBtn) {
+  copySummaryBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = document.getElementById('raceSummaryMarkdown');
+    if (!el) return;
+    const text = el.textContent;
+    navigator.clipboard.writeText(text).then(() => {
+      const orig = copySummaryBtn.innerHTML;
+      copySummaryBtn.textContent = 'Copied!';
+      setTimeout(() => { copySummaryBtn.innerHTML = orig; }, 1500);
+    });
+  });
+}
+

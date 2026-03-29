@@ -416,6 +416,22 @@ video {
   letter-spacing: 0.1em;
   margin: 0;
 }
+.copy-summary-btn {
+  background: #2a2a2a;
+  color: #d4af37;
+  border: 1px solid #d4af37;
+  border-radius: 4px;
+  padding: 0.15rem 0.6rem;
+  font-size: 0.7rem;
+  cursor: pointer;
+  font-family: ui-monospace, 'Courier New', monospace;
+  transition: all 0.2s;
+  margin-left: auto;
+}
+.copy-summary-btn:hover {
+  background: #d4af37;
+  color: #1a1a1a;
+}
 .section-body {
   padding-top: 0.4rem;
 }
