@@ -4,6 +4,7 @@
  */
 
 import fs from 'fs';
+import path from 'path';
 
 const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'height']);
 
@@ -40,7 +41,9 @@ export function discoverRacers(raceDir) {
   let racerFiles = allFiles.filter(f => f.endsWith('.spec.js')).sort();
 
   if (racerFiles.length < 2) {
-    const jsFiles = allFiles.filter(f => f.endsWith('.js')).sort();
+    // Exclude setup/teardown hook files from racer fallback
+    const hookPattern = /\.(setup|teardown)\.js$/;
+    const jsFiles = allFiles.filter(f => f.endsWith('.js') && !hookPattern.test(f) && f !== 'setup.js' && f !== 'teardown.js').sort();
     if (jsFiles.length >= 2) {
       console.error(`Warning: Found ${racerFiles.length} .spec.js files, using .js files instead`);
       racerFiles = jsFiles;
@@ -117,11 +120,14 @@ try {
 /**
  * Apply default values for all settings properties.
  * Call after applyOverrides to ensure every key has a defined value.
- * Strips null/undefined values so they don't shadow defaults.
+ * Strips null/undefined values so they don't shadow defaults, except for
+ * setup/teardown keys where null explicitly disables convention-based discovery.
  */
 export function applyDefaults(settings) {
+  // Keys where null is meaningful (disables convention-based discovery)
+  const preserveNullKeys = new Set(['setup', 'teardown']);
   const cleaned = Object.fromEntries(
-    Object.entries(settings).filter(([, v]) => v != null)
+    Object.entries(settings).filter(([k, v]) => v != null || preserveNullKeys.has(k))
   );
   return {
     parallel: false,
@@ -191,4 +197,86 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
     s.viewportHeight = Number.isFinite(height) ? Math.min(Math.max(Math.round(height), 480), 4320) : 720;
   }
   return s;
+}
+
+/**
+ * Check if a path is a regular file (not a directory or symlink).
+ * Uses lstatSync so symlinks are rejected consistently with execution.
+ */
+function isFile(filePath) {
+  try {
+    return fs.lstatSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Get script order for discovery. Always prefers .sh over .js.
+ */
+function getScriptOrder(base) {
+  return [`${base}.sh`, `${base}.js`];
+}
+
+/**
+ * Discover setup and teardown scripts in a race directory.
+ * Looks for convention-based files: setup.sh, setup.js, teardown.sh, teardown.js
+ * These can be overridden by settings.json setup/teardown fields.
+ *
+ * @param {string} raceDir - Path to the race directory
+ * @param {object} settings - Settings object (may contain setup/teardown overrides)
+ * @returns {{ setup: string|object|null, teardown: string|object|null }}
+ */
+export function discoverSetupTeardown(raceDir, settings = {}) {
+  const allFiles = fs.readdirSync(raceDir).filter(f => !f.startsWith('.'));
+
+  // Convention-based discovery (.sh preferred over .js)
+  const setupOrder = getScriptOrder('setup');
+  const teardownOrder = getScriptOrder('teardown');
+
+  const setupConvention = setupOrder.find(f =>
+    allFiles.includes(f) && isFile(path.join(raceDir, f))
+  );
+  const teardownConvention = teardownOrder.find(f =>
+    allFiles.includes(f) && isFile(path.join(raceDir, f))
+  );
+
+  // Settings override convention
+  const setup = settings.setup !== undefined ? settings.setup : (setupConvention || null);
+  const teardown = settings.teardown !== undefined ? settings.teardown : (teardownConvention || null);
+
+  return { setup, teardown };
+}
+
+/**
+ * Discover per-racer setup and teardown scripts.
+ * Convention: {racer-name}.setup.sh, {racer-name}.setup.js,
+ *             {racer-name}.teardown.sh, {racer-name}.teardown.js
+ * Can be overridden via settings.json racers.{name}.setup/teardown fields.
+ *
+ * @param {string} raceDir - Path to the race directory
+ * @param {string} racerName - Name of the racer (without .spec.js)
+ * @param {object} settings - Settings object (may contain racers overrides)
+ * @returns {{ setup: string|object|null, teardown: string|object|null }}
+ */
+export function discoverRacerSetupTeardown(raceDir, racerName, settings = {}) {
+  const allFiles = fs.readdirSync(raceDir).filter(f => !f.startsWith('.'));
+
+  // Convention-based discovery (.sh preferred over .js)
+  const setupOrder = getScriptOrder(`${racerName}.setup`);
+  const teardownOrder = getScriptOrder(`${racerName}.teardown`);
+
+  const setupConvention = setupOrder.find(f =>
+    allFiles.includes(f) && isFile(path.join(raceDir, f))
+  );
+  const teardownConvention = teardownOrder.find(f =>
+    allFiles.includes(f) && isFile(path.join(raceDir, f))
+  );
+
+  // Settings override convention (settings.racers.{name}.setup/teardown)
+  const racerSettings = settings.racers?.[racerName] || {};
+  const setup = racerSettings.setup !== undefined ? racerSettings.setup : (setupConvention || null);
+  const teardown = racerSettings.teardown !== undefined ? racerSettings.teardown : (teardownConvention || null);
+
+  return { setup, teardown };
 }

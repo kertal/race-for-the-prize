@@ -19,11 +19,11 @@
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c, FORMAT_EXTENSIONS } from './cli/colors.js';
-import { parseArgs, discoverRacers, applyOverrides, applyDefaults, isUrl, deriveRacerName, buildDefaultRaceScript } from './cli/config.js';
+import { parseArgs, discoverRacers, applyOverrides, applyDefaults, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex, findMedianRunIndexPerRacer } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
@@ -371,7 +371,11 @@ export function buildRaceContext({ racerNames, scripts, settings, rootDir = __di
   const throttle = { network: settings.network, cpu: settings.cpuThrottle };
 
   const runnerConfig = {
-    browsers: racerNames.map((name, i) => ({ id: name, script: scripts[i] })),
+    browsers: racerNames.map((name, i) => ({
+      id: name,
+      script: scripts[i],
+      vars: settings.racers?.[name]?.vars,
+    })),
     executionMode,
     throttle,
     headless: settings.headless,
@@ -516,6 +520,7 @@ if (isMainModule) {
 // --- Argument parsing ---
 
 const { positional, boolFlags, kvFlags } = parseArgs(process.argv.slice(2));
+const verbose = boolFlags.has('verbose');
 
 // --- --init: scaffold a starter race directory ---
 
@@ -537,6 +542,8 @@ if (boolFlags.has('init')) {
 //   page.raceEnd('name')              — end a measurement (sync)
 //   page.raceMessage('text')          — send a message to the CLI
 //   await page.raceRecordingEnd()     — end video segment (optional)
+//   race.name                         — this racer's name (from filename)
+//   race.vars                         — per-racer vars from settings.json
 
 await page.goto('https://example.com');
 await page.raceRecordingStart();
@@ -553,6 +560,8 @@ await page.raceRecordingEnd();
 //   page.raceEnd('name')              — end a measurement (sync)
 //   page.raceMessage('text')          — send a message to the CLI
 //   await page.raceRecordingEnd()     — end video segment (optional)
+//   race.name                         — this racer's name (from filename)
+//   race.vars                         — per-racer vars from settings.json
 
 await page.goto('https://example.org');
 await page.raceRecordingStart();
@@ -596,7 +605,6 @@ function loadRaceDir(raceDir) {
   if (racerFiles.length > 5) {
     console.error(`${c.yellow}Warning: Found ${racerFiles.length} script files, using first five: ${racerFiles.slice(0, 5).join(', ')}${c.reset}`);
   }
-  const scripts = racerFiles.map(f => fs.readFileSync(path.join(raceDir, f), 'utf-8'));
 
   let settings = {};
   const settingsPath = path.join(raceDir, 'settings.json');
@@ -609,7 +617,18 @@ function loadRaceDir(raceDir) {
   }
   settings = applyDefaults(applyOverrides(settings, boolFlags, kvFlags));
 
-  const ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir, racerFiles });
+  // Compute effective racer files (may be overridden by settings.racers[name].script)
+  const effectiveRacerFiles = racerFiles.map((f, i) => {
+    const name = racerNames[i];
+    const racerScript = settings.racers?.[name]?.script;
+    return racerScript || f;
+  });
+
+  const scripts = effectiveRacerFiles.map(f =>
+    fs.readFileSync(path.join(raceDir, f), 'utf-8')
+  );
+
+  const ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir, racerFiles: effectiveRacerFiles });
   return { ctx, settings, racerNames };
 }
 
@@ -630,7 +649,11 @@ ${c.dim}  ───────────────────────�
      ${c.cyan}races/my-race/${c.reset}
        ${c.green}contender-a.spec.js${c.reset}  ${c.dim}# Racer 1 (name = filename without .spec.js)${c.reset}
        ${c.blue}contender-b.spec.js${c.reset}  ${c.dim}# Racer 2${c.reset}
-       ${c.dim}settings.json${c.reset}        ${c.dim}# Optional: { parallel, network, cpuThrottle }${c.reset}
+       ${c.dim}settings.json${c.reset}        ${c.dim}# Optional: { parallel, network, cpuThrottle, setup, teardown }${c.reset}
+       ${c.dim}setup.sh${c.reset}             ${c.dim}# Optional: global setup before race${c.reset}
+       ${c.dim}teardown.sh${c.reset}          ${c.dim}# Optional: global teardown after race${c.reset}
+       ${c.dim}contender-a.setup.sh${c.reset} ${c.dim}# Optional: per-racer setup (runs before this racer)${c.reset}
+       ${c.dim}contender-a.teardown.sh${c.reset} ${c.dim}# Optional: per-racer teardown${c.reset}
 
   ${c.bold}2.${c.reset} Each script gets a Playwright ${c.cyan}page${c.reset} with race helpers:
 
@@ -642,6 +665,8 @@ ${c.dim}  ───────────────────────�
      page.raceEnd(${c.green}'Load Time'${c.reset});              ${c.dim}// end measurement (sync)${c.reset}
      page.raceMessage(${c.green}'I win!'${c.reset});              ${c.dim}// send message to CLI${c.reset}
      ${c.dim}await${c.reset} page.raceRecordingEnd();          ${c.dim}// optional: end video segment${c.reset}
+     race.name                              ${c.dim}// this racer's name${c.reset}
+     race.vars                              ${c.dim}// per-racer vars from settings.json${c.reset}
 
      ${c.dim}If raceRecordingStart/End are omitted, recording wraps raceStart to raceEnd.${c.reset}
 
@@ -769,6 +794,213 @@ if (urlMode) {
   ({ ctx, settings, racerNames } = loadRaceDir(raceDir));
 }
 
+
+// --- Setup/Teardown discovery ---
+
+const { setup: setupScript, teardown: teardownScript } = discoverSetupTeardown(raceDir, settings);
+
+// Per-racer setup/teardown (e.g., lauda.setup.sh, hunt.teardown.js)
+const racerScripts = racerNames.map(name => ({
+  name,
+  ...discoverRacerSetupTeardown(raceDir, name, settings),
+}));
+
+/**
+ * Run a setup or teardown script.
+ * Supports both shell scripts (.sh) and Node.js scripts (.js).
+ * Can be a string (script path) or object { command, timeout, waitFor }.
+ *
+ * @param {string|object} script - Script path or config object
+ * @param {string} label - Label for logging ('Setup' or 'Teardown')
+ * @returns {Promise<void>}
+ */
+async function runScript(script, label) {
+  if (!script) return;
+
+  const config = typeof script === 'string' ? { command: script } : script;
+  const { command, timeout = 300000, waitFor } = config;
+
+  // Validate command is a non-empty string
+  if (typeof command !== 'string' || !command.trim()) {
+    throw new Error(`${label} script config missing valid 'command' field`);
+  }
+
+  // Validate timeout bounds
+  if (config.timeout !== undefined && (!Number.isFinite(config.timeout) || config.timeout <= 0)) {
+    throw new Error(`${label} timeout must be a positive number`);
+  }
+
+  const scriptPath = path.resolve(raceDir, command);
+  const ext = path.extname(scriptPath);
+
+  // Security: ensure resolved path stays within the race directory
+  const normalizedScript = path.normalize(scriptPath);
+  const normalizedRaceDir = path.normalize(raceDir);
+  if (!normalizedScript.startsWith(normalizedRaceDir + path.sep) && normalizedScript !== normalizedRaceDir) {
+    throw new Error(`${label} script path must be within race directory: ${command}`);
+  }
+
+  // Validate script exists and is a regular file (not a directory or symlink)
+  let stat;
+  try {
+    stat = fs.lstatSync(scriptPath);
+  } catch (e) {
+    if (e.code === 'ENOENT') {
+      console.error(`${c.yellow}Warning: ${label} script not found: ${scriptPath}${c.reset}`);
+      return;
+    }
+    throw e;
+  }
+
+  // lstatSync returns stats for the link itself; isFile() is false for symlinks and directories
+  if (!stat.isFile()) {
+    throw new Error(`${label} script path is not a regular file: ${scriptPath}`);
+  }
+
+  if (ext !== '.sh' && ext !== '.js') {
+    throw new Error(`${label} script has unsupported extension '${ext}' (expected .sh or .js)`);
+  }
+
+  // On Windows, warn if trying to run .sh without bash available
+  if (ext === '.sh' && process.platform === 'win32') {
+    try {
+      execSync('bash --version', { stdio: 'ignore' }); // NOSONAR — bash resolved via PATH is intentional
+    } catch {
+      throw new Error(
+        `${label} script '${command}' requires bash, which was not found. ` +
+        `Install Git Bash or WSL, or use a .js script instead.`
+      );
+    }
+  }
+
+  const progress = startProgress(`Running ${label.toLowerCase()}…`);
+
+  return new Promise((resolve, reject) => {
+    const isShell = ext === '.sh';
+    const args = [scriptPath];
+    const cmd = isShell ? 'bash' : 'node';
+
+    const child = spawn(cmd, args, {
+      cwd: raceDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, RACE_DIR: raceDir },
+    });
+
+    let stderr = '';
+    let timedOut = false;
+    let settled = false;
+    let sigkillTimeoutId = null;
+
+    child.stdout.on('data', d => { if (verbose) process.stdout.write(d); });
+    child.stderr.on('data', d => { stderr += d; if (verbose) process.stderr.write(d); });
+
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+      // Give process 5s to clean up after SIGTERM, then SIGKILL
+      sigkillTimeoutId = setTimeout(() => {
+        if (child.exitCode === null) child.kill('SIGKILL');
+      }, 5000);
+    }, timeout);
+
+    child.on('close', (code, signal) => {
+      clearTimeout(timeoutId);
+      if (sigkillTimeoutId) clearTimeout(sigkillTimeoutId);
+      if (settled) return;
+      settled = true;
+
+      if (timedOut) {
+        progress.done(`${label} timed out after ${timeout}ms`);
+        reject(new Error(`${label} script timed out after ${timeout}ms`));
+        return;
+      }
+
+      // Handle process killed by signal (code is null)
+      if (code === null && signal) {
+        progress.done(`${label} killed by ${signal}`);
+        if (stderr) console.error(`${c.dim}${stderr}${c.reset}`);
+        reject(new Error(`${label} script was killed by ${signal}`));
+        return;
+      }
+
+      if (code === 0) {
+        progress.done(`${label} completed`);
+
+        // If waitFor is specified, poll for the condition
+        if (waitFor) {
+          if (typeof waitFor !== 'object' || Array.isArray(waitFor)) {
+            reject(new Error(`${label} waitFor must be an object with a 'url' field`));
+            return;
+          }
+          if (typeof waitFor.url !== 'string' || !waitFor.url.trim()) {
+            reject(new Error(`${label} waitFor.url must be a non-empty string`));
+            return;
+          }
+          if (waitFor.timeout !== undefined && (!Number.isFinite(waitFor.timeout) || waitFor.timeout <= 0)) {
+            reject(new Error(`${label} waitFor.timeout must be a positive number`));
+            return;
+          }
+          if (waitFor.interval !== undefined && (!Number.isFinite(waitFor.interval) || waitFor.interval <= 0)) {
+            reject(new Error(`${label} waitFor.interval must be a positive number`));
+            return;
+          }
+          const { url, timeout: waitTimeout = 30000, interval = 1000 } = waitFor;
+          if (url) {
+            const waitProgress = startProgress(`Waiting for ${url}…`);
+            const startTime = Date.now();
+            let waitSettled = false;
+
+            const poll = async () => {
+              if (waitSettled) return;
+              const remaining = waitTimeout - (Date.now() - startTime);
+              if (remaining <= 0) {
+                if (waitSettled) return;
+                waitSettled = true;
+                waitProgress.done(`Timeout waiting for ${url}`);
+                reject(new Error(`Timeout waiting for ${url} after ${waitTimeout}ms`));
+                return;
+              }
+
+              try {
+                const res = await fetch(url, {
+                  signal: AbortSignal.timeout(Math.min(remaining, interval * 2)),
+                });
+                if (res.ok) {
+                  if (waitSettled) return;
+                  waitSettled = true;
+                  waitProgress.done(`Service ready at ${url}`);
+                  resolve();
+                  return;
+                }
+              } catch {
+                // Connection failed or timed out, will retry
+              }
+
+              if (!waitSettled) setTimeout(poll, interval);
+            };
+            poll();
+            return;
+          }
+        }
+
+        resolve();
+      } else {
+        progress.done(`${label} failed (exit code ${code})`);
+        if (stderr) console.error(`${c.dim}${stderr}${c.reset}`);
+        reject(new Error(`${label} script exited with code ${code}`));
+      }
+    });
+
+    child.on('error', err => {
+      clearTimeout(timeoutId);
+      if (sigkillTimeoutId) clearTimeout(sigkillTimeoutId);
+      if (settled) return;
+      settled = true;
+      progress.done(`${label} error: ${err.message}`);
+      reject(err);
+    });
+  });
+}
 const totalRuns = settings.runs;
 const resultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}`);
 
@@ -828,8 +1060,16 @@ function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts
 }
 
 async function main() {
+  let setupCompleted = false;
+
   try {
-    if (!settings.pauseBetweenRuns) {
+    // Run global setup script before races
+    await runScript(setupScript, 'Setup');
+
+    const hasRacerSetups = racerScripts.some(r => r.setup);
+
+    setupCompleted = true;
+    if (!settings.pauseBetweenRuns && !hasRacerSetups) {
       // --- Normal mode: both racers run together per run ---
       if (totalRuns === 1) {
         const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir);
@@ -852,8 +1092,9 @@ async function main() {
         buildMedianOutput(summaries, sideBySideNames, allClipTimes);
       }
     } else {
-      // --- Split mode: all runs of each racer in sequence, pause between racers ---
-      // A₁ → A₂ → … → Aₙ → [PAUSE] → B₁ → B₂ → … → Bₙ
+      // --- Split mode: all runs of each racer in sequence ---
+      // Activated when per-racer setup scripts exist or --pause is set.
+      // Pattern: setupA → A₁, A₂, …, Aₙ → setupB → B₁, B₂, …, Bₙ
       fs.mkdirSync(resultsDir, { recursive: true });
       const multiRun = totalRuns > 1;
 
@@ -862,8 +1103,12 @@ async function main() {
       const movedResults = racerNames.map(() => Array(totalRuns).fill(null));
 
       for (let ri = 0; ri < racerNames.length; ri++) {
-        if (ri > 0) {
+        if (ri > 0 && settings.pauseBetweenRuns && !racerScripts[ri].setup) {
           await waitForEnter(`\n  ${c.bold}${c.yellow}⏸  Paused — press Enter to start ${racerNames[ri]}...${c.reset} `);
+        }
+        // Run per-racer setup right before this racer's runs
+        if (racerScripts[ri].setup) {
+          await runScript(racerScripts[ri].setup, `Setup [${racerScripts[ri].name}]`);
         }
         for (let i = 0; i < totalRuns; i++) {
           const label = multiRun ? `${racerNames[ri]}: Run ${i + 1} of ${totalRuns}` : racerNames[ri];
@@ -909,8 +1154,27 @@ async function main() {
       }
     }
   } catch (e) {
-    console.error(`\n${c.red}${c.bold}Race failed:${c.reset} ${e.message}\n`);
-    process.exit(1);
+    const phase = setupCompleted ? 'Race' : 'Setup';
+    console.error(`\n${c.red}${c.bold}${phase} failed:${c.reset} ${e.message}\n`);
+    if (!process.exitCode) process.exitCode = 1;
+  } finally {
+    // Run per-racer teardown scripts (even on failure)
+    for (const racer of racerScripts) {
+      if (racer.teardown) {
+        try {
+          await runScript(racer.teardown, `Teardown [${racer.name}]`);
+        } catch (e) {
+          console.error(`\n${c.yellow}Teardown for ${racer.name} failed:${c.reset} ${e.message}`);
+        }
+      }
+    }
+
+    // Run global teardown script after races (even on failure)
+    try {
+      await runScript(teardownScript, 'Teardown');
+    } catch (e) {
+      console.error(`\n${c.yellow}Teardown failed:${c.reset} ${e.message}`);
+    }
   }
 }
 
@@ -963,6 +1227,6 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
 }
 
 await main();
-if (settings.noServe || settings.noRecording) process.exit(0);
+if (settings.noServe || settings.noRecording) process.exit(process.exitCode || 0);
 
 } // end isMainModule
