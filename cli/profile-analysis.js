@@ -202,6 +202,7 @@ export const categoryDescriptions = {
  */
 function printProfileSection(title, section, racers, w, write) {
   const { comparisons, wins, overallWinner, byCategory } = section;
+  const labelWidth = Math.max(12, ...racers.map(r => r.length));
 
   if (comparisons.length === 0) return;
 
@@ -244,7 +245,7 @@ function printProfileSection(title, section, racers, w, write) {
           delta = ` ${c.dim}(+${metricDef.format(deltaVal)})${c.reset}`;
         }
 
-        write(`    ${color}${c.bold}${entry.name.padEnd(12)}${c.reset} ${color}${bar}${c.reset}  ${entry.formatted}${delta}${medal}\n`);
+        write(`    ${color}${c.bold}${entry.name.padEnd(labelWidth)}${c.reset} ${color}${bar}${c.reset}  ${entry.formatted}${delta}${medal}\n`);
       }
     }
     write('\n');

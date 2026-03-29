@@ -10,7 +10,7 @@
 
 const CUE_DURATION_MS = 200; // Long enough to be captured even at ~5fps
 const CUE_SIZE = 4;          // Smallest size that survives VP8 compression
-const MEDAL_DISPLAY_MS = 500; // How long to show the placement medal overlay
+
 
 /**
  * Flash a colored cue square in the top-left corner for frame-accurate trimming.
@@ -135,7 +135,6 @@ async function showMedal(page, place) {
       document.body.appendChild(el);
     }, style);
   }
-  await page.waitForTimeout(MEDAL_DISPLAY_MS);
 }
 
 module.exports = {
@@ -147,5 +146,5 @@ module.exports = {
   showMedal,
   CUE_DURATION_MS,
   CUE_SIZE,
-  MEDAL_DISPLAY_MS,
+
 };
