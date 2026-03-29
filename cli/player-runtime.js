@@ -1586,6 +1586,9 @@ function buildExportHtml(pathOverrides = {}, { slim = false } = {}) {
   // Remove export buttons (HTML export already done, video export needs ffmpeg assets not in ZIP)
   doc.querySelectorAll('#exportHtmlBtn, #exportBtn, #exportHtmlOnlyBtn').forEach(el => el.remove());
 
+  // Remove run navigation links (they point to sibling result dirs not included in export)
+  doc.querySelectorAll('.run-nav').forEach(el => el.remove());
+
   // Remove any active export overlays
   doc.querySelectorAll('.export-overlay').forEach(el => el.remove());
 
