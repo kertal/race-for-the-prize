@@ -162,16 +162,17 @@ export function buildSummary(racerNames, results, settings, resultsDir) {
   };
 }
 
-function printBar(label, duration, maxDuration, color, isWinner, width = 30) {
+function printBar(label, duration, maxDuration, color, isWinner, width = 30, labelWidth = 12) {
   const filled = maxDuration > 0 ? Math.round((duration / maxDuration) * width) : 0;
   const bar = '▓'.repeat(filled) + '░'.repeat(width - filled);
   const medal = isWinner ? ' 🏆' : '';
-  return `    ${color}${c.bold}${label.padEnd(12)}${c.reset} ${color}${bar}${c.reset}  ${c.bold}${duration.toFixed(3)}s${c.reset}${medal}`;
+  return `    ${color}${c.bold}${label.padEnd(labelWidth)}${c.reset} ${color}${bar}${c.reset}  ${c.bold}${duration.toFixed(3)}s${c.reset}${medal}`;
 }
 
 export function printSummary(summary) {
   const { racers, comparisons, overallWinner, wins, errors, clickCounts, profileComparison } = summary;
   const w = 54;
+  const labelWidth = Math.max(12, ...racers.map(r => r.length));
 
   const write = (s) => process.stderr.write(s);
 
@@ -209,9 +210,9 @@ export function printSummary(summary) {
           if (bestDur !== null && entry.racer.duration !== bestDur) {
             delta = ` ${c.dim}(+${(entry.racer.duration - bestDur).toFixed(3)}s)${c.reset}`;
           }
-          write(`${printBar(entry.name, entry.racer.duration, maxDur, color, isWinner)}${delta}\n`);
+          write(`${printBar(entry.name, entry.racer.duration, maxDur, color, isWinner, 30, labelWidth)}${delta}\n`);
         } else {
-          write(`    ${color}${c.bold}${entry.name.padEnd(12)}${c.reset} ${c.dim}(no data)${c.reset}\n`);
+          write(`    ${color}${c.bold}${entry.name.padEnd(labelWidth)}${c.reset} ${c.dim}(no data)${c.reset}\n`);
         }
       }
     }
