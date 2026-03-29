@@ -251,12 +251,14 @@
     :host { display: block; margin-bottom: 32px; }
     h3 { font-size: 16px; margin-bottom: 12px; color: var(--text-dim); }
     .tabs { display: flex; gap: 4px; }
-    .tab {
+    .tabs[role="tablist"] button {
       padding: 6px 16px; background: var(--bg); border: 1px solid var(--border);
       border-bottom: none; border-radius: 8px 8px 0 0; color: var(--text-dim);
-      cursor: pointer; font-size: 13px;
+      cursor: pointer; font-size: 13px; font-family: inherit;
     }
-    .tab.active { background: var(--bg-card); color: var(--text); }
+    .tabs[role="tablist"] button[aria-selected="true"] {
+      background: var(--bg-card); color: var(--text);
+    }
     .content {
       background: var(--bg-card); border: 1px solid var(--border);
       border-radius: 0 8px 8px 8px; padding: 16px; overflow-x: auto;
@@ -269,7 +271,7 @@
     pre.active { display: block; }
   </style>
   <h3>Racer Scripts</h3>
-  <div class="tabs"></div>
+  <div class="tabs" role="tablist"></div>
   <div class="content"></div>
 </template>
 
@@ -374,6 +376,61 @@
   </style>
   <div class="comp-name"></div>
   <div class="rows"></div>
+</template>
+
+<template id="tmpl-race-live-view">
+  <style>
+    :host { display: block; margin-bottom: 24px; }
+    .live-container {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 16px 20px; overflow: hidden;
+    }
+    .live-header {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 12px; font-size: 14px; color: var(--text);
+    }
+    .live-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--red); animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .live-header.stopped .live-dot { background: var(--text-dim); animation: none; }
+    .frames {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 12px;
+    }
+    .frame-item {
+      background: var(--bg); border-radius: 8px; overflow: hidden;
+      position: relative;
+    }
+    .frame-item img {
+      width: 100%; display: block; aspect-ratio: 16/9;
+      object-fit: contain; background: #000;
+    }
+    .frame-item .placeholder {
+      width: 100%; aspect-ratio: 16/9;
+      display: flex; align-items: center; justify-content: center;
+      background: #000; color: var(--text-dim); font-size: 13px;
+    }
+    .frame-label {
+      padding: 6px 10px; font-size: 13px; font-weight: 500;
+      color: var(--text); display: flex; align-items: center; gap: 6px;
+    }
+    .frame-label .color-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+    }
+  </style>
+  <div class="live-container">
+    <div class="live-header">
+      <div class="live-dot"></div>
+      <span class="live-label">Live</span>
+    </div>
+    <div class="frames"></div>
+  </div>
 </template>
 
 <!-- ─── Web Components ──────────────────────────────────────── -->
@@ -659,7 +716,15 @@
 
         controls.showStatus('running', 'Race is running...');
 
-        // Get the app element for polling management
+        // Start live view
+        let liveView = this.querySelector('race-live-view');
+        if (liveView) liveView.remove();
+        liveView = document.createElement('race-live-view');
+        liveView.slot = 'run-controls';
+        // Insert after the run-controls element
+        this._controls.after(liveView);
+
+        // Get racer names from the first status poll, then start live view
         const app = this.closest('race-app');
 
         const timer = setInterval(async () => {
@@ -667,9 +732,16 @@
             const status = await api(`races/status/${data.raceId}`);
             controls.setOutput(status.output || '');
 
+            // Start live view once we know the racer names
+            if (status.racerNames && status.racerNames.length > 0 && liveView && !liveView.dataset.started) {
+              liveView.dataset.started = 'true';
+              liveView.start(data.raceId, status.racerNames);
+            }
+
             if (status.status !== 'running') {
               clearInterval(timer);
               if (app) app.pollingTimer = null;
+              if (liveView) liveView.stop();
 
               if (status.status === 'completed') {
                 controls.showStatus('success', 'Race completed! Refreshing results...');
@@ -741,7 +813,10 @@
         output.classList.add('visible');
       } else {
         iconEl.textContent = type === 'success' ? '\u2705' : '\u274C';
-        output.classList.remove('visible');
+        if (type === 'success') {
+          output.classList.remove('visible');
+        }
+        // Keep output visible on error so users can see the logs
       }
     }
 
@@ -769,16 +844,24 @@
 
       for (let i = 0; i < names.length; i++) {
         const name = names[i];
+        const panelId = `panel-${name}`;
+        const tabId = `tab-${name}`;
 
-        // Tab button
-        const tab = document.createElement('div');
-        tab.className = i === 0 ? 'tab active' : 'tab';
+        // Accessible tab button
+        const tab = document.createElement('button');
+        tab.id = tabId;
+        tab.setAttribute('role', 'tab');
+        tab.setAttribute('aria-selected', i === 0 ? 'true' : 'false');
+        tab.setAttribute('aria-controls', panelId);
         tab.textContent = name;
         tab.addEventListener('click', () => this.#switchTo(name));
         tabs.appendChild(tab);
 
-        // Code block
+        // Code block (tabpanel)
         const pre = document.createElement('pre');
+        pre.id = panelId;
+        pre.setAttribute('role', 'tabpanel');
+        pre.setAttribute('aria-labelledby', tabId);
         pre.dataset.name = name;
         pre.className = i === 0 ? 'active' : '';
         pre.textContent = scripts[name];
@@ -788,8 +871,8 @@
 
     #switchTo(name) {
       const root = this.shadowRoot;
-      for (const tab of root.querySelectorAll('.tab')) {
-        tab.classList.toggle('active', tab.textContent === name);
+      for (const tab of root.querySelectorAll('[role="tab"]')) {
+        tab.setAttribute('aria-selected', tab.textContent === name ? 'true' : 'false');
       }
       for (const pre of root.querySelectorAll('pre')) {
         pre.classList.toggle('active', pre.dataset.name === name);
@@ -863,7 +946,7 @@
             const video = document.createElement('video');
             video.controls = true;
             video.preload = 'metadata';
-            video.src = `/api/races/${encodeURIComponent(raceName)}/results/${encodeURIComponent(dir)}/files/${v.path}`;
+            video.src = `/api/races/${encodeURIComponent(raceName)}/results/${encodeURIComponent(dir)}/files/${v.path.split('/').map(encodeURIComponent).join('/')}`;
             const label = document.createElement('div');
             label.className = 'video-label';
             label.textContent = v.name;
@@ -961,6 +1044,99 @@
 
   // --- Register all components ---
 
+  // --- <race-live-view> ---
+
+  class RaceLiveView extends HTMLElement {
+    #raceId = null;
+    #racerNames = [];
+    #pollTimer = null;
+    #frameElements = new Map(); // racerName -> img element
+
+    constructor() {
+      super();
+      this.attachShadow({ mode: 'open' });
+      this.shadowRoot.appendChild(cloneTemplate('tmpl-race-live-view'));
+    }
+
+    disconnectedCallback() {
+      this.stop();
+    }
+
+    start(raceId, racerNames) {
+      this.#raceId = raceId;
+      this.#racerNames = racerNames;
+      this.#frameElements.clear();
+
+      const framesEl = this.shadowRoot.querySelector('.frames');
+      framesEl.textContent = '';
+
+      for (let i = 0; i < racerNames.length; i++) {
+        const name = racerNames[i];
+        const color = RACER_COLORS[i % RACER_COLORS.length];
+
+        const item = document.createElement('div');
+        item.className = 'frame-item';
+
+        const placeholder = document.createElement('div');
+        placeholder.className = 'placeholder';
+        placeholder.textContent = 'Waiting for frames...';
+        item.appendChild(placeholder);
+
+        const label = document.createElement('div');
+        label.className = 'frame-label';
+        const dot = document.createElement('span');
+        dot.className = 'color-dot';
+        dot.style.background = color;
+        const nameEl = document.createTextNode(name);
+        label.append(dot, nameEl);
+
+        item.appendChild(label);
+        framesEl.appendChild(item);
+        this.#frameElements.set(name, { container: item, placeholder });
+      }
+
+      // Start polling frames at ~4fps
+      this.#pollTimer = setInterval(() => this.#fetchFrames(), 250);
+    }
+
+    stop() {
+      if (this.#pollTimer) {
+        clearInterval(this.#pollTimer);
+        this.#pollTimer = null;
+      }
+      const header = this.shadowRoot.querySelector('.live-header');
+      header.classList.add('stopped');
+      this.shadowRoot.querySelector('.live-label').textContent = 'Recording ended';
+    }
+
+    #fetchFrames() {
+      for (const name of this.#racerNames) {
+        const url = `/api/races/status/${this.#raceId}/frame/${encodeURIComponent(name)}?t=${Date.now()}`;
+        const entry = this.#frameElements.get(name);
+        if (!entry) continue;
+
+        // Use a new Image to avoid flicker — only swap when loaded
+        const img = new Image();
+        img.onload = () => {
+          // Replace placeholder with img on first successful load
+          if (entry.placeholder) {
+            entry.placeholder.remove();
+            entry.placeholder = null;
+          }
+          // Replace or insert the image
+          const existing = entry.container.querySelector('img');
+          if (existing) {
+            existing.src = img.src;
+          } else {
+            img.style.cssText = 'width:100%;display:block;aspect-ratio:16/9;object-fit:contain;background:#000';
+            entry.container.insertBefore(img, entry.container.firstChild);
+          }
+        };
+        img.src = url;
+      }
+    }
+  }
+
   customElements.define('race-app', RaceApp);
   customElements.define('race-card', RaceCard);
   customElements.define('race-detail', RaceDetail);
@@ -968,6 +1144,7 @@
   customElements.define('script-viewer', ScriptViewer);
   customElements.define('result-card', ResultCard);
   customElements.define('comparison-chart', ComparisonChart);
+  customElements.define('race-live-view', RaceLiveView);
 </script>
 
 <race-app></race-app>

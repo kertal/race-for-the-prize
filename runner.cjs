@@ -851,6 +851,32 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     await setupClickTracker(context, recordingStartTime);
     await applyThrottling(page, throttle, id);
 
+    // Start CDP screencast if requested via env var (webapp live view)
+    let screencastSession = null;
+    const screencastDir = process.env.RACE_SCREENCAST_DIR;
+    if (screencastDir) {
+      try {
+        screencastSession = await page.context().newCDPSession(page);
+        const frameDir = screencastDir; // frames written as <id>.jpg
+        await screencastSession.send('Page.startScreencast', {
+          format: 'jpeg',
+          quality: 50,
+          maxWidth: 640,
+          maxHeight: 360,
+          everyNthFrame: 2,
+        });
+        screencastSession.on('Page.screencastFrame', async (params) => {
+          try {
+            fs.writeFileSync(path.join(frameDir, `${id}.jpg`), Buffer.from(params.data, 'base64'));
+            await screencastSession.send('Page.screencastFrameAck', { sessionId: params.sessionId });
+          } catch { /* ignore write errors during shutdown */ }
+        });
+      } catch (e) {
+        console.error(`[${id}] Screencast setup failed: ${e.message}`);
+        screencastSession = null;
+      }
+    }
+
     metricsCollector = await startProfiling(page, browser, id);
 
     const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay, metricsCollector, noRecording);
@@ -866,6 +892,13 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     const clickEvents = await getClickEvents(page);
     const clickSegments = markerSegments.length > 0 ? markerSegments : recordingSegments;
     const adjustedClicks = remapClickTimestamps(clickEvents, clickSegments);
+
+    // Stop screencast before closing context
+    if (screencastSession) {
+      try { await screencastSession.send('Page.stopScreencast'); } catch {}
+      try { await screencastSession.detach(); } catch {}
+      screencastSession = null;
+    }
 
     await context.close();
     const wallClockDuration = (Date.now() - contextCreationStart) / 1000;
@@ -930,6 +963,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
   } catch (e) {
     error = e;
     console.error(`[${id}] Error: ${e.message}`);
+    if (screencastSession) { try { await screencastSession.detach(); } catch {} }
     if (metricsCollector) { try { await metricsCollector.detach(); } catch {} }
     if (sharedState) { sharedState.hasError = true; sharedState.errorMessage = e.message; }
     if (barriers) {

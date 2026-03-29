@@ -18,6 +18,7 @@
 
 import fs from 'fs';
 import http from 'http';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
@@ -108,16 +109,19 @@ function readBody(req, maxBytes = MAX_REQUEST_BODY) {
   return new Promise((resolve, reject) => {
     let body = '';
     let size = 0;
+    let aborted = false;
     req.on('data', chunk => {
+      if (aborted) return;
       size += chunk.length;
       if (size > maxBytes) {
+        aborted = true;
         req.destroy();
         reject(new Error('Request body too large'));
         return;
       }
       body += chunk;
     });
-    req.on('end', () => resolve(body));
+    req.on('end', () => { if (!aborted) resolve(body); });
     req.on('error', reject);
   });
 }
@@ -255,26 +259,33 @@ async function handleRunRace(req, res, raceName) {
     return errorResponse(res, 'Request body too large', 413);
   }
 
-  let flags = [];
-  try {
-    if (body) {
-      const opts = JSON.parse(body);
-      if (opts.headless !== false) flags.push('--headless');
-      if (opts.parallel) flags.push('--parallel');
-      const runs = parseInt(opts.runs, 10);
-      if (runs > 0 && runs <= 20) flags.push(`--runs=${runs}`);
-      if (opts.network && VALID_NETWORKS.has(opts.network)) flags.push(`--network=${opts.network}`);
-      const cpu = parseInt(opts.cpu, 10);
-      if (cpu > 1 && cpu <= 20) flags.push(`--cpu=${cpu}`);
-      if (opts.noRecording) flags.push('--no-recording');
-    } else {
-      flags.push('--headless');
+  const flags = [];
+  if (body) {
+    let opts;
+    try {
+      opts = JSON.parse(body);
+    } catch {
+      return errorResponse(res, 'Invalid JSON body', 400);
     }
-  } catch {
-    flags = ['--headless'];
+    if (opts.headless !== false) flags.push('--headless');
+    if (opts.parallel) flags.push('--parallel');
+    const runs = parseInt(opts.runs, 10);
+    if (runs > 0 && runs <= 20) flags.push(`--runs=${runs}`);
+    if (opts.network && VALID_NETWORKS.has(opts.network)) flags.push(`--network=${opts.network}`);
+    const cpu = parseInt(opts.cpu, 10);
+    if (cpu > 1 && cpu <= 20) flags.push(`--cpu=${cpu}`);
+    if (opts.noRecording) flags.push('--no-recording');
+  } else {
+    flags.push('--headless');
   }
 
   flags.push('--no-serve');
+
+  // Create a screencast directory for live frame streaming
+  const screencastDir = fs.mkdtempSync(path.join(os.tmpdir(), 'race-screencast-'));
+
+  // Discover racer names for this race so we know what frame files to expect
+  const { racerNames: raceRacerNames } = loadRaceInfo(safePath(RACES_DIR, raceName));
 
   const raceId = ++raceIdCounter;
   const raceState = {
@@ -285,21 +296,22 @@ async function handleRunRace(req, res, raceName) {
     startTime: Date.now(),
     endTime: null,
     process: null,
+    screencastDir,
+    racerNames: raceRacerNames,
   };
   activeRaces.set(raceId, raceState);
 
   const raceProcess = spawn('node', [path.join(__dirname, 'race.js'), raceDir, ...flags], {
     cwd: __dirname,
     stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, RACE_SCREENCAST_DIR: screencastDir },
   });
   raceState.process = raceProcess;
 
   const appendOutput = (d) => {
-    const chunk = d.toString();
-    if (raceState.output.length + chunk.length > MAX_OUTPUT_BUFFER) {
-      raceState.output = raceState.output.slice(-MAX_OUTPUT_BUFFER / 2) + chunk.slice(0, MAX_OUTPUT_BUFFER / 2);
-    } else {
-      raceState.output += chunk;
+    raceState.output += d.toString();
+    if (raceState.output.length > MAX_OUTPUT_BUFFER) {
+      raceState.output = raceState.output.slice(-MAX_OUTPUT_BUFFER);
     }
   };
 
@@ -310,7 +322,12 @@ async function handleRunRace(req, res, raceName) {
     raceState.status = code === 0 ? 'completed' : 'failed';
     raceState.endTime = Date.now();
     raceState.process = null;
-    // Clean up after 10 minutes
+    // Clean up screencast dir after a short delay (allow final frame reads)
+    setTimeout(() => {
+      try { fs.rmSync(screencastDir, { recursive: true, force: true }); } catch {}
+      raceState.screencastDir = null;
+    }, 5000);
+    // Clean up race state after 10 minutes
     setTimeout(() => activeRaces.delete(raceId), 10 * 60 * 1000);
   });
 
@@ -328,7 +345,36 @@ function handleRaceStatus(req, res, raceId) {
   const id = parseInt(raceId, 10);
   const race = activeRaces.get(id);
   if (!race) return errorResponse(res, 'Race not found', 404);
-  jsonResponse(res, { id: race.id, name: race.name, status: race.status, startTime: race.startTime, endTime: race.endTime, output: race.output });
+  jsonResponse(res, {
+    id: race.id, name: race.name, status: race.status,
+    startTime: race.startTime, endTime: race.endTime,
+    output: race.output, racerNames: race.racerNames || [],
+  });
+}
+
+function handleRaceFrame(req, res, raceId, racerName) {
+  const id = parseInt(raceId, 10);
+  const race = activeRaces.get(id);
+  if (!race) { res.writeHead(404); res.end(); return; }
+  if (!race.screencastDir) { res.writeHead(404); res.end(); return; }
+
+  // Validate racer name against known racers
+  if (!race.racerNames.includes(racerName)) { res.writeHead(404); res.end(); return; }
+
+  const framePath = path.join(race.screencastDir, `${racerName}.jpg`);
+  try {
+    const data = fs.readFileSync(framePath);
+    res.writeHead(200, {
+      'Content-Type': 'image/jpeg',
+      'Content-Length': data.length,
+      'Cache-Control': 'no-store',
+    });
+    res.end(data);
+  } catch {
+    // Frame not yet available
+    res.writeHead(204);
+    res.end();
+  }
 }
 
 function handleRaceCancel(req, res, raceId) {
@@ -338,7 +384,11 @@ function handleRaceCancel(req, res, raceId) {
   if (race.status !== 'running' || !race.process) {
     return errorResponse(res, 'Race is not running', 409);
   }
-  race.process.kill('SIGTERM');
+  const killed = race.process.kill('SIGTERM');
+  if (!killed) {
+    return errorResponse(res, 'Failed to cancel race', 500);
+  }
+  race.status = 'cancelling';
   jsonResponse(res, { id: race.id, status: 'cancelling' });
 }
 
@@ -346,16 +396,22 @@ function handleRaceCancel(req, res, raceId) {
 
 function serveStaticFile(res, filePath) {
   const absPath = safePath(path.join(__dirname, 'webapp'), filePath);
-  if (!absPath || !fs.existsSync(absPath)) {
+  if (!absPath) {
     res.writeHead(404);
     res.end('Not found');
     return;
   }
-  const ext = path.extname(absPath).toLowerCase();
-  const contentType = MIME_TYPES[ext] || 'text/html';
-  const content = fs.readFileSync(absPath);
-  res.writeHead(200, { 'Content-Type': contentType, 'Content-Length': content.length });
-  res.end(content);
+  fs.stat(absPath, (err, stat) => {
+    if (err || !stat.isFile()) {
+      res.writeHead(404);
+      res.end('Not found');
+      return;
+    }
+    const ext = path.extname(absPath).toLowerCase();
+    const contentType = MIME_TYPES[ext] || 'text/html';
+    res.writeHead(200, { 'Content-Type': contentType, 'Content-Length': stat.size });
+    fs.createReadStream(absPath).pipe(res);
+  });
 }
 
 // --- Router ---
@@ -364,11 +420,8 @@ function route(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathname = url.pathname;
 
-  // Only allow CORS for GET requests; POST (mutations) require same-origin
+  // No CORS headers — same-origin only (local dev server)
   if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     res.writeHead(204);
     res.end();
     return;
@@ -406,6 +459,12 @@ function route(req, res) {
     const statusMatch = apiPath.match(/^races\/status\/(\d+)$/);
     if (statusMatch && req.method === 'GET') {
       return handleRaceStatus(req, res, statusMatch[1]);
+    }
+
+    // GET /api/races/status/:id/frame/:racerName
+    const frameMatch = apiPath.match(/^races\/status\/(\d+)\/frame\/([^/]+)$/);
+    if (frameMatch && req.method === 'GET') {
+      return handleRaceFrame(req, res, frameMatch[1], decodeURIComponent(frameMatch[2]));
     }
 
     // POST /api/races/status/:id/cancel
