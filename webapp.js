@@ -58,21 +58,23 @@ function errorResponse(res, message, status = 400) {
 
 /** List subdirectories of a directory. */
 function listDirs(dir) {
-  if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir, { withFileTypes: true })
-    .filter(d => d.isDirectory() && !d.name.startsWith('.'))
-    .map(d => d.name)
-    .sort();
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true })
+      .filter(d => d.isDirectory() && !d.name.startsWith('.'))
+      .map(d => d.name)
+      .sort();
+  } catch { return []; }
 }
 
 /** List result directories (results-*) inside a race dir, newest first. */
 function listResultDirs(raceDir) {
-  if (!fs.existsSync(raceDir)) return [];
-  return fs.readdirSync(raceDir, { withFileTypes: true })
-    .filter(d => d.isDirectory() && d.name.startsWith('results-'))
-    .map(d => d.name)
-    .sort()
-    .reverse();
+  try {
+    return fs.readdirSync(raceDir, { withFileTypes: true })
+      .filter(d => d.isDirectory() && d.name.startsWith('results-'))
+      .map(d => d.name)
+      .sort()
+      .reverse();
+  } catch { return []; }
 }
 
 /** Safely resolve a path within a base directory. Returns null if it escapes. */
@@ -89,12 +91,9 @@ let raceIdCounter = 0;
 /** Load settings.json and discover racers for a race directory. */
 function loadRaceInfo(raceDir) {
   let settings = null;
-  const settingsPath = path.join(raceDir, 'settings.json');
   try {
-    if (fs.existsSync(settingsPath)) {
-      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-    }
-  } catch { /* ignore */ }
+    settings = JSON.parse(fs.readFileSync(path.join(raceDir, 'settings.json'), 'utf-8'));
+  } catch { /* settings.json may not exist — ignore */ }
 
   let racerFiles = [], racerNames = [];
   try {
@@ -142,7 +141,11 @@ function handleListRaces(req, res) {
 
 function handleRaceDetail(req, res, raceName) {
   const raceDir = safePath(RACES_DIR, raceName);
-  if (!raceDir || !fs.existsSync(raceDir)) {
+  if (!raceDir) return errorResponse(res, 'Race not found', 404);
+
+  try {
+    if (!fs.statSync(raceDir).isDirectory()) throw new Error();
+  } catch {
     return errorResponse(res, 'Race not found', 404);
   }
 
@@ -158,13 +161,10 @@ function handleRaceDetail(req, res, raceName) {
 
   const resultDirs = listResultDirs(raceDir);
   const results = resultDirs.map(dir => {
-    const summaryPath = path.join(raceDir, dir, 'summary.json');
     let summary = null;
     try {
-      if (fs.existsSync(summaryPath)) {
-        summary = JSON.parse(fs.readFileSync(summaryPath, 'utf-8'));
-      }
-    } catch { /* ignore */ }
+      summary = JSON.parse(fs.readFileSync(path.join(raceDir, dir, 'summary.json'), 'utf-8'));
+    } catch { /* summary may not exist — ignore */ }
     return { dir, summary };
   });
 
@@ -177,15 +177,11 @@ function handleResultDetail(req, res, raceName, resultDir) {
   const fullResultDir = safePath(raceDir, resultDir);
   if (!fullResultDir) return errorResponse(res, 'Invalid result dir', 400);
 
-  const summaryPath = path.join(fullResultDir, 'summary.json');
-  if (!fs.existsSync(summaryPath)) {
-    return errorResponse(res, 'Result not found', 404);
-  }
-
   try {
-    const summary = JSON.parse(fs.readFileSync(summaryPath, 'utf-8'));
+    const summary = JSON.parse(fs.readFileSync(path.join(fullResultDir, 'summary.json'), 'utf-8'));
     jsonResponse(res, { dir: resultDir, summary });
   } catch (e) {
+    if (e.code === 'ENOENT') return errorResponse(res, 'Result not found', 404);
     errorResponse(res, 'Failed to read summary', 500);
   }
 }
@@ -241,7 +237,11 @@ const VALID_NETWORKS = new Set(['', 'none', 'slow-3g', 'fast-3g', '4g']);
 
 async function handleRunRace(req, res, raceName) {
   const raceDir = safePath(RACES_DIR, raceName);
-  if (!raceDir || !fs.existsSync(raceDir)) {
+  if (!raceDir) return errorResponse(res, 'Race not found', 404);
+
+  try {
+    if (!fs.statSync(raceDir).isDirectory()) throw new Error();
+  } catch {
     return errorResponse(res, 'Race not found', 404);
   }
 

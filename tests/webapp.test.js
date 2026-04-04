@@ -45,8 +45,22 @@ function httpPost(url, body) {
   });
 }
 
+function httpOptions(url) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const req = http.request({ hostname: u.hostname, port: u.port, path: u.pathname, method: 'OPTIONS' }, (res) => {
+      let data = '';
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: data }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 describe('webapp API', () => {
   let server;
+  let startedRaceId;
   const PORT = 13579;
   const BASE = `http://localhost:${PORT}`;
 
@@ -120,6 +134,80 @@ describe('webapp API', () => {
   it('serves 404 for directory traversal in static files', async () => {
     const res = await httpGet(`${BASE}/..%2Fpackage.json`);
     expect(res.status).toBe(404);
+  });
+
+  it('serves 404 when requesting a directory as static file', async () => {
+    // The webapp directory itself should not be served as a file
+    const res = await httpGet(`${BASE}/`);
+    // Root serves index.html
+    expect(res.status).toBe(200);
+    // But a non-existent sub-path returns 404
+    const res2 = await httpGet(`${BASE}/nonexistent-dir/`);
+    expect(res2.status).toBe(404);
+  });
+
+  it('GET /api/races/:name/results/nonexistent returns 404', async () => {
+    const res = await httpGet(`${BASE}/api/races/lauda-vs-hunt/results/results-nonexistent`);
+    expect(res.status).toBe(404);
+  });
+
+  it('rejects path traversal in result dir', async () => {
+    const res = await httpGet(`${BASE}/api/races/lauda-vs-hunt/results/..%2F..%2Fetc`);
+    expect([400, 404]).toContain(res.status);
+  });
+
+  it('POST /api/races/:name/run starts a race and returns raceId', async () => {
+    const res = await httpPost(`${BASE}/api/races/lauda-vs-hunt/run`, JSON.stringify({ headless: true }));
+    expect(res.status).toBe(200);
+    const data = JSON.parse(res.body);
+    expect(data.raceId).toBeDefined();
+    expect(data.status).toBe('running');
+    // Save raceId for subsequent tests
+    startedRaceId = data.raceId;
+  });
+
+  it('POST /api/races/:name/run returns 409 when race is already running', async () => {
+    // The race started above should still be running
+    const res = await httpPost(`${BASE}/api/races/lauda-vs-hunt/run`, JSON.stringify({ headless: true }));
+    expect(res.status).toBe(409);
+    const data = JSON.parse(res.body);
+    expect(data.error).toContain('already running');
+  });
+
+  it('GET /api/races/status/:id returns running status', async () => {
+    const res = await httpGet(`${BASE}/api/races/status/${startedRaceId}`);
+    expect(res.status).toBe(200);
+    const data = JSON.parse(res.body);
+    expect(data.id).toBe(startedRaceId);
+    expect(data.name).toBe('lauda-vs-hunt');
+    expect(['running', 'completed', 'failed']).toContain(data.status);
+    expect(data.output).toBeDefined();
+  });
+
+  it('POST /api/races/status/:id/cancel cancels a running race', async () => {
+    const res = await httpPost(`${BASE}/api/races/status/${startedRaceId}/cancel`);
+    // Could be 200 (cancelled) or 409 (already finished)
+    if (res.status === 200) {
+      const data = JSON.parse(res.body);
+      expect(data.status).toBe('cancelling');
+    } else {
+      expect(res.status).toBe(409);
+    }
+  });
+
+  it('POST /api/races/status/999/cancel returns 404 for unknown race', async () => {
+    const res = await httpPost(`${BASE}/api/races/status/999/cancel`);
+    expect(res.status).toBe(404);
+  });
+
+  it('POST /api/races/nonexistent/run returns 404', async () => {
+    const res = await httpPost(`${BASE}/api/races/does-not-exist/run`, JSON.stringify({}));
+    expect(res.status).toBe(404);
+  });
+
+  it('OPTIONS returns 204 (no CORS, same-origin)', async () => {
+    const res = await httpOptions(`${BASE}/api/races`);
+    expect(res.status).toBe(204);
   });
 
   // Cleanup
