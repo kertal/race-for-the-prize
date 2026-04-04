@@ -20,7 +20,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { waitForStability } = require('./visual-stability.cjs');
 const { deriveTraceTiming } = require('./trace-calibration.cjs');
-const { flashCue, injectOverlay, showRecordingIndicator, hideRecordingIndicator, showFinishTime, showMedal } = require('./overlay.cjs');
+const { flashCue, OverlayController } = require('./overlay.cjs');
 
 // Track active browsers/contexts for cleanup on SIGTERM/SIGINT
 let activeBrowsers = [];
@@ -169,44 +169,6 @@ process.on('SIGINT', cleanup);
 // --- Sync barrier for parallel mode ---
 
 const { SyncBarrier } = require('./sync-barrier.cjs');
-
-// --- Click event tracker (injected into browser pages) ---
-
-/**
- * Injects a click event tracker into all pages in the context.
- * Records click events with timestamps relative to recordingStartTime for later analysis.
- */
-async function setupClickTracker(context, recordingStartTime) {
-  await context.addInitScript((startTime) => {
-    if (window.__clickTrackerInjected) return;
-    window.__clickTrackerInjected = true;
-    window.__recordingStartTime = startTime;
-    window.__clickEvents = [];
-
-    const inject = () => {
-      document.addEventListener('mousedown', (e) => {
-        const ts = (Date.now() - window.__recordingStartTime) / 1000;
-        let desc = e.target.tagName.toLowerCase();
-        if (e.target.id) desc += `#${e.target.id}`;
-        if (e.target.className && typeof e.target.className === 'string') {
-          desc += '.' + e.target.className.split(' ').filter(Boolean).slice(0, 2).join('.');
-        }
-        const text = (e.target.textContent || '').trim().slice(0, 30);
-        if (text) desc += ` "${text}${text.length >= 30 ? '...' : ''}"`;
-        window.__clickEvents.push({ timestamp: ts, x: e.clientX, y: e.clientY, element: desc });
-      }, true);
-    };
-
-    document.readyState === 'loading'
-      ? document.addEventListener('DOMContentLoaded', inject)
-      : inject();
-  }, recordingStartTime);
-}
-
-async function getClickEvents(page) {
-  try { return await page.evaluate(() => window.__clickEvents || []); }
-  catch { return []; }
-}
 
 // --- Performance metrics collection via CDP ---
 
@@ -401,26 +363,6 @@ async function setupMetricsCollection(page, id) {
   };
 }
 
-/**
- * Remap click timestamps to match trimmed video segments.
- * Adjusts timestamps so they're relative to the start of the trimmed video.
- */
-function remapClickTimestamps(clickEvents, segments) {
-  if (segments.length === 0) return clickEvents;
-
-  const adjusted = [];
-  let offset = 0;
-  for (const seg of segments) {
-    for (const evt of clickEvents) {
-      if (evt.timestamp >= seg.start && evt.timestamp <= seg.end) {
-        adjusted.push({ ...evt, timestamp: offset + (evt.timestamp - seg.start) });
-      }
-    }
-    offset += seg.end - seg.start;
-  }
-  return adjusted;
-}
-
 // --- Script execution ---
 
 /** Fix smart quotes, non-breaking spaces, and line endings in user scripts. */
@@ -454,7 +396,7 @@ function sanitizeScript(script) {
  * Returns { segments, measurements } for video trimming and result comparison.
  */
 async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay = false, metricsCollector = null, noRecording = false) {
-  const { id, script: raceScript } = config;
+  const { id, script: raceScript, vars } = config;
 
   const segments = [];
   let currentSegmentStart = null;
@@ -488,18 +430,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
 
   const encodeMeasureName = (name) => encodeURIComponent(String(name ?? 'default'));
 
-  // Track overlay state so it can be re-injected after page.goto() navigations
-  // which destroy the DOM. null = hidden, otherwise { text, bg } = what to show.
-  let overlayState = null;
-
-  // Re-inject overlay after navigations (page.goto destroys the DOM)
-  if (!noOverlay) {
-    page.on('load', () => {
-      if (overlayState) {
-        injectOverlay(page, overlayState.text, overlayState.bg).catch(() => {});
-      }
-    });
-  }
+  const overlayCtrl = new OverlayController(page, { noOverlay, noRecording });
 
   const startRecording = async () => {
     if (currentSegmentStart !== null) return;
@@ -510,10 +441,10 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     const startWallMs = Date.now();
     currentSegmentStart = (startWallMs - recordingStartTime) / 1000;
     await markTrace(`${traceMarkPrefix}recording:start`);
-    if (!noRecording) await flashCue(page, CUE_COLOR_START);
-    if (!noOverlay && !noRecording) {
-      overlayState = await showRecordingIndicator(page);
-    }
+    await Promise.all([
+      overlayCtrl.onStartRecording(),
+      !noRecording ? flashCue(page, CUE_COLOR_START) : null,
+    ]);
   };
 
 
@@ -524,10 +455,6 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     await markTrace(`${traceMarkPrefix}recording:end`);
     currentSegmentStart = null;
     stopPromise = (async () => {
-      if (!noOverlay && !noRecording) {
-        await hideRecordingIndicator(page);
-        overlayState = null;
-      }
       if (sharedState) {
         const lastMeasurement = measurements[measurements.length - 1];
         const endTime = lastMeasurement ? lastMeasurement.endTime : (Date.now() - recordingStartTime) / 1000;
@@ -536,10 +463,13 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
           // Calculate placement from finish order for the medal display
           const sorted = [...sharedState.finishOrder].sort((a, b) => a.endTime - b.endTime);
           const place = isParallel ? sorted.findIndex(f => f.id === id) + 1 : null;
-          await showMedal(page, place);
+          await overlayCtrl.onFinish(place);
         }
       }
-      if (!noRecording) await flashCue(page, CUE_COLOR_END);
+      await Promise.all([
+        !noRecording ? flashCue(page, CUE_COLOR_END) : null,
+        overlayCtrl.onStopRecording(),
+      ]);
     })();
     return stopPromise;
   };
@@ -550,6 +480,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     if (raceStartTime === null) raceStartTime = Date.now();
     activeMeasurements[name] = (Date.now() - recordingStartTime) / 1000;
     await markTrace(`${traceMarkPrefix}measure:start:${encodeMeasureName(name)}`);
+    await overlayCtrl.onMeasureStart();
   };
 
   const endMeasure = (name = 'default') => {
@@ -560,9 +491,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     measurements.push({ name, startTime: start, endTime: end, duration });
     delete activeMeasurements[name];
     queueTraceMark(`${traceMarkPrefix}measure:end:${encodeMeasureName(name)}`);
-    if (!noOverlay && !noRecording) {
-      overlayState = showFinishTime(page, duration);
-    }
+    overlayCtrl.onMeasureEnd();
     return end - start;
   };
 
@@ -666,10 +595,11 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   // SECURITY: Race scripts execute with the full privileges of this Node.js
   // process. Only run scripts you trust — this is equivalent to `node <file>`.
   const sanitized = sanitizeScript(raceScript);
+  const raceContext = Object.freeze({ name: id, vars: Object.freeze(vars || {}) });
   try {
     const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor; // NOSONAR — intentional: executes user-provided race scripts
-    const fn = new AsyncFunction('page', '__startRecording', '__stopRecording', '__startMeasure', '__endMeasure', sanitized); // NOSONAR
-    await fn(page, startRecording, stopRecording, startMeasure, endMeasure);
+    const fn = new AsyncFunction('page', 'race', '__startRecording', '__stopRecording', '__startMeasure', '__endMeasure', sanitized); // NOSONAR
+    await fn(page, raceContext, startRecording, stopRecording, startMeasure, endMeasure);
   } catch (error) {
     console.error(`[${id}] Script failed: ${error.message}`);
     throw new Error(`Script execution failed: ${error.message}`);
@@ -848,34 +778,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     page.setDefaultTimeout(PAGE_TIMEOUT_MS);
     page.setDefaultNavigationTimeout(PAGE_TIMEOUT_MS);
 
-    await setupClickTracker(context, recordingStartTime);
     await applyThrottling(page, throttle, id);
-
-    // Start CDP screencast if requested via env var (webapp live view)
-    let screencastSession = null;
-    const screencastDir = process.env.RACE_SCREENCAST_DIR;
-    if (screencastDir) {
-      try {
-        screencastSession = await page.context().newCDPSession(page);
-        const frameDir = screencastDir; // frames written as <id>.jpg
-        await screencastSession.send('Page.startScreencast', {
-          format: 'jpeg',
-          quality: 50,
-          maxWidth: 640,
-          maxHeight: 360,
-          everyNthFrame: 2,
-        });
-        screencastSession.on('Page.screencastFrame', async (params) => {
-          try {
-            fs.writeFileSync(path.join(frameDir, `${id}.jpg`), Buffer.from(params.data, 'base64'));
-            await screencastSession.send('Page.screencastFrameAck', { sessionId: params.sessionId });
-          } catch { /* ignore write errors during shutdown */ }
-        });
-      } catch (e) {
-        console.error(`[${id}] Screencast setup failed: ${e.message}`);
-        screencastSession = null;
-      }
-    }
 
     metricsCollector = await startProfiling(page, browser, id);
 
@@ -888,17 +791,6 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     const traceSegments = traceTiming?.recordingSegments || [];
     const recordingSegments = traceSegments.length > 0 ? traceSegments : markerSegments;
     const measurements = traceTiming?.measurements?.length > 0 ? traceTiming.measurements : markerMeasurements;
-
-    const clickEvents = await getClickEvents(page);
-    const clickSegments = markerSegments.length > 0 ? markerSegments : recordingSegments;
-    const adjustedClicks = remapClickTimestamps(clickEvents, clickSegments);
-
-    // Stop screencast before closing context
-    if (screencastSession) {
-      try { await screencastSession.send('Page.stopScreencast'); } catch {}
-      try { await screencastSession.detach(); } catch {}
-      screencastSession = null;
-    }
 
     await context.close();
     const wallClockDuration = (Date.now() - contextCreationStart) / 1000;
@@ -916,7 +808,6 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
         videoPath: null,
         fullVideoPath: null,
         tracePath: tracePath ? path.join(id, path.basename(tracePath)) : null,
-        clickEvents: adjustedClicks,
         measurements,
         profileMetrics,
         recordingSegments: null,
@@ -950,7 +841,6 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
       fullVideoPath: fullVideoFile ? path.join(id, fullVideoFile) : null,
       tracePath: tracePath ? path.join(id, path.basename(tracePath)) : null,
       harPath: harPath && fs.existsSync(harPath) ? path.join(id, path.basename(harPath)) : null,
-      clickEvents: adjustedClicks,
       measurements,
       profileMetrics,
       recordingSegments: recordingSegments.length > 0 ? recordingSegments : null,
@@ -963,7 +853,6 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
   } catch (e) {
     error = e;
     console.error(`[${id}] Error: ${e.message}`);
-    if (screencastSession) { try { await screencastSession.detach(); } catch {} }
     if (metricsCollector) { try { await metricsCollector.detach(); } catch {} }
     if (sharedState) { sharedState.hasError = true; sharedState.errorMessage = e.message; }
     if (barriers) {
@@ -982,7 +871,6 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     fullVideoPath: null,
     tracePath: null,
     harPath: null,
-    clickEvents: [],
     measurements: [],
     profileMetrics: null,
     recordingSegments: null,
@@ -1070,7 +958,6 @@ async function main() {
       fullVideoPath: r.fullVideoPath || null,
       tracePath: r.tracePath || null,
       harPath: r.harPath || null,
-      clickEvents: r.clickEvents || [],
       measurements: r.measurements || [],
       profileMetrics: r.profileMetrics || null,
       recordingSegments: r.recordingSegments || null,

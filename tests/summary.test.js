@@ -6,8 +6,8 @@ describe('buildSummary', () => {
 
   it('returns correct structure with empty results', () => {
     const results = [
-      { measurements: [], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
-      { measurements: [], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [], videoPath: null, fullVideoPath: null, error: null },
     ];
     const summary = buildSummary(names, results, {}, '/tmp/results');
 
@@ -21,8 +21,8 @@ describe('buildSummary', () => {
 
   it('computes winner when racer1 is faster', () => {
     const results = [
-      { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
-      { measurements: [{ name: 'Load', startTime: 0, endTime: 2, duration: 2.0 }], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 2, duration: 2.0 }], videoPath: null, fullVideoPath: null, error: null },
     ];
     const summary = buildSummary(names, results, {}, '/tmp/results');
 
@@ -38,8 +38,8 @@ describe('buildSummary', () => {
 
   it('computes winner when racer2 is faster', () => {
     const results = [
-      { measurements: [{ name: 'Load', startTime: 0, endTime: 3, duration: 3.0 }], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
-      { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 3, duration: 3.0 }], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], videoPath: null, fullVideoPath: null, error: null },
     ];
     const summary = buildSummary(names, results, {}, '/tmp/results');
 
@@ -49,8 +49,8 @@ describe('buildSummary', () => {
 
   it('reports tie when durations are equal', () => {
     const results = [
-      { measurements: [{ name: 'Load', startTime: 0, endTime: 2, duration: 2.0 }], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
-      { measurements: [{ name: 'Load', startTime: 0, endTime: 2, duration: 2.0 }], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 2, duration: 2.0 }], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 2, duration: 2.0 }], videoPath: null, fullVideoPath: null, error: null },
     ];
     const summary = buildSummary(names, results, {}, '/tmp/results');
 
@@ -64,11 +64,11 @@ describe('buildSummary', () => {
       { measurements: [
         { name: 'Load', startTime: 0, endTime: 1, duration: 1.0 },
         { name: 'Render', startTime: 1, endTime: 5, duration: 4.0 },
-      ], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
+      ], videoPath: null, fullVideoPath: null, error: null },
       { measurements: [
         { name: 'Load', startTime: 0, endTime: 3, duration: 3.0 },
         { name: 'Render', startTime: 3, endTime: 5, duration: 2.0 },
-      ], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
+      ], videoPath: null, fullVideoPath: null, error: null },
     ];
     const summary = buildSummary(names, results, {}, '/tmp/results');
 
@@ -81,8 +81,8 @@ describe('buildSummary', () => {
 
   it('handles measurement present in only one racer', () => {
     const results = [
-      { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
-      { measurements: [], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [], videoPath: null, fullVideoPath: null, error: null },
     ];
     const summary = buildSummary(names, results, {}, '/tmp/results');
 
@@ -94,8 +94,8 @@ describe('buildSummary', () => {
 
   it('collects errors from results', () => {
     const results = [
-      { measurements: [], clickEvents: [], videoPath: null, fullVideoPath: null, error: 'timeout' },
-      { measurements: [], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [], videoPath: null, fullVideoPath: null, error: 'timeout' },
+      { measurements: [], videoPath: null, fullVideoPath: null, error: null },
     ];
     const summary = buildSummary(names, results, {}, '/tmp/results');
 
@@ -104,8 +104,8 @@ describe('buildSummary', () => {
 
   it('records video paths', () => {
     const results = [
-      { measurements: [], clickEvents: [], videoPath: '/tmp/a.webm', fullVideoPath: '/tmp/a_full.webm', error: null },
-      { measurements: [], clickEvents: [], videoPath: '/tmp/b.webm', fullVideoPath: null, error: null },
+      { measurements: [], videoPath: '/tmp/a.webm', fullVideoPath: '/tmp/a_full.webm', error: null },
+      { measurements: [], videoPath: '/tmp/b.webm', fullVideoPath: null, error: null },
     ];
     const summary = buildSummary(names, results, {}, '/tmp/results');
 
@@ -115,20 +115,10 @@ describe('buildSummary', () => {
     expect(summary.videos.hunt_full).toBeNull();
   });
 
-  it('counts click events', () => {
-    const results = [
-      { measurements: [], clickEvents: [{}, {}, {}], videoPath: null, fullVideoPath: null, error: null },
-      { measurements: [], clickEvents: [{}], videoPath: null, fullVideoPath: null, error: null },
-    ];
-    const summary = buildSummary(names, results, {}, '/tmp/results');
-
-    expect(summary.clickCounts).toEqual({ lauda: 3, hunt: 1 });
-  });
-
   it('preserves settings in summary', () => {
     const results = [
-      { measurements: [], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
-      { measurements: [], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [], videoPath: null, fullVideoPath: null, error: null },
     ];
     const settings = { network: 'fast-3g', cpuThrottle: 2 };
     const summary = buildSummary(names, results, settings, '/tmp/results');
@@ -138,8 +128,8 @@ describe('buildSummary', () => {
 
   it('includes machineInfo with expected keys', () => {
     const results = [
-      { measurements: [], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
-      { measurements: [], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [], videoPath: null, fullVideoPath: null, error: null },
     ];
     const summary = buildSummary(names, results, {}, 'test-results');
 
@@ -173,7 +163,6 @@ describe('buildMarkdownSummary', () => {
       wins: { lauda: 1, hunt: 0 },
       errors: [],
       videos: { lauda: '/tmp/results/lauda.race.webm', hunt: '/tmp/results/hunt.race.webm' },
-      clickCounts: { lauda: 3, hunt: 1 },
       settings: { parallel: true },
       timestamp: '2025-01-01T00:00:00.000Z',
       ...overrides,
@@ -199,11 +188,6 @@ describe('buildMarkdownSummary', () => {
   it('includes results table with measurements', () => {
     const md = buildMarkdownSummary(makeSummary());
     expect(md).toContain('| Load | 1.000s | 2.000s | lauda | 100.0% |');
-  });
-
-  it('includes click counts row', () => {
-    const md = buildMarkdownSummary(makeSummary());
-    expect(md).toContain('| Clicks | 3 | 1 |');
   });
 
   it('includes video file links', () => {
@@ -364,7 +348,6 @@ describe('buildMultiRunMarkdown', () => {
       wins: { a: 1, b: 0 },
       errors: [],
       videos: {},
-      clickCounts: { a: 0, b: 0 },
       settings: { parallel: true },
       timestamp: '2025-01-01T00:00:00.000Z',
       runs: 3,
@@ -382,6 +365,56 @@ describe('buildMultiRunMarkdown', () => {
     expect(md).toContain('### Run 3');
     expect(md).toContain('1.000s');
     expect(md).toContain('5.000s');
+
+    // Run-by-run comparison section
+    expect(md).toContain('<details>');
+    expect(md).toContain('Run-by-Run Comparison');
+    expect(md).toContain('#### Load');
+    expect(md).toContain('| **Median** |');
+    expect(md).toContain('**2.000s**');
+    expect(md).toContain('</details>');
+  });
+
+  it('includes profile metrics in comparison when available', () => {
+    const medianSummary = {
+      racers: ['a', 'b'],
+      comparisons: [{ name: 'Load', racers: [{ duration: 2.0 }, { duration: 4.0 }], winner: 'a', diff: 2.0, diffPercent: 100.0 }],
+      overallWinner: 'a',
+      wins: { a: 1, b: 0 },
+      errors: [],
+      videos: {},
+      settings: { parallel: true },
+      timestamp: '2025-01-01T00:00:00.000Z',
+      runs: 2,
+      profileMetrics: [
+        { measured: { scriptDuration: 110 }, total: {} },
+        { measured: { scriptDuration: 190 }, total: {} },
+      ],
+    };
+    const summaries = [
+      {
+        racers: ['a', 'b'],
+        comparisons: [{ name: 'Load', racers: [{ duration: 1.0 }, { duration: 3.0 }], winner: 'a', diffPercent: 200 }],
+        errors: [],
+        profileMetrics: [
+          { measured: { scriptDuration: 100 }, total: {} },
+          { measured: { scriptDuration: 200 }, total: {} },
+        ],
+      },
+      {
+        racers: ['a', 'b'],
+        comparisons: [{ name: 'Load', racers: [{ duration: 2.0 }, { duration: 4.0 }], winner: 'a', diffPercent: 100 }],
+        errors: [],
+        profileMetrics: [
+          { measured: { scriptDuration: 120 }, total: {} },
+          { measured: { scriptDuration: 180 }, total: {} },
+        ],
+      },
+    ];
+    const md = buildMultiRunMarkdown(medianSummary, summaries);
+    expect(md).toContain('Performance: During Measurement');
+    expect(md).toContain('Script Execution');
+    expect(md).toContain('| **Median** |');
   });
 
   it('includes errors from individual runs', () => {
@@ -392,7 +425,6 @@ describe('buildMultiRunMarkdown', () => {
       wins: { a: 0, b: 0 },
       errors: [],
       videos: {},
-      clickCounts: { a: 0, b: 0 },
       settings: {},
       timestamp: '2025-01-01T00:00:00.000Z',
       runs: 2,
@@ -411,9 +443,9 @@ describe('buildSummary with 3+ racers', () => {
 
   it('determines winner among 3 racers', () => {
     const results = [
-      { measurements: [{ name: 'Load', startTime: 0, endTime: 2, duration: 2.0 }], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
-      { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
-      { measurements: [{ name: 'Load', startTime: 0, endTime: 3, duration: 3.0 }], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 2, duration: 2.0 }], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 3, duration: 3.0 }], videoPath: null, fullVideoPath: null, error: null },
     ];
     const summary = buildSummary(threeNames, results, {}, '/tmp/results');
 
@@ -425,9 +457,9 @@ describe('buildSummary with 3+ racers', () => {
 
   it('computes diff between fastest and slowest', () => {
     const results = [
-      { measurements: [{ name: 'Load', startTime: 0, endTime: 2, duration: 2.0 }], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
-      { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
-      { measurements: [{ name: 'Load', startTime: 0, endTime: 4, duration: 4.0 }], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 2, duration: 2.0 }], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 4, duration: 4.0 }], videoPath: null, fullVideoPath: null, error: null },
     ];
     const summary = buildSummary(threeNames, results, {}, '/tmp/results');
 
@@ -442,17 +474,17 @@ describe('buildSummary with 3+ racers', () => {
         { name: 'Load', startTime: 0, endTime: 1, duration: 1.0 },
         { name: 'Render', startTime: 1, endTime: 4, duration: 3.0 },
         { name: 'Hydrate', startTime: 4, endTime: 6, duration: 2.0 },
-      ], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
+      ], videoPath: null, fullVideoPath: null, error: null },
       { measurements: [
         { name: 'Load', startTime: 0, endTime: 2, duration: 2.0 },
         { name: 'Render', startTime: 2, endTime: 3, duration: 1.0 },
         { name: 'Hydrate', startTime: 3, endTime: 6, duration: 3.0 },
-      ], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
+      ], videoPath: null, fullVideoPath: null, error: null },
       { measurements: [
         { name: 'Load', startTime: 0, endTime: 3, duration: 3.0 },
         { name: 'Render', startTime: 3, endTime: 5, duration: 2.0 },
         { name: 'Hydrate', startTime: 5, endTime: 6, duration: 1.0 },
-      ], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
+      ], videoPath: null, fullVideoPath: null, error: null },
     ];
     const summary = buildSummary(threeNames, results, {}, '/tmp/results');
 
@@ -463,9 +495,9 @@ describe('buildSummary with 3+ racers', () => {
 
   it('stores rankings in comparison', () => {
     const results = [
-      { measurements: [{ name: 'Load', startTime: 0, endTime: 2, duration: 2.0 }], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
-      { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
-      { measurements: [{ name: 'Load', startTime: 0, endTime: 3, duration: 3.0 }], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 2, duration: 2.0 }], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 3, duration: 3.0 }], videoPath: null, fullVideoPath: null, error: null },
     ];
     const summary = buildSummary(threeNames, results, {}, '/tmp/results');
 
@@ -479,8 +511,7 @@ describe('buildSummary with 5 racers', () => {
   it('determines winner among 5 racers', () => {
     const results = fiveNames.map((_, i) => ({
       measurements: [{ name: 'Load', startTime: 0, endTime: i + 1, duration: i + 1 }],
-      clickEvents: [],
-      videoPath: null,
+           videoPath: null,
       fullVideoPath: null,
       error: null,
     }));
@@ -493,11 +524,11 @@ describe('buildSummary with 5 racers', () => {
 
   it('handles partial data among 5 racers', () => {
     const results = [
-      { measurements: [{ name: 'Load', startTime: 0, endTime: 2, duration: 2.0 }], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
-      { measurements: [], clickEvents: [], videoPath: null, fullVideoPath: null, error: null }, // no data
-      { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
-      { measurements: [], clickEvents: [], videoPath: null, fullVideoPath: null, error: null }, // no data
-      { measurements: [{ name: 'Load', startTime: 0, endTime: 3, duration: 3.0 }], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 2, duration: 2.0 }], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [], videoPath: null, fullVideoPath: null, error: null }, // no data
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [], videoPath: null, fullVideoPath: null, error: null }, // no data
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 3, duration: 3.0 }], videoPath: null, fullVideoPath: null, error: null },
     ];
     const summary = buildSummary(fiveNames, results, {}, '/tmp/results');
 

@@ -16,7 +16,6 @@ export function moveResults(recordingsBase, racerName, destDir, browserResult) {
     fullVideoPath: null,
     tracePath: null,
     harPath: null,
-    clickEvents: browserResult.clickEvents || [],
     measurements: browserResult.measurements || [],
     profileMetrics: browserResult.profileMetrics || null,
     error: browserResult.error || null,
@@ -60,7 +59,6 @@ export function moveResults(recordingsBase, racerName, destDir, browserResult) {
       data.harPath = path.join(destDir, renamed);
     }
 
-    fs.writeFileSync(path.join(destDir, 'clicks.json'), JSON.stringify(data.clickEvents, null, 2));
     fs.writeFileSync(path.join(destDir, 'measurements.json'), JSON.stringify(data.measurements, null, 2));
     fs.writeFileSync(path.join(destDir, 'profile-metrics.json'), JSON.stringify(data.profileMetrics, null, 2));
   } catch (e) {

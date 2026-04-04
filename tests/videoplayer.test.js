@@ -17,7 +17,6 @@ const makeSummary = (overrides = {}) => ({
   settings: {},
   errors: [],
   wins: { lauda: 1, hunt: 0 },
-  clickCounts: { lauda: 0, hunt: 0 },
   videos: {},
   ...overrides,
 });
@@ -353,20 +352,22 @@ describe('buildPlayerHtml errors', () => {
   });
 });
 
-// --- Click counts in results ---
+// --- Gemini commentary in notes ---
 
-describe('buildPlayerHtml click counts', () => {
-  it('shows click counts when present', () => {
-    const html = withSummary({ comparisons: [], clickCounts: { lauda: 5, hunt: 3 } });
-    expect(html).toContain('Clicks');
-    expect(html).toContain('>5<');
-    expect(html).toContain('>3<');
+describe('buildPlayerHtml gemini commentary', () => {
+  it('renders commentary into notes textarea when present', () => {
+    const html = withSummary({ geminiCommentary: 'What a thrilling race!' });
+    expect(html).toContain('What a thrilling race!');
+    expect(html).toMatch(/<details class="section" open>/);
   });
 
-  it('omits clicks when all zero', () => {
-    expect(withSummary({ comparisons: [] })).not.toContain('Clicks');
+  it('leaves notes empty and collapsed when no commentary', () => {
+    const html = withSummary({});
+    expect(html).toMatch(/<details class="section" >/);
+    expect(html).toContain('placeholder="Add notes about this race..."');
   });
 });
+
 
 // --- Clip times (default mode, without --ffmpeg) ---
 
@@ -1067,6 +1068,83 @@ describe('copyFFmpegFiles', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe('buildPlayerHtml run-by-run comparison', () => {
+  const runSummaries = [
+    {
+      racers: ['lauda', 'hunt'],
+      comparisons: [
+        { name: 'Load', racers: [{ duration: 1.0 }, { duration: 3.0 }], winner: 'lauda', diffPercent: 200, rankings: ['lauda', 'hunt'] },
+      ],
+      errors: [],
+      profileMetrics: [
+        { measured: { scriptDuration: 100 }, total: {} },
+        { measured: { scriptDuration: 200 }, total: {} },
+      ],
+    },
+    {
+      racers: ['lauda', 'hunt'],
+      comparisons: [
+        { name: 'Load', racers: [{ duration: 2.0 }, { duration: 4.0 }], winner: 'lauda', diffPercent: 100, rankings: ['lauda', 'hunt'] },
+      ],
+      errors: [],
+      profileMetrics: [
+        { measured: { scriptDuration: 120 }, total: {} },
+        { measured: { scriptDuration: 180 }, total: {} },
+      ],
+    },
+  ];
+
+  const medianSummary = makeSummary({
+    comparisons: [
+      { name: 'Load', racers: [{ duration: 1.5 }, { duration: 3.5 }], winner: 'lauda', diff: 2, diffPercent: 133.3, rankings: ['lauda', 'hunt'] },
+    ],
+    runs: 2,
+    profileMetrics: [
+      { measured: { scriptDuration: 110 }, total: {} },
+      { measured: { scriptDuration: 190 }, total: {} },
+    ],
+  });
+
+  it('renders run-by-run comparison section with color-coded racer headers', () => {
+    const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
+    expect(html).toContain('Run-by-Run Comparison');
+    // Racer headers have color styling
+    expect(html).toContain('style="color:#e74c3c">lauda');
+    expect(html).toContain('style="color:#3498db">hunt');
+  });
+
+  it('colors winner names in the comparison table', () => {
+    const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
+    // Winner cells use colored spans
+    expect(html).toMatch(/style="color:#e74c3c"[^>]*>lauda<\/span>/);
+  });
+
+  it('includes measurement rows and median row', () => {
+    const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
+    expect(html).toContain('1.000s');
+    expect(html).toContain('4.000s');
+    expect(html).toContain('run-comparison-median');
+    expect(html).toContain('<strong>Median</strong>');
+    expect(html).toContain('1.500s');
+  });
+
+  it('includes performance metrics comparison tables', () => {
+    const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
+    expect(html).toContain('Performance: During Measurement');
+    expect(html).toContain('Script Execution');
+  });
+
+  it('omits comparison section when only one run', () => {
+    const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries: [runSummaries[0]] });
+    expect(html).not.toContain('Run-by-Run Comparison');
+  });
+
+  it('omits comparison section when no runSummaries provided', () => {
+    const html = buildPlayerHtml(medianSummary, videoFiles);
+    expect(html).not.toContain('Run-by-Run Comparison');
   });
 });
 

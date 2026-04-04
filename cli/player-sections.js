@@ -146,7 +146,7 @@ export function buildErrorsHtml(errors) {
   return `<div class="errors"><ul>${errors.map(e => `<li>${escHtml(e)}</li>`).join('')}</ul></div>`;
 }
 
-export function buildResultsHtml(comparisons, racers, clickCounts) {
+export function buildResultsHtml(comparisons, racers) {
   let html = '';
   for (const comp of comparisons) {
     const sorted = sortByValue(racers, i => {
@@ -159,19 +159,6 @@ export function buildResultsHtml(comparisons, racers, clickCounts) {
       desc: '',
       rows: buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`),
     }) + '\n';
-  }
-  if (clickCounts) {
-    const total = racers.reduce((sum, r) => sum + (clickCounts[r] || 0), 0);
-    if (total > 0) {
-      const maxCount = Math.max(...racers.map(r => clickCounts[r] || 0));
-      const rows = racers.map((r, i) => {
-        const count = clickCounts[r] || 0;
-        const barPct = maxCount > 0 ? Math.round((count / maxCount) * 100) : 0;
-        const color = RACER_CSS_COLORS[i % RACER_CSS_COLORS.length];
-        return render(T['profile-row'], { color, name: escHtml(r), barPct, value: String(count), medal: '' });
-      }).join('');
-      html += render(T['profile-metric'], { titleAttr: '', name: 'Clicks', desc: '', rows }) + '\n';
-    }
   }
   return html;
 }
@@ -265,6 +252,135 @@ export function buildProfileHtml(profileComparison, racers) {
   }
 
   html += `</div>\n</details>`;
+  return html;
+}
+
+export function buildRunComparisonHtml(summaries, medianSummary, racers) {
+  if (!summaries || summaries.length <= 1) return '';
+  const allNames = new Set(summaries.flatMap(s => s.comparisons.map(c => c.name)));
+  const hasProfileData = summaries.some(s => s.profileMetrics?.some(Boolean));
+  if (allNames.size === 0 && !hasProfileData) return '';
+
+  const racerColors = racers.map((_, i) => RACER_CSS_COLORS[i % RACER_CSS_COLORS.length]);
+  const coloredHeader = racers.map((r, i) => `<th style="color:${racerColors[i]}">${escHtml(r)}</th>`).join('');
+  const winnerCell = (name) => {
+    if (!name) return '-';
+    const idx = racers.indexOf(name);
+    const color = idx >= 0 ? racerColors[idx] : '';
+    return color ? `<span style="color:${color}">${escHtml(name)}</span>` : escHtml(name);
+  };
+
+  let html = `<details class="section">\n  <summary><h2>Run-by-Run Comparison</h2></summary>\n  <div class="section-body">`;
+
+  // --- Measurement comparisons ---
+  for (const name of allNames) {
+    html += `<h3>${escHtml(name)}</h3>\n`;
+    html += `<table class="run-comparison-table"><thead><tr><th>Run</th>`;
+    html += coloredHeader;
+    html += `<th>Winner</th><th>Diff</th></tr></thead><tbody>`;
+
+    for (let i = 0; i < summaries.length; i++) {
+      const comp = summaries[i].comparisons.find(c => c.name === name);
+      html += `<tr><td>${i + 1}</td>`;
+      if (!comp) {
+        for (const _ of racers) html += `<td>-</td>`;
+        html += `<td>-</td><td>-</td></tr>`;
+        continue;
+      }
+      for (let j = 0; j < racers.length; j++) {
+        const r = comp.racers[j];
+        html += `<td>${r ? escHtml(r.duration.toFixed(3) + 's') : '-'}</td>`;
+      }
+      html += `<td>${winnerCell(comp.winner)}</td>`;
+      html += `<td>${comp.diffPercent != null ? escHtml(comp.diffPercent.toFixed(1) + '%') : '-'}</td></tr>`;
+    }
+
+    const medComp = medianSummary.comparisons.find(c => c.name === name);
+    if (medComp) {
+      html += `<tr class="run-comparison-median"><td><strong>Median</strong></td>`;
+      for (let j = 0; j < racers.length; j++) {
+        const r = medComp.racers[j];
+        html += `<td><strong>${r ? escHtml(r.duration.toFixed(3) + 's') : '-'}</strong></td>`;
+      }
+      html += `<td><strong>${winnerCell(medComp.winner)}</strong></td>`;
+      html += `<td><strong>${medComp.diffPercent != null ? escHtml(medComp.diffPercent.toFixed(1) + '%') : '-'}</strong></td></tr>`;
+    }
+    html += `</tbody></table>`;
+  }
+
+  // --- Performance metrics comparisons ---
+  if (hasProfileData) {
+    // Collect metrics that have data in at least one run
+    const metricsWithData = [];
+    for (const [key, metric] of Object.entries(PROFILE_METRICS)) {
+      const [scope, metricName] = key.split('.');
+      const hasData = summaries.some(s =>
+        racers.some((_, j) => s.profileMetrics?.[j]?.[scope]?.[metricName] != null)
+      );
+      if (hasData) metricsWithData.push({ metric, scope, metricName });
+    }
+
+    if (metricsWithData.length > 0) {
+      // Group by scope
+      const scopes = [
+        { scope: 'measured', title: 'During Measurement' },
+        { scope: 'total', title: 'Total Session' },
+      ];
+      for (const { scope: scopeName, title: scopeTitle } of scopes) {
+        const scopeMetrics = metricsWithData.filter(m => m.scope === scopeName);
+        if (scopeMetrics.length === 0) continue;
+
+        html += `<h3>Performance: ${escHtml(scopeTitle)}</h3>\n`;
+
+        for (const { metric, metricName } of scopeMetrics) {
+          html += `<h4>${escHtml(metric.name)}</h4>\n`;
+          html += `<table class="run-comparison-table"><thead><tr><th>Run</th>`;
+          html += coloredHeader;
+          html += `<th>Winner</th><th>Diff</th></tr></thead><tbody>`;
+
+          for (let i = 0; i < summaries.length; i++) {
+            const s = summaries[i];
+            html += `<tr><td>${i + 1}</td>`;
+            const vals = racers.map((_, j) => s.profileMetrics?.[j]?.[scopeName]?.[metricName] ?? null);
+            for (const v of vals) {
+              html += `<td>${v != null ? escHtml(metric.format(v)) : '-'}</td>`;
+            }
+            // Determine per-run winner (lower is better)
+            const withData = vals.map((v, j) => v != null ? { j, v } : null).filter(Boolean).sort((a, b) => a.v - b.v);
+            if (withData.length >= 2 && withData[0].v !== withData[withData.length - 1].v) {
+              const diff = withData[withData.length - 1].v - withData[0].v;
+              const diffPct = withData[0].v > 0 ? (diff / withData[0].v * 100).toFixed(1) + '%' : '-';
+              html += `<td>${winnerCell(racers[withData[0].j])}</td><td>${escHtml(diffPct)}</td>`;
+            } else {
+              html += `<td>-</td><td>-</td>`;
+            }
+            html += `</tr>`;
+          }
+
+          // Median row
+          const medVals = racers.map((_, j) => medianSummary.profileMetrics?.[j]?.[scopeName]?.[metricName] ?? null);
+          const medWithData = medVals.map((v, j) => v != null ? { j, v } : null).filter(Boolean).sort((a, b) => a.v - b.v);
+          if (medVals.some(v => v != null)) {
+            html += `<tr class="run-comparison-median"><td><strong>Median</strong></td>`;
+            for (const v of medVals) {
+              html += `<td><strong>${v != null ? escHtml(metric.format(v)) : '-'}</strong></td>`;
+            }
+            if (medWithData.length >= 2 && medWithData[0].v !== medWithData[medWithData.length - 1].v) {
+              const diff = medWithData[medWithData.length - 1].v - medWithData[0].v;
+              const diffPct = medWithData[0].v > 0 ? (diff / medWithData[0].v * 100).toFixed(1) + '%' : '-';
+              html += `<td><strong>${winnerCell(racers[medWithData[0].j])}</strong></td><td><strong>${escHtml(diffPct)}</strong></td>`;
+            } else {
+              html += `<td>-</td><td>-</td>`;
+            }
+            html += `</tr>`;
+          }
+          html += `</tbody></table>`;
+        }
+      }
+    }
+  }
+
+  html += `\n  </div>\n</details>`;
   return html;
 }
 
