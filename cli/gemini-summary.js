@@ -169,8 +169,9 @@ export async function fetchPageHtml(url, browser, maxLength = HTML_MAX_LENGTH) {
 }
 
 /**
- * Extract up to `max` http/https URLs from a free-form prompt string.
- * Falls back to returning an empty array so callers can handle the case.
+ * Extract http/https URLs from a free-form prompt string.
+ * Strips common surrounding punctuation and deduplicates.
+ * Returns an empty array when no URLs are found.
  */
 export function extractUrls(text) {
   // Split on whitespace, strip enclosing punctuation, filter URLs.
@@ -187,9 +188,11 @@ export function extractUrls(text) {
 }
 
 /**
- * Returns true if the URL hostname resolves to a private or local address
- * (localhost, loopback, RFC-1918 ranges). These are blocked from HTML fetching
- * to prevent accidental exposure of internal services to Gemini.
+ * Returns true if the URL hostname is an explicit localhost/loopback or a
+ * literal IPv4 address in RFC-1918 or other local ranges (e.g. 127.0.0.0/8,
+ * 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16). This check is purely syntactic
+ * and does not perform DNS resolution, so hostnames that resolve to private
+ * addresses are not blocked by this function.
  */
 export function isPrivateUrl(urlString) {
   let host;

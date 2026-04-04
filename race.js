@@ -1087,7 +1087,7 @@ async function runRacerAlone(browserIdx, racerRunDir) {
 function isGeminiAvailable() {
   try {
     const result = spawnSync('gemini', ['--version'], { encoding: 'utf-8', timeout: 5000 }); // NOSONAR — gemini CLI resolved via PATH is intentional
-    return !result.error;
+    return !result.error && result.status === 0;
   } catch { return false; }
 }
 
