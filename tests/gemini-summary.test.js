@@ -399,6 +399,11 @@ describe('invokeGemini', () => {
     expect(() => invokeGemini('hello')).toThrow(/Gemini CLI not found.*npm install -g @google\/gemini-cli/s);
   });
 
+  it('throws a timeout message on ETIMEDOUT', () => {
+    spawnSync.mockReturnValue({ error: { code: 'ETIMEDOUT' }, status: null, stdout: '', stderr: '' });
+    expect(() => invokeGemini('hello')).toThrow(/timed out after 120s/);
+  });
+
   it('throws the stderr message on non-zero exit code', () => {
     spawnSync.mockReturnValue({ error: null, status: 1, stdout: '', stderr: 'auth error' });
     expect(() => invokeGemini('hello')).toThrow('auth error');

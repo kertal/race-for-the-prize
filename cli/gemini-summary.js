@@ -25,6 +25,9 @@ export function invokeGemini(prompt) {
     if (result.error.code === 'ENOENT') {
       throw new Error('Gemini CLI not found. Install it with: npm install -g @google/gemini-cli');
     }
+    if (result.error.code === 'ETIMEDOUT') {
+      throw new Error('Gemini CLI timed out after 120s — check your network connection or Gemini auth');
+    }
     throw new Error(`Gemini CLI error: ${result.error.message}`);
   }
 
