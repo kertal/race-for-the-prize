@@ -17,7 +17,6 @@ const makeSummary = (overrides = {}) => ({
   settings: {},
   errors: [],
   wins: { lauda: 1, hunt: 0 },
-  clickCounts: { lauda: 0, hunt: 0 },
   videos: {},
   ...overrides,
 });
@@ -350,21 +349,6 @@ describe('buildPlayerHtml errors', () => {
 
   it('omits errors section when no errors', () => {
     expect(buildPlayerHtml(abSummary(), abVideoFiles)).not.toContain('class="errors"');
-  });
-});
-
-// --- Click counts in results ---
-
-describe('buildPlayerHtml click counts', () => {
-  it('shows click counts when present', () => {
-    const html = withSummary({ comparisons: [], clickCounts: { lauda: 5, hunt: 3 } });
-    expect(html).toContain('Clicks');
-    expect(html).toContain('>5<');
-    expect(html).toContain('>3<');
-  });
-
-  it('omits clicks when all zero', () => {
-    expect(withSummary({ comparisons: [] })).not.toContain('Clicks');
   });
 });
 

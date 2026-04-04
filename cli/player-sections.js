@@ -146,7 +146,7 @@ export function buildErrorsHtml(errors) {
   return `<div class="errors"><ul>${errors.map(e => `<li>${escHtml(e)}</li>`).join('')}</ul></div>`;
 }
 
-export function buildResultsHtml(comparisons, racers, clickCounts) {
+export function buildResultsHtml(comparisons, racers) {
   let html = '';
   for (const comp of comparisons) {
     const sorted = sortByValue(racers, i => {
@@ -159,19 +159,6 @@ export function buildResultsHtml(comparisons, racers, clickCounts) {
       desc: '',
       rows: buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`),
     }) + '\n';
-  }
-  if (clickCounts) {
-    const total = racers.reduce((sum, r) => sum + (clickCounts[r] || 0), 0);
-    if (total > 0) {
-      const maxCount = Math.max(...racers.map(r => clickCounts[r] || 0));
-      const rows = racers.map((r, i) => {
-        const count = clickCounts[r] || 0;
-        const barPct = maxCount > 0 ? Math.round((count / maxCount) * 100) : 0;
-        const color = RACER_CSS_COLORS[i % RACER_CSS_COLORS.length];
-        return render(T['profile-row'], { color, name: escHtml(r), barPct, value: String(count), medal: '' });
-      }).join('');
-      html += render(T['profile-metric'], { titleAttr: '', name: 'Clicks', desc: '', rows }) + '\n';
-    }
   }
   return html;
 }
