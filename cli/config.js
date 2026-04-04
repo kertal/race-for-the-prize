@@ -6,7 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 
-const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'height']);
+const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'height', 'gemini-spec']);
 
 export function parseArgs(argv) {
   const positional = [];
@@ -196,6 +196,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
     const height = Number(kvFlags.height);
     s.viewportHeight = Number.isFinite(height) ? Math.min(Math.max(Math.round(height), 480), 4320) : 720;
   }
+  if (boolFlags.has('gemini')) s.gemini = true;
   return s;
 }
 

@@ -171,6 +171,10 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     files: buildFilesHtml(racers, videoFiles, {
       fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, altFormat, altFiles, placementOrder,
     }),
+    notesContent: summary.geminiCommentary
+      ? `🤖 Gemini Race Commentary\n${'─'.repeat(40)}\n${escHtml(summary.geminiCommentary)}`
+      : '',
+    notesOpen: summary.geminiCommentary ? 'open' : '',
     scriptTag,
   });
 }

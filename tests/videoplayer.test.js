@@ -352,6 +352,23 @@ describe('buildPlayerHtml errors', () => {
   });
 });
 
+// --- Gemini commentary in notes ---
+
+describe('buildPlayerHtml gemini commentary', () => {
+  it('renders commentary into notes textarea when present', () => {
+    const html = withSummary({ geminiCommentary: 'What a thrilling race!' });
+    expect(html).toContain('What a thrilling race!');
+    expect(html).toMatch(/<details class="section" open>/);
+  });
+
+  it('leaves notes empty and collapsed when no commentary', () => {
+    const html = withSummary({});
+    expect(html).toMatch(/<details class="section" >/);
+    expect(html).toContain('placeholder="Add notes about this race..."');
+  });
+});
+
+
 // --- Clip times (default mode, without --ffmpeg) ---
 
 describe('buildPlayerHtml clipTimes', () => {

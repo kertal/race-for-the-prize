@@ -304,6 +304,34 @@ describe('settings override', () => {
     const { kvFlags } = parseArgs(['dir', '--height', '1080']);
     expect(kvFlags.height).toBe('1080');
   });
+
+  it('CLI --gemini sets gemini flag', () => {
+    const s = applyOverrides({}, new Set(['gemini']), {});
+    expect(s.gemini).toBe(true);
+  });
+
+  it('CLI --gemini absent leaves gemini unset', () => {
+    const s = applyOverrides({}, new Set(), {});
+    expect(s.gemini).toBeUndefined();
+  });
+});
+
+describe('parseArgs --gemini-spec', () => {
+  it('parses --gemini-spec=value form', () => {
+    const { kvFlags } = parseArgs(['--gemini-spec=compare google vs bing']);
+    expect(kvFlags['gemini-spec']).toBe('compare google vs bing');
+  });
+
+  it('parses --gemini-spec value form', () => {
+    const { kvFlags } = parseArgs(['--gemini-spec', 'compare google vs bing']);
+    expect(kvFlags['gemini-spec']).toBe('compare google vs bing');
+  });
+
+  it('gemini-spec value is not treated as a positional arg', () => {
+    const { positional, kvFlags } = parseArgs(['--gemini-spec', 'my prompt']);
+    expect(positional).toEqual([]);
+    expect(kvFlags['gemini-spec']).toBe('my prompt');
+  });
 });
 
 describe('setup/teardown discovery', () => {

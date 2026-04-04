@@ -19,7 +19,7 @@
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
-import { spawn, execSync } from 'child_process';
+import { spawn, spawnSync, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c, FORMAT_EXTENSIONS } from './cli/colors.js';
@@ -28,6 +28,7 @@ import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, b
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
 import { buildPlayerHtml } from './cli/videoplayer.js';
+import { runGeminiSummary, runGeminiSpec } from './cli/gemini-summary.js';
 
 /** Format a Date as YYYY-MM-DD_HH-MM-SS for directory naming. */
 export function formatTimestamp(date) {
@@ -534,7 +535,7 @@ if (boolFlags.has('init')) {
 
   fs.mkdirSync(targetDir, { recursive: true });
 
-  const racerA = `// Racer A — edit this script to test your first URL
+  const defaultRacerA = `// Racer A — edit this script to test your first URL
 // Available race helpers injected into page:
 //   await page.raceRecordingStart()   — start video segment (optional)
 //   await page.raceStart('name')      — start a measurement
@@ -552,7 +553,7 @@ page.raceEnd('Load');
 await page.raceRecordingEnd();
 `;
 
-  const racerB = `// Racer B — edit this script to test your second URL
+  const defaultRacerB = `// Racer B — edit this script to test your second URL
 // Available race helpers injected into page:
 //   await page.raceRecordingStart()   — start video segment (optional)
 //   await page.raceStart('name')      — start a measurement
@@ -570,10 +571,59 @@ page.raceEnd('Load');
 await page.raceRecordingEnd();
 `;
 
+  // --gemini-spec="<prompt>": use Gemini + Playwright HTML research to generate specs
+  if (kvFlags['gemini-spec'] !== undefined) {
+    const userPrompt = kvFlags['gemini-spec'];
+    console.error(`\n  ${c.bold}${c.cyan}🤖 Generating race specs with Gemini…${c.reset}`);
+    console.error(`  ${c.dim}Prompt: ${userPrompt}${c.reset}\n`);
+
+    try {
+      const specFiles = await runGeminiSpec(userPrompt);
+      const written = [];
+      for (const [filename, content] of Object.entries(specFiles)) {
+        fs.writeFileSync(path.join(targetDir, filename), content + '\n');
+        written.push(filename);
+      }
+
+      const expectedSpecs = [
+        { file: 'racer-a.spec.js', default: defaultRacerA },
+        { file: 'racer-b.spec.js', default: defaultRacerB },
+      ];
+      for (const { file, default: fallback } of expectedSpecs) {
+        if (!specFiles[file]) {
+          fs.writeFileSync(path.join(targetDir, file), fallback);
+          written.push(`${file} (default — Gemini did not generate this file)`);
+        }
+      }
+
+      const settings = JSON.stringify({ parallel: false, headless: false, runs: 3 }, null, 2) + '\n';
+      fs.writeFileSync(path.join(targetDir, 'settings.json'), settings);
+
+      console.error(`
+${c.green}${c.bold}✓ Race scaffolded with Gemini:${c.reset} ${c.cyan}${path.relative(process.cwd(), targetDir)}/${c.reset}
+
+  ${written.map(f => `${c.dim}${f}${c.reset}`).join('\n  ')}
+  ${c.dim}settings.json${c.reset}
+
+${c.bold}Run it:${c.reset}
+  ${c.cyan}npx race-for-the-prize ${path.relative(process.cwd(), targetDir)}${c.reset}
+`);
+    } catch (e) {
+      console.error(`${c.red}Gemini spec generation failed: ${e.message}${c.reset}`);
+      console.error(`${c.dim}Falling back to default scaffold…${c.reset}`);
+      // Write default scaffold files and exit
+      fs.writeFileSync(path.join(targetDir, 'racer-a.spec.js'), defaultRacerA);
+      fs.writeFileSync(path.join(targetDir, 'racer-b.spec.js'), defaultRacerB);
+      fs.writeFileSync(path.join(targetDir, 'settings.json'), JSON.stringify({ parallel: false, headless: false, runs: 3 }, null, 2) + '\n');
+    }
+
+    process.exit(0);
+  }
+
   const settings = JSON.stringify({ parallel: false, headless: false, runs: 3 }, null, 2) + '\n';
 
-  fs.writeFileSync(path.join(targetDir, 'racer-a.spec.js'), racerA);
-  fs.writeFileSync(path.join(targetDir, 'racer-b.spec.js'), racerB);
+  fs.writeFileSync(path.join(targetDir, 'racer-a.spec.js'), defaultRacerA);
+  fs.writeFileSync(path.join(targetDir, 'racer-b.spec.js'), defaultRacerB);
   fs.writeFileSync(path.join(targetDir, 'settings.json'), settings);
 
   console.error(`
@@ -701,6 +751,8 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--height${c.reset}=${c.green}900${c.reset}          Viewport/recording height in pixels (480–4320, default 720)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ignore-https-errors${c.reset}  Accept invalid/self-signed TLS certificates
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-serve${c.reset}           Don't start local results server (CI/headless; open index.html manually)
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--gemini${c.reset}             Gemini CLI sports reporter commentary after race
+  node race.js ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset} ${c.yellow}--gemini-spec${c.reset}=${c.green}"prompt"${c.reset}  Generate specs via Gemini + Playwright HTML research
 
 ${c.dim}  All flags except --results work with both URL mode and directory mode.${c.reset}
 ${c.dim}  Try the example:  node race.js ./races/lauda-vs-hunt${c.reset}
@@ -1027,14 +1079,72 @@ async function runRacerAlone(browserIdx, racerRunDir) {
 }
 
 /**
+ * Generate Gemini sports reporter commentary for a summary, if --gemini is enabled.
+ * Returns the commentary string or null. Adds it to the summary object and writes
+ * a separate text file alongside the summary.
+ */
+function isGeminiAvailable() {
+  try {
+    const result = spawnSync('gemini', ['--version'], { encoding: 'utf-8', timeout: 5000 }); // NOSONAR — gemini CLI resolved via PATH is intentional
+    return !result.error && result.status === 0;
+  } catch { return false; }
+}
+
+function generateGeminiCommentary(summary, outputDir) {
+  if (!settings.gemini) return null;
+  if (!isGeminiAvailable()) {
+    console.error(`  ${c.yellow}⚠ Gemini CLI not found — install with: npm install -g @google/gemini-cli${c.reset}`);
+    return null;
+  }
+  try {
+    console.error(`\n  ${c.bold}${c.cyan}🤖 Gemini Race Commentary${c.reset}`);
+    console.error(`  ${c.dim}${'─'.repeat(50)}${c.reset}\n`);
+    const commentary = runGeminiSummary(summary);
+    console.error(commentary);
+    console.error(`\n  ${c.dim}${'─'.repeat(50)}${c.reset}\n`);
+    summary.geminiCommentary = commentary;
+    fs.writeFileSync(path.join(outputDir, 'gemini-commentary.txt'), commentary + '\n');
+    return commentary;
+  } catch (e) {
+    console.error(`  ${c.yellow}⚠ Gemini summary skipped: ${e.message}${c.reset}`);
+    return null;
+  }
+}
+
+/** Inject gemini commentary into the notes textarea of an existing index.html. */
+function bakeNotesIntoHtml(dir, commentary) {
+  if (!commentary) return;
+  const htmlPath = path.join(dir, 'index.html');
+  if (!fs.existsSync(htmlPath)) return;
+  let html = fs.readFileSync(htmlPath, 'utf-8');
+  const escaped = commentary.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // Replace the empty textarea with commentary content and open the notes section.
+  // Target the notes section specifically via the textarea id.
+  const placeholder = 'id="notesTextarea" placeholder="Add notes about this race..."></textarea>';
+  const replacement = `id="notesTextarea" placeholder="Add notes about this race...">\n🤖 Gemini Race Commentary\n${'─'.repeat(40)}\n${escaped}\n</textarea>`;
+  html = html.replace(placeholder, replacement);
+  // Uncollapse the notes section — match specifically the Notes section's <details>
+  // by anchoring on its unique <summary><h2>Notes</h2></summary> heading.
+  // This prevents accidentally opening a different section even if notesTextarea
+  // appears later in the document.
+  html = html.replace(
+    /(<details class="section" )(?=(?:(?!<\/details>)[\s\S])*?<summary><h2>Notes<\/h2><\/summary>(?:(?!<\/details>)[\s\S])*?id="notesTextarea")/,
+    '$1open'
+  );
+  fs.writeFileSync(htmlPath, html);
+}
+
+/**
  * Build the per-run output (summary.json + index.html) after all racers' recordings
  * for run `i` are already moved into their run directories.
  */
 function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts = {}) {
   const { ffmpeg } = settings;
+  const isFinalOutput = !runNav || runNav.totalRuns === 1;
 
   const progress = startProgress('Processing recordings…');
   const summary = buildSummary(racerNames, runMovedResults, settings, runDir);
+  if (isFinalOutput) generateGeminiCommentary(summary, runDir);
   fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
 
   const { raceScriptFiles, settingsFileCopied } = copyRaceAssets(ctx.raceDir, ctx.racerFiles, runDir);
@@ -1073,6 +1183,10 @@ async function main() {
       if (totalRuns === 1) {
         const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir);
         printSummary(summary);
+        generateGeminiCommentary(summary, resultsDir);
+        // Re-write summary.json with gemini commentary included
+        fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(summary, null, 2));
+        bakeNotesIntoHtml(resultsDir, summary.geminiCommentary);
         fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summary, sideBySidePath ? sideBySideName : null));
       } else {
         fs.mkdirSync(resultsDir, { recursive: true });
@@ -1142,6 +1256,7 @@ async function main() {
       }
     }
 
+
     const { relResults, relHtml } = buildResultsPaths(resultsDir);
     console.error(`  ${c.dim}📂 ${relResults}${c.reset}`);
 
@@ -1179,6 +1294,7 @@ async function main() {
 
 function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
   const medianSummary = buildMedianSummary(summaries, resultsDir);
+  generateGeminiCommentary(medianSummary, resultsDir);
   fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(medianSummary, null, 2));
 
   if (!settings.noRecording) {
