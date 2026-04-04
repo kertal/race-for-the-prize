@@ -103,7 +103,7 @@ export function getPlacementOrder(summary) {
  * Build markdown results table rows.
  * Returns array of markdown lines for the table.
  */
-function buildResultsTable(comparisons, racers, clickCounts = null) {
+function buildResultsTable(comparisons, racers) {
   const lines = [];
   const headerCols = ['Measurement', ...racers, 'Winner', 'Diff'];
   lines.push(`| ${headerCols.join(' | ')} |`);
@@ -115,10 +115,6 @@ function buildResultsTable(comparisons, racers, clickCounts = null) {
     const winner = comp.winner || '-';
     const diff = comp.diffPercent !== null ? `${comp.diffPercent.toFixed(1)}%` : '-';
     lines.push(`| ${comp.name} | ${durations.join(' | ')} | ${winner} | ${diff} |`);
-  }
-  if (clickCounts) {
-    const clickValues = racers.map(r => clickCounts[r]);
-    lines.push(`| Clicks | ${clickValues.join(' | ')} | | |`);
   }
   return lines;
 }
@@ -155,7 +151,6 @@ export function buildSummary(racerNames, results, settings, resultsDir) {
       [`${racerNames[i]}_full`, r.fullVideoPath || null],
     ])),
     harFiles: Object.fromEntries(racerNames.map((n, i) => [n, results[i].harPath || null])),
-    clickCounts: Object.fromEntries(racerNames.map((n, i) => [n, (results[i].clickEvents || []).length])),
     profileMetrics: results.map(r => r.profileMetrics || null),
     profileComparison: buildProfileComparison(racerNames, results.map(r => r.profileMetrics || null)),
     machineInfo: getMachineInfo(),
@@ -170,7 +165,7 @@ function printBar(label, duration, maxDuration, color, isWinner, width = 30, lab
 }
 
 export function printSummary(summary) {
-  const { racers, comparisons, overallWinner, wins, errors, clickCounts, profileComparison } = summary;
+  const { racers, comparisons, overallWinner, wins, errors, profileComparison } = summary;
   const w = 54;
   const labelWidth = Math.max(12, ...racers.map(r => r.length));
 
@@ -228,17 +223,6 @@ export function printSummary(summary) {
   }
   write(`  ${c.dim}${'─'.repeat(w)}${c.reset}\n`);
 
-  // Click events — only show if there are any
-  const totalClicks = racers.reduce((sum, r) => sum + (clickCounts[r] || 0), 0);
-  if (totalClicks > 0) {
-    write(`  ${c.bold}🖱  Clicks${c.reset}\n`);
-    racers.forEach((r, i) => {
-      const color = RACER_COLORS[i % RACER_COLORS.length];
-      write(`    ${color}${r}${c.reset}: ${clickCounts[r]}\n`);
-    });
-    write('\n');
-  }
-
   // Profile analysis — only show if metrics were captured
   if (profileComparison && profileComparison.comparisons.length > 0) {
     printProfileAnalysis(profileComparison, racers);
@@ -246,7 +230,7 @@ export function printSummary(summary) {
 }
 
 export function buildMarkdownSummary(summary, sideBySideName) {
-  const { racers, comparisons, overallWinner, wins, errors, videos, clickCounts, settings, timestamp, profileComparison, machineInfo } = summary;
+  const { racers, comparisons, overallWinner, wins, errors, videos, settings, timestamp, profileComparison, machineInfo } = summary;
   const lines = [];
 
   // ASCII art header
@@ -310,7 +294,7 @@ export function buildMarkdownSummary(summary, sideBySideName) {
   if (comparisons.length > 0) {
     lines.push('### Results');
     lines.push('');
-    lines.push(...buildResultsTable(comparisons, racers, clickCounts));
+    lines.push(...buildResultsTable(comparisons, racers));
     lines.push('');
   }
 
@@ -448,7 +432,6 @@ export function buildMedianSummary(summaries, resultsDir) {
     wins,
     errors: summaries.flatMap(s => s.errors || []),
     videos: {},
-    clickCounts: Object.fromEntries(racers.map(n => [n, 0])),
     runs: summaries.length,
     machineInfo: summaries.find(s => s.machineInfo)?.machineInfo,
     profileMetrics: medianProfileMetrics,

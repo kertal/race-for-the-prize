@@ -48,7 +48,6 @@ function makeSummary() {
     settings: {},
     errors: [],
     wins: { alpha: 1, bravo: 0 },
-    clickCounts: { alpha: 0, bravo: 0 },
     videos: {},
   };
 }
