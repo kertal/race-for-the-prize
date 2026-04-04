@@ -164,7 +164,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     modeToggle,
     playerSection,
     debugPanel: debugPanelOut,
-    results: buildResultsHtml(summary.comparisons || [], racers, summary.clickCounts),
+    results: buildResultsHtml(summary.comparisons || [], racers),
     runComparison: buildRunComparisonHtml(runSummaries || null, summary, racers),
     profileSummary: buildProfileSummaryHtml(summary.profileComparison || null, racers),
     profile: buildProfileHtml(summary.profileComparison || null, racers),

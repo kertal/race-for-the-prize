@@ -170,44 +170,6 @@ process.on('SIGINT', cleanup);
 
 const { SyncBarrier } = require('./sync-barrier.cjs');
 
-// --- Click event tracker (injected into browser pages) ---
-
-/**
- * Injects a click event tracker into all pages in the context.
- * Records click events with timestamps relative to recordingStartTime for later analysis.
- */
-async function setupClickTracker(context, recordingStartTime) {
-  await context.addInitScript((startTime) => {
-    if (window.__clickTrackerInjected) return;
-    window.__clickTrackerInjected = true;
-    window.__recordingStartTime = startTime;
-    window.__clickEvents = [];
-
-    const inject = () => {
-      document.addEventListener('mousedown', (e) => {
-        const ts = (Date.now() - window.__recordingStartTime) / 1000;
-        let desc = e.target.tagName.toLowerCase();
-        if (e.target.id) desc += `#${e.target.id}`;
-        if (e.target.className && typeof e.target.className === 'string') {
-          desc += '.' + e.target.className.split(' ').filter(Boolean).slice(0, 2).join('.');
-        }
-        const text = (e.target.textContent || '').trim().slice(0, 30);
-        if (text) desc += ` "${text}${text.length >= 30 ? '...' : ''}"`;
-        window.__clickEvents.push({ timestamp: ts, x: e.clientX, y: e.clientY, element: desc });
-      }, true);
-    };
-
-    document.readyState === 'loading'
-      ? document.addEventListener('DOMContentLoaded', inject)
-      : inject();
-  }, recordingStartTime);
-}
-
-async function getClickEvents(page) {
-  try { return await page.evaluate(() => window.__clickEvents || []); }
-  catch { return []; }
-}
-
 // --- Performance metrics collection via CDP ---
 
 /**
@@ -399,26 +361,6 @@ async function setupMetricsCollection(page, id) {
       } catch {}
     }
   };
-}
-
-/**
- * Remap click timestamps to match trimmed video segments.
- * Adjusts timestamps so they're relative to the start of the trimmed video.
- */
-function remapClickTimestamps(clickEvents, segments) {
-  if (segments.length === 0) return clickEvents;
-
-  const adjusted = [];
-  let offset = 0;
-  for (const seg of segments) {
-    for (const evt of clickEvents) {
-      if (evt.timestamp >= seg.start && evt.timestamp <= seg.end) {
-        adjusted.push({ ...evt, timestamp: offset + (evt.timestamp - seg.start) });
-      }
-    }
-    offset += seg.end - seg.start;
-  }
-  return adjusted;
 }
 
 // --- Script execution ---
@@ -836,7 +778,6 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     page.setDefaultTimeout(PAGE_TIMEOUT_MS);
     page.setDefaultNavigationTimeout(PAGE_TIMEOUT_MS);
 
-    await setupClickTracker(context, recordingStartTime);
     await applyThrottling(page, throttle, id);
 
     metricsCollector = await startProfiling(page, browser, id);
@@ -850,10 +791,6 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     const traceSegments = traceTiming?.recordingSegments || [];
     const recordingSegments = traceSegments.length > 0 ? traceSegments : markerSegments;
     const measurements = traceTiming?.measurements?.length > 0 ? traceTiming.measurements : markerMeasurements;
-
-    const clickEvents = await getClickEvents(page);
-    const clickSegments = markerSegments.length > 0 ? markerSegments : recordingSegments;
-    const adjustedClicks = remapClickTimestamps(clickEvents, clickSegments);
 
     await context.close();
     const wallClockDuration = (Date.now() - contextCreationStart) / 1000;
@@ -871,7 +808,6 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
         videoPath: null,
         fullVideoPath: null,
         tracePath: tracePath ? path.join(id, path.basename(tracePath)) : null,
-        clickEvents: adjustedClicks,
         measurements,
         profileMetrics,
         recordingSegments: null,
@@ -905,7 +841,6 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
       fullVideoPath: fullVideoFile ? path.join(id, fullVideoFile) : null,
       tracePath: tracePath ? path.join(id, path.basename(tracePath)) : null,
       harPath: harPath && fs.existsSync(harPath) ? path.join(id, path.basename(harPath)) : null,
-      clickEvents: adjustedClicks,
       measurements,
       profileMetrics,
       recordingSegments: recordingSegments.length > 0 ? recordingSegments : null,
@@ -936,7 +871,6 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     fullVideoPath: null,
     tracePath: null,
     harPath: null,
-    clickEvents: [],
     measurements: [],
     profileMetrics: null,
     recordingSegments: null,
@@ -1024,7 +958,6 @@ async function main() {
       fullVideoPath: r.fullVideoPath || null,
       tracePath: r.tracePath || null,
       harPath: r.harPath || null,
-      clickEvents: r.clickEvents || [],
       measurements: r.measurements || [],
       profileMetrics: r.profileMetrics || null,
       recordingSegments: r.recordingSegments || null,

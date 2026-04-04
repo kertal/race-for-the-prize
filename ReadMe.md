@@ -258,7 +258,6 @@ races/my-race/results-2026-01-31_14-30-00/
     contender-a.full.webm     # Full session recording (--ffmpeg only)
     contender-a.trace.json    # Performance trace (always generated)
     measurements.json          # Lap times
-    clicks.json                # Driver inputs
   contender-b/
     ...
   contender-a-vs-contender-b.webm   # Side-by-side broadcast replay (--ffmpeg only)
