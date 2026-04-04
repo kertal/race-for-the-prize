@@ -37,4 +37,5 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 - Parallel mode uses a `SyncBarrier` class to synchronize two browser instances at checkpoints (ready, recordingStart, stop).
 - Video trimming uses visual cue detection (colored pixels injected into the page). The HTML player detects cues client-side via the Canvas API for frame-accurate calibration. With `--ffmpeg`, cues are detected via ffprobe for physical segment extraction.
 - CLI flags override `settings.json` values (CLI takes priority). See `config.js` `applyOverrides()`.
+- Per-racer setup scripts (e.g., `racer-a.setup.sh`) trigger split execution: each racer's setup runs right before that racer's runs, not all upfront. Without per-racer setups, all racers run together per run.
 - Tests exclude `races/` and `runner/` directories (configured in `vitest.config.js`).

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { discoverRacers, parseArgs, applyOverrides } from '../cli/config.js';
+import { discoverRacers, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown } from '../cli/config.js';
 
 let tmpDir;
 
@@ -331,5 +331,231 @@ describe('parseArgs --gemini-spec', () => {
     const { positional, kvFlags } = parseArgs(['--gemini-spec', 'my prompt']);
     expect(positional).toEqual([]);
     expect(kvFlags['gemini-spec']).toBe('my prompt');
+  });
+});
+
+describe('setup/teardown discovery', () => {
+  it('discovers setup.sh by convention', () => {
+    fs.writeFileSync(path.join(tmpDir, 'setup.sh'), '#!/bin/bash\necho "setup"');
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+
+    const { setup, teardown } = discoverSetupTeardown(tmpDir);
+    expect(setup).toBe('setup.sh');
+    expect(teardown).toBe(null);
+  });
+
+  it('discovers teardown.sh by convention', () => {
+    fs.writeFileSync(path.join(tmpDir, 'teardown.sh'), '#!/bin/bash\necho "teardown"');
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+
+    const { setup, teardown } = discoverSetupTeardown(tmpDir);
+    expect(setup).toBe(null);
+    expect(teardown).toBe('teardown.sh');
+  });
+
+  it('discovers both setup.js and teardown.js', () => {
+    fs.writeFileSync(path.join(tmpDir, 'setup.js'), 'console.log("setup")');
+    fs.writeFileSync(path.join(tmpDir, 'teardown.js'), 'console.log("teardown")');
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+
+    const { setup, teardown } = discoverSetupTeardown(tmpDir);
+    expect(setup).toBe('setup.js');
+    expect(teardown).toBe('teardown.js');
+  });
+
+  it('prefers .sh over .js for setup', () => {
+    fs.writeFileSync(path.join(tmpDir, 'setup.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'setup.js'), 'console.log("setup")');
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+
+    const { setup } = discoverSetupTeardown(tmpDir);
+    expect(setup).toBe('setup.sh');
+  });
+
+  it('prefers .sh over .js for teardown', () => {
+    fs.writeFileSync(path.join(tmpDir, 'teardown.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'teardown.js'), 'console.log("teardown")');
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+
+    const { teardown } = discoverSetupTeardown(tmpDir);
+    expect(teardown).toBe('teardown.sh');
+  });
+
+  it('settings.json setup overrides convention', () => {
+    fs.writeFileSync(path.join(tmpDir, 'setup.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'custom-setup.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+
+    const { setup } = discoverSetupTeardown(tmpDir, { setup: './custom-setup.sh' });
+    expect(setup).toBe('./custom-setup.sh');
+  });
+
+  it('settings.json teardown overrides convention', () => {
+    fs.writeFileSync(path.join(tmpDir, 'teardown.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+
+    const { teardown } = discoverSetupTeardown(tmpDir, { teardown: { command: './cleanup.sh', timeout: 5000 } });
+    expect(teardown).toEqual({ command: './cleanup.sh', timeout: 5000 });
+  });
+
+  it('settings.json can disable convention with null', () => {
+    fs.writeFileSync(path.join(tmpDir, 'setup.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+
+    const { setup } = discoverSetupTeardown(tmpDir, { setup: null });
+    expect(setup).toBe(null);
+  });
+
+  it('returns null for both when no scripts exist', () => {
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+
+    const { setup, teardown } = discoverSetupTeardown(tmpDir);
+    expect(setup).toBe(null);
+    expect(teardown).toBe(null);
+  });
+
+  it('ignores dotfiles', () => {
+    fs.writeFileSync(path.join(tmpDir, '.setup.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+
+    const { setup } = discoverSetupTeardown(tmpDir);
+    expect(setup).toBe(null);
+  });
+});
+
+describe('per-racer setup/teardown discovery', () => {
+  it('discovers racer-specific setup.sh by convention', () => {
+    fs.writeFileSync(path.join(tmpDir, 'lauda.setup.sh'), '#!/bin/bash\necho "setup lauda"');
+    fs.writeFileSync(path.join(tmpDir, 'lauda.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'hunt.spec.js'), '');
+
+    const { setup, teardown } = discoverRacerSetupTeardown(tmpDir, 'lauda');
+    expect(setup).toBe('lauda.setup.sh');
+    expect(teardown).toBe(null);
+  });
+
+  it('discovers racer-specific teardown.sh by convention', () => {
+    fs.writeFileSync(path.join(tmpDir, 'hunt.teardown.sh'), '#!/bin/bash\necho "teardown hunt"');
+    fs.writeFileSync(path.join(tmpDir, 'lauda.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'hunt.spec.js'), '');
+
+    const { setup, teardown } = discoverRacerSetupTeardown(tmpDir, 'hunt');
+    expect(setup).toBe(null);
+    expect(teardown).toBe('hunt.teardown.sh');
+  });
+
+  it('discovers both setup.js and teardown.js for a racer', () => {
+    fs.writeFileSync(path.join(tmpDir, 'lauda.setup.js'), 'console.log("setup")');
+    fs.writeFileSync(path.join(tmpDir, 'lauda.teardown.js'), 'console.log("teardown")');
+    fs.writeFileSync(path.join(tmpDir, 'lauda.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'hunt.spec.js'), '');
+
+    const { setup, teardown } = discoverRacerSetupTeardown(tmpDir, 'lauda');
+    expect(setup).toBe('lauda.setup.js');
+    expect(teardown).toBe('lauda.teardown.js');
+  });
+
+  it('prefers .sh over .js for racer scripts', () => {
+    fs.writeFileSync(path.join(tmpDir, 'lauda.setup.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'lauda.setup.js'), 'console.log("setup")');
+    fs.writeFileSync(path.join(tmpDir, 'lauda.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'hunt.spec.js'), '');
+
+    const { setup } = discoverRacerSetupTeardown(tmpDir, 'lauda');
+    expect(setup).toBe('lauda.setup.sh');
+  });
+
+  it('does not mix up scripts between racers', () => {
+    fs.writeFileSync(path.join(tmpDir, 'lauda.setup.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'hunt.teardown.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'lauda.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'hunt.spec.js'), '');
+
+    const lauda = discoverRacerSetupTeardown(tmpDir, 'lauda');
+    const hunt = discoverRacerSetupTeardown(tmpDir, 'hunt');
+
+    expect(lauda.setup).toBe('lauda.setup.sh');
+    expect(lauda.teardown).toBe(null);
+    expect(hunt.setup).toBe(null);
+    expect(hunt.teardown).toBe('hunt.teardown.sh');
+  });
+
+  it('settings.racers overrides convention', () => {
+    fs.writeFileSync(path.join(tmpDir, 'lauda.setup.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'custom-lauda-setup.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'lauda.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'hunt.spec.js'), '');
+
+    const settings = {
+      racers: {
+        lauda: { setup: './custom-lauda-setup.sh' },
+      },
+    };
+
+    const { setup } = discoverRacerSetupTeardown(tmpDir, 'lauda', settings);
+    expect(setup).toBe('./custom-lauda-setup.sh');
+  });
+
+  it('settings.racers can specify complex config', () => {
+    fs.writeFileSync(path.join(tmpDir, 'lauda.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'hunt.spec.js'), '');
+
+    const settings = {
+      racers: {
+        lauda: {
+          setup: { command: './start-lauda.sh', timeout: 10000 },
+          teardown: './stop-lauda.sh',
+        },
+      },
+    };
+
+    const { setup, teardown } = discoverRacerSetupTeardown(tmpDir, 'lauda', settings);
+    expect(setup).toEqual({ command: './start-lauda.sh', timeout: 10000 });
+    expect(teardown).toBe('./stop-lauda.sh');
+  });
+
+  it('settings.racers can disable convention with null', () => {
+    fs.writeFileSync(path.join(tmpDir, 'lauda.setup.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'lauda.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'hunt.spec.js'), '');
+
+    const settings = {
+      racers: {
+        lauda: { setup: null },
+      },
+    };
+
+    const { setup } = discoverRacerSetupTeardown(tmpDir, 'lauda', settings);
+    expect(setup).toBe(null);
+  });
+
+  it('returns null when no racer-specific scripts exist', () => {
+    fs.writeFileSync(path.join(tmpDir, 'lauda.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'hunt.spec.js'), '');
+
+    const { setup, teardown } = discoverRacerSetupTeardown(tmpDir, 'lauda');
+    expect(setup).toBe(null);
+    expect(teardown).toBe(null);
+  });
+
+  it('ignores global setup/teardown scripts', () => {
+    fs.writeFileSync(path.join(tmpDir, 'setup.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'teardown.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'lauda.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'hunt.spec.js'), '');
+
+    const { setup, teardown } = discoverRacerSetupTeardown(tmpDir, 'lauda');
+    expect(setup).toBe(null);
+    expect(teardown).toBe(null);
   });
 });

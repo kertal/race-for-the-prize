@@ -85,6 +85,8 @@ races/my-race/
   contender-b.spec.js   # Racer 2
   contender-c.spec.js   # Racer 3 (optional — up to 5 racers)
   settings.json          # Optional: race conditions
+  setup.sh               # Optional: runs before the race (see Setup and Teardown)
+  teardown.sh            # Optional: runs after the race
 ```
 
 Each script gets a Playwright `page` object with race timing built in:
@@ -325,6 +327,74 @@ The terminal delivers the verdict in style:
 | `pauseBetweenRuns` | `--pause` | `true` / `false` | `false` |
 | `ignoreHTTPSErrors` | `--ignore-https-errors` | `true` / `false` | `false` |
 | `viewportHeight` | `--height=<px>` | integer, 480–4320 | `720` |
+
+## Setup and Teardown Scripts
+
+Need to start a dev server before racing, or clean up after? Drop setup and teardown scripts into your race directory — they run automatically.
+
+### Convention-based discovery
+
+```text
+races/my-race/
+  setup.sh              # Global setup — runs before all races
+  teardown.sh           # Global teardown — runs after all races (even on failure)
+  contender-a.spec.js
+  contender-a.setup.sh  # Per-racer setup — runs before this racer
+  contender-a.teardown.sh
+  contender-b.spec.js
+  settings.json
+```
+
+Supported extensions: `.sh` (shell, requires bash) and `.js` (Node.js). When both exist, `.sh` takes priority. Note: `.js` files run according to Node's module resolution rules (ESM or CommonJS depends on the nearest `package.json` with `"type": "module"`).
+
+Scripts receive the `RACE_DIR` environment variable pointing to the race directory.
+
+### Settings-based configuration
+
+For more control, configure scripts in `settings.json` with timeouts and service readiness polling:
+
+```json
+{
+  "setup": {
+    "command": "./start-server.sh",
+    "timeout": 120000,
+    "waitFor": {
+      "url": "http://localhost:3000/health",
+      "timeout": 30000,
+      "interval": 1000
+    }
+  },
+  "teardown": "./stop-server.sh",
+  "racers": {
+    "contender-a": {
+      "setup": "./seed-db.sh",
+      "teardown": "./cleanup-db.sh"
+    }
+  }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `setup` / `teardown` | `string` or `object` | Script path (relative to race dir) or config object |
+| `command` | `string` | Script path when using object form |
+| `timeout` | `number` | Max execution time in ms (default: 300000) |
+| `waitFor.url` | `string` | Poll this URL after script completes |
+| `waitFor.timeout` | `number` | Max polling time in ms (default: 30000) |
+| `waitFor.interval` | `number` | Polling interval in ms (default: 1000) |
+
+### Execution order
+
+1. Global setup
+2. For each racer, in order:
+   - Per-racer setup (e.g., `contender-a.setup.sh`)
+   - All runs of that racer
+3. Per-racer teardown (for each racer, even on failure)
+4. Global teardown (even on failure)
+
+When per-racer setup scripts exist, racers run one at a time (split mode) so each setup can prepare the environment before its racer's runs. Without per-racer setups, all racers run together in each run.
+
+Set `setup` or `teardown` to `false` or `""` in settings to explicitly disable a discovered script.
 
 ## Prerequisites
 

@@ -20,7 +20,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { waitForStability } = require('./visual-stability.cjs');
 const { deriveTraceTiming } = require('./trace-calibration.cjs');
-const { flashCue, injectOverlay, showRecordingIndicator, hideRecordingIndicator, showFinishTime, showMedal } = require('./overlay.cjs');
+const { flashCue, OverlayController } = require('./overlay.cjs');
 
 // Track active browsers/contexts for cleanup on SIGTERM/SIGINT
 let activeBrowsers = [];
@@ -454,7 +454,7 @@ function sanitizeScript(script) {
  * Returns { segments, measurements } for video trimming and result comparison.
  */
 async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay = false, metricsCollector = null, noRecording = false) {
-  const { id, script: raceScript } = config;
+  const { id, script: raceScript, vars } = config;
 
   const segments = [];
   let currentSegmentStart = null;
@@ -488,18 +488,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
 
   const encodeMeasureName = (name) => encodeURIComponent(String(name ?? 'default'));
 
-  // Track overlay state so it can be re-injected after page.goto() navigations
-  // which destroy the DOM. null = hidden, otherwise { text, bg } = what to show.
-  let overlayState = null;
-
-  // Re-inject overlay after navigations (page.goto destroys the DOM)
-  if (!noOverlay) {
-    page.on('load', () => {
-      if (overlayState) {
-        injectOverlay(page, overlayState.text, overlayState.bg).catch(() => {});
-      }
-    });
-  }
+  const overlayCtrl = new OverlayController(page, { noOverlay, noRecording });
 
   const startRecording = async () => {
     if (currentSegmentStart !== null) return;
@@ -510,10 +499,10 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     const startWallMs = Date.now();
     currentSegmentStart = (startWallMs - recordingStartTime) / 1000;
     await markTrace(`${traceMarkPrefix}recording:start`);
-    if (!noRecording) await flashCue(page, CUE_COLOR_START);
-    if (!noOverlay && !noRecording) {
-      overlayState = await showRecordingIndicator(page);
-    }
+    await Promise.all([
+      overlayCtrl.onStartRecording(),
+      !noRecording ? flashCue(page, CUE_COLOR_START) : null,
+    ]);
   };
 
 
@@ -524,10 +513,6 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     await markTrace(`${traceMarkPrefix}recording:end`);
     currentSegmentStart = null;
     stopPromise = (async () => {
-      if (!noOverlay && !noRecording) {
-        await hideRecordingIndicator(page);
-        overlayState = null;
-      }
       if (sharedState) {
         const lastMeasurement = measurements[measurements.length - 1];
         const endTime = lastMeasurement ? lastMeasurement.endTime : (Date.now() - recordingStartTime) / 1000;
@@ -536,10 +521,13 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
           // Calculate placement from finish order for the medal display
           const sorted = [...sharedState.finishOrder].sort((a, b) => a.endTime - b.endTime);
           const place = isParallel ? sorted.findIndex(f => f.id === id) + 1 : null;
-          await showMedal(page, place);
+          await overlayCtrl.onFinish(place);
         }
       }
-      if (!noRecording) await flashCue(page, CUE_COLOR_END);
+      await Promise.all([
+        !noRecording ? flashCue(page, CUE_COLOR_END) : null,
+        overlayCtrl.onStopRecording(),
+      ]);
     })();
     return stopPromise;
   };
@@ -550,6 +538,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     if (raceStartTime === null) raceStartTime = Date.now();
     activeMeasurements[name] = (Date.now() - recordingStartTime) / 1000;
     await markTrace(`${traceMarkPrefix}measure:start:${encodeMeasureName(name)}`);
+    await overlayCtrl.onMeasureStart();
   };
 
   const endMeasure = (name = 'default') => {
@@ -560,9 +549,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     measurements.push({ name, startTime: start, endTime: end, duration });
     delete activeMeasurements[name];
     queueTraceMark(`${traceMarkPrefix}measure:end:${encodeMeasureName(name)}`);
-    if (!noOverlay && !noRecording) {
-      overlayState = showFinishTime(page, duration);
-    }
+    overlayCtrl.onMeasureEnd();
     return end - start;
   };
 
@@ -666,10 +653,11 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   // SECURITY: Race scripts execute with the full privileges of this Node.js
   // process. Only run scripts you trust — this is equivalent to `node <file>`.
   const sanitized = sanitizeScript(raceScript);
+  const raceContext = Object.freeze({ name: id, vars: Object.freeze(vars || {}) });
   try {
     const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor; // NOSONAR — intentional: executes user-provided race scripts
-    const fn = new AsyncFunction('page', '__startRecording', '__stopRecording', '__startMeasure', '__endMeasure', sanitized); // NOSONAR
-    await fn(page, startRecording, stopRecording, startMeasure, endMeasure);
+    const fn = new AsyncFunction('page', 'race', '__startRecording', '__stopRecording', '__startMeasure', '__endMeasure', sanitized); // NOSONAR
+    await fn(page, raceContext, startRecording, stopRecording, startMeasure, endMeasure);
   } catch (error) {
     console.error(`[${id}] Script failed: ${error.message}`);
     throw new Error(`Script execution failed: ${error.message}`);
