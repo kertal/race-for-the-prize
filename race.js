@@ -1123,10 +1123,13 @@ function bakeNotesIntoHtml(dir, commentary) {
   const placeholder = 'id="notesTextarea" placeholder="Add notes about this race..."></textarea>';
   const replacement = `id="notesTextarea" placeholder="Add notes about this race...">\n🤖 Gemini Race Commentary\n${'─'.repeat(40)}\n${escaped}\n</textarea>`;
   html = html.replace(placeholder, replacement);
-  // Uncollapse the notes section — match the details that contains the notesTextarea
+  // Uncollapse the notes section — match specifically the Notes section's <details>
+  // by anchoring on its unique <summary><h2>Notes</h2></summary> heading.
+  // This prevents accidentally opening a different section even if notesTextarea
+  // appears later in the document.
   html = html.replace(
-    /(<details class="section" )(>[\s\S]*?id="notesTextarea")/,
-    '$1open$2'
+    /(<details class="section" )(?=(?:(?!<\/details>)[\s\S])*?<summary><h2>Notes<\/h2><\/summary>(?:(?!<\/details>)[\s\S])*?id="notesTextarea")/,
+    '$1open'
   );
   fs.writeFileSync(htmlPath, html);
 }

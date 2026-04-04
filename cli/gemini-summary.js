@@ -7,7 +7,6 @@
  */
 
 import { spawnSync } from 'child_process';
-import { chromium } from 'playwright';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -289,10 +288,10 @@ export function parseSpecOutput(geminiOutput) {
     const filename = fileMatch[1];
     if (!allowedFiles.has(filename)) continue;
     // Strip language tag only when it is a pure word followed by a newline,
-    // e.g. "javascript\n" or "js\n". Using + (not *) and a required \n
-    // prevents accidentally removing the first line of code when Gemini
-    // omits the language tag entirely.
-    const content = codeBlock.replace(/^[a-zA-Z0-9-]+\n/, '').trim();
+    // e.g. "javascript\n", "js\n", or CRLF variants like "javascript\r\n".
+    // Using + (not *) and a required line break prevents accidentally removing
+    // the first line of code when Gemini omits the language tag entirely.
+    const content = codeBlock.replace(/^[a-zA-Z0-9-]+\r?\n/, '').trim();
     if (content) files[filename] = content;
   }
   return files;
@@ -320,6 +319,9 @@ export async function runGeminiSpec(userPrompt, { fetchHtml = true } = {}) {
       })
       .slice(0, 2);
     if (urls.length > 0) {
+      // Lazy-load Playwright only when URLs need scraping to avoid startup overhead
+      // on normal runs that don't use --gemini-spec.
+      const { chromium } = await import('playwright');
       // Launch a single browser instance and reuse it across all URLs
       const browser = await chromium.launch({ headless: true });
       try {

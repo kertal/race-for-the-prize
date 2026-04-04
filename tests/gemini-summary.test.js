@@ -346,6 +346,17 @@ await page.goto('https://b.com');
     expect(files['racer-a.spec.js']).toBe("await page.goto('https://a.com');");
   });
 
+  it('handles CRLF line endings in language tag', () => {
+    // Regression: Windows-style \r\n line endings must not leave "javascript\r"
+    // at the start of the generated spec.
+    const crlfOutput = `FILE: racer-a.spec.js\r\n\`\`\`javascript\r\nawait page.goto('https://a.com');\r\npage.raceEnd('Load');\r\n\`\`\`\r\nFILE: racer-b.spec.js\r\n\`\`\`javascript\r\nawait page.goto('https://b.com');\r\n\`\`\``;
+    const files = parseSpecOutput(crlfOutput);
+    expect(Object.keys(files)).toHaveLength(2);
+    expect(files['racer-a.spec.js']).toContain("goto('https://a.com')");
+    // Language tag must not appear in the output
+    expect(files['racer-a.spec.js']).not.toMatch(/^javascript/);
+  });
+
   it('does not corrupt code when Gemini omits the language tag', () => {
     // Regression: the strip regex must not eat the first line of code when
     // Gemini writes ``` with no language tag immediately followed by code.
