@@ -83,9 +83,19 @@ function buildMetricRowsHtml(entries, winner, formatDelta) {
 // Section Builders
 // ---------------------------------------------------------------------------
 
-export function buildRunNavHtml(runNav) {
+export function buildRunNavHtml(runNav, racers, runSummaries) {
   if (!runNav) return '';
   const { currentRun, totalRuns, pathPrefix } = runNav;
+
+  // Map each run's overall winner to a CSS color
+  const winnerColors = [];
+  if (runSummaries && racers) {
+    for (const s of runSummaries) {
+      const idx = s.overallWinner && s.overallWinner !== 'tie' ? racers.indexOf(s.overallWinner) : -1;
+      winnerColors.push(idx >= 0 ? RACER_CSS_COLORS[idx % RACER_CSS_COLORS.length] : null);
+    }
+  }
+
   let html = '<div class="run-nav">';
   const isMedianCurrent = currentRun === 'median';
   const medianCls = isMedianCurrent ? 'run-nav-btn active' : 'run-nav-btn';
@@ -97,10 +107,13 @@ export function buildRunNavHtml(runNav) {
   for (let i = 1; i <= totalRuns; i++) {
     const isCurrent = currentRun === i;
     const cls = isCurrent ? 'run-nav-btn active' : 'run-nav-btn';
+    const color = winnerColors[i - 1];
+    const textColor = isCurrent ? '#1a1a1a' : '#fff';
+    const style = color ? ` style="border-color:${color};color:${textColor}"` : '';
     if (isCurrent) {
-      html += `<span class="${cls}" aria-current="page">Run ${i}</span>`;
+      html += `<span class="${cls}"${style} aria-current="page">Run ${i}</span>`;
     } else {
-      html += `<a class="${cls}" href="${escHtml(pathPrefix)}${i}/index.html">Run ${i}</a>`;
+      html += `<a class="${cls}"${style} href="${escHtml(pathPrefix)}${i}/index.html">Run ${i}</a>`;
     }
   }
   html += '</div>';
@@ -277,22 +290,21 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
     html += `<h3>${escHtml(name)}</h3>\n`;
     html += `<table class="run-comparison-table"><thead><tr><th>Run</th>`;
     html += coloredHeader;
-    html += `<th>Winner</th><th>Diff</th></tr></thead><tbody>`;
+    html += `<th>Winner</th></tr></thead><tbody>`;
 
     for (let i = 0; i < summaries.length; i++) {
       const comp = summaries[i].comparisons.find(c => c.name === name);
       html += `<tr><td>${i + 1}</td>`;
       if (!comp) {
         for (const _ of racers) html += `<td>-</td>`;
-        html += `<td>-</td><td>-</td></tr>`;
+        html += `<td>-</td></tr>`;
         continue;
       }
       for (let j = 0; j < racers.length; j++) {
         const r = comp.racers[j];
         html += `<td>${r ? escHtml(r.duration.toFixed(3) + 's') : '-'}</td>`;
       }
-      html += `<td>${winnerCell(comp.winner)}</td>`;
-      html += `<td>${comp.diffPercent != null ? escHtml(comp.diffPercent.toFixed(1) + '%') : '-'}</td></tr>`;
+      html += `<td>${winnerCell(comp.winner)}</td></tr>`;
     }
 
     const medComp = medianSummary.comparisons.find(c => c.name === name);
@@ -302,8 +314,7 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
         const r = medComp.racers[j];
         html += `<td><strong>${r ? escHtml(r.duration.toFixed(3) + 's') : '-'}</strong></td>`;
       }
-      html += `<td><strong>${winnerCell(medComp.winner)}</strong></td>`;
-      html += `<td><strong>${medComp.diffPercent != null ? escHtml(medComp.diffPercent.toFixed(1) + '%') : '-'}</strong></td></tr>`;
+      html += `<td><strong>${winnerCell(medComp.winner)}</strong></td></tr>`;
     }
     html += `</tbody></table>`;
   }
@@ -336,7 +347,7 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
           html += `<h4>${escHtml(metric.name)}</h4>\n`;
           html += `<table class="run-comparison-table"><thead><tr><th>Run</th>`;
           html += coloredHeader;
-          html += `<th>Winner</th><th>Diff</th></tr></thead><tbody>`;
+          html += `<th>Winner</th></tr></thead><tbody>`;
 
           for (let i = 0; i < summaries.length; i++) {
             const s = summaries[i];
@@ -348,11 +359,9 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
             // Determine per-run winner (lower is better)
             const withData = vals.map((v, j) => v != null ? { j, v } : null).filter(Boolean).sort((a, b) => a.v - b.v);
             if (withData.length >= 2 && withData[0].v !== withData[withData.length - 1].v) {
-              const diff = withData[withData.length - 1].v - withData[0].v;
-              const diffPct = withData[0].v > 0 ? (diff / withData[0].v * 100).toFixed(1) + '%' : '-';
-              html += `<td>${winnerCell(racers[withData[0].j])}</td><td>${escHtml(diffPct)}</td>`;
+              html += `<td>${winnerCell(racers[withData[0].j])}</td>`;
             } else {
-              html += `<td>-</td><td>-</td>`;
+              html += `<td>-</td>`;
             }
             html += `</tr>`;
           }
@@ -366,11 +375,9 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
               html += `<td><strong>${v != null ? escHtml(metric.format(v)) : '-'}</strong></td>`;
             }
             if (medWithData.length >= 2 && medWithData[0].v !== medWithData[medWithData.length - 1].v) {
-              const diff = medWithData[medWithData.length - 1].v - medWithData[0].v;
-              const diffPct = medWithData[0].v > 0 ? (diff / medWithData[0].v * 100).toFixed(1) + '%' : '-';
-              html += `<td><strong>${winnerCell(racers[medWithData[0].j])}</strong></td><td><strong>${escHtml(diffPct)}</strong></td>`;
+              html += `<td><strong>${winnerCell(racers[medWithData[0].j])}</strong></td>`;
             } else {
-              html += `<td>-</td><td>-</td>`;
+              html += `<td>-</td>`;
             }
             html += `</tr>`;
           }

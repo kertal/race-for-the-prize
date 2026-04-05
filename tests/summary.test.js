@@ -187,7 +187,7 @@ describe('buildMarkdownSummary', () => {
 
   it('includes results table with measurements', () => {
     const md = buildMarkdownSummary(makeSummary());
-    expect(md).toContain('| Load | 1.000s | 2.000s | lauda | 100.0% |');
+    expect(md).toContain('| Load | 1.000s | 2.000s | lauda |');
   });
 
   it('includes video file links', () => {
@@ -244,7 +244,7 @@ describe('buildMarkdownSummary', () => {
       }],
     });
     const md = buildMarkdownSummary(summary);
-    expect(md).toContain('| Load | 1.500s | - | - | - |');
+    expect(md).toContain('| Load | 1.500s | - | - |');
   });
 });
 
