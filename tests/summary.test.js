@@ -185,9 +185,10 @@ describe('buildMarkdownSummary', () => {
     expect(md).toContain("It's a Tie!");
   });
 
-  it('includes results table with measurements', () => {
+  it('includes results table with measurements and no Diff column', () => {
     const md = buildMarkdownSummary(makeSummary());
-    expect(md).toContain('| Load | 1.000s | 2.000s | lauda |');
+    expect(md).toMatch(/^\| Load \| 1\.000s \| 2\.000s \| lauda \|$/m);
+    expect(md).not.toContain('Diff');
   });
 
   it('includes video file links', () => {
@@ -244,7 +245,7 @@ describe('buildMarkdownSummary', () => {
       }],
     });
     const md = buildMarkdownSummary(summary);
-    expect(md).toContain('| Load | 1.500s | - | - |');
+    expect(md).toMatch(/^\| Load \| 1\.500s \| - \| - \|$/m);
   });
 });
 

@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { buildPlayerHtml } from '../cli/videoplayer.js';
+import { buildRunNavHtml, RACER_CSS_COLORS } from '../cli/player-sections.js';
 import { buildProfileComparison } from '../cli/profile-analysis.js';
 import { copyFFmpegFiles } from '../cli/results.js';
 import { fileURLToPath } from 'node:url';
@@ -368,6 +369,42 @@ describe('buildPlayerHtml gemini commentary', () => {
   });
 });
 
+
+// --- Run nav winner colors ---
+
+describe('buildRunNavHtml winner colors', () => {
+  const racers = ['lauda', 'hunt'];
+  const makeRunSummaries = (winners) => winners.map(w => ({ overallWinner: w }));
+
+  it('colors run buttons with winner border and white text', () => {
+    const nav = { currentRun: 'median', totalRuns: 2, pathPrefix: '' };
+    const html = buildRunNavHtml(nav, racers, makeRunSummaries(['lauda', 'hunt']));
+    expect(html).toContain(`border-color:${RACER_CSS_COLORS[0]}`);
+    expect(html).toContain(`border-color:${RACER_CSS_COLORS[1]}`);
+    expect(html).toContain('color:#fff');
+  });
+
+  it('uses black text for the active run button', () => {
+    const nav = { currentRun: 1, totalRuns: 2, pathPrefix: '../' };
+    const html = buildRunNavHtml(nav, racers, makeRunSummaries(['lauda', 'hunt']));
+    expect(html).toMatch(/color:#1a1a1a.*Run 1/);
+    expect(html).toMatch(/color:#fff.*Run 2/);
+  });
+
+  it('does not add style for ties', () => {
+    const nav = { currentRun: 'median', totalRuns: 2, pathPrefix: '' };
+    const html = buildRunNavHtml(nav, racers, makeRunSummaries(['tie', 'lauda']));
+    expect(html).toMatch(/Run 1<\/a>/);  // no style attr on tie
+    expect(html).toContain(`border-color:${RACER_CSS_COLORS[0]}`);  // lauda wins run 2
+  });
+
+  it('works without runSummaries', () => {
+    const nav = { currentRun: 1, totalRuns: 2, pathPrefix: '../' };
+    const html = buildRunNavHtml(nav, racers, null);
+    expect(html).toContain('Run 1');
+    expect(html).not.toContain('border-color');
+  });
+});
 
 // --- Clip times (default mode, without --ffmpeg) ---
 

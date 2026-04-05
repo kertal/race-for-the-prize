@@ -50,7 +50,6 @@ body {
   max-width: 1440px;
   padding: 1.2rem 1.5rem 0.3rem;
 }
-.header-icon {}
 .header-icon-left { margin-right: 0.5rem; }
 .header-icon-right {
   margin-left: auto;
