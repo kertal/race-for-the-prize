@@ -783,7 +783,6 @@ const SEGMENT_COLORS = ['#e67e22', '#3498db', '#2ecc71', '#e74c3c', '#9b59b6', '
 let timelineBuilt = false;
 
 function buildTimeline() {
-  if (timelineBuilt) return;
   const timelineEl = document.getElementById('raceTimeline');
   const timelineBar = document.getElementById('timelineBar');
   const timelineLabels = document.getElementById('timelineLabels');
@@ -799,9 +798,15 @@ function buildTimeline() {
   const refVideo = raceVideos[refIdx];
   if (!refVideo || !isFinite(refVideo.duration) || refVideo.duration <= 0) return;
 
-  const videoDur = refVideo.duration;
-  const clipStart = refCt.start;
-  const clipEnd = refCt.end;
+  function getVideoDur() {
+    const v = raceVideos[refIdx];
+    return (v && isFinite(v.duration) && v.duration > 0) ? v.duration : 0;
+  }
+  const videoDur = getVideoDur();
+  // Use aggregate clip bounds (same as resolveClip) instead of a single racer's clip
+  const aggClip = resolveClip();
+  const clipStart = aggClip ? aggClip.start : refCt.start;
+  const clipEnd = aggClip ? aggClip.end : refCt.end;
 
   // Collect unique measurement names and their PTS ranges (averaged across racers)
   const segmentMap = new Map();
@@ -811,7 +816,7 @@ function buildTimeline() {
       if (!m.name) continue;
       const sPts = traceTsToClipPts(ct, m.startTraceTs);
       const ePts = traceTsToClipPts(ct, m.endTraceTs);
-      if (!isFinite(sPts) || !isFinite(ePts) || ePts <= sPts) continue;
+      if (!Number.isFinite(sPts) || !Number.isFinite(ePts) || ePts <= sPts) continue;
       if (!segmentMap.has(m.name)) {
         segmentMap.set(m.name, { starts: [], ends: [] });
       }
@@ -822,6 +827,9 @@ function buildTimeline() {
   const segmentNames = Array.from(segmentMap.keys());
   if (segmentNames.length < 1) return;
 
+  // Clear existing timeline content for idempotent rebuilds
+  timelineBar.querySelectorAll('.timeline-segment, .timeline-region').forEach(el => el.remove());
+  timelineLabels.innerHTML = '';
   timelineBuilt = true;
 
   // Compute average PTS for each segment
@@ -845,6 +853,9 @@ function buildTimeline() {
   for (const seg of segments) {
     const segEl = document.createElement('div');
     segEl.className = 'timeline-segment';
+    segEl.setAttribute('role', 'button');
+    segEl.setAttribute('tabindex', '0');
+    segEl.setAttribute('aria-label', seg.name + ' (' + seg.start.toFixed(3) + 's – ' + seg.end.toFixed(3) + 's)');
     segEl.style.left = (seg.start / videoDur * 100) + '%';
     segEl.style.width = Math.max(0.3, (seg.end - seg.start) / videoDur * 100) + '%';
     segEl.style.background = seg.color;
@@ -852,6 +863,9 @@ function buildTimeline() {
     segEl.dataset.segmentName = seg.name;
     segEl.dataset.segmentStart = seg.start;
     segEl.dataset.segmentEnd = seg.end;
+    segEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); segEl.click(); }
+    });
     timelineBar.insertBefore(segEl, document.getElementById('timelinePlayhead'));
   }
 
@@ -859,12 +873,18 @@ function buildTimeline() {
   for (const seg of segments) {
     const label = document.createElement('div');
     label.className = 'timeline-label';
+    label.setAttribute('role', 'button');
+    label.setAttribute('tabindex', '0');
+    label.setAttribute('aria-label', 'Jump to ' + seg.name);
     label.dataset.segmentName = seg.name;
     const swatch = document.createElement('span');
     swatch.className = 'timeline-label-swatch';
     swatch.style.background = seg.color;
     label.appendChild(swatch);
     label.appendChild(document.createTextNode(seg.name));
+    label.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); label.click(); }
+    });
     timelineLabels.appendChild(label);
   }
 
@@ -884,13 +904,9 @@ function buildTimeline() {
     // Click on the bar background → seek to that position in the full recording
     const rect = timelineBar.getBoundingClientRect();
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const targetTime = pct * videoDur;
-    // Switch to whole recording mode for arbitrary seeking
-    if (segmentNav && segmentNavBuilt && segmentNav.value !== '__full__') {
-      segmentNav.value = '__full__';
-      segmentNav.dispatchEvent(new Event('change'));
-    }
-    // Seek after mode switch settles
+    const dur = getVideoDur() || videoDur;
+    const targetTime = pct * dur;
+    // Seek to exact position, overriding any pending seek from mode switch
     const doSeek = () => {
       seekAll(targetTime);
       const d = clipDuration();
@@ -898,9 +914,14 @@ function buildTimeline() {
       updateTimeDisplay();
       updateTimelinePlayhead();
     };
-    if (pendingSeek) {
-      const origPending = pendingSeek;
-      pendingSeek = () => { origPending(); doSeek(); };
+    // Switch to whole recording mode for arbitrary seeking
+    if (segmentNav && segmentNavBuilt && segmentNav.value !== '__full__') {
+      segmentNav.value = '__full__';
+      // Override pendingSeek set by the change handler so we don't seek to 0 first
+      pendingSeek = doSeek;
+      segmentNav.dispatchEvent(new Event('change'));
+      // If change handler didn't trigger a src switch, pendingSeek is still our doSeek
+      if (pendingSeek === doSeek) { pendingSeek = null; doSeek(); }
     } else {
       doSeek();
     }
@@ -929,7 +950,9 @@ function updateTimelineActive(name) {
     el.classList.toggle('active', el.dataset.segmentName === name);
   });
   timelineLabels.querySelectorAll('.timeline-label').forEach(el => {
-    el.classList.toggle('active', el.dataset.segmentName === name);
+    const isActive = el.dataset.segmentName === name;
+    el.classList.toggle('active', isActive);
+    el.setAttribute('aria-pressed', isActive ? 'true' : 'false');
   });
 }
 
@@ -940,7 +963,7 @@ function updateTimelinePlayhead() {
   const refIdx = clipTimes ? clipTimes.findIndex(ct => ct && ct._converted) : -1;
   if (refIdx < 0) return;
   const refVideo = raceVideos[refIdx];
-  if (!refVideo || !isFinite(refVideo.duration) || refVideo.duration <= 0) return;
+  if (!refVideo || !Number.isFinite(refVideo.duration) || refVideo.duration <= 0) return;
   const pct = (refVideo.currentTime / refVideo.duration) * 100;
   playhead.style.left = pct + '%';
 }
