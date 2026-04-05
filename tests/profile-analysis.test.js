@@ -282,7 +282,7 @@ describe('buildProfileMarkdown', () => {
     const comparison = buildProfileComparison(['a', 'b'], [metrics1, metrics2]);
     const markdown = buildProfileMarkdown(comparison, ['a', 'b']);
 
-    expect(markdown).toContain('100.0%');
+    expect(markdown).toContain('Winner');
   });
 });
 
@@ -373,6 +373,6 @@ describe('multi-racer support (3-5 racers)', () => {
     expect(markdown).toContain('angular');
     expect(markdown).toContain('react');
     expect(markdown).toContain('svelte');
-    expect(markdown).toContain('| Metric | angular | react | svelte | Winner | Diff |');
+    expect(markdown).toContain('| Metric | angular | react | svelte | Winner |');
   });
 });

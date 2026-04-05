@@ -155,7 +155,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   return render(TEMPLATE, {
     title,
     styles: buildStyles(layoutCss),
-    runNav: buildRunNavHtml(runNavigation),
+    runNav: buildRunNavHtml(runNavigation, racers, runSummaries),
     winnerBanner,
     videoSourceNote: '',
     raceInfo: buildRaceInfoHtml(summary),

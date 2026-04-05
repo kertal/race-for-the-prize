@@ -300,14 +300,13 @@ function buildScopeMarkdown(title, section, racers) {
   for (const [category, comps] of Object.entries(byCategory)) {
     lines.push(`**${category[0].toUpperCase() + category.slice(1)}**`);
     lines.push('');
-    const headerCols = ['Metric', ...racers, 'Winner', 'Diff'];
+    const headerCols = ['Metric', ...racers, 'Winner'];
     lines.push(`| ${headerCols.join(' | ')} |`);
     lines.push(`|${headerCols.map(() => '---').join('|')}|`);
 
     for (const comp of comps) {
       const winner = comp.winner || '-';
-      const diff = comp.diffPercent !== null ? `${comp.diffPercent.toFixed(1)}%` : '-';
-      lines.push(`| ${comp.name} | ${comp.formatted.join(' | ')} | ${winner} | ${diff} |`);
+      lines.push(`| ${comp.name} | ${comp.formatted.join(' | ')} | ${winner} |`);
     }
     lines.push('');
   }

@@ -46,19 +46,13 @@ body {
 .header-bar {
   display: flex;
   align-items: center;
-  justify-content: center;
   width: 100%;
   max-width: 1440px;
   padding: 1.2rem 1.5rem 0.3rem;
-  position: relative;
 }
-.header-icon {
-  font-size: 1.4rem;
-  position: absolute;
-}
-.header-icon-left { left: 1.5rem; }
+.header-icon-left { margin-right: 0.5rem; }
 .header-icon-right {
-  right: 1.5rem;
+  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 0.4rem;

@@ -105,7 +105,7 @@ export function getPlacementOrder(summary) {
  */
 function buildResultsTable(comparisons, racers) {
   const lines = [];
-  const headerCols = ['Measurement', ...racers, 'Winner', 'Diff'];
+  const headerCols = ['Measurement', ...racers, 'Winner'];
   lines.push(`| ${headerCols.join(' | ')} |`);
   lines.push(`|${headerCols.map(() => '---').join('|')}|`);
   for (const comp of comparisons) {
@@ -113,8 +113,7 @@ function buildResultsTable(comparisons, racers) {
       comp.racers[i] ? `${comp.racers[i].duration.toFixed(3)}s` : '-'
     );
     const winner = comp.winner || '-';
-    const diff = comp.diffPercent !== null ? `${comp.diffPercent.toFixed(1)}%` : '-';
-    lines.push(`| ${comp.name} | ${durations.join(' | ')} | ${winner} | ${diff} |`);
+    lines.push(`| ${comp.name} | ${durations.join(' | ')} | ${winner} |`);
   }
   return lines;
 }
@@ -450,22 +449,21 @@ function buildRunComparisonSection(medianSummary, summaries) {
 
   for (const name of allNames) {
     lines.push(`#### ${name}`, '');
-    const headerCols = ['Run', ...racers, 'Winner', 'Diff'];
+    const headerCols = ['Run', ...racers, 'Winner'];
     lines.push(`| ${headerCols.join(' | ')} |`);
     lines.push(`|${headerCols.map(() => '---').join('|')}|`);
 
     for (let i = 0; i < summaries.length; i++) {
       const comp = summaries[i].comparisons.find(c => c.name === name);
       if (!comp) {
-        lines.push(`| ${i + 1} | ${racers.map(() => '-').join(' | ')} | - | - |`);
+        lines.push(`| ${i + 1} | ${racers.map(() => '-').join(' | ')} | - |`);
         continue;
       }
       const durations = racers.map((_, j) =>
         comp.racers[j] ? `${comp.racers[j].duration.toFixed(3)}s` : '-'
       );
       const winner = comp.winner || '-';
-      const diff = comp.diffPercent != null ? `${comp.diffPercent.toFixed(1)}%` : '-';
-      lines.push(`| ${i + 1} | ${durations.join(' | ')} | ${winner} | ${diff} |`);
+      lines.push(`| ${i + 1} | ${durations.join(' | ')} | ${winner} |`);
     }
 
     // Median row
@@ -475,8 +473,7 @@ function buildRunComparisonSection(medianSummary, summaries) {
         medComp.racers[j] ? `**${medComp.racers[j].duration.toFixed(3)}s**` : '-'
       );
       const winner = medComp.winner ? `**${medComp.winner}**` : '-';
-      const diff = medComp.diffPercent != null ? `**${medComp.diffPercent.toFixed(1)}%**` : '-';
-      lines.push(`| **Median** | ${durations.join(' | ')} | ${winner} | ${diff} |`);
+      lines.push(`| **Median** | ${durations.join(' | ')} | ${winner} |`);
     }
     lines.push('');
   }
@@ -504,7 +501,7 @@ function buildRunComparisonSection(medianSummary, summaries) {
 
       for (const { metric, metricName } of scopeMetrics) {
         lines.push(`**${metric.name}**`, '');
-        const headerCols = ['Run', ...racers, 'Winner', 'Diff'];
+        const headerCols = ['Run', ...racers, 'Winner'];
         lines.push(`| ${headerCols.join(' | ')} |`);
         lines.push(`|${headerCols.map(() => '---').join('|')}|`);
 
@@ -513,12 +510,10 @@ function buildRunComparisonSection(medianSummary, summaries) {
           const formatted = vals.map(v => v != null ? metric.format(v) : '-');
           const withData = vals.map((v, j) => v != null ? { j, v } : null).filter(Boolean).sort((a, b) => a.v - b.v);
           let winner = '-';
-          let diff = '-';
           if (withData.length >= 2 && withData[0].v !== withData[withData.length - 1].v) {
             winner = racers[withData[0].j];
-            diff = withData[0].v > 0 ? `${((withData[withData.length - 1].v - withData[0].v) / withData[0].v * 100).toFixed(1)}%` : '-';
           }
-          lines.push(`| ${i + 1} | ${formatted.join(' | ')} | ${winner} | ${diff} |`);
+          lines.push(`| ${i + 1} | ${formatted.join(' | ')} | ${winner} |`);
         }
 
         // Median row
@@ -527,12 +522,10 @@ function buildRunComparisonSection(medianSummary, summaries) {
         if (medVals.some(v => v != null)) {
           const formatted = medVals.map(v => v != null ? `**${metric.format(v)}**` : '-');
           let winner = '-';
-          let diff = '-';
           if (medWithData.length >= 2 && medWithData[0].v !== medWithData[medWithData.length - 1].v) {
             winner = `**${racers[medWithData[0].j]}**`;
-            diff = medWithData[0].v > 0 ? `**${((medWithData[medWithData.length - 1].v - medWithData[0].v) / medWithData[0].v * 100).toFixed(1)}%**` : '-';
           }
-          lines.push(`| **Median** | ${formatted.join(' | ')} | ${winner} | ${diff} |`);
+          lines.push(`| **Median** | ${formatted.join(' | ')} | ${winner} |`);
         }
         lines.push('');
       }

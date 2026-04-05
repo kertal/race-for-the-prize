@@ -28,6 +28,7 @@ import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, b
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
 import { buildPlayerHtml } from './cli/videoplayer.js';
+import { buildRunNavHtml } from './cli/player-sections.js';
 import { runGeminiSummary, runGeminiSpec } from './cli/gemini-summary.js';
 
 /** Format a Date as YYYY-MM-DD_HH-MM-SS for directory naming. */
@@ -1134,6 +1135,21 @@ function bakeNotesIntoHtml(dir, commentary) {
   fs.writeFileSync(htmlPath, html);
 }
 
+/** Update run nav in each run's index.html with winner colors now that all summaries are available. */
+function updateRunNavColors(summaries) {
+  for (let i = 0; i < summaries.length; i++) {
+    const htmlPath = path.join(resultsDir, String(i + 1), 'index.html');
+    if (!fs.existsSync(htmlPath)) continue;
+    let html = fs.readFileSync(htmlPath, 'utf-8');
+    const oldNavMatch = html.match(/<div class="run-nav">[\s\S]*?<\/div>/);
+    if (!oldNavMatch) continue;
+    const runNav = { currentRun: i + 1, totalRuns: summaries.length, pathPrefix: '../' };
+    const newNav = buildRunNavHtml(runNav, racerNames, summaries);
+    html = html.replace(oldNavMatch[0], newNav);
+    fs.writeFileSync(htmlPath, html);
+  }
+}
+
 /**
  * Build the per-run output (summary.json + index.html) after all racers' recordings
  * for run `i` are already moved into their run directories.
@@ -1202,6 +1218,7 @@ async function main() {
           allClipTimes.push(runClipTimes);
         }
 
+        updateRunNavColors(summaries);
         buildMedianOutput(summaries, sideBySideNames, allClipTimes);
       }
     } else {
@@ -1252,6 +1269,7 @@ async function main() {
       if (!multiRun) {
         fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summaries[0], null));
       } else {
+        updateRunNavColors(summaries);
         buildMedianOutput(summaries, summaries.map(() => null), allClipTimes);
       }
     }
