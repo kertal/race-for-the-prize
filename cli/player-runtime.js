@@ -888,55 +888,95 @@ function buildTimeline() {
     timelineLabels.appendChild(label);
   }
 
-  // Click on segment block → jump to that segment's start and select it in dropdown
-  timelineBar.addEventListener('click', (e) => {
-    const segEl = e.target.closest('.timeline-segment');
-    if (segEl) {
-      const name = segEl.dataset.segmentName;
-      // Select in segment dropdown
-      if (segmentNav && segmentNavBuilt) {
-        segmentNav.value = name;
-        segmentNav.dispatchEvent(new Event('change'));
-      }
-      updateTimelineActive(name);
-      return;
+  // Shared: activate a named segment (set clip times, seek, update UI)
+  function activateSegment(name) {
+    if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
+    activeSegmentName = name;
+    activeSegmentClipTimes = getSegmentClipTimes(name);
+    // Sync dropdown if the option exists
+    if (segmentNav && segmentNavBuilt) {
+      const hasOpt = Array.from(segmentNav.options).some(o => o.value === name);
+      if (hasOpt) segmentNav.value = name;
     }
-    // Click on the bar background → seek to that position in the full recording
-    const rect = timelineBar.getBoundingClientRect();
-    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const dur = getVideoDur() || videoDur;
-    const targetTime = pct * dur;
-    // Seek to exact position, overriding any pending seek from mode switch
-    const doSeek = () => {
+    // Ensure we're on race-clip sources (not full recording)
+    if (fullVideoPaths && loadedSrcSet === 'full') {
+      detachVideoListeners();
+      raceVideos.forEach((v, i) => { v.src = resolvedRacePaths[i]; });
+      loadedSrcSet = 'race';
+      videos = raceVideos;
+      primary = videos[0];
+      attachVideoListeners();
+      duration = 0;
+      pendingSeek = () => {
+        activeClip = resolveAdjustedClip();
+        seekAll(activeClip ? activeClip.start : 0);
+        scrubber.value = 0;
+        updateTimeDisplay();
+        updateTimelinePlayhead();
+      };
+    } else {
+      activeClip = resolveAdjustedClip();
+      seekAll(activeClip ? activeClip.start : 0);
+      scrubber.value = 0;
+      updateTimeDisplay();
+      updateTimelinePlayhead();
+    }
+    updateTimelineActive(name);
+  }
+
+  // Shared: seek to an arbitrary PTS position within the current video
+  function seekToTime(targetTime) {
+    if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
+    // Clear segment selection — we're seeking freely
+    activeSegmentName = null;
+    activeSegmentClipTimes = null;
+    activeClip = null;
+    if (segmentNav && segmentNavBuilt) segmentNav.value = '__full__';
+    updateTimelineActive(null);
+    // Switch to full sources if available, otherwise seek within race sources
+    if (fullVideoPaths && loadedSrcSet !== 'full') {
+      detachVideoListeners();
+      raceVideos.forEach((v, i) => { v.src = resolvedFullPaths[i]; });
+      loadedSrcSet = 'full';
+      videos = raceVideos;
+      primary = videos[0];
+      attachVideoListeners();
+      duration = 0;
+      pendingSeek = () => {
+        seekAll(targetTime);
+        const d = clipDuration();
+        if (d > 0) scrubber.value = ((targetTime - clipOffset()) / d) * 1000;
+        updateTimeDisplay();
+        updateTimelinePlayhead();
+      };
+    } else {
       seekAll(targetTime);
       const d = clipDuration();
       if (d > 0) scrubber.value = ((targetTime - clipOffset()) / d) * 1000;
       updateTimeDisplay();
       updateTimelinePlayhead();
-    };
-    // Switch to whole recording mode for arbitrary seeking
-    if (segmentNav && segmentNavBuilt && segmentNav.value !== '__full__') {
-      segmentNav.value = '__full__';
-      // Override pendingSeek set by the change handler so we don't seek to 0 first
-      pendingSeek = doSeek;
-      segmentNav.dispatchEvent(new Event('change'));
-      // If change handler didn't trigger a src switch, pendingSeek is still our doSeek
-      if (pendingSeek === doSeek) { pendingSeek = null; doSeek(); }
-    } else {
-      doSeek();
     }
+  }
+
+  // Click on timeline bar
+  timelineBar.addEventListener('click', (e) => {
+    const segEl = e.target.closest('.timeline-segment');
+    if (segEl) {
+      activateSegment(segEl.dataset.segmentName);
+      return;
+    }
+    // Click on bar background → seek to that position
+    const rect = timelineBar.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const dur = getVideoDur() || videoDur;
+    seekToTime(pct * dur);
   });
 
-  // Click on label → jump to that segment
+  // Click on label → activate that segment
   timelineLabels.addEventListener('click', (e) => {
     const label = e.target.closest('.timeline-label');
     if (!label) return;
-    const name = label.dataset.segmentName;
-    if (segmentNav && segmentNavBuilt) {
-      segmentNav.value = name;
-      segmentNav.dispatchEvent(new Event('change'));
-    }
-    updateTimelineActive(name);
+    activateSegment(label.dataset.segmentName);
   });
 
   timelineEl.style.display = '';

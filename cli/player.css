@@ -606,6 +606,7 @@ video {
   border-left: 2px solid rgba(212, 175, 55, 0.5);
   border-right: 2px solid rgba(212, 175, 55, 0.5);
   z-index: 1;
+  pointer-events: none;
 }
 .timeline-segment {
   position: absolute;
