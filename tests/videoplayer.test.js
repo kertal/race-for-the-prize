@@ -394,7 +394,7 @@ describe('buildRunNavHtml winner colors', () => {
   it('does not add style for ties', () => {
     const nav = { currentRun: 'median', totalRuns: 2, pathPrefix: '' };
     const html = buildRunNavHtml(nav, racers, makeRunSummaries(['tie', 'lauda']));
-    expect(html).toMatch(/Run 1<\/a>/);  // no style attr on tie
+    expect(html).toMatch(/<a(?![^>]*style)[^>]*>Run 1<\/a>/);  // no style attr on tie
     expect(html).toContain(`border-color:${RACER_CSS_COLORS[0]}`);  // lauda wins run 2
   });
 
