@@ -291,6 +291,7 @@ function onTimeUpdate() {
     scrubber.value = d > 0 ? (Math.max(0, elapsed) / d) * 1000 : 0;
     updateTimeDisplay();
     updateFramePositions();
+    updateTimelinePlayhead();
   }
 }
 
@@ -413,6 +414,9 @@ function hideCalibration() {
 function resetSegmentState({ hide = false } = {}) {
   activeSegmentName = null;
   activeSegmentClipTimes = null;
+  updateTimelineActive(null);
+  const timelineEl = document.getElementById('raceTimeline');
+  if (timelineEl) timelineEl.style.display = hide ? 'none' : (timelineBuilt ? '' : 'none');
   if (!segmentNav) return;
   segmentNav.value = '__all__';
   segmentNav.style.display = hide ? 'none' : (segmentNavBuilt ? 'inline-block' : 'none');
@@ -730,6 +734,7 @@ function buildSegmentNav() {
     if (val === '__full__') {
       activeSegmentName = '__full__';
       activeSegmentClipTimes = null;
+      updateTimelineActive(null);
       const doSeek = () => { activeClip = null; seekAll(0); scrubber.value = 0; updateTimeDisplay(); };
       if (fullVideoPaths && loadedSrcSet !== 'full') {
         if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
@@ -747,6 +752,7 @@ function buildSegmentNav() {
     } else if (val === '__all__') {
       activeSegmentName = null;
       activeSegmentClipTimes = null;
+      updateTimelineActive(null);
       ensureRaceMode(() => {
         activeClip = resolveAdjustedClip();
         seekAll(activeClip ? activeClip.start : 0);
@@ -756,6 +762,7 @@ function buildSegmentNav() {
     } else {
       activeSegmentName = val;
       activeSegmentClipTimes = getSegmentClipTimes(val);
+      updateTimelineActive(val);
       ensureRaceMode(() => {
         activeClip = resolveAdjustedClip();
         seekAll(activeClip ? activeClip.start : 0);
@@ -767,6 +774,175 @@ function buildSegmentNav() {
 
   segmentNav.style.display = 'inline-block';
   if (modeDebug) modeDebug.style.display = '';
+  buildTimeline();
+}
+
+// --- Segment Timeline ---
+
+const SEGMENT_COLORS = ['#e67e22', '#3498db', '#2ecc71', '#e74c3c', '#9b59b6', '#1abc9c', '#f1c40f', '#e91e63'];
+let timelineBuilt = false;
+
+function buildTimeline() {
+  if (timelineBuilt) return;
+  const timelineEl = document.getElementById('raceTimeline');
+  const timelineBar = document.getElementById('timelineBar');
+  const timelineLabels = document.getElementById('timelineLabels');
+  if (!timelineEl || !timelineBar || !timelineLabels) return;
+  if (!clipTimes) return;
+  // Need at least one converted clip entry with measurements
+  if (!clipTimes.some(ct => ct && ct._converted && ct.measurements && ct.measurements.length > 0)) return;
+
+  // Use the first valid racer for layout reference (timeline represents unified view)
+  const refIdx = clipTimes.findIndex(ct => ct && ct._converted);
+  if (refIdx < 0) return;
+  const refCt = clipTimes[refIdx];
+  const refVideo = raceVideos[refIdx];
+  if (!refVideo || !isFinite(refVideo.duration) || refVideo.duration <= 0) return;
+
+  const videoDur = refVideo.duration;
+  const clipStart = refCt.start;
+  const clipEnd = refCt.end;
+
+  // Collect unique measurement names and their PTS ranges (averaged across racers)
+  const segmentMap = new Map();
+  for (const ct of clipTimes) {
+    if (!ct || !ct.measurements) continue;
+    for (const m of ct.measurements) {
+      if (!m.name) continue;
+      const sPts = traceTsToClipPts(ct, m.startTraceTs);
+      const ePts = traceTsToClipPts(ct, m.endTraceTs);
+      if (!isFinite(sPts) || !isFinite(ePts) || ePts <= sPts) continue;
+      if (!segmentMap.has(m.name)) {
+        segmentMap.set(m.name, { starts: [], ends: [] });
+      }
+      segmentMap.get(m.name).starts.push(sPts);
+      segmentMap.get(m.name).ends.push(ePts);
+    }
+  }
+  const segmentNames = Array.from(segmentMap.keys());
+  if (segmentNames.length < 1) return;
+
+  timelineBuilt = true;
+
+  // Compute average PTS for each segment
+  const segments = segmentNames.map((name, idx) => {
+    const data = segmentMap.get(name);
+    const avgStart = data.starts.reduce((a, b) => a + b, 0) / data.starts.length;
+    const avgEnd = data.ends.reduce((a, b) => a + b, 0) / data.ends.length;
+    return { name, start: avgStart, end: avgEnd, color: SEGMENT_COLORS[idx % SEGMENT_COLORS.length] };
+  });
+
+  // Build visual elements
+  // 1. Race recording clip region
+  const clipRegion = document.createElement('div');
+  clipRegion.className = 'timeline-region timeline-region-clip';
+  clipRegion.style.left = (clipStart / videoDur * 100) + '%';
+  clipRegion.style.width = ((clipEnd - clipStart) / videoDur * 100) + '%';
+  clipRegion.title = 'Race Recording (' + (clipEnd - clipStart).toFixed(2) + 's)';
+  timelineBar.insertBefore(clipRegion, document.getElementById('timelinePlayhead'));
+
+  // 2. Segment blocks
+  for (const seg of segments) {
+    const segEl = document.createElement('div');
+    segEl.className = 'timeline-segment';
+    segEl.style.left = (seg.start / videoDur * 100) + '%';
+    segEl.style.width = Math.max(0.3, (seg.end - seg.start) / videoDur * 100) + '%';
+    segEl.style.background = seg.color;
+    segEl.title = seg.name + ' (' + (seg.end - seg.start).toFixed(3) + 's)';
+    segEl.dataset.segmentName = seg.name;
+    segEl.dataset.segmentStart = seg.start;
+    segEl.dataset.segmentEnd = seg.end;
+    timelineBar.insertBefore(segEl, document.getElementById('timelinePlayhead'));
+  }
+
+  // 3. Labels below the bar
+  for (const seg of segments) {
+    const label = document.createElement('div');
+    label.className = 'timeline-label';
+    label.dataset.segmentName = seg.name;
+    const swatch = document.createElement('span');
+    swatch.className = 'timeline-label-swatch';
+    swatch.style.background = seg.color;
+    label.appendChild(swatch);
+    label.appendChild(document.createTextNode(seg.name));
+    timelineLabels.appendChild(label);
+  }
+
+  // Click on segment block → jump to that segment's start and select it in dropdown
+  timelineBar.addEventListener('click', (e) => {
+    const segEl = e.target.closest('.timeline-segment');
+    if (segEl) {
+      const name = segEl.dataset.segmentName;
+      // Select in segment dropdown
+      if (segmentNav && segmentNavBuilt) {
+        segmentNav.value = name;
+        segmentNav.dispatchEvent(new Event('change'));
+      }
+      updateTimelineActive(name);
+      return;
+    }
+    // Click on the bar background → seek to that position in the full recording
+    const rect = timelineBar.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const targetTime = pct * videoDur;
+    // Switch to whole recording mode for arbitrary seeking
+    if (segmentNav && segmentNavBuilt && segmentNav.value !== '__full__') {
+      segmentNav.value = '__full__';
+      segmentNav.dispatchEvent(new Event('change'));
+    }
+    // Seek after mode switch settles
+    const doSeek = () => {
+      seekAll(targetTime);
+      const d = clipDuration();
+      if (d > 0) scrubber.value = ((targetTime - clipOffset()) / d) * 1000;
+      updateTimeDisplay();
+      updateTimelinePlayhead();
+    };
+    if (pendingSeek) {
+      const origPending = pendingSeek;
+      pendingSeek = () => { origPending(); doSeek(); };
+    } else {
+      doSeek();
+    }
+  });
+
+  // Click on label → jump to that segment
+  timelineLabels.addEventListener('click', (e) => {
+    const label = e.target.closest('.timeline-label');
+    if (!label) return;
+    const name = label.dataset.segmentName;
+    if (segmentNav && segmentNavBuilt) {
+      segmentNav.value = name;
+      segmentNav.dispatchEvent(new Event('change'));
+    }
+    updateTimelineActive(name);
+  });
+
+  timelineEl.style.display = '';
+}
+
+function updateTimelineActive(name) {
+  const timelineBar = document.getElementById('timelineBar');
+  const timelineLabels = document.getElementById('timelineLabels');
+  if (!timelineBar || !timelineLabels) return;
+  timelineBar.querySelectorAll('.timeline-segment').forEach(el => {
+    el.classList.toggle('active', el.dataset.segmentName === name);
+  });
+  timelineLabels.querySelectorAll('.timeline-label').forEach(el => {
+    el.classList.toggle('active', el.dataset.segmentName === name);
+  });
+}
+
+function updateTimelinePlayhead() {
+  if (!timelineBuilt) return;
+  const playhead = document.getElementById('timelinePlayhead');
+  if (!playhead) return;
+  const refIdx = clipTimes ? clipTimes.findIndex(ct => ct && ct._converted) : -1;
+  if (refIdx < 0) return;
+  const refVideo = raceVideos[refIdx];
+  if (!refVideo || !isFinite(refVideo.duration) || refVideo.duration <= 0) return;
+  const pct = (refVideo.currentTime / refVideo.duration) * 100;
+  playhead.style.left = pct + '%';
 }
 
 function buildRacerFilter() {
@@ -944,6 +1120,7 @@ scrubber.addEventListener('input', () => {
   const t = (scrubber.value / 1000) * d + clipOffset();
   seekAll(t);
   updateTimeDisplay();
+  updateTimelinePlayhead();
 });
 
 speedSelect.addEventListener('change', () => {
@@ -962,6 +1139,7 @@ function stepFrame(delta) {
   const newElapsed = t - minT;
   scrubber.value = d > 0 ? (newElapsed / d) * 1000 : 0;
   updateTimeDisplay();
+  updateTimelinePlayhead();
 }
 
 document.getElementById('prevFrame').addEventListener('click', () => stepFrame(-STEP));
