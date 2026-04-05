@@ -247,7 +247,7 @@ async function handleRunRace(req, res, raceName) {
 
   // Check if race is already running
   for (const [, race] of activeRaces) {
-    if (race.name === raceName && race.status === 'running') {
+    if (race.name === raceName && (race.status === 'running' || race.status === 'cancelling')) {
       return errorResponse(res, 'Race is already running', 409);
     }
   }
@@ -319,7 +319,11 @@ async function handleRunRace(req, res, raceName) {
   raceProcess.stderr.on('data', appendOutput);
 
   raceProcess.on('close', (code) => {
-    raceState.status = code === 0 ? 'completed' : 'failed';
+    if (raceState.status === 'cancelling') {
+      raceState.status = 'cancelled';
+    } else {
+      raceState.status = code === 0 ? 'completed' : 'failed';
+    }
     raceState.endTime = Date.now();
     raceState.process = null;
     // Clean up screencast dir after a short delay (allow final frame reads)
@@ -332,7 +336,11 @@ async function handleRunRace(req, res, raceName) {
   });
 
   raceProcess.on('error', (err) => {
-    raceState.status = 'failed';
+    if (raceState.status === 'cancelling') {
+      raceState.status = 'cancelled';
+    } else {
+      raceState.status = 'failed';
+    }
     raceState.output += `\nProcess error: ${err.message}`;
     raceState.endTime = Date.now();
     raceState.process = null;
@@ -440,19 +448,46 @@ function route(req, res) {
     // GET /api/races/:name/results/:dir/files/*
     const fileMatch = apiPath.match(/^races\/([^/]+)\/results\/([^/]+)\/files\/(.+)$/);
     if (fileMatch && req.method === 'GET') {
-      return handleResultFile(req, res, fileMatch[1], fileMatch[2], fileMatch[3]);
+      try {
+        const raceName = decodeURIComponent(fileMatch[1]);
+        const resultDir = decodeURIComponent(fileMatch[2]);
+        const filePath = decodeURIComponent(fileMatch[3]);
+        return handleResultFile(req, res, raceName, resultDir, filePath);
+      } catch (err) {
+        if (err instanceof URIError) {
+          return errorResponse(res, 'Invalid URL encoding', 400);
+        }
+        throw err;
+      }
     }
 
     // GET /api/races/:name/results/:dir
     const resultMatch = apiPath.match(/^races\/([^/]+)\/results\/([^/]+)$/);
     if (resultMatch && req.method === 'GET') {
-      return handleResultDetail(req, res, resultMatch[1], resultMatch[2]);
+      try {
+        const raceName = decodeURIComponent(resultMatch[1]);
+        const resultDir = decodeURIComponent(resultMatch[2]);
+        return handleResultDetail(req, res, raceName, resultDir);
+      } catch (err) {
+        if (err instanceof URIError) {
+          return errorResponse(res, 'Invalid URL encoding', 400);
+        }
+        throw err;
+      }
     }
 
     // POST /api/races/:name/run
     const runMatch = apiPath.match(/^races\/([^/]+)\/run$/);
     if (runMatch && req.method === 'POST') {
-      return handleRunRace(req, res, runMatch[1]);
+      try {
+        const raceName = decodeURIComponent(runMatch[1]);
+        return handleRunRace(req, res, raceName);
+      } catch (err) {
+        if (err instanceof URIError) {
+          return errorResponse(res, 'Invalid URL encoding', 400);
+        }
+        throw err;
+      }
     }
 
     // GET /api/races/status/:id
@@ -464,7 +499,15 @@ function route(req, res) {
     // GET /api/races/status/:id/frame/:racerName
     const frameMatch = apiPath.match(/^races\/status\/(\d+)\/frame\/([^/]+)$/);
     if (frameMatch && req.method === 'GET') {
-      return handleRaceFrame(req, res, frameMatch[1], decodeURIComponent(frameMatch[2]));
+      try {
+        const racerName = decodeURIComponent(frameMatch[2]);
+        return handleRaceFrame(req, res, frameMatch[1], racerName);
+      } catch (err) {
+        if (err instanceof URIError) {
+          return errorResponse(res, 'Invalid URL encoding', 400);
+        }
+        throw err;
+      }
     }
 
     // POST /api/races/status/:id/cancel
@@ -476,7 +519,15 @@ function route(req, res) {
     // GET /api/races/:name
     const raceMatch = apiPath.match(/^races\/([^/]+)$/);
     if (raceMatch && req.method === 'GET') {
-      return handleRaceDetail(req, res, raceMatch[1]);
+      try {
+        const raceName = decodeURIComponent(raceMatch[1]);
+        return handleRaceDetail(req, res, raceName);
+      } catch (err) {
+        if (err instanceof URIError) {
+          return errorResponse(res, 'Invalid URL encoding', 400);
+        }
+        throw err;
+      }
     }
 
     return errorResponse(res, 'Not found', 404);
