@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 
@@ -13,10 +14,16 @@ function startServer(port) {
       cwd: ROOT,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    let stdout = '';
     const timeout = setTimeout(() => { proc.kill(); reject(new Error('Server start timeout')); }, 5000);
-    proc.stdout.on('data', () => {
-      clearTimeout(timeout);
-      resolve(proc);
+    proc.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+      // Parse assigned port from output: "Race Viewer running at http://localhost:PORT/"
+      const m = stdout.match(/localhost:(\d+)/);
+      if (m) {
+        clearTimeout(timeout);
+        resolve({ proc, port: parseInt(m[1], 10) });
+      }
     });
     proc.on('error', (err) => { clearTimeout(timeout); reject(err); });
   });
@@ -28,6 +35,7 @@ function httpGet(url) {
       let data = '';
       res.on('data', (c) => { data += c; });
       res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: data }));
+      res.on('error', reject);
     }).on('error', reject);
   });
 }
@@ -39,6 +47,7 @@ function httpPost(url, body) {
       let data = '';
       res.on('data', (c) => { data += c; });
       res.on('end', () => resolve({ status: res.statusCode, body: data }));
+      res.on('error', reject);
     });
     req.on('error', reject);
     req.end(body || '');
@@ -52,6 +61,7 @@ function httpOptions(url) {
       let data = '';
       res.on('data', (c) => { data += c; });
       res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: data }));
+      res.on('error', reject);
     });
     req.on('error', reject);
     req.end();
@@ -59,15 +69,20 @@ function httpOptions(url) {
 }
 
 describe('webapp API', () => {
-  let server;
+  let serverProc;
   let startedRaceId;
-  const PORT = 13579;
-  const BASE = `http://localhost:${PORT}`;
+  let BASE;
 
-  // Start server once for all tests
-  it('starts the server', async () => {
-    server = await startServer(PORT);
+  beforeAll(async () => {
+    // Use port 0 for ephemeral port assignment
+    const { proc, port } = await startServer(0);
+    serverProc = proc;
+    BASE = `http://localhost:${port}`;
   }, 10000);
+
+  afterAll(() => {
+    if (serverProc) serverProc.kill();
+  });
 
   it('GET /api/races returns race list', async () => {
     const res = await httpGet(`${BASE}/api/races`);
@@ -137,11 +152,8 @@ describe('webapp API', () => {
   });
 
   it('serves 404 when requesting a directory as static file', async () => {
-    // The webapp directory itself should not be served as a file
     const res = await httpGet(`${BASE}/`);
-    // Root serves index.html
     expect(res.status).toBe(200);
-    // But a non-existent sub-path returns 404
     const res2 = await httpGet(`${BASE}/nonexistent-dir/`);
     expect(res2.status).toBe(404);
   });
@@ -156,18 +168,33 @@ describe('webapp API', () => {
     expect([400, 404]).toContain(res.status);
   });
 
+  it('returns 400 for malformed percent-encoding in race name', async () => {
+    const res = await httpGet(`${BASE}/api/races/%ZZ`);
+    expect(res.status).toBe(400);
+    const data = JSON.parse(res.body);
+    expect(data.error).toContain('Invalid URL encoding');
+  });
+
+  it('returns 400 for malformed percent-encoding in run endpoint', async () => {
+    const res = await httpPost(`${BASE}/api/races/%ZZ/run`, '{}');
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 for malformed percent-encoding in result path', async () => {
+    const res = await httpGet(`${BASE}/api/races/%ZZ/results/foo`);
+    expect(res.status).toBe(400);
+  });
+
   it('POST /api/races/:name/run starts a race and returns raceId', async () => {
     const res = await httpPost(`${BASE}/api/races/lauda-vs-hunt/run`, JSON.stringify({ headless: true }));
     expect(res.status).toBe(200);
     const data = JSON.parse(res.body);
     expect(data.raceId).toBeDefined();
     expect(data.status).toBe('running');
-    // Save raceId for subsequent tests
     startedRaceId = data.raceId;
   });
 
   it('POST /api/races/:name/run returns 409 when race is already running', async () => {
-    // The race started above should still be running
     const res = await httpPost(`${BASE}/api/races/lauda-vs-hunt/run`, JSON.stringify({ headless: true }));
     expect(res.status).toBe(409);
     const data = JSON.parse(res.body);
@@ -186,7 +213,6 @@ describe('webapp API', () => {
 
   it('POST /api/races/status/:id/cancel cancels a running race', async () => {
     const res = await httpPost(`${BASE}/api/races/status/${startedRaceId}/cancel`);
-    // Could be 200 (cancelled) or 409 (already finished)
     if (res.status === 200) {
       const data = JSON.parse(res.body);
       expect(data.status).toBe('cancelling');
@@ -194,6 +220,19 @@ describe('webapp API', () => {
       expect(res.status).toBe(409);
     }
   });
+
+  it('cancelled race reaches terminal cancelled state', async () => {
+    // Poll until race finishes (max 10s)
+    let status;
+    for (let i = 0; i < 20; i++) {
+      const res = await httpGet(`${BASE}/api/races/status/${startedRaceId}`);
+      const data = JSON.parse(res.body);
+      status = data.status;
+      if (status !== 'running' && status !== 'cancelling') break;
+      await new Promise(r => setTimeout(r, 500));
+    }
+    expect(['cancelled', 'completed', 'failed']).toContain(status);
+  }, 15000);
 
   it('POST /api/races/status/999/cancel returns 404 for unknown race', async () => {
     const res = await httpPost(`${BASE}/api/races/status/999/cancel`);
@@ -210,8 +249,34 @@ describe('webapp API', () => {
     expect(res.status).toBe(204);
   });
 
-  // Cleanup
-  it('stops the server', () => {
-    if (server) server.kill();
+  // Range request tests — need a result dir with a file to test against
+  it('serves result files with range requests', async () => {
+    // Find a result dir with a summary.json we can range-request
+    const racesRes = await httpGet(`${BASE}/api/races/lauda-vs-hunt`);
+    const raceData = JSON.parse(racesRes.body);
+    if (raceData.results.length === 0) return; // skip if no results
+
+    const dir = raceData.results[0].dir;
+    const fileUrl = `${BASE}/api/races/lauda-vs-hunt/results/${dir}/files/summary.json`;
+    const fullRes = await httpGet(fileUrl);
+    if (fullRes.status !== 200) return; // skip if file doesn't exist
+
+    const total = parseInt(fullRes.headers['content-length'], 10);
+    expect(fullRes.headers['accept-ranges']).toBe('bytes');
+
+    // Request first 10 bytes
+    if (total > 10) {
+      const rangeRes = await new Promise((resolve, reject) => {
+        http.get(fileUrl, { headers: { 'Range': 'bytes=0-9' } }, (res) => {
+          let data = '';
+          res.on('data', (c) => { data += c; });
+          res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: data }));
+          res.on('error', reject);
+        }).on('error', reject);
+      });
+      expect(rangeRes.status).toBe(206);
+      expect(rangeRes.headers['content-range']).toMatch(/^bytes 0-9\//);
+      expect(rangeRes.body.length).toBe(10);
+    }
   });
 });

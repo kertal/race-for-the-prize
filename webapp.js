@@ -87,6 +87,7 @@ function safePath(base, ...segments) {
 // --- Active race tracking ---
 const activeRaces = new Map(); // raceId -> { name, status, output, startTime, process }
 let raceIdCounter = 0;
+const MAX_CONCURRENT_RACES = 4;
 
 /** Load settings.json and discover racers for a race directory. */
 function loadRaceInfo(raceDir) {
@@ -245,11 +246,18 @@ async function handleRunRace(req, res, raceName) {
     return errorResponse(res, 'Race not found', 404);
   }
 
-  // Check if race is already running
+  // Check if race is already running or concurrency limit reached
+  let runningCount = 0;
   for (const [, race] of activeRaces) {
-    if (race.name === raceName && (race.status === 'running' || race.status === 'cancelling')) {
-      return errorResponse(res, 'Race is already running', 409);
+    if (race.status === 'running' || race.status === 'cancelling') {
+      if (race.name === raceName) {
+        return errorResponse(res, 'Race is already running', 409);
+      }
+      runningCount++;
     }
+  }
+  if (runningCount >= MAX_CONCURRENT_RACES) {
+    return errorResponse(res, 'Too many concurrent races', 429);
   }
 
   let body;
@@ -344,6 +352,12 @@ async function handleRunRace(req, res, raceName) {
     raceState.output += `\nProcess error: ${err.message}`;
     raceState.endTime = Date.now();
     raceState.process = null;
+    // Clean up screencast dir
+    setTimeout(() => {
+      try { fs.rmSync(screencastDir, { recursive: true, force: true }); } catch {}
+      raceState.screencastDir = null;
+    }, 5000);
+    setTimeout(() => activeRaces.delete(raceId), 10 * 60 * 1000);
   });
 
   jsonResponse(res, { raceId, status: 'running', message: `Race "${raceName}" started` });
@@ -370,19 +384,20 @@ function handleRaceFrame(req, res, raceId, racerName) {
   if (!race.racerNames.includes(racerName)) { res.writeHead(404); res.end(); return; }
 
   const framePath = path.join(race.screencastDir, `${racerName}.jpg`);
-  try {
-    const data = fs.readFileSync(framePath);
+  fs.readFile(framePath, (err, data) => {
+    if (err) {
+      // Frame not yet available
+      res.writeHead(204);
+      res.end();
+      return;
+    }
     res.writeHead(200, {
       'Content-Type': 'image/jpeg',
       'Content-Length': data.length,
       'Cache-Control': 'no-store',
     });
     res.end(data);
-  } catch {
-    // Frame not yet available
-    res.writeHead(204);
-    res.end();
-  }
+  });
 }
 
 function handleRaceCancel(req, res, raceId) {
@@ -416,16 +431,30 @@ function serveStaticFile(res, filePath) {
       return;
     }
     const ext = path.extname(absPath).toLowerCase();
-    const contentType = MIME_TYPES[ext] || 'text/html';
+    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
     res.writeHead(200, { 'Content-Type': contentType, 'Content-Length': stat.size });
     fs.createReadStream(absPath).pipe(res);
   });
 }
 
+/** Decode a URI segment, returning null on malformed encoding. */
+function decodeSegment(value) {
+  try { return decodeURIComponent(value); }
+  catch { return null; }
+}
+
 // --- Router ---
 
 function route(req, res) {
-  const url = new URL(req.url, `http://${req.headers.host}`);
+  let url;
+  try {
+    const host = req.headers.host || 'localhost';
+    url = new URL(req.url, `http://${host}`);
+  } catch {
+    res.writeHead(400);
+    res.end('Bad request');
+    return;
+  }
   const pathname = url.pathname;
 
   // No CORS headers — same-origin only (local dev server)
@@ -448,46 +477,28 @@ function route(req, res) {
     // GET /api/races/:name/results/:dir/files/*
     const fileMatch = apiPath.match(/^races\/([^/]+)\/results\/([^/]+)\/files\/(.+)$/);
     if (fileMatch && req.method === 'GET') {
-      try {
-        const raceName = decodeURIComponent(fileMatch[1]);
-        const resultDir = decodeURIComponent(fileMatch[2]);
-        const filePath = decodeURIComponent(fileMatch[3]);
-        return handleResultFile(req, res, raceName, resultDir, filePath);
-      } catch (err) {
-        if (err instanceof URIError) {
-          return errorResponse(res, 'Invalid URL encoding', 400);
-        }
-        throw err;
-      }
+      const raceName = decodeSegment(fileMatch[1]);
+      const resultDir = decodeSegment(fileMatch[2]);
+      const filePath = decodeSegment(fileMatch[3]);
+      if (raceName == null || resultDir == null || filePath == null) return errorResponse(res, 'Invalid URL encoding', 400);
+      return handleResultFile(req, res, raceName, resultDir, filePath);
     }
 
     // GET /api/races/:name/results/:dir
     const resultMatch = apiPath.match(/^races\/([^/]+)\/results\/([^/]+)$/);
     if (resultMatch && req.method === 'GET') {
-      try {
-        const raceName = decodeURIComponent(resultMatch[1]);
-        const resultDir = decodeURIComponent(resultMatch[2]);
-        return handleResultDetail(req, res, raceName, resultDir);
-      } catch (err) {
-        if (err instanceof URIError) {
-          return errorResponse(res, 'Invalid URL encoding', 400);
-        }
-        throw err;
-      }
+      const raceName = decodeSegment(resultMatch[1]);
+      const resultDir = decodeSegment(resultMatch[2]);
+      if (raceName == null || resultDir == null) return errorResponse(res, 'Invalid URL encoding', 400);
+      return handleResultDetail(req, res, raceName, resultDir);
     }
 
     // POST /api/races/:name/run
     const runMatch = apiPath.match(/^races\/([^/]+)\/run$/);
     if (runMatch && req.method === 'POST') {
-      try {
-        const raceName = decodeURIComponent(runMatch[1]);
-        return handleRunRace(req, res, raceName);
-      } catch (err) {
-        if (err instanceof URIError) {
-          return errorResponse(res, 'Invalid URL encoding', 400);
-        }
-        throw err;
-      }
+      const raceName = decodeSegment(runMatch[1]);
+      if (raceName == null) return errorResponse(res, 'Invalid URL encoding', 400);
+      return handleRunRace(req, res, raceName);
     }
 
     // GET /api/races/status/:id
@@ -499,15 +510,9 @@ function route(req, res) {
     // GET /api/races/status/:id/frame/:racerName
     const frameMatch = apiPath.match(/^races\/status\/(\d+)\/frame\/([^/]+)$/);
     if (frameMatch && req.method === 'GET') {
-      try {
-        const racerName = decodeURIComponent(frameMatch[2]);
-        return handleRaceFrame(req, res, frameMatch[1], racerName);
-      } catch (err) {
-        if (err instanceof URIError) {
-          return errorResponse(res, 'Invalid URL encoding', 400);
-        }
-        throw err;
-      }
+      const racerName = decodeSegment(frameMatch[2]);
+      if (racerName == null) return errorResponse(res, 'Invalid URL encoding', 400);
+      return handleRaceFrame(req, res, frameMatch[1], racerName);
     }
 
     // POST /api/races/status/:id/cancel
@@ -519,15 +524,9 @@ function route(req, res) {
     // GET /api/races/:name
     const raceMatch = apiPath.match(/^races\/([^/]+)$/);
     if (raceMatch && req.method === 'GET') {
-      try {
-        const raceName = decodeURIComponent(raceMatch[1]);
-        return handleRaceDetail(req, res, raceName);
-      } catch (err) {
-        if (err instanceof URIError) {
-          return errorResponse(res, 'Invalid URL encoding', 400);
-        }
-        throw err;
-      }
+      const raceName = decodeSegment(raceMatch[1]);
+      if (raceName == null) return errorResponse(res, 'Invalid URL encoding', 400);
+      return handleRaceDetail(req, res, raceName);
     }
 
     return errorResponse(res, 'Not found', 404);
@@ -551,8 +550,22 @@ for (const arg of args) {
   if (m) port = parseInt(m[1], 10);
 }
 
-const server = http.createServer(route);
+const server = http.createServer((req, res) => {
+  try {
+    const result = route(req, res);
+    if (result && typeof result.catch === 'function') {
+      result.catch(err => {
+        console.error('Unhandled route error:', err);
+        if (!res.headersSent) errorResponse(res, 'Internal server error', 500);
+      });
+    }
+  } catch (err) {
+    console.error('Unhandled route error:', err);
+    if (!res.headersSent) errorResponse(res, 'Internal server error', 500);
+  }
+});
 server.listen(port, () => {
-  console.log(`Race Viewer running at http://localhost:${port}/`);
+  const assignedPort = server.address().port;
+  console.log(`Race Viewer running at http://localhost:${assignedPort}/`);
   console.log(`Serving races from: ${RACES_DIR}`);
 });
