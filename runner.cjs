@@ -733,7 +733,8 @@ function trimVideoWithFfmpeg(outputDir, trimSegments, id) {
  */
 async function runBrowserRecording(config, barriers, isParallel, sharedState, opts = {}) {
   const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, noRecording = false, ffmpeg = false, har = false, recordingsDir = null, ignoreHTTPSErrors = false, viewportHeight: configViewportHeight = null } = opts;
-  const { id, headless } = config;
+  const { id, headless: headlessRaw } = config;
+  const headless = headlessRaw === true;
   const outputDir = recordingsDir ? path.join(recordingsDir, id) : path.join(__dirname, 'recordings', id);
   let browser = null;
   let context = null;
@@ -749,7 +750,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     : [];
 
   try {
-    const launchOpts = { headless: headless || false, args: windowArgs };
+    const launchOpts = { headless, args: windowArgs };
     if (slowmo > 0) launchOpts.slowMo = slowmo * SLOWMO_MULTIPLIER;
     browser = await chromium.launch(launchOpts);
     activeBrowsers.push(browser);
@@ -928,12 +929,13 @@ async function main() {
   try { config = JSON.parse(configJson); }
   catch (e) { console.error('Error: Invalid JSON:', e.message); process.exit(1); }
 
-  const { browsers, executionMode, throttle, headless, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir, ignoreHTTPSErrors, viewportHeight } = config;
+  const { browsers, executionMode, throttle, headless: headlessRaw, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir, ignoreHTTPSErrors, viewportHeight } = config;
+  const headless = headlessRaw === true;
   const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir, ignoreHTTPSErrors, viewportHeight };
 
-  // Set headless flag on all browser configs
+  // Set headless flag on all browser configs (strict boolean — strings must not slip through)
   for (const browser of browsers) {
-    browser.headless = headless || false;
+    browser.headless = headless;
   }
 
   const recBase = recordingsDir || path.join(__dirname, 'recordings');

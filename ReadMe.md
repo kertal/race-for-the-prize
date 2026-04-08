@@ -313,7 +313,7 @@ The terminal delivers the verdict in style:
 | `parallel` | `--parallel` | `true` / `false` | `false` |
 | `network` | `--network=<preset>` | `none`, `slow-3g`, `fast-3g`, `4g` | `none` |
 | `cpuThrottle` | `--cpu=<n>` | `1` (none) to any multiplier | `1` |
-| `headless` | `--headless` | `true` / `false` | `false` |
+| `headless` | `--headless`, `--headed` | `true` / `false` | `false` |
 | `runs` | `--runs=<n>` | integer ≥ 1 (median of N runs) | `1` |
 | `slowmo` | `--slowmo=<n>` | `0` (off) to `20` (multiplier) | `0` |
 | `format` | `--format=<fmt>` | `webm`, `mov`, `gif` | `webm` |
@@ -326,6 +326,8 @@ The terminal delivers the verdict in style:
 | `pauseBetweenRuns` | `--pause` | `true` / `false` | `false` |
 | `ignoreHTTPSErrors` | `--ignore-https-errors` | `true` / `false` | `false` |
 | `viewportHeight` | `--height=<px>` | integer, 480–4320 | `720` |
+
+For boolean fields, prefer JSON literals `true` / `false` (not strings). String values like `"false"` are normalized when possible. `--headed` shows the browser and overrides `headless` in `settings.json`; `--headless` wins if both flags are passed.
 
 ## Setup and Teardown Scripts
 

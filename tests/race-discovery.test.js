@@ -213,6 +213,16 @@ describe('settings override', () => {
     expect(s.headless).toBe(true);
   });
 
+  it('CLI --headed sets headless false', () => {
+    const s = applyOverrides({ headless: true }, new Set(['headed']), {});
+    expect(s.headless).toBe(false);
+  });
+
+  it('CLI --headless overrides --headed', () => {
+    const s = applyOverrides({}, new Set(['headed', 'headless']), {});
+    expect(s.headless).toBe(true);
+  });
+
   it('CLI --network overrides settings.json network', () => {
     const s = applyOverrides({ network: 'none' }, new Set(), { network: 'slow-3g' });
     expect(s.network).toBe('slow-3g');

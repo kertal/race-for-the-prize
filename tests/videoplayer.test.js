@@ -1153,10 +1153,13 @@ describe('buildPlayerHtml run-by-run comparison', () => {
     expect(html).toContain('style="color:#3498db">hunt');
   });
 
-  it('colors winner names in the comparison table', () => {
+  it('shows trophy for winner and delta for loser in comparison table', () => {
     const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
-    // Winner cells use colored spans
-    expect(html).toMatch(/style="color:#e74c3c"[^>]*>lauda<\/span>/);
+    // Winner gets trophy, no separate Winner column
+    expect(html).toContain('1.000s (\uD83C\uDFC6)');
+    expect(html).not.toMatch(/<th>Winner<\/th>/);
+    // Loser gets delta (3.0 - 1.0 = 2.0)
+    expect(html).toContain('+2.000s');
   });
 
   it('includes measurement rows and median row', () => {

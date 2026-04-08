@@ -100,20 +100,37 @@ export function getPlacementOrder(summary) {
 
 
 /**
+ * Format a duration cell for markdown: trophy for winner, delta for losers.
+ */
+function formatDurationCell(dur, bestDur, isWinner, bold) {
+  if (dur == null) return bold ? '**-**' : '-';
+  const val = `${dur.toFixed(3)}s`;
+  let content;
+  if (isWinner) {
+    content = `${val} (\uD83C\uDFC6)`;
+  } else if (bestDur != null) {
+    content = `${val} (+${(dur - bestDur).toFixed(3)}s)`;
+  } else {
+    content = val;
+  }
+  return bold ? `**${content}**` : content;
+}
+
+/**
  * Build markdown results table rows.
  * Returns array of markdown lines for the table.
  */
 function buildResultsTable(comparisons, racers) {
   const lines = [];
-  const headerCols = ['Measurement', ...racers, 'Winner'];
+  const headerCols = ['Measurement', ...racers];
   lines.push(`| ${headerCols.join(' | ')} |`);
   lines.push(`|${headerCols.map(() => '---').join('|')}|`);
   for (const comp of comparisons) {
-    const durations = racers.map((_, i) =>
-      comp.racers[i] ? `${comp.racers[i].duration.toFixed(3)}s` : '-'
+    const bestDur = comp.winner ? comp.racers[racers.indexOf(comp.winner)]?.duration : null;
+    const durations = racers.map((r, i) =>
+      formatDurationCell(comp.racers[i]?.duration, bestDur, comp.winner === r, false)
     );
-    const winner = comp.winner || '-';
-    lines.push(`| ${comp.name} | ${durations.join(' | ')} | ${winner} |`);
+    lines.push(`| ${comp.name} | ${durations.join(' | ')} |`);
   }
   return lines;
 }
@@ -449,32 +466,50 @@ function buildRunComparisonSection(medianSummary, summaries) {
 
   for (const name of allNames) {
     lines.push(`#### ${name}`, '');
-    const headerCols = ['Run', ...racers, 'Winner'];
+    const headerCols = ['Run', ...racers];
     lines.push(`| ${headerCols.join(' | ')} |`);
     lines.push(`|${headerCols.map(() => '---').join('|')}|`);
 
     for (let i = 0; i < summaries.length; i++) {
       const comp = summaries[i].comparisons.find(c => c.name === name);
       if (!comp) {
-        lines.push(`| ${i + 1} | ${racers.map(() => '-').join(' | ')} | - |`);
+        lines.push(`| ${i + 1} | ${racers.map(() => '-').join(' | ')} |`);
         continue;
       }
-      const durations = racers.map((_, j) =>
-        comp.racers[j] ? `${comp.racers[j].duration.toFixed(3)}s` : '-'
+      const bestDur = comp.winner ? comp.racers[racers.indexOf(comp.winner)]?.duration : null;
+      const durations = racers.map((r, j) =>
+        formatDurationCell(comp.racers[j]?.duration, bestDur, comp.winner === r, false)
       );
-      const winner = comp.winner || '-';
-      lines.push(`| ${i + 1} | ${durations.join(' | ')} | ${winner} |`);
+      lines.push(`| ${i + 1} | ${durations.join(' | ')} |`);
     }
 
     // Median row
     const medComp = medianSummary.comparisons.find(c => c.name === name);
     if (medComp) {
-      const durations = racers.map((_, j) =>
-        medComp.racers[j] ? `**${medComp.racers[j].duration.toFixed(3)}s**` : '-'
+      const bestDur = medComp.winner ? medComp.racers[racers.indexOf(medComp.winner)]?.duration : null;
+      const durations = racers.map((r, j) =>
+        formatDurationCell(medComp.racers[j]?.duration, bestDur, medComp.winner === r, true)
       );
-      const winner = medComp.winner ? `**${medComp.winner}**` : '-';
-      lines.push(`| **Median** | ${durations.join(' | ')} | ${winner} |`);
+      lines.push(`| **Median** | ${durations.join(' | ')} |`);
     }
+
+    // Average row
+    const avgDurations = racers.map((_, j) => {
+      const vals = summaries
+        .map(s => s.comparisons.find(c => c.name === name)?.racers[j]?.duration)
+        .filter(d => d != null);
+      return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    });
+    if (avgDurations.some(v => v != null)) {
+      const validAvg = avgDurations.filter(v => v != null);
+      const bestAvg = validAvg.length >= 2 ? Math.min(...validAvg) : null;
+      const durations = racers.map((_, j) => {
+        const isWinner = bestAvg != null && avgDurations[j] === bestAvg;
+        return formatDurationCell(avgDurations[j], bestAvg, isWinner, true);
+      });
+      lines.push(`| **Average** | ${durations.join(' | ')} |`);
+    }
+
     lines.push('');
   }
 
@@ -501,32 +536,65 @@ function buildRunComparisonSection(medianSummary, summaries) {
 
       for (const { metric, metricName } of scopeMetrics) {
         lines.push(`**${metric.name}**`, '');
-        const headerCols = ['Run', ...racers, 'Winner'];
+        const headerCols = ['Run', ...racers];
         lines.push(`| ${headerCols.join(' | ')} |`);
         lines.push(`|${headerCols.map(() => '---').join('|')}|`);
 
         for (let i = 0; i < summaries.length; i++) {
           const vals = racers.map((_, j) => summaries[i].profileMetrics?.[j]?.[scopeName]?.[metricName] ?? null);
-          const formatted = vals.map(v => v != null ? metric.format(v) : '-');
           const withData = vals.map((v, j) => v != null ? { j, v } : null).filter(Boolean).sort((a, b) => a.v - b.v);
-          let winner = '-';
-          if (withData.length >= 2 && withData[0].v !== withData[withData.length - 1].v) {
-            winner = racers[withData[0].j];
-          }
-          lines.push(`| ${i + 1} | ${formatted.join(' | ')} | ${winner} |`);
+          const bestVal = (withData.length >= 2 && withData[0].v !== withData[withData.length - 1].v) ? withData[0].v : null;
+          const winnerIdx = bestVal != null ? withData[0].j : -1;
+          const formatted = vals.map((v, j) => {
+            if (v == null) return '-';
+            if (j === winnerIdx) return `${metric.format(v)} (\uD83C\uDFC6)`;
+            if (bestVal != null) return `${metric.format(v)} (+${metric.format(v - bestVal)})`;
+            return metric.format(v);
+          });
+          lines.push(`| ${i + 1} | ${formatted.join(' | ')} |`);
         }
 
         // Median row
         const medVals = racers.map((_, j) => medianSummary.profileMetrics?.[j]?.[scopeName]?.[metricName] ?? null);
         const medWithData = medVals.map((v, j) => v != null ? { j, v } : null).filter(Boolean).sort((a, b) => a.v - b.v);
         if (medVals.some(v => v != null)) {
-          const formatted = medVals.map(v => v != null ? `**${metric.format(v)}**` : '-');
-          let winner = '-';
-          if (medWithData.length >= 2 && medWithData[0].v !== medWithData[medWithData.length - 1].v) {
-            winner = `**${racers[medWithData[0].j]}**`;
-          }
-          lines.push(`| **Median** | ${formatted.join(' | ')} | ${winner} |`);
+          const bestMedVal = (medWithData.length >= 2 && medWithData[0].v !== medWithData[medWithData.length - 1].v) ? medWithData[0].v : null;
+          const medWinnerIdx = bestMedVal != null ? medWithData[0].j : -1;
+          const formatted = medVals.map((v, j) => {
+            if (v == null) return '-';
+            const f = metric.format(v);
+            let content;
+            if (j === medWinnerIdx) content = `${f} (\uD83C\uDFC6)`;
+            else if (bestMedVal != null) content = `${f} (+${metric.format(v - bestMedVal)})`;
+            else content = f;
+            return `**${content}**`;
+          });
+          lines.push(`| **Median** | ${formatted.join(' | ')} |`);
         }
+
+        // Average row
+        const avgVals = racers.map((_, j) => {
+          const vals = summaries
+            .map(s => s.profileMetrics?.[j]?.[scopeName]?.[metricName] ?? null)
+            .filter(v => v != null);
+          return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+        });
+        if (avgVals.some(v => v != null)) {
+          const avgWithData = avgVals.map((v, j) => v != null ? { j, v } : null).filter(Boolean).sort((a, b) => a.v - b.v);
+          const bestAvgVal = (avgWithData.length >= 2 && avgWithData[0].v !== avgWithData[avgWithData.length - 1].v) ? avgWithData[0].v : null;
+          const avgWinnerIdx = bestAvgVal != null ? avgWithData[0].j : -1;
+          const formatted = avgVals.map((v, j) => {
+            if (v == null) return '-';
+            const f = metric.format(v);
+            let content;
+            if (j === avgWinnerIdx) content = `${f} (\uD83C\uDFC6)`;
+            else if (bestAvgVal != null) content = `${f} (+${metric.format(v - bestAvgVal)})`;
+            else content = f;
+            return `**${content}**`;
+          });
+          lines.push(`| **Average** | ${formatted.join(' | ')} |`);
+        }
+
         lines.push('');
       }
     }

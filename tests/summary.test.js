@@ -185,9 +185,10 @@ describe('buildMarkdownSummary', () => {
     expect(md).toContain("It's a Tie!");
   });
 
-  it('includes results table with measurements and no Diff column', () => {
+  it('includes results table with trophy for winner and delta for loser', () => {
     const md = buildMarkdownSummary(makeSummary());
-    expect(md).toMatch(/^\| Load \| 1\.000s \| 2\.000s \| lauda \|$/m);
+    expect(md).toMatch(/Load.*1\.000s \(🏆\).*2\.000s \(\+1\.000s\)/);
+    expect(md).not.toMatch(/\| Winner \|/);
     expect(md).not.toContain('Diff');
   });
 
@@ -245,7 +246,7 @@ describe('buildMarkdownSummary', () => {
       }],
     });
     const md = buildMarkdownSummary(summary);
-    expect(md).toMatch(/^\| Load \| 1\.500s \| - \| - \|$/m);
+    expect(md).toMatch(/^\| Load \| 1\.500s \| - \|$/m);
   });
 });
 
@@ -372,7 +373,7 @@ describe('buildMultiRunMarkdown', () => {
     expect(md).toContain('Run-by-Run Comparison');
     expect(md).toContain('#### Load');
     expect(md).toContain('| **Median** |');
-    expect(md).toContain('**2.000s**');
+    expect(md).toContain('2.000s (\uD83C\uDFC6)');
     expect(md).toContain('</details>');
   });
 

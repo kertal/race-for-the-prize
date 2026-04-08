@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isUrl, deriveRacerName, buildDefaultRaceScript, applyDefaults } from '../cli/config.js';
+import { isUrl, deriveRacerName, buildDefaultRaceScript, applyDefaults, coerceBooleanSetting } from '../cli/config.js';
 
 describe('isUrl', () => {
   it('recognizes https URLs', () => {
@@ -153,5 +153,22 @@ describe('applyDefaults', () => {
     const result = applyDefaults({ slowmo: 0, parallel: false });
     expect(result.slowmo).toBe(0);
     expect(result.parallel).toBe(false);
+  });
+
+  it('coerces string headless (and other booleans) from settings.json', () => {
+    expect(applyDefaults({ headless: 'false' }).headless).toBe(false);
+    expect(applyDefaults({ headless: 'true' }).headless).toBe(true);
+    expect(applyDefaults({ headless: '0' }).headless).toBe(false);
+    expect(applyDefaults({ parallel: 'no' }).parallel).toBe(false);
+  });
+});
+
+describe('coerceBooleanSetting', () => {
+  it('maps common string forms', () => {
+    expect(coerceBooleanSetting('false')).toBe(false);
+    expect(coerceBooleanSetting('true')).toBe(true);
+    expect(coerceBooleanSetting('')).toBe(false);
+    expect(coerceBooleanSetting('1')).toBe(true);
+    expect(coerceBooleanSetting('0')).toBe(false);
   });
 });

@@ -117,6 +117,34 @@ try {
 `;
 }
 
+/** Settings keys that must be real booleans (JSON often has strings — "false" is truthy in JS). */
+const BOOLEAN_SETTING_KEYS = [
+  'parallel',
+  'headless',
+  'noOverlay',
+  'noRecording',
+  'ffmpeg',
+  'har',
+  'noWasm',
+  'noServe',
+  'pauseBetweenRuns',
+  'ignoreHTTPSErrors',
+];
+
+/**
+ * Coerce a settings value to boolean. Strings like "false" / "0" / "no" → false.
+ */
+export function coerceBooleanSetting(value) {
+  if (value === true || value === 1) return true;
+  if (value === false || value === 0 || value === null || value === undefined) return false;
+  if (typeof value === 'string') {
+    const s = value.trim().toLowerCase();
+    if (s === 'true' || s === '1' || s === 'yes') return true;
+    if (s === 'false' || s === '0' || s === 'no' || s === '') return false;
+  }
+  return Boolean(value);
+}
+
 /**
  * Apply default values for all settings properties.
  * Call after applyOverrides to ensure every key has a defined value.
@@ -129,7 +157,7 @@ export function applyDefaults(settings) {
   const cleaned = Object.fromEntries(
     Object.entries(settings).filter(([k, v]) => v != null || preserveNullKeys.has(k))
   );
-  return {
+  const result = {
     parallel: false,
     headless: false,
     noOverlay: false,
@@ -148,6 +176,10 @@ export function applyDefaults(settings) {
     runs: 1,
     ...cleaned,
   };
+  for (const key of BOOLEAN_SETTING_KEYS) {
+    if (key in result) result[key] = coerceBooleanSetting(result[key]);
+  }
+  return result;
 }
 
 const VALID_NETWORKS = ['none', 'slow-3g', 'fast-3g', '4g'];
@@ -156,6 +188,7 @@ const VALID_FORMATS = ['webm', 'mov', 'gif'];
 export function applyOverrides(settings, boolFlags, kvFlags) {
   const s = { ...settings };
   if (boolFlags.has('parallel')) s.parallel = true;
+  if (boolFlags.has('headed')) s.headless = false;
   if (boolFlags.has('headless')) s.headless = true;
   if (boolFlags.has('no-overlay')) s.noOverlay = true;
   if (boolFlags.has('no-recording')) s.noRecording = true;

@@ -276,11 +276,37 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
 
   const racerColors = racers.map((_, i) => RACER_CSS_COLORS[i % RACER_CSS_COLORS.length]);
   const coloredHeader = racers.map((r, i) => `<th style="color:${racerColors[i]}">${escHtml(r)}</th>`).join('');
-  const winnerCell = (name) => {
-    if (!name) return '-';
-    const idx = racers.indexOf(name);
-    const color = idx >= 0 ? racerColors[idx] : '';
-    return color ? `<span style="color:${color}">${escHtml(name)}</span>` : escHtml(name);
+
+  /** Format a duration cell: trophy for winner, delta for losers. */
+  const durationCell = (dur, bestDur, isWinner, bold) => {
+    if (dur == null) return bold ? '<td><strong>-</strong></td>' : '<td>-</td>';
+    const val = dur.toFixed(3) + 's';
+    let content;
+    if (isWinner) {
+      content = `${escHtml(val)} (\uD83C\uDFC6)`;
+    } else if (bestDur != null) {
+      const delta = `+${(dur - bestDur).toFixed(3)}s`;
+      content = `${escHtml(val)} <span style="opacity:0.5">(${escHtml(delta)})</span>`;
+    } else {
+      content = escHtml(val);
+    }
+    return bold ? `<td><strong>${content}</strong></td>` : `<td>${content}</td>`;
+  };
+
+  /** Format a generic value cell: trophy for winner, delta for losers. */
+  const valueCell = (val, bestVal, isWinner, formatFn, bold) => {
+    if (val == null) return bold ? '<td><strong>-</strong></td>' : '<td>-</td>';
+    const formatted = formatFn(val);
+    let content;
+    if (isWinner) {
+      content = `${escHtml(formatted)} (\uD83C\uDFC6)`;
+    } else if (bestVal != null) {
+      const delta = `+${formatFn(val - bestVal)}`;
+      content = `${escHtml(formatted)} <span style="opacity:0.5">(${escHtml(delta)})</span>`;
+    } else {
+      content = escHtml(formatted);
+    }
+    return bold ? `<td><strong>${content}</strong></td>` : `<td>${content}</td>`;
   };
 
   let html = `<details class="section">\n  <summary><h2>Run-by-Run Comparison</h2></summary>\n  <div class="section-body">`;
@@ -290,38 +316,57 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
     html += `<h3>${escHtml(name)}</h3>\n`;
     html += `<table class="run-comparison-table"><thead><tr><th>Run</th>`;
     html += coloredHeader;
-    html += `<th>Winner</th></tr></thead><tbody>`;
+    html += `</tr></thead><tbody>`;
 
     for (let i = 0; i < summaries.length; i++) {
       const comp = summaries[i].comparisons.find(c => c.name === name);
       html += `<tr><td>${i + 1}</td>`;
       if (!comp) {
         for (const _ of racers) html += `<td>-</td>`;
-        html += `<td>-</td></tr>`;
+        html += `</tr>`;
         continue;
       }
+      const bestDur = comp.winner ? comp.racers[racers.indexOf(comp.winner)]?.duration : null;
       for (let j = 0; j < racers.length; j++) {
         const r = comp.racers[j];
-        html += `<td>${r ? escHtml(r.duration.toFixed(3) + 's') : '-'}</td>`;
+        html += durationCell(r?.duration, bestDur, comp.winner === racers[j], false);
       }
-      html += `<td>${winnerCell(comp.winner)}</td></tr>`;
+      html += `</tr>`;
     }
 
     const medComp = medianSummary.comparisons.find(c => c.name === name);
     if (medComp) {
+      const bestDur = medComp.winner ? medComp.racers[racers.indexOf(medComp.winner)]?.duration : null;
       html += `<tr class="run-comparison-median"><td><strong>Median</strong></td>`;
       for (let j = 0; j < racers.length; j++) {
-        const r = medComp.racers[j];
-        html += `<td><strong>${r ? escHtml(r.duration.toFixed(3) + 's') : '-'}</strong></td>`;
+        html += durationCell(medComp.racers[j]?.duration, bestDur, medComp.winner === racers[j], true);
       }
-      html += `<td><strong>${winnerCell(medComp.winner)}</strong></td></tr>`;
+      html += `</tr>`;
     }
+
+    // Average row
+    const avgDurations = racers.map((_, j) => {
+      const vals = summaries
+        .map(s => s.comparisons.find(c => c.name === name)?.racers[j]?.duration)
+        .filter(d => d != null);
+      return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    });
+    if (avgDurations.some(v => v != null)) {
+      const validAvg = avgDurations.filter(v => v != null);
+      const bestAvg = validAvg.length >= 2 ? Math.min(...validAvg) : null;
+      html += `<tr class="run-comparison-median"><td><strong>Average</strong></td>`;
+      for (let j = 0; j < racers.length; j++) {
+        const isWinner = bestAvg != null && avgDurations[j] === bestAvg;
+        html += durationCell(avgDurations[j], bestAvg, isWinner, true);
+      }
+      html += `</tr>`;
+    }
+
     html += `</tbody></table>`;
   }
 
   // --- Performance metrics comparisons ---
   if (hasProfileData) {
-    // Collect metrics that have data in at least one run
     const metricsWithData = [];
     for (const [key, metric] of Object.entries(PROFILE_METRICS)) {
       const [scope, metricName] = key.split('.');
@@ -332,7 +377,6 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
     }
 
     if (metricsWithData.length > 0) {
-      // Group by scope
       const scopes = [
         { scope: 'measured', title: 'During Measurement' },
         { scope: 'total', title: 'Total Session' },
@@ -347,21 +391,17 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
           html += `<h4>${escHtml(metric.name)}</h4>\n`;
           html += `<table class="run-comparison-table"><thead><tr><th>Run</th>`;
           html += coloredHeader;
-          html += `<th>Winner</th></tr></thead><tbody>`;
+          html += `</tr></thead><tbody>`;
 
           for (let i = 0; i < summaries.length; i++) {
             const s = summaries[i];
             html += `<tr><td>${i + 1}</td>`;
             const vals = racers.map((_, j) => s.profileMetrics?.[j]?.[scopeName]?.[metricName] ?? null);
-            for (const v of vals) {
-              html += `<td>${v != null ? escHtml(metric.format(v)) : '-'}</td>`;
-            }
-            // Determine per-run winner (lower is better)
             const withData = vals.map((v, j) => v != null ? { j, v } : null).filter(Boolean).sort((a, b) => a.v - b.v);
-            if (withData.length >= 2 && withData[0].v !== withData[withData.length - 1].v) {
-              html += `<td>${winnerCell(racers[withData[0].j])}</td>`;
-            } else {
-              html += `<td>-</td>`;
+            const bestVal = (withData.length >= 2 && withData[0].v !== withData[withData.length - 1].v) ? withData[0].v : null;
+            const winnerIdx = bestVal != null ? withData[0].j : -1;
+            for (let j = 0; j < racers.length; j++) {
+              html += valueCell(vals[j], bestVal, j === winnerIdx, metric.format.bind(metric), false);
             }
             html += `</tr>`;
           }
@@ -370,17 +410,33 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
           const medVals = racers.map((_, j) => medianSummary.profileMetrics?.[j]?.[scopeName]?.[metricName] ?? null);
           const medWithData = medVals.map((v, j) => v != null ? { j, v } : null).filter(Boolean).sort((a, b) => a.v - b.v);
           if (medVals.some(v => v != null)) {
+            const bestMedVal = (medWithData.length >= 2 && medWithData[0].v !== medWithData[medWithData.length - 1].v) ? medWithData[0].v : null;
+            const medWinnerIdx = bestMedVal != null ? medWithData[0].j : -1;
             html += `<tr class="run-comparison-median"><td><strong>Median</strong></td>`;
-            for (const v of medVals) {
-              html += `<td><strong>${v != null ? escHtml(metric.format(v)) : '-'}</strong></td>`;
-            }
-            if (medWithData.length >= 2 && medWithData[0].v !== medWithData[medWithData.length - 1].v) {
-              html += `<td><strong>${winnerCell(racers[medWithData[0].j])}</strong></td>`;
-            } else {
-              html += `<td>-</td>`;
+            for (let j = 0; j < racers.length; j++) {
+              html += valueCell(medVals[j], bestMedVal, j === medWinnerIdx, metric.format.bind(metric), true);
             }
             html += `</tr>`;
           }
+
+          // Average row
+          const avgVals = racers.map((_, j) => {
+            const vals = summaries
+              .map(s => s.profileMetrics?.[j]?.[scopeName]?.[metricName] ?? null)
+              .filter(v => v != null);
+            return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+          });
+          if (avgVals.some(v => v != null)) {
+            const avgWithData = avgVals.map((v, j) => v != null ? { j, v } : null).filter(Boolean).sort((a, b) => a.v - b.v);
+            const bestAvgVal = (avgWithData.length >= 2 && avgWithData[0].v !== avgWithData[avgWithData.length - 1].v) ? avgWithData[0].v : null;
+            const avgWinnerIdx = bestAvgVal != null ? avgWithData[0].j : -1;
+            html += `<tr class="run-comparison-median"><td><strong>Average</strong></td>`;
+            for (let j = 0; j < racers.length; j++) {
+              html += valueCell(avgVals[j], bestAvgVal, j === avgWinnerIdx, metric.format.bind(metric), true);
+            }
+            html += `</tr>`;
+          }
+
           html += `</tbody></table>`;
         }
       }
