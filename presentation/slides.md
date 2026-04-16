@@ -40,7 +40,7 @@ style: |
 
 <br>
 
-**Pit two browsers against each other. Measure everything. Declare a winner.**
+**Pit 2 to 5 browsers against each other. Measure everything. Declare a winner.**
 
 <br>
 
@@ -70,19 +70,20 @@ style: |
 <!-- Slide 3: How It Works -->
 ## How It Works
 
-*Two scripts. Two browsers. One winner.*
+*Write scripts. Launch browsers. One winner.*
 
 <br>
 
-- Write **two Playwright `.spec.js` scripts**
-- Add **four race API calls** to define start, stop, and recording
+- Write **2 to 5 Playwright `.spec.js` scripts** — or scaffold with `--init`
+- Add **race API calls** to define start, stop, and recording boundaries
 - Run the CLI — get results, video, and a full report
 
 <br>
 
 ```bash
 npm install && npx playwright install chromium
-node race.js ./races/lauda-vs-hunt
+node race.js --init my-race          # scaffold a starter race
+node race.js ./races/lauda-vs-hunt   # run a built-in race
 ```
 
 ---
@@ -90,7 +91,7 @@ node race.js ./races/lauda-vs-hunt
 <!-- Slide 4: The Race API -->
 ## The Race API
 
-*Wrap any Playwright script with four calls.*
+*Wrap any Playwright script with a few calls.*
 
 <br>
 
@@ -99,12 +100,15 @@ await page.raceRecordingStart();          // 📹 Start recording
 await page.raceStart('Scroll to Bottom'); // ⏱ Start timer
 
 // ... your Playwright interactions here ...
+page.raceMessage('halfway there');        // 💬 Status update in terminal
 
 page.raceEnd('Scroll to Bottom');         // ⏱ Stop timer
 await page.raceRecordingEnd();            // 📹 Stop recording
 ```
 
 <br>
+
+Also available: `raceWaitForVisualStability()` — wait for rendering to settle before measuring.
 
 > Any existing Playwright script can become a racer in minutes.
 
@@ -121,7 +125,27 @@ await page.raceRecordingEnd();            // 📹 Stop recording
 
 ---
 
-<!-- Slide 6: What You Get -->
+<!-- Slide 6: Use Cases -->
+## What Can You Race?
+
+*If you can script it in Playwright, you can race it.*
+
+<br>
+
+**A/B test your own app** — point two racers at production vs staging, measure checkout flow, login, search
+
+**Compare frameworks** — React vs Svelte vs Angular vs htmx loading the same TodoMVC benchmark (up to 5 racers)
+
+**Measure a single change** — lazy loading on vs off, with vs without a feature flag
+
+**Quantify third-party cost** — race a page with and without analytics, chat widgets, or ad scripts
+
+**Monitor over time** — run the same race weekly in CI, fail the build if performance regresses
+
+---
+
+<!-- Slide 7: What You Get -->
+
 ## What You Get
 
 *Every race produces a full set of results.*
@@ -130,10 +154,12 @@ await page.raceRecordingEnd();            // 📹 Stop recording
 
 | Output | Description |
 |---|---|
-| `index.html` | Interactive video player — watch both racers |
-| `README.md` | Medal table, timings, machine info |
+| `index.html` | Interactive video player with segment navigation |
+| `README.md` | Medal table, timings, percentage diffs, machine info |
 | `summary.json` | CI-ready structured results |
 | `*.race.webm` | Trimmed, frame-accurate recordings |
+| `*.trace.json` | Chrome performance traces (open in `chrome://tracing`) |
+| `*.har` | Network traffic logs (with `--har`) |
 
 <br>
 
@@ -141,7 +167,55 @@ await page.raceRecordingEnd();            // 📹 Stop recording
 
 ---
 
-<!-- Slide 7: Get Started -->
+<!-- Slide 8: Advanced Features -->
+## Advanced Features
+
+*Simulate the real world. Automate the results.*
+
+<br>
+
+| Feature | Flag | What it does |
+|---|---|---|
+| Multiple runs | `--runs=5` | Median wins — smooths out noise |
+| Network throttling | `--network=slow-3g` | Simulate 3G/4G conditions via CDP |
+| CPU throttling | `--cpu=4` | Slow down the CPU by 4x |
+| Parallel mode | `--parallel` | Side-by-side spectacle for demos |
+| Setup/teardown | `setup.sh` | Start servers, seed databases automatically |
+| Slow-motion | `--slowmo=2` | Replay at 2x slower for presentations |
+| HAR recording | `--har` | Capture full network traffic logs |
+
+<br>
+
+> CLI flags always override `settings.json`. The stewards have spoken.
+
+---
+
+<!-- Slide 9: CI Integration -->
+## CI Integration
+
+*Performance as a pass/fail criterion — just like your unit tests.*
+
+<br>
+
+```bash
+node race.js ./races/my-race --headless --no-serve --runs=3
+```
+
+<br>
+
+- `--headless` — no visible browsers needed on CI runners
+- `--no-serve` — skip auto-opening the results page
+- `--runs=3` — median of 3 runs for stable results
+- **`summary.json`** — machine-readable output for CI pipelines
+- Exit code reflects race success — integrate with any CI system
+
+<br>
+
+> Drop the `README.md` report straight into a PR description.
+
+---
+
+<!-- Slide 10: Get Started -->
 ## Get Started
 
 *Three steps to your first race.*
@@ -155,5 +229,7 @@ await page.raceRecordingEnd();            // 📹 Stop recording
 **3. Explore**  `lauda-vs-hunt` · `lebron-vs-curry` · `react-vs-angular`
 
 <br>
+
+Or install globally: `npm install -g race-for-the-prize` and run from anywhere.
 
 > "May the fastest browser win."
