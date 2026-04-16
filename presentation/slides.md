@@ -36,34 +36,30 @@ style: |
 <!-- Slide 1: Title -->
 # 🏆 RaceForThePrize
 
-## *Browser Performance. Head-to-Head. No Judges.*
+## *Browser Performance. Head-to-Head.*
 
 <br>
 
-**Pit 2 to 5 browsers against each other. Measure everything. Declare a winner.**
+**Pit browsers against each other. Measure everything. Declare a winner.**
 
 <br>
 
-*A Playwright-powered CLI performance benchmarking tool*
+*A Playwright-powered CLI benchmarking tool*
 
 ---
 
-<!-- Slide 2: Positioning -->
-## Numbers Tell You *What*. Racing Shows You *Why*.
-
-*Traditional benchmarks and RaceForThePrize are complementary.*
+<!-- Slide 2: The Problem -->
+## You Have Metrics. But Do You Have *Proof*?
 
 <br>
 
-| Traditional Benchmarking | RaceForThePrize |
-|---|---|
-| Lighthouse score: **72 → 81** | Side-by-side video of both loading |
-| LCP: 3.2s → 2.1s | Watch the faster page paint first |
-| CI metric regressed by 8% | Replay exactly what changed |
+- Lighthouse score: **72 → 81** — *which change did it?*
+- LCP improved by 34% — *can you actually see that?*
+- CI is red — *what exactly regressed?*
 
 <br>
 
-> Traditional tools give you the **numbers**. RaceForThePrize gives you the **comparison**.
+> RaceForThePrize makes performance **visible**. Side by side. In milliseconds.
 
 ---
 
@@ -74,16 +70,14 @@ style: |
 
 <br>
 
-- Write **2 to 5 Playwright `.spec.js` scripts** — or scaffold with `--init`
-- Add **race API calls** to define start, stop, and recording boundaries
-- Run the CLI — get results, video, and a full report
+- Write **Playwright `.spec.js` scripts** — one per contender
+- Add **3 race API calls** to define start, stop, recording
+- Run the CLI — get video, timings, and a full report
 
 <br>
 
 ```bash
-npm install && npx playwright install chromium
-node race.js --init my-race          # scaffold a starter race
-node race.js ./races/lauda-vs-hunt   # run a built-in race
+node race.js ./races/lauda-vs-hunt
 ```
 
 ---
@@ -96,21 +90,18 @@ node race.js ./races/lauda-vs-hunt   # run a built-in race
 <br>
 
 ```javascript
-await page.raceRecordingStart();          // 📹 Start recording
-await page.raceStart('Scroll to Bottom'); // ⏱ Start timer
+await page.raceRecordingStart();
+await page.raceStart('Page Load');
 
-// ... your Playwright interactions here ...
-page.raceMessage('halfway there');        // 💬 Status update in terminal
+// ... your Playwright interactions ...
 
-page.raceEnd('Scroll to Bottom');         // ⏱ Stop timer
-await page.raceRecordingEnd();            // 📹 Stop recording
+page.raceEnd('Page Load');
+await page.raceRecordingEnd();
 ```
 
 <br>
 
-Also available: `raceWaitForVisualStability()` — wait for rendering to settle before measuring.
-
-> Any existing Playwright script can become a racer in minutes.
+> Any existing Playwright script becomes a racer in minutes.
 
 ---
 
@@ -125,64 +116,45 @@ Also available: `raceWaitForVisualStability()` — wait for rendering to settle 
 
 ---
 
-<!-- Slide 6: Use Cases -->
-## What Can You Race?
+<!-- Slide 6: Race Anything -->
+## Race Anything
 
 *If you can script it in Playwright, you can race it.*
 
 <br>
 
-**A/B test your own app** — point two racers at production vs staging, measure checkout flow, login, search
-
-**Compare frameworks** — React vs Svelte vs Angular vs htmx loading the same TodoMVC benchmark (up to 5 racers)
-
-**Measure a single change** — lazy loading on vs off, with vs without a feature flag
-
-**Quantify third-party cost** — race a page with and without analytics, chat widgets, or ad scripts
-
-**Monitor over time** — run the same race weekly in CI, fail the build if performance regresses
+- **Production vs. Staging** — checkout flow, login, search
+- **React vs. Svelte vs. Angular** — same app, real numbers
+- **Feature flag on vs. off** — lazy loading, third-party scripts
+- **Weekly in CI** — fail the build if performance regresses
 
 ---
 
 <!-- Slide 7: What You Get -->
-
-## What You Get
-
-*Every race produces a full set of results.*
+## Every Race Ships With
 
 <br>
 
-| Output | Description |
-|---|---|
-| `index.html` | Interactive video player with segment navigation |
-| `README.md` | Medal table, timings, percentage diffs, machine info |
-| `summary.json` | CI-ready structured results |
-| `*.race.webm` | Trimmed, frame-accurate recordings |
-| `*.trace.json` | Chrome performance traces (open in `chrome://tracing`) |
-| `*.har` | Network traffic logs (with `--har`) |
+- **Interactive HTML player** — video with segment navigation
+- **Markdown report** — medal table, timings, diffs, machine info
+- **`summary.json`** — structured results for CI pipelines
+- **Chrome traces + HAR** — deep-dive when you need it
 
 <br>
 
-> Add `--runs=5 --network=slow-3g --cpu=4` to simulate real-world conditions.
+> Drop the report straight into a PR description.
 
 ---
 
-<!-- Slide 8: Advanced Features -->
-## Advanced Features
-
-*Simulate the real world. Automate the results.*
+<!-- Slide 8: Real-World Conditions -->
+## Simulate the Real World
 
 <br>
 
-| Feature | Flag | What it does |
-|---|---|---|
-| Multiple runs | `--runs=5` | Median wins — smooths out noise |
-| Network throttling | `--network=slow-3g` | Simulate 3G/4G conditions via CDP |
-| CPU throttling | `--cpu=4` | Slow down the CPU by 4x |
-| Parallel mode | `--parallel` | Side-by-side spectacle for demos |
-| Setup/teardown | `setup.sh` | Start servers, seed databases automatically |
-| Slow-motion | `--slowmo=2` | Replay at 2x slower for presentations |
-| HAR recording | `--har` | Capture full network traffic logs |
+- `--runs=5` — median wins, noise smoothed out
+- `--network=slow-3g` — throttle via CDP
+- `--cpu=4` — 4× slower for budget devices
+- `--headless` — runs on any CI system
 
 <br>
 
@@ -190,46 +162,21 @@ Also available: `raceWaitForVisualStability()` — wait for rendering to settle 
 
 ---
 
-<!-- Slide 9: CI Integration -->
-## CI Integration
-
-*Performance as a pass/fail criterion — just like your unit tests.*
-
-<br>
-
-```bash
-node race.js ./races/my-race --headless --no-serve --runs=3
-```
-
-<br>
-
-- `--headless` — no visible browsers needed on CI runners
-- `--no-serve` — skip auto-opening the results page
-- `--runs=3` — median of 3 runs for stable results
-- **`summary.json`** — machine-readable output for CI pipelines
-- Exit code reflects race success — integrate with any CI system
-
-<br>
-
-> Drop the `README.md` report straight into a PR description.
-
----
-
-<!-- Slide 10: Get Started -->
+<!-- Slide 9: Get Started -->
 ## Get Started
 
-*Three steps to your first race.*
+<br>
+
+**1.** `npm install && npx playwright install chromium`
+
+**2.** `node race.js ./races/lauda-vs-hunt`
+
+**3.** Pick a winner.
 
 <br>
 
-**1. Install**  `git clone` + `npm install` + `npx playwright install chromium`
-
-**2. Race**  `node race.js ./races/lauda-vs-hunt`
-
-**3. Explore**  `lauda-vs-hunt` · `lebron-vs-curry` · `react-vs-angular`
+Built-in races: `lauda-vs-hunt` · `lebron-vs-curry` · `react-vs-angular`
 
 <br>
 
-Or install globally: `npm install -g race-for-the-prize` and run from anywhere.
-
-> "May the fastest browser win."
+> *"May the fastest browser win."*
