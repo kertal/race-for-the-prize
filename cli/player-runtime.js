@@ -284,6 +284,7 @@ function onTimeUpdate() {
     setPlayState(false);
     scrubber.value = 1000;
     updateTimeDisplay();
+    updateTimelinePlayhead();
     return;
   }
   if (duration > 0) {
@@ -781,6 +782,8 @@ function buildSegmentNav() {
 
 const SEGMENT_COLORS = ['#e67e22', '#3498db', '#2ecc71', '#e74c3c', '#9b59b6', '#1abc9c', '#f1c40f', '#e91e63'];
 let timelineBuilt = false;
+let timelineVideoDur = 0;
+let timelineListenersAttached = false;
 
 function buildTimeline() {
   const timelineEl = document.getElementById('raceTimeline');
@@ -798,11 +801,8 @@ function buildTimeline() {
   const refVideo = raceVideos[refIdx];
   if (!refVideo || !isFinite(refVideo.duration) || refVideo.duration <= 0) return;
 
-  function getVideoDur() {
-    const v = raceVideos[refIdx];
-    return (v && isFinite(v.duration) && v.duration > 0) ? v.duration : 0;
-  }
-  const videoDur = getVideoDur();
+  const videoDur = refVideo.duration;
+  timelineVideoDur = videoDur;
   // Use aggregate clip bounds (same as resolveClip) instead of a single racer's clip
   const aggClip = resolveClip();
   const clipStart = aggClip ? aggClip.start : refCt.start;
@@ -888,96 +888,100 @@ function buildTimeline() {
     timelineLabels.appendChild(label);
   }
 
-  // Shared: activate a named segment (set clip times, seek, update UI)
-  function activateSegment(name) {
-    if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
-    activeSegmentName = name;
-    activeSegmentClipTimes = getSegmentClipTimes(name);
-    // Sync dropdown if the option exists
-    if (segmentNav && segmentNavBuilt) {
-      const hasOpt = Array.from(segmentNav.options).some(o => o.value === name);
-      if (hasOpt) segmentNav.value = name;
-    }
-    // Ensure we're on race-clip sources (not full recording)
-    if (fullVideoPaths && loadedSrcSet === 'full') {
-      detachVideoListeners();
-      raceVideos.forEach((v, i) => { v.src = resolvedRacePaths[i]; });
-      loadedSrcSet = 'race';
-      videos = raceVideos;
-      primary = videos[0];
-      attachVideoListeners();
-      duration = 0;
-      pendingSeek = () => {
+  // Event listeners are registered once; DOM elements are rebuilt idempotently above
+  if (!timelineListenersAttached) {
+    timelineListenersAttached = true;
+
+    // Shared: activate a named segment (set clip times, seek, update UI)
+    function activateSegment(name) {
+      if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
+      activeSegmentName = name;
+      activeSegmentClipTimes = getSegmentClipTimes(name);
+      // Sync dropdown if the option exists
+      if (segmentNav && segmentNavBuilt) {
+        const hasOpt = Array.from(segmentNav.options).some(o => o.value === name);
+        if (hasOpt) segmentNav.value = name;
+      }
+      // Ensure we're on race-clip sources (not full recording)
+      if (fullVideoPaths && loadedSrcSet === 'full') {
+        detachVideoListeners();
+        raceVideos.forEach((v, i) => { v.src = resolvedRacePaths[i]; });
+        loadedSrcSet = 'race';
+        videos = raceVideos;
+        primary = videos[0];
+        attachVideoListeners();
+        duration = 0;
+        pendingSeek = () => {
+          activeClip = resolveAdjustedClip();
+          seekAll(activeClip ? activeClip.start : 0);
+          scrubber.value = 0;
+          updateTimeDisplay();
+          updateTimelinePlayhead();
+        };
+      } else {
         activeClip = resolveAdjustedClip();
         seekAll(activeClip ? activeClip.start : 0);
         scrubber.value = 0;
         updateTimeDisplay();
         updateTimelinePlayhead();
-      };
-    } else {
-      activeClip = resolveAdjustedClip();
-      seekAll(activeClip ? activeClip.start : 0);
-      scrubber.value = 0;
-      updateTimeDisplay();
-      updateTimelinePlayhead();
+      }
+      updateTimelineActive(name);
     }
-    updateTimelineActive(name);
-  }
 
-  // Shared: seek to an arbitrary PTS position within the current video
-  function seekToTime(targetTime) {
-    if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
-    // Clear segment selection — we're seeking freely
-    activeSegmentName = null;
-    activeSegmentClipTimes = null;
-    activeClip = null;
-    if (segmentNav && segmentNavBuilt) segmentNav.value = '__full__';
-    updateTimelineActive(null);
-    // Switch to full sources if available, otherwise seek within race sources
-    if (fullVideoPaths && loadedSrcSet !== 'full') {
-      detachVideoListeners();
-      raceVideos.forEach((v, i) => { v.src = resolvedFullPaths[i]; });
-      loadedSrcSet = 'full';
-      videos = raceVideos;
-      primary = videos[0];
-      attachVideoListeners();
-      duration = 0;
-      pendingSeek = () => {
+    // Shared: seek to an arbitrary PTS position within the current video
+    function seekToTime(targetTime) {
+      if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
+      // Clear segment selection — we're seeking freely
+      activeSegmentName = null;
+      activeSegmentClipTimes = null;
+      activeClip = null;
+      if (segmentNav && segmentNavBuilt) segmentNav.value = '__full__';
+      updateTimelineActive(null);
+      // Switch to full sources if available, otherwise seek within race sources
+      if (fullVideoPaths && loadedSrcSet !== 'full') {
+        detachVideoListeners();
+        raceVideos.forEach((v, i) => { v.src = resolvedFullPaths[i]; });
+        loadedSrcSet = 'full';
+        videos = raceVideos;
+        primary = videos[0];
+        attachVideoListeners();
+        duration = 0;
+        pendingSeek = () => {
+          seekAll(targetTime);
+          const d = clipDuration();
+          if (d > 0) scrubber.value = ((targetTime - clipOffset()) / d) * 1000;
+          updateTimeDisplay();
+          updateTimelinePlayhead();
+        };
+      } else {
         seekAll(targetTime);
         const d = clipDuration();
         if (d > 0) scrubber.value = ((targetTime - clipOffset()) / d) * 1000;
         updateTimeDisplay();
         updateTimelinePlayhead();
-      };
-    } else {
-      seekAll(targetTime);
-      const d = clipDuration();
-      if (d > 0) scrubber.value = ((targetTime - clipOffset()) / d) * 1000;
-      updateTimeDisplay();
-      updateTimelinePlayhead();
+      }
     }
+
+    // Click on timeline bar
+    timelineBar.addEventListener('click', (e) => {
+      const segEl = e.target.closest('.timeline-segment');
+      if (segEl) {
+        activateSegment(segEl.dataset.segmentName);
+        return;
+      }
+      // Click on bar background → seek to that position
+      const rect = timelineBar.getBoundingClientRect();
+      const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      seekToTime(pct * timelineVideoDur);
+    });
+
+    // Click on label → activate that segment
+    timelineLabels.addEventListener('click', (e) => {
+      const label = e.target.closest('.timeline-label');
+      if (!label) return;
+      activateSegment(label.dataset.segmentName);
+    });
   }
-
-  // Click on timeline bar
-  timelineBar.addEventListener('click', (e) => {
-    const segEl = e.target.closest('.timeline-segment');
-    if (segEl) {
-      activateSegment(segEl.dataset.segmentName);
-      return;
-    }
-    // Click on bar background → seek to that position
-    const rect = timelineBar.getBoundingClientRect();
-    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const dur = getVideoDur() || videoDur;
-    seekToTime(pct * dur);
-  });
-
-  // Click on label → activate that segment
-  timelineLabels.addEventListener('click', (e) => {
-    const label = e.target.closest('.timeline-label');
-    if (!label) return;
-    activateSegment(label.dataset.segmentName);
-  });
 
   timelineEl.style.display = '';
 }
@@ -997,14 +1001,16 @@ function updateTimelineActive(name) {
 }
 
 function updateTimelinePlayhead() {
-  if (!timelineBuilt) return;
+  if (!timelineBuilt || timelineVideoDur <= 0) return;
   const playhead = document.getElementById('timelinePlayhead');
   if (!playhead) return;
   const refIdx = clipTimes ? clipTimes.findIndex(ct => ct && ct._converted) : -1;
   if (refIdx < 0) return;
   const refVideo = raceVideos[refIdx];
-  if (!refVideo || !Number.isFinite(refVideo.duration) || refVideo.duration <= 0) return;
-  const pct = (refVideo.currentTime / refVideo.duration) * 100;
+  if (!refVideo) return;
+  // Use the stored timeline duration (from build time) so the playhead stays
+  // correctly positioned even when video sources change (race vs full).
+  const pct = Math.max(0, Math.min(100, (refVideo.currentTime / timelineVideoDur) * 100));
   playhead.style.left = pct + '%';
 }
 
@@ -1213,6 +1219,7 @@ function goToStart() {
   seekAll(activeClip ? activeClip.start : 0);
   scrubber.value = 0;
   updateTimeDisplay();
+  updateTimelinePlayhead();
 }
 
 function goToEnd() {
@@ -1220,6 +1227,7 @@ function goToEnd() {
   seekAll(activeClip ? activeClip.end : duration);
   scrubber.value = 1000;
   updateTimeDisplay();
+  updateTimelinePlayhead();
 }
 
 document.getElementById('goStart').addEventListener('click', goToStart);
