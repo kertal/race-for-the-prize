@@ -17,13 +17,19 @@ describe('c (ANSI color codes)', () => {
 
 describe('RaceAnimation', () => {
   let stderrSpy;
+  let originalIsTTY;
 
   beforeEach(() => {
     stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    originalIsTTY = process.stderr.isTTY;
+    // Force TTY mode so the animated path (spinner + cursor codes) is exercised
+    // even under vitest's non-TTY stderr.
+    Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
   });
 
   afterEach(() => {
     stderrSpy.mockRestore();
+    Object.defineProperty(process.stderr, 'isTTY', { value: originalIsTTY, configurable: true });
   });
 
   it('initializes with correct state', () => {
@@ -125,13 +131,17 @@ describe('RaceAnimation', () => {
 
 describe('startProgress', () => {
   let stderrSpy;
+  let originalIsTTY;
 
   beforeEach(() => {
     stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    originalIsTTY = process.stderr.isTTY;
+    Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
   });
 
   afterEach(() => {
     stderrSpy.mockRestore();
+    Object.defineProperty(process.stderr, 'isTTY', { value: originalIsTTY, configurable: true });
   });
 
   it('writes initial message to stderr', () => {

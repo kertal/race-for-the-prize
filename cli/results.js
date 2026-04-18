@@ -92,14 +92,24 @@ export function copyFFmpegFiles(destDir) {
   const ffmpegDir = path.join(destDir, 'ffmpeg');
   try {
     const require = createRequire(import.meta.url);
-    // Resolve package root by walking up from the main entry point to find package.json,
-    // then construct the dist/esm path explicitly for reliable resolution.
-    const ffmpegEntry = require.resolve('@ffmpeg/ffmpeg');
-    const ffmpegRoot = path.join(path.dirname(ffmpegEntry), '..', '..');
-    const ffmpegEsmDir = path.join(ffmpegRoot, 'dist', 'esm');
-    const coreEntry = require.resolve('@ffmpeg/core');
-    const coreRoot = path.join(path.dirname(coreEntry), '..', '..');
-    const coreEsmDir = path.join(coreRoot, 'dist', 'esm');
+    // Resolve package roots by finding the nearest package.json walking up from
+    // the resolved entry point. Using `require.resolve('@ffmpeg/ffmpeg/package.json')`
+    // directly fails when the package.json isn't listed in the `exports` map.
+    const findPackageRoot = (specifier) => {
+      let dir = path.dirname(require.resolve(specifier));
+      while (dir !== path.dirname(dir)) {
+        if (fs.existsSync(path.join(dir, 'package.json'))) {
+          try {
+            const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf-8'));
+            if (pkg.name === specifier) return dir;
+          } catch {}
+        }
+        dir = path.dirname(dir);
+      }
+      throw new Error(`Could not locate package root for ${specifier}`);
+    };
+    const ffmpegEsmDir = path.join(findPackageRoot('@ffmpeg/ffmpeg'), 'dist', 'esm');
+    const coreEsmDir = path.join(findPackageRoot('@ffmpeg/core'), 'dist', 'esm');
 
     fs.mkdirSync(ffmpegDir, { recursive: true });
 

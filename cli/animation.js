@@ -8,8 +8,19 @@ const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', 
 const SPINNER_INTERVAL_MS = 100;
 const TICK_INTERVAL_MS = 120;
 
+const isTTY = () => Boolean(process.stderr.isTTY);
+
 export function startProgress(msg) {
   let idx = 0;
+  if (!isTTY()) {
+    // Non-TTY: print once, skip spinner animation and cursor escapes.
+    process.stderr.write(`  ${msg}\n`);
+    return {
+      update(newMsg) { msg = newMsg; },
+      done(doneMsg) { process.stderr.write(`  ✓ ${doneMsg || msg}\n`); },
+      fail(failMsg) { process.stderr.write(`  ${failMsg || msg}\n`); },
+    };
+  }
   const write = () => {
     process.stderr.write(`\r  ${c.cyan}${SPINNER[idx]}${c.reset} ${c.dim}${msg}${c.reset}\x1b[K`);
     idx = (idx + 1) % SPINNER.length;
@@ -42,7 +53,8 @@ export class RaceAnimation {
   }
 
   start() {
-    process.stderr.write(c.hideCursor);
+    this.tty = isTTY();
+    if (this.tty) process.stderr.write(c.hideCursor);
     // Build dynamic header with all racer names
     const coloredNames = this.names.map((name, i) => {
       const color = RACER_COLORS[i % RACER_COLORS.length];
@@ -52,7 +64,8 @@ export class RaceAnimation {
     let header = `\n  ${c.bold}RaceForThePrize${c.reset} 🏆  ${vsString}`;
     if (this.info) header += `\n  ${c.dim}${this.info}${c.reset}`;
     process.stderr.write(header + '\n\n');
-    this.interval = setInterval(() => this._tick(), TICK_INTERVAL_MS);
+    // Non-TTY: skip the tick animation; messages will be printed as they arrive.
+    if (this.tty) this.interval = setInterval(() => this._tick(), TICK_INTERVAL_MS);
   }
 
   _tick() {
@@ -85,13 +98,18 @@ export class RaceAnimation {
     const prev = this.messages[index];
     if (prev && prev.text === text && prev.elapsed === elapsed) return;
     this.messages[index] = { index, name, text, elapsed };
+    // Non-TTY fallback: print each message as it arrives since the tick loop is disabled.
+    if (!this.tty) {
+      const nameColor = RACER_COLORS[index % RACER_COLORS.length];
+      process.stderr.write(`  ${nameColor}${c.bold}${name}:${c.reset} ${c.dim}"${text}" (${elapsed}s)${c.reset}\n`);
+    }
   }
 
   stop() {
     if (this.interval) clearInterval(this.interval);
     this.interval = null;
     this.finished = this.finished.map(() => true);
-    process.stderr.write(c.showCursor);
+    if (this.tty) process.stderr.write(c.showCursor);
     process.stderr.write(`  ${c.dim}Calculating results…${c.reset}\n`);
   }
 }
