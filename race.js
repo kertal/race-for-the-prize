@@ -22,6 +22,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { spawn, spawnSync, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c, FORMAT_EXTENSIONS } from './cli/colors.js';
 import { parseArgs, discoverRacers, applyOverrides, applyDefaults, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown, findUnknownFlags, InvalidSettingError } from './cli/config.js';
@@ -50,8 +51,13 @@ export function buildResultsPaths(resultsDir, cwd = process.cwd()) {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Sentinel prefix used by runner.cjs to mark its one real result line. */
-export const RUNNER_RESULT_SENTINEL = '__RACE_RESULT__';
+/**
+ * Sentinel prefix used by runner.cjs to mark its one real result line.
+ * Imported from the shared runner-protocol module so the parent and runner
+ * cannot drift out of sync.
+ */
+export const { RESULT_SENTINEL: RUNNER_RESULT_SENTINEL } =
+  createRequire(import.meta.url)('./runner-protocol.cjs');
 
 /**
  * Module-level abort state. Set on SIGINT so in-flight work can bail out
@@ -60,19 +66,32 @@ export const RUNNER_RESULT_SENTINEL = '__RACE_RESULT__';
  */
 export const abortState = { aborted: false, reason: null };
 
+/** Thrown when the user aborts (SIGINT) or the operation is otherwise cancelled. */
+export class AbortError extends Error {
+  constructor(message = 'Aborted by user') {
+    super(message);
+    this.name = 'AbortError';
+  }
+}
+
 // Restore cursor on any exit so we don't leave the user's terminal with a
 // hidden cursor after an unexpected crash or Ctrl+C during the animation.
 process.on('exit', () => {
   if (process.stderr.isTTY) process.stderr.write(c.showCursor);
 });
 
-/** Wait for the user to press Enter, displaying a prompt message. Resolves immediately in non-TTY environments. */
+/**
+ * Wait for the user to press Enter, displaying a prompt message.
+ * - Resolves immediately in non-TTY environments.
+ * - Throws AbortError if SIGINT arrives (or already aborted) so callers can
+ *   bail out of their loops and exit with a conventional signal code.
+ */
 export async function waitForEnter(message) {
   if (!process.stdin.isTTY) {
     process.stderr.write(message + ' (skipped — non-interactive)\n');
     return;
   }
-  if (abortState.aborted) return;
+  if (abortState.aborted) throw new AbortError(`Aborted (${abortState.reason || 'SIGINT'})`);
 
   process.stderr.write(message);
 
@@ -81,7 +100,7 @@ export async function waitForEnter(message) {
   process.stdin.resume();
   await new Promise(r => setTimeout(r, 50));
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const cleanup = () => {
       process.stdin.removeListener('data', onData);
       process.stdin.removeListener('end', onDone);
@@ -92,7 +111,12 @@ export async function waitForEnter(message) {
 
     const onData = () => { cleanup(); resolve(); };
     const onDone = () => { cleanup(); resolve(); };
-    const onAbort = () => { abortState.aborted = true; abortState.reason = 'SIGINT'; cleanup(); resolve(); };
+    const onAbort = () => {
+      abortState.aborted = true;
+      abortState.reason = 'SIGINT';
+      cleanup();
+      reject(new AbortError('Aborted by user (SIGINT)'));
+    };
 
     process.stdin.once('data', onData);
     process.stdin.once('end', onDone);
@@ -1404,9 +1428,15 @@ async function main() {
       }
     }
   } catch (e) {
-    const phase = setupCompleted ? 'Race' : 'Setup';
-    console.error(`\n${c.red}${c.bold}${phase} failed:${c.reset} ${e.message}\n`);
-    if (!process.exitCode) process.exitCode = 1;
+    if (e instanceof AbortError) {
+      console.error(`\n${c.yellow}${e.message}${c.reset}\n`);
+      // 128 + SIGINT(2) = 130 (conventional exit code for Ctrl+C)
+      if (!process.exitCode) process.exitCode = 130;
+    } else {
+      const phase = setupCompleted ? 'Race' : 'Setup';
+      console.error(`\n${c.red}${c.bold}${phase} failed:${c.reset} ${e.message}\n`);
+      if (!process.exitCode) process.exitCode = 1;
+    }
   } finally {
     // Run per-racer teardown scripts (even on failure)
     for (const racer of racerScripts) {

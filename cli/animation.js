@@ -54,18 +54,23 @@ export class RaceAnimation {
 
   start() {
     this.tty = isTTY();
-    if (this.tty) process.stderr.write(c.hideCursor);
-    // Build dynamic header with all racer names
-    const coloredNames = this.names.map((name, i) => {
-      const color = RACER_COLORS[i % RACER_COLORS.length];
-      return `${color}${c.bold}${name}${c.reset}`;
-    });
-    const vsString = coloredNames.join(` ${c.dim}vs${c.reset} `);
-    let header = `\n  ${c.bold}RaceForThePrize${c.reset} 🏆  ${vsString}`;
-    if (this.info) header += `\n  ${c.dim}${this.info}${c.reset}`;
-    process.stderr.write(header + '\n\n');
-    // Non-TTY: skip the tick animation; messages will be printed as they arrive.
-    if (this.tty) this.interval = setInterval(() => this._tick(), TICK_INTERVAL_MS);
+    if (this.tty) {
+      process.stderr.write(c.hideCursor);
+      const coloredNames = this.names.map((name, i) => {
+        const color = RACER_COLORS[i % RACER_COLORS.length];
+        return `${color}${c.bold}${name}${c.reset}`;
+      });
+      const vsString = coloredNames.join(` ${c.dim}vs${c.reset} `);
+      let header = `\n  ${c.bold}RaceForThePrize${c.reset} 🏆  ${vsString}`;
+      if (this.info) header += `\n  ${c.dim}${this.info}${c.reset}`;
+      process.stderr.write(header + '\n\n');
+      this.interval = setInterval(() => this._tick(), TICK_INTERVAL_MS);
+    } else {
+      // Plain-text header — no ANSI escapes, safe for piped output / CI logs.
+      let header = `\n  RaceForThePrize 🏆  ${this.names.join(' vs ')}`;
+      if (this.info) header += `\n  ${this.info}`;
+      process.stderr.write(header + '\n\n');
+    }
   }
 
   _tick() {
@@ -98,10 +103,9 @@ export class RaceAnimation {
     const prev = this.messages[index];
     if (prev && prev.text === text && prev.elapsed === elapsed) return;
     this.messages[index] = { index, name, text, elapsed };
-    // Non-TTY fallback: print each message as it arrives since the tick loop is disabled.
+    // Non-TTY fallback: emit a plain-text line (no ANSI) since the tick loop is disabled.
     if (!this.tty) {
-      const nameColor = RACER_COLORS[index % RACER_COLORS.length];
-      process.stderr.write(`  ${nameColor}${c.bold}${name}:${c.reset} ${c.dim}"${text}" (${elapsed}s)${c.reset}\n`);
+      process.stderr.write(`  ${name}: "${text}" (${elapsed}s)\n`);
     }
   }
 
@@ -109,7 +113,11 @@ export class RaceAnimation {
     if (this.interval) clearInterval(this.interval);
     this.interval = null;
     this.finished = this.finished.map(() => true);
-    if (this.tty) process.stderr.write(c.showCursor);
-    process.stderr.write(`  ${c.dim}Calculating results…${c.reset}\n`);
+    if (this.tty) {
+      process.stderr.write(c.showCursor);
+      process.stderr.write(`  ${c.dim}Calculating results…${c.reset}\n`);
+    } else {
+      process.stderr.write(`  Calculating results…\n`);
+    }
   }
 }

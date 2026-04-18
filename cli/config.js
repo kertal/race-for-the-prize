@@ -11,12 +11,12 @@ const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'he
 /** Boolean flags the CLI recognises. Unknown flags produce an error. */
 export const KNOWN_BOOL_FLAGS = new Set([
   'parallel', 'headed', 'headless', 'no-overlay', 'no-recording',
-  'ffmpeg', 'har', 'no-wasm', 'no-serve', 'pause', 'ignore-https-errors',
+  'ffmpeg', 'har', 'no-wasm', 'serve', 'no-serve', 'pause', 'ignore-https-errors',
   'gemini', 'results', 'init', 'verbose', 'help', 'version',
 ]);
 
-/** Combined set of all valid flag names (bool + kv). */
-export const KNOWN_FLAGS = new Set([...KNOWN_BOOL_FLAGS, ...KV_FLAG_NAMES, 'serve']);
+/** Combined set of all valid flag names (bool + kv). `--serve` accepts both bool and legacy kv form. */
+export const KNOWN_FLAGS = new Set([...KNOWN_BOOL_FLAGS, ...KV_FLAG_NAMES]);
 
 export function parseArgs(argv) {
   const positional = [];
@@ -212,7 +212,7 @@ export function applyDefaults(settings) {
 export const VALID_NETWORKS = ['none', 'slow-3g', 'fast-3g', '4g'];
 export const VALID_FORMATS = ['webm', 'mov', 'gif'];
 
-/** Error thrown for invalid user-supplied settings. CLI catches and exits 1. */
+/** Error thrown for invalid user-supplied settings. CLI catches and exits 2 (convention: misuse). */
 export class InvalidSettingError extends Error {
   constructor(message) {
     super(message);
@@ -236,6 +236,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('har')) s.har = true;
   if (boolFlags.has('no-wasm')) s.noWasm = true;
   if (boolFlags.has('no-serve')) s.noServe = true;
+  if (boolFlags.has('serve')) s.noServe = false;
   // Backward compatibility: legacy --serve=false / --serve=true
   if (kvFlags.serve === 'false') s.noServe = true;
   else if (kvFlags.serve === 'true') s.noServe = false;

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { discoverRacers, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown } from '../cli/config.js';
+import { discoverRacers, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown, InvalidSettingError } from '../cli/config.js';
 
 let tmpDir;
 
@@ -323,6 +323,70 @@ describe('settings override', () => {
   it('CLI --gemini absent leaves gemini unset', () => {
     const s = applyOverrides({}, new Set(), {});
     expect(s.gemini).toBeUndefined();
+  });
+});
+
+describe('applyOverrides — invalid input throws InvalidSettingError', () => {
+  it('throws on unknown --network preset', () => {
+    expect(() => applyOverrides({}, new Set(), { network: 'fiber' }))
+      .toThrow(InvalidSettingError);
+    expect(() => applyOverrides({}, new Set(), { network: 'fiber' }))
+      .toThrow(/Unknown network preset.*fiber/);
+  });
+
+  it('throws on unknown --format value', () => {
+    expect(() => applyOverrides({}, new Set(), { format: 'mp4' }))
+      .toThrow(InvalidSettingError);
+    expect(() => applyOverrides({}, new Set(), { format: 'mp4' }))
+      .toThrow(/Unknown format.*mp4/);
+  });
+
+  it('throws on non-numeric --cpu', () => {
+    expect(() => applyOverrides({}, new Set(), { cpu: 'fast' }))
+      .toThrow(InvalidSettingError);
+    expect(() => applyOverrides({}, new Set(), { cpu: 'fast' }))
+      .toThrow(/--cpu must be a number/);
+  });
+
+  it('throws on --cpu below 1', () => {
+    expect(() => applyOverrides({}, new Set(), { cpu: '0' }))
+      .toThrow(InvalidSettingError);
+  });
+
+  it('throws on non-numeric --runs', () => {
+    expect(() => applyOverrides({}, new Set(), { runs: 'many' }))
+      .toThrow(InvalidSettingError);
+    expect(() => applyOverrides({}, new Set(), { runs: 'many' }))
+      .toThrow(/--runs must be a positive integer/);
+  });
+
+  it('throws on --runs < 1', () => {
+    expect(() => applyOverrides({}, new Set(), { runs: '0' }))
+      .toThrow(InvalidSettingError);
+  });
+
+  it('throws on negative --slowmo', () => {
+    expect(() => applyOverrides({}, new Set(), { slowmo: '-1' }))
+      .toThrow(InvalidSettingError);
+    expect(() => applyOverrides({}, new Set(), { slowmo: '-1' }))
+      .toThrow(/--slowmo must be a non-negative number/);
+  });
+
+  it('throws on non-numeric --slowmo', () => {
+    expect(() => applyOverrides({}, new Set(), { slowmo: 'fast' }))
+      .toThrow(InvalidSettingError);
+  });
+});
+
+describe('applyOverrides — --serve boolean flag', () => {
+  it('bool --serve clears noServe (pairs with --no-serve)', () => {
+    const s = applyOverrides({ noServe: true }, new Set(['serve']), {});
+    expect(s.noServe).toBe(false);
+  });
+
+  it('explicit --serve wins when both --serve and --no-serve are given', () => {
+    const s = applyOverrides({}, new Set(['serve', 'no-serve']), {});
+    expect(s.noServe).toBe(false);
   });
 });
 

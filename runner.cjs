@@ -21,11 +21,7 @@ const { execFileSync } = require('child_process');
 const { waitForStability } = require('./visual-stability.cjs');
 const { deriveTraceTiming } = require('./trace-calibration.cjs');
 const { flashCue, OverlayController } = require('./overlay.cjs');
-
-// Sentinel prefix for the one-and-only real result line. Parent (race.js)
-// skips any stdout line that doesn't start with this, so the cleanup stub
-// emitted on SIGTERM can never be mistaken for a real race result.
-const RESULT_SENTINEL = '__RACE_RESULT__';
+const { RESULT_SENTINEL } = require('./runner-protocol.cjs');
 
 // Track active browsers/contexts for cleanup on SIGTERM/SIGINT
 let activeBrowsers = [];
@@ -160,21 +156,33 @@ function cleanupOldVideos(dir) {
 
 // --- Signal handling ---
 
+/** Convert a signal name to its conventional exit code (128 + signum). */
+function signalExitCode(signal) {
+  if (signal === 'SIGINT') return 130;
+  if (signal === 'SIGTERM') return 143;
+  if (signal === 'SIGHUP') return 129;
+  return 1;
+}
+
+// Remember which signal first triggered cleanup so a second signal exits with
+// the same conventional code (rather than always 130).
+let cleanupSignal = null;
+
 async function cleanup(signal) {
   if (cleanupInProgress) {
-    // Second signal — force exit
-    process.exit(130);
+    // Second signal — force exit with the code matching the originating signal.
+    process.exit(signalExitCode(cleanupSignal || signal));
   }
   cleanupInProgress = true;
+  cleanupSignal = signal;
   for (const ctx of activeContexts) { try { await ctx.close(); } catch {} }
   for (const browser of activeBrowsers) { try { await browser.close(); } catch {} }
   await new Promise(r => setTimeout(r, 100));
 
   // Do NOT emit the RESULT_SENTINEL here. The parent must treat signal exit
-  // as a failure and not as an empty-but-successful result. Exit 130 is the
-  // conventional code for "terminated by SIGINT".
+  // as a failure and not as an empty-but-successful result.
   process.stderr.write(`[runner] Aborted by ${signal || 'signal'}\n`);
-  process.exit(signal === 'SIGINT' ? 130 : 143);
+  process.exit(signalExitCode(signal));
 }
 
 process.on('SIGTERM', () => cleanup('SIGTERM'));
@@ -1001,4 +1009,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { RESULT_SENTINEL };
+module.exports = { RESULT_SENTINEL };  // Re-exported for back-compat with existing imports.

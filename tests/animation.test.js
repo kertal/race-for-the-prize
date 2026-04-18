@@ -186,3 +186,108 @@ describe('startProgress', () => {
     expect(output).toContain('Something went wrong');
   });
 });
+
+describe('startProgress — non-TTY fallback', () => {
+  let stderrSpy;
+  let originalIsTTY;
+
+  beforeEach(() => {
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    originalIsTTY = process.stderr.isTTY;
+    Object.defineProperty(process.stderr, 'isTTY', { value: false, configurable: true });
+  });
+
+  afterEach(() => {
+    stderrSpy.mockRestore();
+    Object.defineProperty(process.stderr, 'isTTY', { value: originalIsTTY, configurable: true });
+  });
+
+  it('writes the initial message exactly once (no spinner frames)', () => {
+    const p = startProgress('Loading');
+    // Give any accidental spinner interval time to fire.
+    return new Promise(resolve => setTimeout(resolve, 120)).then(() => {
+      const writes = stderrSpy.mock.calls.map(c => c[0]);
+      expect(writes).toEqual(['  Loading\n']);
+      p.done('Done');
+    });
+  });
+
+  it('emits no ANSI escape sequences', () => {
+    const p = startProgress('Step');
+    p.update('Step 2');
+    p.done('Finished');
+    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).not.toMatch(/\x1b\[/);
+  });
+
+  it('done() uses plain-text ✓ prefix and falls back to original message', () => {
+    const p = startProgress('Working');
+    stderrSpy.mockClear();
+    p.done();
+    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).toBe('  ✓ Working\n');
+  });
+
+  it('done() uses the supplied doneMsg', () => {
+    const p = startProgress('Working');
+    stderrSpy.mockClear();
+    p.done('All set');
+    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).toBe('  ✓ All set\n');
+  });
+
+  it('fail() prints without the ✓ prefix', () => {
+    const p = startProgress('Working');
+    stderrSpy.mockClear();
+    p.fail('Broken');
+    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).toBe('  Broken\n');
+  });
+});
+
+describe('RaceAnimation — non-TTY fallback', () => {
+  let stderrSpy;
+  let originalIsTTY;
+
+  beforeEach(() => {
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    originalIsTTY = process.stderr.isTTY;
+    Object.defineProperty(process.stderr, 'isTTY', { value: false, configurable: true });
+  });
+
+  afterEach(() => {
+    stderrSpy.mockRestore();
+    Object.defineProperty(process.stderr, 'isTTY', { value: originalIsTTY, configurable: true });
+  });
+
+  it('start() emits a plain-text header and no cursor/spinner codes', () => {
+    const anim = new RaceAnimation(['alpha', 'beta'], 'my info');
+    anim.start();
+    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).toContain('RaceForThePrize');
+    expect(output).toContain('alpha vs beta');
+    expect(output).toContain('my info');
+    expect(output).not.toMatch(/\x1b\[/);
+    expect(anim.interval).toBeNull();
+    anim.stop();
+  });
+
+  it('addMessage() prints plain-text lines without ANSI', () => {
+    const anim = new RaceAnimation(['a', 'b']);
+    anim.start();
+    stderrSpy.mockClear();
+    anim.addMessage(0, 'a', 'hello', '1.2');
+    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).toBe('  a: "hello" (1.2s)\n');
+  });
+
+  it('stop() emits plain-text results message without cursor codes', () => {
+    const anim = new RaceAnimation(['a', 'b']);
+    anim.start();
+    stderrSpy.mockClear();
+    anim.stop();
+    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).toBe('  Calculating results…\n');
+    expect(output).not.toContain('\x1b[?25h');
+  });
+});
