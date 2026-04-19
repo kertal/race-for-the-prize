@@ -738,6 +738,23 @@ ${c.bold}Run it:${c.reset}
   process.exit(0);
 }
 
+/**
+ * Apply CLI overrides + defaults, exiting with code 2 on user-visible
+ * InvalidSettingError. Anything else rethrows. Used by both directory mode
+ * and URL mode so the error-handling stays in one place.
+ */
+function applySettingsOrExit(base) {
+  try {
+    return applyDefaults(applyOverrides(base, boolFlags, kvFlags));
+  } catch (e) {
+    if (e instanceof InvalidSettingError) {
+      console.error(`${c.red}Error: ${e.message}${c.reset}`);
+      process.exit(2);
+    }
+    throw e;
+  }
+}
+
 // Helper: load race config for a given directory (discovers racers, loads settings, builds ctx)
 function loadRaceDir(raceDir) {
   if (!fs.existsSync(raceDir)) {
@@ -766,36 +783,24 @@ function loadRaceDir(raceDir) {
       process.exit(1);
     }
   }
-  try {
-    settings = applyDefaults(applyOverrides(settings, boolFlags, kvFlags));
-  } catch (e) {
-    if (e instanceof InvalidSettingError) {
-      console.error(`${c.red}Error: ${e.message}${c.reset}`);
-      process.exit(2);
-    }
-    throw e;
-  }
+  settings = applySettingsOrExit(settings);
 
   // Compute effective racer files (may be overridden by settings.racers[name].script).
   // Security: restrict to a basename within raceDir; no separators, no parent traversal.
   const effectiveRacerFiles = racerFiles.map((f, i) => {
     const name = racerNames[i];
-    const racerScript = settings.racers?.[name]?.script;
-    if (!racerScript) return f;
-    if (typeof racerScript !== 'string' || racerScript.trim() === '') {
-      console.error(`${c.red}Error: settings.racers.${name}.script must be a non-empty string${c.reset}`);
+    const script = settings.racers?.[name]?.script;
+    if (!script) return f;
+    const fail = (reason) => {
+      console.error(`${c.red}Error: settings.racers.${name}.script ${reason}${c.reset}`);
       process.exit(1);
+    };
+    if (typeof script !== 'string' || script.trim() === '') fail('must be a non-empty string');
+    if (path.basename(script) !== script || script.includes('..') || path.isAbsolute(script)) {
+      fail(`must be a filename (no path separators): ${script}`);
     }
-    const basename = path.basename(racerScript);
-    if (basename !== racerScript || racerScript.includes('..') || path.isAbsolute(racerScript)) {
-      console.error(`${c.red}Error: settings.racers.${name}.script must be a filename (no path separators): ${racerScript}${c.reset}`);
-      process.exit(1);
-    }
-    if (!fs.existsSync(path.join(raceDir, racerScript))) {
-      console.error(`${c.red}Error: settings.racers.${name}.script not found: ${racerScript}${c.reset}`);
-      process.exit(1);
-    }
-    return racerScript;
+    if (!fs.existsSync(path.join(raceDir, script))) fail(`not found: ${script}`);
+    return script;
   });
 
   const scripts = effectiveRacerFiles.map(f =>
@@ -949,15 +954,7 @@ if (urlMode) {
   raceDir = path.resolve('races', names.join('-vs-'));
   fs.mkdirSync(raceDir, { recursive: true }); // NOSONAR — directory from sanitized racer names
 
-  try {
-    settings = applyDefaults(applyOverrides({}, boolFlags, kvFlags));
-  } catch (e) {
-    if (e instanceof InvalidSettingError) {
-      console.error(`${c.red}Error: ${e.message}${c.reset}`);
-      process.exit(2);
-    }
-    throw e;
-  }
+  settings = applySettingsOrExit({});
   racerNames = names;
   ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir });
 } else {
