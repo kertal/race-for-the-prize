@@ -8,6 +8,16 @@ import path from 'path';
 
 const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'height', 'gemini-spec']);
 
+/** Boolean flags the CLI recognises. Unknown flags produce an error. */
+export const KNOWN_BOOL_FLAGS = new Set([
+  'parallel', 'headed', 'headless', 'no-overlay', 'no-recording',
+  'ffmpeg', 'har', 'no-wasm', 'serve', 'no-serve', 'pause', 'ignore-https-errors',
+  'gemini', 'results', 'init', 'verbose', 'help', 'version',
+]);
+
+/** Combined set of all valid flag names (bool + kv). `--serve` accepts both bool and legacy kv form. */
+export const KNOWN_FLAGS = new Set([...KNOWN_BOOL_FLAGS, ...KV_FLAG_NAMES]);
+
 export function parseArgs(argv) {
   const positional = [];
   const boolFlags = new Set();
@@ -36,6 +46,21 @@ export function parseArgs(argv) {
   return { positional, boolFlags, kvFlags };
 }
 
+/**
+ * Return list of unknown flag names (neither in KNOWN_BOOL_FLAGS nor KV_FLAG_NAMES).
+ * Callers should reject the invocation if this returns non-empty.
+ */
+export function findUnknownFlags(boolFlags, kvFlags) {
+  const unknown = [];
+  for (const name of boolFlags) {
+    if (!KNOWN_FLAGS.has(name)) unknown.push(name);
+  }
+  for (const name of Object.keys(kvFlags)) {
+    if (!KNOWN_FLAGS.has(name)) unknown.push(name);
+  }
+  return unknown;
+}
+
 export function discoverRacers(raceDir) {
   const allFiles = fs.readdirSync(raceDir).filter(f => !f.startsWith('.'));
   let racerFiles = allFiles.filter(f => f.endsWith('.spec.js')).sort();
@@ -50,6 +75,8 @@ export function discoverRacers(raceDir) {
     }
   }
 
+  const totalFound = racerFiles.length;
+  const dropped = racerFiles.length > 5 ? racerFiles.slice(5) : [];
   if (racerFiles.length > 5) {
     racerFiles = racerFiles.slice(0, 5);
   }
@@ -60,7 +87,7 @@ export function discoverRacers(raceDir) {
     const unique = [...new Set(dupes)].join(', ');
     throw new Error(`Duplicate racer names detected: ${unique}. Rename files so each racer has a unique name.`);
   }
-  return { racerFiles, racerNames };
+  return { racerFiles, racerNames, totalFound, dropped };
 }
 
 /**
@@ -182,9 +209,23 @@ export function applyDefaults(settings) {
   return result;
 }
 
-const VALID_NETWORKS = ['none', 'slow-3g', 'fast-3g', '4g'];
-const VALID_FORMATS = ['webm', 'mov', 'gif'];
+export const VALID_NETWORKS = ['none', 'slow-3g', 'fast-3g', '4g'];
+export const VALID_FORMATS = ['webm', 'mov', 'gif'];
 
+/** Error thrown for invalid user-supplied settings. CLI catches and exits 2 (convention: misuse). */
+export class InvalidSettingError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'InvalidSettingError';
+  }
+}
+
+/**
+ * Apply CLI overrides to settings. Mutates neither input.
+ * Throws InvalidSettingError for unrecoverable errors (for example, bad enum values
+ * and invalid numeric flag values such as cpu/runs/slowmo).
+ * Warns to stderr for clamped numeric values, but does not throw.
+ */
 export function applyOverrides(settings, boolFlags, kvFlags) {
   const s = { ...settings };
   if (boolFlags.has('parallel')) s.parallel = true;
@@ -196,6 +237,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('har')) s.har = true;
   if (boolFlags.has('no-wasm')) s.noWasm = true;
   if (boolFlags.has('no-serve')) s.noServe = true;
+  if (boolFlags.has('serve')) s.noServe = false;
   // Backward compatibility: legacy --serve=false / --serve=true
   if (kvFlags.serve === 'false') s.noServe = true;
   else if (kvFlags.serve === 'true') s.noServe = false;
@@ -203,31 +245,65 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('ignore-https-errors')) s.ignoreHTTPSErrors = true;
   if (kvFlags.network !== undefined) {
     if (!VALID_NETWORKS.includes(kvFlags.network)) {
-      console.error(`Warning: Unknown network preset "${kvFlags.network}", valid values: ${VALID_NETWORKS.join(', ')}`);
+      throw new InvalidSettingError(`Unknown network preset "${kvFlags.network}". Valid values: ${VALID_NETWORKS.join(', ')}`);
     }
     s.network = kvFlags.network;
   }
   if (kvFlags.cpu !== undefined) {
     const cpu = Number(kvFlags.cpu);
-    s.cpuThrottle = Number.isFinite(cpu) && cpu >= 1 ? cpu : 1;
+    if (!Number.isFinite(cpu) || cpu < 1) {
+      throw new InvalidSettingError(`--cpu must be a number >= 1, got "${kvFlags.cpu}"`);
+    }
+    s.cpuThrottle = cpu;
   }
   if (kvFlags.format !== undefined) {
     if (!VALID_FORMATS.includes(kvFlags.format)) {
-      console.error(`Warning: Unknown format "${kvFlags.format}", valid values: ${VALID_FORMATS.join(', ')}`);
+      throw new InvalidSettingError(`Unknown format "${kvFlags.format}". Valid values: ${VALID_FORMATS.join(', ')}`);
     }
     s.format = kvFlags.format;
   }
   if (kvFlags.runs !== undefined) {
     const runs = Number(kvFlags.runs);
-    s.runs = Number.isFinite(runs) && runs >= 1 ? Math.min(Math.round(runs), 100) : 1;
+    if (!Number.isFinite(runs) || runs < 1) {
+      throw new InvalidSettingError(`--runs must be a positive integer, got "${kvFlags.runs}"`);
+    }
+    const rounded = Math.round(runs);
+    if (rounded > 100) {
+      console.error(`Warning: --runs clamped from ${rounded} to 100 (maximum)`);
+      s.runs = 100;
+    } else {
+      s.runs = rounded;
+    }
   }
   if (kvFlags.slowmo !== undefined) {
     const slowmo = Number(kvFlags.slowmo);
-    s.slowmo = Number.isFinite(slowmo) && slowmo >= 0 ? Math.min(slowmo, 20) : 0;
+    if (!Number.isFinite(slowmo) || slowmo < 0) {
+      throw new InvalidSettingError(`--slowmo must be a non-negative number, got "${kvFlags.slowmo}"`);
+    }
+    if (slowmo > 20) {
+      console.error(`Warning: --slowmo clamped from ${slowmo} to 20 (maximum)`);
+      s.slowmo = 20;
+    } else {
+      s.slowmo = slowmo;
+    }
   }
   if (kvFlags.height !== undefined) {
     const height = Number(kvFlags.height);
-    s.viewportHeight = Number.isFinite(height) ? Math.min(Math.max(Math.round(height), 480), 4320) : 720;
+    if (!Number.isFinite(height)) {
+      console.error(`Warning: --height "${kvFlags.height}" is not numeric, using default 720`);
+      s.viewportHeight = 720;
+    } else {
+      const rounded = Math.round(height);
+      if (rounded < 480) {
+        console.error(`Warning: --height clamped from ${rounded} to 480 (minimum)`);
+        s.viewportHeight = 480;
+      } else if (rounded > 4320) {
+        console.error(`Warning: --height clamped from ${rounded} to 4320 (maximum)`);
+        s.viewportHeight = 4320;
+      } else {
+        s.viewportHeight = rounded;
+      }
+    }
   }
   if (boolFlags.has('gemini')) s.gemini = true;
   return s;

@@ -19,11 +19,13 @@
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
+import crypto from 'crypto';
 import { spawn, spawnSync, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c, FORMAT_EXTENSIONS } from './cli/colors.js';
-import { parseArgs, discoverRacers, applyOverrides, applyDefaults, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown } from './cli/config.js';
+import { parseArgs, discoverRacers, applyOverrides, applyDefaults, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown, findUnknownFlags, InvalidSettingError } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex, findMedianRunIndexPerRacer } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
@@ -49,11 +51,58 @@ export function buildResultsPaths(resultsDir, cwd = process.cwd()) {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Wait for the user to press Enter, displaying a prompt message. Resolves immediately in non-TTY environments. */
+/**
+ * Sentinel prefix used by runner.cjs to mark its one real result line.
+ * Imported from the shared runner-protocol module so the parent and runner
+ * cannot drift out of sync.
+ */
+export const { RESULT_SENTINEL: RUNNER_RESULT_SENTINEL } =
+  createRequire(import.meta.url)('./runner-protocol.cjs');
+
+/**
+ * Module-level abort state. Set on SIGINT so in-flight work can bail out
+ * (spawnRunner, waitForEnter, waitFor loops) and tear-down paths can avoid
+ * treating the signal as a successful no-op.
+ */
+export const abortState = { aborted: false, reason: null };
+
+/** Thrown when the user aborts (SIGINT/SIGTERM) or the operation is otherwise cancelled. */
+export class AbortError extends Error {
+  constructor(message = 'Aborted by user', exitCode = 130) {
+    super(message);
+    this.name = 'AbortError';
+    this.exitCode = exitCode;
+  }
+}
+
+/** Map a POSIX signal name to its conventional exit code (128 + signo). */
+export function signalExitCode(signal) {
+  if (signal === 'SIGINT') return 130;
+  if (signal === 'SIGTERM') return 143;
+  if (signal === 'SIGHUP') return 129;
+  return 130;
+}
+
+// Restore cursor on any exit so we don't leave the user's terminal with a
+// hidden cursor after an unexpected crash or Ctrl+C during the animation.
+process.on('exit', () => {
+  if (process.stderr.isTTY) process.stderr.write(c.showCursor);
+});
+
+/**
+ * Wait for the user to press Enter, displaying a prompt message.
+ * - Resolves immediately in non-TTY environments.
+ * - Throws AbortError if SIGINT/SIGTERM arrives (or already aborted) so callers
+ *   can bail out of their loops and exit with a conventional signal code.
+ */
 export async function waitForEnter(message) {
   if (!process.stdin.isTTY) {
     process.stderr.write(message + ' (skipped — non-interactive)\n');
     return;
+  }
+  if (abortState.aborted) {
+    const sig = abortState.reason || 'SIGINT';
+    throw new AbortError(`Aborted (${sig})`, signalExitCode(sig));
   }
 
   process.stderr.write(message);
@@ -63,20 +112,32 @@ export async function waitForEnter(message) {
   process.stdin.resume();
   await new Promise(r => setTimeout(r, 50));
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const cleanup = () => {
       process.stdin.removeListener('data', onData);
       process.stdin.removeListener('end', onDone);
       process.stdin.removeListener('error', onDone);
+      process.removeListener('SIGINT', onSigint);
+      process.removeListener('SIGTERM', onSigterm);
       process.stdin.pause();
     };
 
     const onData = () => { cleanup(); resolve(); };
     const onDone = () => { cleanup(); resolve(); };
+    const abort = (sig) => {
+      abortState.aborted = true;
+      abortState.reason = sig;
+      cleanup();
+      reject(new AbortError(`Aborted by user (${sig})`, signalExitCode(sig)));
+    };
+    const onSigint = () => abort('SIGINT');
+    const onSigterm = () => abort('SIGTERM');
 
     process.stdin.once('data', onData);
     process.stdin.once('end', onDone);
     process.stdin.once('error', onDone);
+    process.once('SIGINT', onSigint);
+    process.once('SIGTERM', onSigterm);
   });
 }
 
@@ -215,11 +276,19 @@ export function spawnRunner(ctx) {
       if (animation.finished.every(Boolean) && animation.interval) animation.stop();
     });
 
-    const sigHandler = () => child.kill('SIGTERM');
-    process.on('SIGINT', sigHandler);
+    const makeSigHandler = (sig) => () => {
+      abortState.aborted = true;
+      abortState.reason = sig;
+      child.kill('SIGTERM');
+    };
+    const onSigint = makeSigHandler('SIGINT');
+    const onSigterm = makeSigHandler('SIGTERM');
+    process.on('SIGINT', onSigint);
+    process.on('SIGTERM', onSigterm);
 
     function cleanup() {
-      process.removeListener('SIGINT', sigHandler);
+      process.removeListener('SIGINT', onSigint);
+      process.removeListener('SIGTERM', onSigterm);
       if (animation.interval) animation.stop();
     }
 
@@ -228,19 +297,30 @@ export function spawnRunner(ctx) {
       reject(new Error(`Runner process failed to start: ${err.message}`));
     });
 
-    child.on('close', () => {
+    child.on('close', (code, signal) => {
       cleanup();
 
-      // Parse the last valid JSON line from runner stdout
-      const lines = stdout.trim().split('\n');
+      if (abortState.aborted || signal === 'SIGTERM' || signal === 'SIGINT' || code === 130 || code === 143) {
+        const sig = abortState.reason || signal || 'SIGINT';
+        reject(new AbortError(`Race aborted (${sig})`, signalExitCode(sig)));
+        return;
+      }
+
+      // Parse only the line starting with the sentinel. This guards against
+      // arbitrary stdout noise (Playwright logs, subprocess output) and
+      // ensures a signal-cleanup stub from a previous killed run can never
+      // be mistaken for a real result.
+      const lines = stdout.split('\n');
       for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i];
+        if (!line.startsWith(RUNNER_RESULT_SENTINEL)) continue;
         try {
-          return resolve(JSON.parse(lines[i]));
+          return resolve(JSON.parse(line.slice(RUNNER_RESULT_SENTINEL.length)));
         } catch (e) {
-          if (i === 0) console.error(`Warning: Could not parse runner output`);
+          console.error(`Warning: Malformed runner result line: ${e.message}`);
         }
       }
-      reject(new Error('Could not parse runner output'));
+      reject(new Error(`Runner exited with code ${code} and produced no parseable result`));
     });
   });
 }
@@ -486,10 +566,31 @@ export function createStaticHandler(dir) {
 }
 
 /**
- * Serve `dir` over HTTP on a random free port, open `index.html` in the
- * browser, and keep running until the process is killed.
+ * Detect whether the current environment is headless/CI, where auto-opening
+ * a browser is likely to fail or be unwanted.
+ */
+function isHeadlessEnv() {
+  if (process.env.CI) return true;
+  if (!process.stderr.isTTY) return true;
+  if (process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Serve `dir` over HTTP on a random free port, optionally open `index.html`
+ * in the browser, and install a SIGINT handler that cleanly closes the
+ * server before exiting. Returns the server instance so callers can close it.
+ * In headless/CI environments, returns null without starting a server to
+ * avoid hanging non-interactive runs.
  */
 export function serveResults(dir) {
+  if (isHeadlessEnv()) {
+    const { relHtml } = buildResultsPaths(dir);
+    console.error(`  ${c.cyan}${c.bold}open ${relHtml}${c.reset}`);
+    return null;
+  }
   // NOSONAR — local-only server for viewing race results; binds to 127.0.0.1
   // with path traversal protection in createStaticHandler
   const server = http.createServer(createStaticHandler(dir));
@@ -498,13 +599,26 @@ export function serveResults(dir) {
     const { port } = server.address();
     const url = `http://localhost:${port}/`;
     console.error(`  ${c.dim}🌐 Serving at ${c.reset}${c.cyan}${c.bold}${url}${c.reset}`);
-    const opener = process.platform === 'win32' ? ['cmd', ['/c', 'start', url]]
+    console.error(`  ${c.dim}Press Ctrl+C to stop the server.${c.reset}`);
+
+    const opener = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
       : process.platform === 'darwin' ? ['open', [url]]
       : ['xdg-open', [url]];
     const child = spawn(opener[0], opener[1], { stdio: 'ignore', detached: true });
-    child.on('error', () => {}); // ignore ENOENT on headless/CI environments
+    child.on('error', () => {}); // ignore ENOENT when opener isn't available
     child.unref();
   });
+
+  const shutdown = () => {
+    process.stderr.write(c.showCursor);
+    server.close(() => process.exit(0));
+    // Fallback if server.close hangs on keep-alive connections
+    setTimeout(() => process.exit(0), 2000).unref();
+  };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
+
+  return server;
 }
 
 // --- CLI entry point ---
@@ -521,6 +635,16 @@ if (isMainModule) {
 // --- Argument parsing ---
 
 const { positional, boolFlags, kvFlags } = parseArgs(process.argv.slice(2));
+
+// Reject unknown flags early — typos in CLI invocations have silently degraded benchmarks.
+const unknownFlags = findUnknownFlags(boolFlags, kvFlags);
+if (unknownFlags.length > 0) {
+  const labels = unknownFlags.map(n => `--${n}`).join(', ');
+  console.error(`${c.red}Error: Unknown flag(s): ${labels}${c.reset}`);
+  console.error(`${c.dim}  Run with no arguments to see the list of supported flags.${c.reset}`);
+  process.exit(2);
+}
+
 const verbose = boolFlags.has('verbose');
 
 // --- --init: scaffold a starter race directory ---
@@ -640,6 +764,23 @@ ${c.bold}Run it:${c.reset}
   process.exit(0);
 }
 
+/**
+ * Apply CLI overrides + defaults, exiting with code 2 on user-visible
+ * InvalidSettingError. Anything else rethrows. Used by both directory mode
+ * and URL mode so the error-handling stays in one place.
+ */
+function applySettingsOrExit(base) {
+  try {
+    return applyDefaults(applyOverrides(base, boolFlags, kvFlags));
+  } catch (e) {
+    if (e instanceof InvalidSettingError) {
+      console.error(`${c.red}Error: ${e.message}${c.reset}`);
+      process.exit(2);
+    }
+    throw e;
+  }
+}
+
 // Helper: load race config for a given directory (discovers racers, loads settings, builds ctx)
 function loadRaceDir(raceDir) {
   if (!fs.existsSync(raceDir)) {
@@ -647,13 +788,14 @@ function loadRaceDir(raceDir) {
     process.exit(1);
   }
 
-  const { racerFiles, racerNames } = discoverRacers(raceDir);
+  const { racerFiles, racerNames, totalFound, dropped } = discoverRacers(raceDir);
   if (racerFiles.length < 2) {
     console.error(`${c.red}Error: Need at least 2 .spec.js (or .js) script files in ${raceDir}, found ${racerFiles.length}${c.reset}`);
     process.exit(1);
   }
-  if (racerFiles.length > 5) {
-    console.error(`${c.yellow}Warning: Found ${racerFiles.length} script files, using first five: ${racerFiles.slice(0, 5).join(', ')}${c.reset}`);
+  if (totalFound > 5) {
+    console.error(`${c.yellow}Warning: Found ${totalFound} script files, using first five: ${racerFiles.join(', ')}${c.reset}`);
+    console.error(`${c.dim}  Skipped: ${dropped.join(', ')}${c.reset}`);
   }
 
   let settings = {};
@@ -662,16 +804,40 @@ function loadRaceDir(raceDir) {
     try {
       settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
     } catch (e) {
-      console.error(`${c.yellow}Warning: Could not parse settings.json: ${e.message}${c.reset}`);
+      console.error(`${c.red}Error: Could not parse settings.json: ${e.message}${c.reset}`);
+      console.error(`${c.dim}  File: ${settingsPath}${c.reset}`);
+      process.exit(1);
     }
   }
-  settings = applyDefaults(applyOverrides(settings, boolFlags, kvFlags));
+  settings = applySettingsOrExit(settings);
 
-  // Compute effective racer files (may be overridden by settings.racers[name].script)
+  // Compute effective racer files (may be overridden by settings.racers[name].script).
+  // Security: restrict to a basename within raceDir; no separators, no parent traversal.
   const effectiveRacerFiles = racerFiles.map((f, i) => {
     const name = racerNames[i];
-    const racerScript = settings.racers?.[name]?.script;
-    return racerScript || f;
+    const script = settings.racers?.[name]?.script;
+    if (!script) return f;
+    const fail = (reason) => {
+      console.error(`${c.red}Error: settings.racers.${name}.script ${reason}${c.reset}`);
+      process.exit(1);
+    };
+    if (typeof script !== 'string' || script.trim() === '') fail('must be a non-empty string');
+    if (path.basename(script) !== script || script.includes('..') || path.isAbsolute(script)) {
+      fail(`must be a filename (no path separators): ${script}`);
+    }
+    const scriptPath = path.join(raceDir, script);
+    let stat;
+    try {
+      stat = fs.lstatSync(scriptPath);
+    } catch {
+      fail(`not found: ${script}`);
+    }
+    // Reject symlinks and directories up front — readFileSync would fail later
+    // with a less specific error, and symlinks could point outside raceDir.
+    if (!stat.isFile()) {
+      fail(`must be a regular file (symlinks and directories are not allowed): ${script}`);
+    }
+    return script;
   });
 
   const scripts = effectiveRacerFiles.map(f =>
@@ -825,7 +991,7 @@ if (urlMode) {
   raceDir = path.resolve('races', names.join('-vs-'));
   fs.mkdirSync(raceDir, { recursive: true }); // NOSONAR — directory from sanitized racer names
 
-  settings = applyDefaults(applyOverrides({}, boolFlags, kvFlags));
+  settings = applySettingsOrExit({});
   racerNames = names;
   ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir });
 } else {
@@ -849,13 +1015,17 @@ if (urlMode) {
 
 
 // --- Setup/Teardown discovery ---
+// URL mode uses a generated race dir with no user scripts; skip discovery to
+// avoid picking up stale files from a previously generated dir with the same name.
 
-const { setup: setupScript, teardown: teardownScript } = discoverSetupTeardown(raceDir, settings);
+const { setup: setupScript, teardown: teardownScript } = urlMode
+  ? { setup: null, teardown: null }
+  : discoverSetupTeardown(raceDir, settings);
 
 // Per-racer setup/teardown (e.g., lauda.setup.sh, hunt.teardown.js)
 const racerScripts = racerNames.map(name => ({
   name,
-  ...discoverRacerSetupTeardown(raceDir, name, settings),
+  ...(urlMode ? { setup: null, teardown: null } : discoverRacerSetupTeardown(raceDir, name, settings)),
 }));
 
 /**
@@ -1055,7 +1225,9 @@ async function runScript(script, label) {
   });
 }
 const totalRuns = settings.runs;
-const resultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}`);
+// Include a short random nonce so rapid successive runs (timestamp collisions,
+// e.g. same second) don't overwrite each other's output.
+const resultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}-${crypto.randomBytes(3).toString('hex')}`);
 
 // --- Main ---
 
@@ -1242,6 +1414,9 @@ async function main() {
           await runScript(racerScripts[ri].setup, `Setup [${racerScripts[ri].name}]`);
         }
         for (let i = 0; i < totalRuns; i++) {
+          if (i > 0 && settings.pauseBetweenRuns) {
+            await waitForEnter(`\n  ${c.bold}${c.yellow}⏸  Paused — press Enter to start ${racerNames[ri]} run ${i + 1}...${c.reset} `);
+          }
           const label = multiRun ? `${racerNames[ri]}: Run ${i + 1} of ${totalRuns}` : racerNames[ri];
           console.error(`\n  ${c.bold}${c.cyan}── ${label} ──${c.reset}`);
           const runDir = multiRun ? path.join(resultsDir, String(i + 1)) : resultsDir;
@@ -1287,9 +1462,15 @@ async function main() {
       }
     }
   } catch (e) {
-    const phase = setupCompleted ? 'Race' : 'Setup';
-    console.error(`\n${c.red}${c.bold}${phase} failed:${c.reset} ${e.message}\n`);
-    if (!process.exitCode) process.exitCode = 1;
+    if (e instanceof AbortError) {
+      console.error(`\n${c.yellow}${e.message}${c.reset}\n`);
+      // 128 + signo (130=SIGINT, 143=SIGTERM) — set on AbortError at throw site.
+      if (!process.exitCode) process.exitCode = e.exitCode || 130;
+    } else {
+      const phase = setupCompleted ? 'Race' : 'Setup';
+      console.error(`\n${c.red}${c.bold}${phase} failed:${c.reset} ${e.message}\n`);
+      if (!process.exitCode) process.exitCode = 1;
+    }
   } finally {
     // Run per-racer teardown scripts (even on failure)
     for (const racer of racerScripts) {

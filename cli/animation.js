@@ -8,8 +8,19 @@ const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', 
 const SPINNER_INTERVAL_MS = 100;
 const TICK_INTERVAL_MS = 120;
 
+const isTTY = () => Boolean(process.stderr.isTTY);
+
 export function startProgress(msg) {
   let idx = 0;
+  if (!isTTY()) {
+    // Non-TTY: print once, skip spinner animation and cursor escapes.
+    process.stderr.write(`  ${msg}\n`);
+    return {
+      update(newMsg) { msg = newMsg; },
+      done(doneMsg) { process.stderr.write(`  ✓ ${doneMsg || msg}\n`); },
+      fail(failMsg) { process.stderr.write(`  ${failMsg || msg}\n`); },
+    };
+  }
   const write = () => {
     process.stderr.write(`\r  ${c.cyan}${SPINNER[idx]}${c.reset} ${c.dim}${msg}${c.reset}\x1b[K`);
     idx = (idx + 1) % SPINNER.length;
@@ -42,17 +53,24 @@ export class RaceAnimation {
   }
 
   start() {
-    process.stderr.write(c.hideCursor);
-    // Build dynamic header with all racer names
-    const coloredNames = this.names.map((name, i) => {
-      const color = RACER_COLORS[i % RACER_COLORS.length];
-      return `${color}${c.bold}${name}${c.reset}`;
-    });
-    const vsString = coloredNames.join(` ${c.dim}vs${c.reset} `);
-    let header = `\n  ${c.bold}RaceForThePrize${c.reset} 🏆  ${vsString}`;
-    if (this.info) header += `\n  ${c.dim}${this.info}${c.reset}`;
-    process.stderr.write(header + '\n\n');
-    this.interval = setInterval(() => this._tick(), TICK_INTERVAL_MS);
+    this.tty = isTTY();
+    if (this.tty) {
+      process.stderr.write(c.hideCursor);
+      const coloredNames = this.names.map((name, i) => {
+        const color = RACER_COLORS[i % RACER_COLORS.length];
+        return `${color}${c.bold}${name}${c.reset}`;
+      });
+      const vsString = coloredNames.join(` ${c.dim}vs${c.reset} `);
+      let header = `\n  ${c.bold}RaceForThePrize${c.reset} 🏆  ${vsString}`;
+      if (this.info) header += `\n  ${c.dim}${this.info}${c.reset}`;
+      process.stderr.write(header + '\n\n');
+      this.interval = setInterval(() => this._tick(), TICK_INTERVAL_MS);
+    } else {
+      // Plain-text header — no ANSI escapes, safe for piped output / CI logs.
+      let header = `\n  RaceForThePrize 🏆  ${this.names.join(' vs ')}`;
+      if (this.info) header += `\n  ${this.info}`;
+      process.stderr.write(header + '\n\n');
+    }
   }
 
   _tick() {
@@ -85,13 +103,21 @@ export class RaceAnimation {
     const prev = this.messages[index];
     if (prev && prev.text === text && prev.elapsed === elapsed) return;
     this.messages[index] = { index, name, text, elapsed };
+    // Non-TTY fallback: emit a plain-text line (no ANSI) since the tick loop is disabled.
+    if (!this.tty) {
+      process.stderr.write(`  ${name}: "${text}" (${elapsed}s)\n`);
+    }
   }
 
   stop() {
     if (this.interval) clearInterval(this.interval);
     this.interval = null;
     this.finished = this.finished.map(() => true);
-    process.stderr.write(c.showCursor);
-    process.stderr.write(`  ${c.dim}Calculating results…${c.reset}\n`);
+    if (this.tty) {
+      process.stderr.write(c.showCursor);
+      process.stderr.write(`  ${c.dim}Calculating results…${c.reset}\n`);
+    } else {
+      process.stderr.write(`  Calculating results…\n`);
+    }
   }
 }

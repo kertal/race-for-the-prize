@@ -2,6 +2,27 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { RaceAnimation, startProgress } from '../cli/animation.js';
 import { c } from '../cli/colors.js';
 
+/**
+ * Install per-test hooks that mock process.stderr.write and force
+ * process.stderr.isTTY to a given value. Returns a getter for the spy.
+ */
+function setupStderrSpy(isTTY) {
+  const ctx = { spy: null, original: null };
+  beforeEach(() => {
+    ctx.spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    ctx.original = process.stderr.isTTY;
+    Object.defineProperty(process.stderr, 'isTTY', { value: isTTY, configurable: true });
+  });
+  afterEach(() => {
+    ctx.spy.mockRestore();
+    Object.defineProperty(process.stderr, 'isTTY', { value: ctx.original, configurable: true });
+  });
+  return {
+    get stderrSpy() { return ctx.spy; },
+    output() { return ctx.spy.mock.calls.map(call => call[0]).join(''); },
+  };
+}
+
 describe('c (ANSI color codes)', () => {
   it('exports all expected color codes', () => {
     expect(c.green).toBeDefined();
@@ -16,15 +37,7 @@ describe('c (ANSI color codes)', () => {
 });
 
 describe('RaceAnimation', () => {
-  let stderrSpy;
-
-  beforeEach(() => {
-    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-  });
-
-  afterEach(() => {
-    stderrSpy.mockRestore();
-  });
+  const stderr = setupStderrSpy(true);
 
   it('initializes with correct state', () => {
     const anim = new RaceAnimation(['a', 'b']);
@@ -38,11 +51,10 @@ describe('RaceAnimation', () => {
     anim.start();
 
     expect(anim.interval).not.toBeNull();
-    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
-    expect(output).toContain('\x1b[?25l'); // hide cursor
-    expect(output).toContain('RaceForThePrize');
-    expect(output).toContain('a');
-    expect(output).toContain('b');
+    expect(stderr.output()).toContain('\x1b[?25l'); // hide cursor
+    expect(stderr.output()).toContain('RaceForThePrize');
+    expect(stderr.output()).toContain('a');
+    expect(stderr.output()).toContain('b');
 
     anim.stop();
   });
@@ -61,8 +73,7 @@ describe('RaceAnimation', () => {
 
     expect(anim.interval).toBeNull();
     expect(anim.finished).toEqual([true, true]);
-    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
-    expect(output).toContain('\x1b[?25h'); // show cursor
+    expect(stderr.output()).toContain('\x1b[?25h'); // show cursor
   });
 
   it('stop() without start() does not throw', () => {
@@ -73,8 +84,7 @@ describe('RaceAnimation', () => {
   it('shows info line when provided', () => {
     const anim = new RaceAnimation(['a', 'b'], 'test info');
     anim.start();
-    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
-    expect(output).toContain('test info');
+    expect(stderr.output()).toContain('test info');
     anim.stop();
   });
 
@@ -115,7 +125,7 @@ describe('RaceAnimation', () => {
     anim.start();
     anim.stop();
 
-    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    const output = stderr.output();
     expect(output).toContain('alpha');
     expect(output).toContain('beta');
     expect(output).toContain('gamma');
@@ -124,27 +134,18 @@ describe('RaceAnimation', () => {
 });
 
 describe('startProgress', () => {
-  let stderrSpy;
-
-  beforeEach(() => {
-    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-  });
-
-  afterEach(() => {
-    stderrSpy.mockRestore();
-  });
+  const stderr = setupStderrSpy(true);
 
   it('writes initial message to stderr', () => {
     const p = startProgress('Loading...');
-    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
-    expect(output).toContain('Loading...');
+    expect(stderr.output()).toContain('Loading...');
     p.done();
   });
 
   it('done() clears interval and writes completion message', () => {
     const p = startProgress('Working');
     p.done('Done!');
-    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    const output = stderr.output();
     expect(output).toContain('Done!');
     expect(output).toContain('✓');
   });
@@ -152,27 +153,100 @@ describe('startProgress', () => {
   it('done() uses original message when no doneMsg provided', () => {
     const p = startProgress('Working');
     p.done();
-    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
-    expect(output).toContain('Working');
+    expect(stderr.output()).toContain('Working');
   });
 
   it('update() changes the message', async () => {
     const p = startProgress('Step 1');
-    stderrSpy.mockClear(); // Clear initial write
+    stderr.stderrSpy.mockClear(); // Clear initial write
     p.update('Step 2');
 
     // Wait for at least one interval tick (100ms interval + 50ms buffer)
     await new Promise(resolve => setTimeout(resolve, 150));
 
-    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
-    expect(output).toContain('Step 2');
+    expect(stderr.output()).toContain('Step 2');
     p.done('Finished');
   });
 
   it('fail() writes failure message', () => {
     const p = startProgress('Working');
     p.fail('Something went wrong');
-    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
-    expect(output).toContain('Something went wrong');
+    expect(stderr.output()).toContain('Something went wrong');
+  });
+});
+
+describe('startProgress — non-TTY fallback', () => {
+  const stderr = setupStderrSpy(false);
+
+  it('writes the initial message exactly once (no spinner frames)', () => {
+    const p = startProgress('Loading');
+    // Give any accidental spinner interval time to fire.
+    return new Promise(resolve => setTimeout(resolve, 120)).then(() => {
+      const writes = stderr.stderrSpy.mock.calls.map(call => call[0]);
+      expect(writes).toEqual(['  Loading\n']);
+      p.done('Done');
+    });
+  });
+
+  it('emits no ANSI escape sequences', () => {
+    const p = startProgress('Step');
+    p.update('Step 2');
+    p.done('Finished');
+    expect(stderr.output()).not.toMatch(/\x1b\[/);
+  });
+
+  it('done() uses plain-text ✓ prefix and falls back to original message', () => {
+    const p = startProgress('Working');
+    stderr.stderrSpy.mockClear();
+    p.done();
+    expect(stderr.output()).toBe('  ✓ Working\n');
+  });
+
+  it('done() uses the supplied doneMsg', () => {
+    const p = startProgress('Working');
+    stderr.stderrSpy.mockClear();
+    p.done('All set');
+    expect(stderr.output()).toBe('  ✓ All set\n');
+  });
+
+  it('fail() prints without the ✓ prefix', () => {
+    const p = startProgress('Working');
+    stderr.stderrSpy.mockClear();
+    p.fail('Broken');
+    expect(stderr.output()).toBe('  Broken\n');
+  });
+});
+
+describe('RaceAnimation — non-TTY fallback', () => {
+  const stderr = setupStderrSpy(false);
+
+  it('start() emits a plain-text header and no cursor/spinner codes', () => {
+    const anim = new RaceAnimation(['alpha', 'beta'], 'my info');
+    anim.start();
+    const output = stderr.output();
+    expect(output).toContain('RaceForThePrize');
+    expect(output).toContain('alpha vs beta');
+    expect(output).toContain('my info');
+    expect(output).not.toMatch(/\x1b\[/);
+    expect(anim.interval).toBeNull();
+    anim.stop();
+  });
+
+  it('addMessage() prints plain-text lines without ANSI', () => {
+    const anim = new RaceAnimation(['a', 'b']);
+    anim.start();
+    stderr.stderrSpy.mockClear();
+    anim.addMessage(0, 'a', 'hello', '1.2');
+    expect(stderr.output()).toBe('  a: "hello" (1.2s)\n');
+  });
+
+  it('stop() emits plain-text results message without cursor codes', () => {
+    const anim = new RaceAnimation(['a', 'b']);
+    anim.start();
+    stderr.stderrSpy.mockClear();
+    anim.stop();
+    const output = stderr.output();
+    expect(output).toBe('  Calculating results…\n');
+    expect(output).not.toContain('\x1b[?25h');
   });
 });

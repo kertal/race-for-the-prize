@@ -21,10 +21,12 @@ const { execFileSync } = require('child_process');
 const { waitForStability } = require('./visual-stability.cjs');
 const { deriveTraceTiming } = require('./trace-calibration.cjs');
 const { flashCue, OverlayController } = require('./overlay.cjs');
+const { RESULT_SENTINEL } = require('./runner-protocol.cjs');
 
 // Track active browsers/contexts for cleanup on SIGTERM/SIGINT
 let activeBrowsers = [];
 let activeContexts = [];
+let cleanupInProgress = false;
 
 // --- Named constants (previously magic numbers) ---
 
@@ -154,17 +156,37 @@ function cleanupOldVideos(dir) {
 
 // --- Signal handling ---
 
-async function cleanup() {
+/** Convert a signal name to its conventional exit code (128 + signum). */
+function signalExitCode(signal) {
+  if (signal === 'SIGINT') return 130;
+  if (signal === 'SIGTERM') return 143;
+  if (signal === 'SIGHUP') return 129;
+  return 1;
+}
+
+// Remember which signal first triggered cleanup so a second signal exits with
+// the same conventional code (rather than always 130).
+let cleanupSignal = null;
+
+async function cleanup(signal) {
+  if (cleanupInProgress) {
+    // Second signal — force exit with the code matching the originating signal.
+    process.exit(signalExitCode(cleanupSignal || signal));
+  }
+  cleanupInProgress = true;
+  cleanupSignal = signal;
   for (const ctx of activeContexts) { try { await ctx.close(); } catch {} }
   for (const browser of activeBrowsers) { try { await browser.close(); } catch {} }
   await new Promise(r => setTimeout(r, 100));
 
-  console.log(JSON.stringify({ browsers: [] }));
-  process.exit(0);
+  // Do NOT emit the RESULT_SENTINEL here. The parent must treat signal exit
+  // as a failure and not as an empty-but-successful result.
+  process.stderr.write(`[runner] Aborted by ${signal || 'signal'}\n`);
+  process.exit(signalExitCode(signal));
 }
 
-process.on('SIGTERM', cleanup);
-process.on('SIGINT', cleanup);
+process.on('SIGTERM', () => cleanup('SIGTERM'));
+process.on('SIGINT', () => cleanup('SIGINT'));
 
 // --- Sync barrier for parallel mode ---
 
@@ -952,8 +974,10 @@ async function main() {
 
   const errors = results.filter(r => r.error).map(r => `${r.id}: ${r.error}`);
 
-  // Output in new array-based format
-  console.log(JSON.stringify({
+  // Output in new array-based format. Prefix with sentinel so the parent
+  // can reliably distinguish this line from any other stdout (e.g. from
+  // subprocess tooling, Playwright logs, or a signal-cleanup stub).
+  const payload = JSON.stringify({
     browsers: results.map(r => ({
       id: r.id,
       videoPath: r.videoPath || null,
@@ -970,7 +994,8 @@ async function main() {
       error: r.error || null
     })),
     errors: errors.length > 0 ? errors : undefined
-  }));
+  });
+  console.log(RESULT_SENTINEL + payload);
 
   process.exit(errors.length > 0 ? 1 : 0);
 }
@@ -979,9 +1004,9 @@ async function main() {
 if (require.main === module) {
   main().catch(err => {
     console.error('Fatal error:', err);
-    console.log(JSON.stringify({ browsers: [], errors: [err.message] }));
+    console.log(RESULT_SENTINEL + JSON.stringify({ browsers: [], errors: [err.message] }));
     process.exit(1);
   });
 }
 
-module.exports = {};
+module.exports = { RESULT_SENTINEL };  // Re-exported for back-compat with existing imports.
