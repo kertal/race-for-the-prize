@@ -222,7 +222,8 @@ export class InvalidSettingError extends Error {
 
 /**
  * Apply CLI overrides to settings. Mutates neither input.
- * Throws InvalidSettingError for unrecoverable errors (bad enum values).
+ * Throws InvalidSettingError for unrecoverable errors (for example, bad enum values
+ * and invalid numeric flag values such as cpu/runs/slowmo).
  * Warns to stderr for clamped numeric values, but does not throw.
  */
 export function applyOverrides(settings, boolFlags, kvFlags) {

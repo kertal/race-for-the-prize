@@ -281,7 +281,7 @@ export function spawnRunner(ctx) {
       cleanup();
 
       if (abortState.aborted || signal === 'SIGTERM' || signal === 'SIGINT' || code === 130 || code === 143) {
-        reject(new Error(`Race aborted${abortState.reason ? ` (${abortState.reason})` : ''}`));
+        reject(new AbortError(`Race aborted${abortState.reason ? ` (${abortState.reason})` : ''}`));
         return;
       }
 
@@ -561,8 +561,15 @@ function isHeadlessEnv() {
  * Serve `dir` over HTTP on a random free port, optionally open `index.html`
  * in the browser, and install a SIGINT handler that cleanly closes the
  * server before exiting. Returns the server instance so callers can close it.
+ * In headless/CI environments, returns null without starting a server to
+ * avoid hanging non-interactive runs.
  */
 export function serveResults(dir) {
+  if (isHeadlessEnv()) {
+    const { relHtml } = buildResultsPaths(dir);
+    console.error(`  ${c.cyan}${c.bold}open ${relHtml}${c.reset}`);
+    return null;
+  }
   // NOSONAR — local-only server for viewing race results; binds to 127.0.0.1
   // with path traversal protection in createStaticHandler
   const server = http.createServer(createStaticHandler(dir));
@@ -573,14 +580,12 @@ export function serveResults(dir) {
     console.error(`  ${c.dim}🌐 Serving at ${c.reset}${c.cyan}${c.bold}${url}${c.reset}`);
     console.error(`  ${c.dim}Press Ctrl+C to stop the server.${c.reset}`);
 
-    if (!isHeadlessEnv()) {
-      const opener = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
-        : process.platform === 'darwin' ? ['open', [url]]
-        : ['xdg-open', [url]];
-      const child = spawn(opener[0], opener[1], { stdio: 'ignore', detached: true });
-      child.on('error', () => {}); // ignore ENOENT on headless/CI environments
-      child.unref();
-    }
+    const opener = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
+      : process.platform === 'darwin' ? ['open', [url]]
+      : ['xdg-open', [url]];
+    const child = spawn(opener[0], opener[1], { stdio: 'ignore', detached: true });
+    child.on('error', () => {}); // ignore ENOENT when opener isn't available
+    child.unref();
   });
 
   const shutdown = () => {
