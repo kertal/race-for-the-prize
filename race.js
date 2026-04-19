@@ -66,12 +66,21 @@ export const { RESULT_SENTINEL: RUNNER_RESULT_SENTINEL } =
  */
 export const abortState = { aborted: false, reason: null };
 
-/** Thrown when the user aborts (SIGINT) or the operation is otherwise cancelled. */
+/** Thrown when the user aborts (SIGINT/SIGTERM) or the operation is otherwise cancelled. */
 export class AbortError extends Error {
-  constructor(message = 'Aborted by user') {
+  constructor(message = 'Aborted by user', exitCode = 130) {
     super(message);
     this.name = 'AbortError';
+    this.exitCode = exitCode;
   }
+}
+
+/** Map a POSIX signal name to its conventional exit code (128 + signo). */
+export function signalExitCode(signal) {
+  if (signal === 'SIGINT') return 130;
+  if (signal === 'SIGTERM') return 143;
+  if (signal === 'SIGHUP') return 129;
+  return 130;
 }
 
 // Restore cursor on any exit so we don't leave the user's terminal with a
@@ -83,15 +92,18 @@ process.on('exit', () => {
 /**
  * Wait for the user to press Enter, displaying a prompt message.
  * - Resolves immediately in non-TTY environments.
- * - Throws AbortError if SIGINT arrives (or already aborted) so callers can
- *   bail out of their loops and exit with a conventional signal code.
+ * - Throws AbortError if SIGINT/SIGTERM arrives (or already aborted) so callers
+ *   can bail out of their loops and exit with a conventional signal code.
  */
 export async function waitForEnter(message) {
   if (!process.stdin.isTTY) {
     process.stderr.write(message + ' (skipped — non-interactive)\n');
     return;
   }
-  if (abortState.aborted) throw new AbortError(`Aborted (${abortState.reason || 'SIGINT'})`);
+  if (abortState.aborted) {
+    const sig = abortState.reason || 'SIGINT';
+    throw new AbortError(`Aborted (${sig})`, signalExitCode(sig));
+  }
 
   process.stderr.write(message);
 
@@ -105,23 +117,27 @@ export async function waitForEnter(message) {
       process.stdin.removeListener('data', onData);
       process.stdin.removeListener('end', onDone);
       process.stdin.removeListener('error', onDone);
-      process.removeListener('SIGINT', onAbort);
+      process.removeListener('SIGINT', onSigint);
+      process.removeListener('SIGTERM', onSigterm);
       process.stdin.pause();
     };
 
     const onData = () => { cleanup(); resolve(); };
     const onDone = () => { cleanup(); resolve(); };
-    const onAbort = () => {
+    const abort = (sig) => {
       abortState.aborted = true;
-      abortState.reason = 'SIGINT';
+      abortState.reason = sig;
       cleanup();
-      reject(new AbortError('Aborted by user (SIGINT)'));
+      reject(new AbortError(`Aborted by user (${sig})`, signalExitCode(sig)));
     };
+    const onSigint = () => abort('SIGINT');
+    const onSigterm = () => abort('SIGTERM');
 
     process.stdin.once('data', onData);
     process.stdin.once('end', onDone);
     process.stdin.once('error', onDone);
-    process.once('SIGINT', onAbort);
+    process.once('SIGINT', onSigint);
+    process.once('SIGTERM', onSigterm);
   });
 }
 
@@ -260,15 +276,19 @@ export function spawnRunner(ctx) {
       if (animation.finished.every(Boolean) && animation.interval) animation.stop();
     });
 
-    const sigHandler = () => {
+    const makeSigHandler = (sig) => () => {
       abortState.aborted = true;
-      abortState.reason = 'SIGINT';
+      abortState.reason = sig;
       child.kill('SIGTERM');
     };
-    process.on('SIGINT', sigHandler);
+    const onSigint = makeSigHandler('SIGINT');
+    const onSigterm = makeSigHandler('SIGTERM');
+    process.on('SIGINT', onSigint);
+    process.on('SIGTERM', onSigterm);
 
     function cleanup() {
-      process.removeListener('SIGINT', sigHandler);
+      process.removeListener('SIGINT', onSigint);
+      process.removeListener('SIGTERM', onSigterm);
       if (animation.interval) animation.stop();
     }
 
@@ -281,7 +301,8 @@ export function spawnRunner(ctx) {
       cleanup();
 
       if (abortState.aborted || signal === 'SIGTERM' || signal === 'SIGINT' || code === 130 || code === 143) {
-        reject(new AbortError(`Race aborted${abortState.reason ? ` (${abortState.reason})` : ''}`));
+        const sig = abortState.reason || signal || 'SIGINT';
+        reject(new AbortError(`Race aborted (${sig})`, signalExitCode(sig)));
         return;
       }
 
@@ -804,7 +825,18 @@ function loadRaceDir(raceDir) {
     if (path.basename(script) !== script || script.includes('..') || path.isAbsolute(script)) {
       fail(`must be a filename (no path separators): ${script}`);
     }
-    if (!fs.existsSync(path.join(raceDir, script))) fail(`not found: ${script}`);
+    const scriptPath = path.join(raceDir, script);
+    let stat;
+    try {
+      stat = fs.lstatSync(scriptPath);
+    } catch {
+      fail(`not found: ${script}`);
+    }
+    // Reject symlinks and directories up front — readFileSync would fail later
+    // with a less specific error, and symlinks could point outside raceDir.
+    if (!stat.isFile()) {
+      fail(`must be a regular file (symlinks and directories are not allowed): ${script}`);
+    }
     return script;
   });
 
@@ -1432,8 +1464,8 @@ async function main() {
   } catch (e) {
     if (e instanceof AbortError) {
       console.error(`\n${c.yellow}${e.message}${c.reset}\n`);
-      // 128 + SIGINT(2) = 130 (conventional exit code for Ctrl+C)
-      if (!process.exitCode) process.exitCode = 130;
+      // 128 + signo (130=SIGINT, 143=SIGTERM) — set on AbortError at throw site.
+      if (!process.exitCode) process.exitCode = e.exitCode || 130;
     } else {
       const phase = setupCompleted ? 'Race' : 'Setup';
       console.error(`\n${c.red}${c.bold}${phase} failed:${c.reset} ${e.message}\n`);
