@@ -254,17 +254,19 @@ describe('OverlayController', () => {
     expect(elements['__race_or'].textContent).toBe('⏱️');
   });
 
-  it('onMeasureEnd updates state to flag without calling setOverlay', async () => {
-    const { ctrl, page } = createCtrl();
+  it('onMeasureEnd updates state to flag and calls setOverlay immediately', async () => {
+    const { ctrl, page, elements } = createCtrl();
 
     await ctrl.onStartRecording();
     await ctrl.onMeasureStart();
     const callCount = page.evaluate.mock.calls.length;
 
     ctrl.onMeasureEnd();
+    await Promise.resolve(); // flush microtask so the fire-and-forget resolves
 
     expect(ctrl.right).toBe('🏁');
-    expect(page.evaluate.mock.calls.length).toBe(callCount);
+    expect(page.evaluate.mock.calls.length).toBeGreaterThan(callCount);
+    expect(elements['__race_or'].textContent).toBe('🏁');
   });
 
   it('onStopRecording removes dot and keeps flag', async () => {
@@ -280,7 +282,7 @@ describe('OverlayController', () => {
     expect(elements['__race_or'].textContent).toBe('🏁');
   });
 
-  it('full lifecycle: 3 setOverlay calls (start, measure, stop)', async () => {
+  it('full lifecycle: 4 setOverlay calls (start, measure, measureEnd, stop)', async () => {
     const { ctrl, page } = createCtrl();
 
     await ctrl.onStartRecording();
@@ -288,8 +290,8 @@ describe('OverlayController', () => {
     ctrl.onMeasureEnd();
     await ctrl.onStopRecording();
 
-    // onStartRecording → 1, onMeasureStart → 1, onStopRecording → 1
-    expect(page.evaluate).toHaveBeenCalledTimes(3);
+    // onStartRecording → 1, onMeasureStart → 1, onMeasureEnd → 1, onStopRecording → 1
+    expect(page.evaluate).toHaveBeenCalledTimes(4);
   });
 
   it('dot stays true between onMeasureEnd and onStopRecording', async () => {

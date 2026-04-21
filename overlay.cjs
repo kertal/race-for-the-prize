@@ -148,6 +148,7 @@ class OverlayController {
   onMeasureEnd() {
     if (this._disabled) return;
     this.right = '\u{1F3C1}';
+    setOverlay(this._page, this.dot, this.right).catch(() => {});
   }
 
   async onStopRecording() {
