@@ -162,6 +162,10 @@ describe('shared-spec racer resolution', () => {
     expect(() => resolveSharedRacerNames({
       racers: { 'a/b': {}, bravo: {} },
     })).toThrow(/must not contain path separators/i);
+
+    expect(() => resolveSharedRacerNames({
+      racers: { 'a\\b': {}, bravo: {} },
+    })).toThrow(/must not contain path separators/i);
   });
 
   it('throws when racer names are dot segments', () => {

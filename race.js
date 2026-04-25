@@ -803,8 +803,23 @@ function loadRaceDir(raceDir) {
 
   const allFiles = fs.readdirSync(raceDir).filter(f => !f.startsWith('.'));
   const specFiles = allFiles.filter(f => f.endsWith('.spec.js')).sort();
-  const hasOnlySharedSpec = specFiles.length === 1 && specFiles[0] === 'race.spec.js';
+  const hasSharedSpecFile = specFiles.length === 1 && specFiles[0] === 'race.spec.js';
   const hasRacersConfig = settings.racers !== undefined;
+  const hookPattern = /\.(setup|teardown)\.js$/;
+  const candidateRacerJsFiles = allFiles
+    .filter(f => f.endsWith('.js') && !f.endsWith('.spec.js') && !hookPattern.test(f) && f !== 'setup.js' && f !== 'teardown.js')
+    .sort();
+  const hasOnlySharedSpec = hasSharedSpecFile && candidateRacerJsFiles.length === 0;
+
+  if (hasSharedSpecFile && hasRacersConfig && candidateRacerJsFiles.length > 0) {
+    console.error(
+      `${c.red}Error: Ambiguous race directory: found race.spec.js and potential racer script(s): ${candidateRacerJsFiles.join(', ')}.${c.reset}`
+    );
+    console.error(
+      `${c.dim}  Remove extra racer scripts to use shared-spec mode, or remove settings.racers to use file-based discovery.${c.reset}`
+    );
+    process.exit(1);
+  }
 
   let racerNames;
   let effectiveRacerFiles;

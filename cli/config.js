@@ -125,7 +125,7 @@ export function resolveSharedRacerNames(settings) {
     if (name === '.' || name === '..') {
       throw new InvalidSettingError(`shared-spec racer name "${name}" is not allowed`);
     }
-    if (name !== path.basename(name)) {
+    if (name.includes('/') || name.includes('\\')) {
       throw new InvalidSettingError(`shared-spec racer name "${name}" must not contain path separators`);
     }
   }
@@ -445,10 +445,19 @@ export function discoverRacerSetupTeardown(raceDir, racerName, settings = {}) {
 export function varsToEnv(vars) {
   if (!vars || typeof vars !== 'object' || Array.isArray(vars)) return {};
   const env = {};
+  const seenSources = new Map();
   for (const [key, value] of Object.entries(vars)) {
     if (value === null || value === undefined) continue;
+    const valueStr = typeof value === 'object' ? JSON.stringify(value) : String(value);
     const envKey = 'RACE_VAR_' + String(key).toUpperCase().replace(/[^A-Z0-9]/g, '_');
-    env[envKey] = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    const prev = seenSources.get(envKey);
+    if (prev && prev.key !== key) {
+      console.warn(
+        `Warning: vars keys "${prev.key}" (${prev.value}) and "${key}" (${valueStr}) both map to ${envKey}; later value wins`
+      );
+    }
+    seenSources.set(envKey, { key, value: valueStr });
+    env[envKey] = valueStr;
   }
   return env;
 }

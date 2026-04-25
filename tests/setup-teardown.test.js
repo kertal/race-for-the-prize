@@ -432,6 +432,22 @@ describe('varsToEnv', () => {
       RACE_VAR_D: '0',
     });
   });
+
+  it('warns when multiple keys collapse to the same env var', () => {
+    const originalWarn = console.warn;
+    const warnings = [];
+    console.warn = (msg) => warnings.push(String(msg));
+    try {
+      const env = varsToEnv({ 'my-key': 'a', 'my.key': 'b' });
+      expect(env.RACE_VAR_MY_KEY).toBe('b');
+      expect(warnings.length).toBe(1);
+      expect(warnings[0]).toMatch(/both map to RACE_VAR_MY_KEY/);
+      expect(warnings[0]).toMatch(/my-key/);
+      expect(warnings[0]).toMatch(/my\.key/);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
 });
 
 describe.skipIf(isWindows)('per-racer setup receives RACE_VAR_* env', () => {
