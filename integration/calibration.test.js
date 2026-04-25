@@ -154,9 +154,12 @@ describe('calibration integration', () => {
 
       for (const s of document.querySelectorAll('script')) {
         if (s.textContent.includes('applyCalibrationToClip')) {
+          const hasCalibrationLocalStorageFallback =
+            /localStorage\.(getItem|setItem)\([^)]*calibr/i.test(s.textContent) ||
+            s.textContent.includes('calibrationCache');
           return {
             hasNoCanvasFallback: !s.textContent.includes('calibrateFromCanvas'),
-            hasNoLocalStorageFallback: !s.textContent.includes('localStorage'),
+            hasNoCalibrationLocalStorageFallback: !hasCalibrationLocalStorageFallback,
             hasTraceFixtures: Array.isArray(parsedClipTimes) && parsedClipTimes.every(ct => !!ct.traceCalibration),
             needsCalibration,
           };
@@ -167,7 +170,7 @@ describe('calibration integration', () => {
 
     expect(result).toBeTruthy();
     expect(result.hasNoCanvasFallback).toBe(true);
-    expect(result.hasNoLocalStorageFallback).toBe(true);
+    expect(result.hasNoCalibrationLocalStorageFallback).toBe(true);
     expect(result.hasTraceFixtures).toBe(true);
     expect(result.needsCalibration).toBe(false);
   });

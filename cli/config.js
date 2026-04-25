@@ -91,6 +91,60 @@ export function discoverRacers(raceDir) {
 }
 
 /**
+ * Resolve racer names for shared-spec mode from settings.json.
+ * Shared-spec mode uses one race.spec.js script and settings-defined racers.
+ *
+ * Rules:
+ * - settings.racers must be an object with 2..5 keys
+ * - racer names must be non-empty strings
+ * - racer order follows declaration order in settings.racers
+ *
+ * @param {object} settings
+ * @returns {string[]} ordered racer names
+ * @throws {InvalidSettingError}
+ */
+export function resolveSharedRacerNames(settings) {
+  const racers = settings?.racers;
+  if (!racers || typeof racers !== 'object' || Array.isArray(racers)) {
+    throw new InvalidSettingError('shared-spec mode requires settings.racers to be an object');
+  }
+
+  const names = Object.keys(racers);
+  if (names.length < 2) {
+    throw new InvalidSettingError(`shared-spec mode requires at least 2 racers in settings.racers, found ${names.length}`);
+  }
+  if (names.length > 5) {
+    throw new InvalidSettingError(`shared-spec mode supports up to 5 racers, found ${names.length}`);
+  }
+  const emptyName = names.find(name => typeof name !== 'string' || name.trim() === '');
+  if (emptyName !== undefined) {
+    throw new InvalidSettingError('shared-spec mode racer names must be non-empty strings');
+  }
+  for (const name of names) {
+    // Keep names filesystem-safe because they become output directory names.
+    if (name === '.' || name === '..') {
+      throw new InvalidSettingError(`shared-spec racer name "${name}" is not allowed`);
+    }
+    if (/^\d+$/.test(name)) {
+      throw new InvalidSettingError(`shared-spec racer name "${name}" must not be integer-like`);
+    }
+    if (name.includes('/') || name.includes('\\')) {
+      throw new InvalidSettingError(`shared-spec racer name "${name}" must not contain path separators`);
+    }
+    // Windows filename constraints: reserved chars and trailing spaces/dots.
+    if (/[<>:"|?*]/.test(name) || /[ .]$/.test(name)) {
+      throw new InvalidSettingError(`shared-spec racer name "${name}" contains filesystem-unsafe characters`);
+    }
+    // Block DOS device names (case-insensitive), with or without extension.
+    if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(name)) {
+      throw new InvalidSettingError(`shared-spec racer name "${name}" is reserved on Windows`);
+    }
+  }
+
+  return names;
+}
+
+/**
  * Check if a string is a valid http(s) URL with a hostname.
  */
 export function isUrl(str) {
@@ -362,6 +416,7 @@ export function discoverSetupTeardown(raceDir, settings = {}) {
  * Discover per-racer setup and teardown scripts.
  * Convention: {racer-name}.setup.sh, {racer-name}.setup.js,
  *             {racer-name}.teardown.sh, {racer-name}.teardown.js
+ * Shared-spec convention (single race.spec.js): race.setup.sh/.js, race.teardown.sh/.js
  * Can be overridden via settings.json racers.{name}.setup/teardown fields.
  *
  * @param {string} raceDir - Path to the race directory
@@ -371,10 +426,14 @@ export function discoverSetupTeardown(raceDir, settings = {}) {
  */
 export function discoverRacerSetupTeardown(raceDir, racerName, settings = {}) {
   const allFiles = fs.readdirSync(raceDir).filter(f => !f.startsWith('.'));
+  const specFiles = allFiles.filter(f => f.endsWith('.spec.js')).sort();
+  const isSharedSpecMode = specFiles.length === 1 && specFiles[0] === 'race.spec.js' && settings.racers?.[racerName] !== undefined;
 
   // Convention-based discovery (.sh preferred over .js)
   const setupOrder = getScriptOrder(`${racerName}.setup`);
   const teardownOrder = getScriptOrder(`${racerName}.teardown`);
+  const sharedSetupOrder = getScriptOrder('race.setup');
+  const sharedTeardownOrder = getScriptOrder('race.teardown');
 
   const setupConvention = setupOrder.find(f =>
     allFiles.includes(f) && isFile(path.join(raceDir, f))
@@ -382,11 +441,47 @@ export function discoverRacerSetupTeardown(raceDir, racerName, settings = {}) {
   const teardownConvention = teardownOrder.find(f =>
     allFiles.includes(f) && isFile(path.join(raceDir, f))
   );
+  const sharedSetupConvention = sharedSetupOrder.find(f =>
+    allFiles.includes(f) && isFile(path.join(raceDir, f))
+  );
+  const sharedTeardownConvention = sharedTeardownOrder.find(f =>
+    allFiles.includes(f) && isFile(path.join(raceDir, f))
+  );
+  const effectiveSetupConvention = setupConvention || (isSharedSpecMode ? sharedSetupConvention : null);
+  const effectiveTeardownConvention = teardownConvention || (isSharedSpecMode ? sharedTeardownConvention : null);
 
   // Settings override convention (settings.racers.{name}.setup/teardown)
   const racerSettings = settings.racers?.[racerName] || {};
-  const setup = racerSettings.setup !== undefined ? racerSettings.setup : (setupConvention || null);
-  const teardown = racerSettings.teardown !== undefined ? racerSettings.teardown : (teardownConvention || null);
+  const setup = racerSettings.setup !== undefined ? racerSettings.setup : (effectiveSetupConvention || null);
+  const teardown = racerSettings.teardown !== undefined ? racerSettings.teardown : (effectiveTeardownConvention || null);
 
   return { setup, teardown };
+}
+
+/**
+ * Convert per-racer `vars` (from settings.json) into `RACE_VAR_*` env vars
+ * for per-racer setup/teardown scripts.
+ *
+ * Keys are uppercased and non-alphanumeric chars replaced with `_`.
+ * String/number/boolean values are stringified; objects/arrays are JSON-encoded.
+ * `null`/`undefined` values are skipped. Non-object `vars` returns `{}`.
+ */
+export function varsToEnv(vars) {
+  if (!vars || typeof vars !== 'object' || Array.isArray(vars)) return {};
+  const env = {};
+  const seenSources = new Map();
+  for (const [key, value] of Object.entries(vars)) {
+    if (value === null || value === undefined) continue;
+    const valueStr = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    const envKey = 'RACE_VAR_' + String(key).toUpperCase().replace(/[^A-Z0-9]/g, '_');
+    const prev = seenSources.get(envKey);
+    if (prev && prev.key !== key) {
+      console.warn(
+        `Warning: vars keys "${prev.key}" and "${key}" both map to ${envKey}; later value wins`
+      );
+    }
+    seenSources.set(envKey, { key });
+    env[envKey] = valueStr;
+  }
+  return env;
 }
