@@ -115,7 +115,7 @@ races/my-race/
 }
 ```
 
-In shared-spec mode, racer order follows key declaration order in `racers`. Access per-racer values via `race.vars`:
+In shared-spec mode, racer order follows key declaration order in `racers`. Use non-numeric racer names (integer-like names such as `"0"` are rejected to keep ordering deterministic). Access per-racer values via `race.vars`:
 
 ```js
 await page.goto(race.vars.URL);

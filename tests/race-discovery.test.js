@@ -158,6 +158,20 @@ describe('shared-spec racer resolution', () => {
       .toThrow(InvalidSettingError);
   });
 
+  it('throws when more than 5 racers are declared', () => {
+    expect(() => resolveSharedRacerNames({
+      racers: {
+        a: {}, b: {}, c: {}, d: {}, e: {}, f: {},
+      },
+    })).toThrow(/supports up to 5 racers/i);
+  });
+
+  it('throws when settings.racers is not an object', () => {
+    expect(() => resolveSharedRacerNames({ racers: null })).toThrow(/requires settings\.racers to be an object/i);
+    expect(() => resolveSharedRacerNames({ racers: 'abc' })).toThrow(/requires settings\.racers to be an object/i);
+    expect(() => resolveSharedRacerNames({ racers: [] })).toThrow(/requires settings\.racers to be an object/i);
+  });
+
   it('throws when racer names include path separators', () => {
     expect(() => resolveSharedRacerNames({
       racers: { 'a/b': {}, bravo: {} },
@@ -172,6 +186,26 @@ describe('shared-spec racer resolution', () => {
     expect(() => resolveSharedRacerNames({
       racers: { '..': {}, bravo: {} },
     })).toThrow(/is not allowed/i);
+  });
+
+  it('throws when racer names are integer-like', () => {
+    expect(() => resolveSharedRacerNames({
+      racers: { '0': {}, bravo: {} },
+    })).toThrow(/must not be integer-like/i);
+  });
+
+  it('throws on filesystem-unsafe racer names', () => {
+    expect(() => resolveSharedRacerNames({
+      racers: { 'a:b': {}, bravo: {} },
+    })).toThrow(/filesystem-unsafe/i);
+
+    expect(() => resolveSharedRacerNames({
+      racers: { 'alpha.': {}, bravo: {} },
+    })).toThrow(/filesystem-unsafe/i);
+
+    expect(() => resolveSharedRacerNames({
+      racers: { con: {}, bravo: {} },
+    })).toThrow(/reserved on windows/i);
   });
 });
 

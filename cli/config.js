@@ -125,8 +125,19 @@ export function resolveSharedRacerNames(settings) {
     if (name === '.' || name === '..') {
       throw new InvalidSettingError(`shared-spec racer name "${name}" is not allowed`);
     }
+    if (/^\d+$/.test(name)) {
+      throw new InvalidSettingError(`shared-spec racer name "${name}" must not be integer-like`);
+    }
     if (name.includes('/') || name.includes('\\')) {
       throw new InvalidSettingError(`shared-spec racer name "${name}" must not contain path separators`);
+    }
+    // Windows filename constraints: reserved chars and trailing spaces/dots.
+    if (/[<>:"|?*]/.test(name) || /[ .]$/.test(name)) {
+      throw new InvalidSettingError(`shared-spec racer name "${name}" contains filesystem-unsafe characters`);
+    }
+    // Block DOS device names (case-insensitive), with or without extension.
+    if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(name)) {
+      throw new InvalidSettingError(`shared-spec racer name "${name}" is reserved on Windows`);
     }
   }
 
@@ -466,10 +477,10 @@ export function varsToEnv(vars) {
     const prev = seenSources.get(envKey);
     if (prev && prev.key !== key) {
       console.warn(
-        `Warning: vars keys "${prev.key}" (${prev.value}) and "${key}" (${valueStr}) both map to ${envKey}; later value wins`
+        `Warning: vars keys "${prev.key}" and "${key}" both map to ${envKey}; later value wins`
       );
     }
-    seenSources.set(envKey, { key, value: valueStr });
+    seenSources.set(envKey, { key });
     env[envKey] = valueStr;
   }
   return env;

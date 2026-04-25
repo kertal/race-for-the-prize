@@ -809,20 +809,27 @@ function loadRaceDir(raceDir) {
   const candidateRacerJsFiles = allFiles
     .filter(f => f.endsWith('.js') && !f.endsWith('.spec.js') && !hookPattern.test(f) && f !== 'setup.js' && f !== 'teardown.js')
     .sort();
-  const hasOnlySharedSpec = hasSharedSpecFile && candidateRacerJsFiles.length === 0;
+  const sharedSpecConfiguredRacerNames = hasSharedSpecFile && hasRacersConfig
+    ? Object.keys(settings.racers || {})
+    : [];
+  const conflictingSharedSpecRacerJsFiles = hasSharedSpecFile && hasRacersConfig
+    ? candidateRacerJsFiles.filter(f => sharedSpecConfiguredRacerNames.includes(path.basename(f, '.js')))
+    : [];
+  const hasOnlySharedSpec = hasSharedSpecFile && hasRacersConfig && conflictingSharedSpecRacerJsFiles.length === 0;
 
-  if (hasSharedSpecFile && hasRacersConfig && candidateRacerJsFiles.length > 0) {
+  if (hasSharedSpecFile && hasRacersConfig && conflictingSharedSpecRacerJsFiles.length > 0) {
     console.error(
-      `${c.red}Error: Ambiguous race directory: found race.spec.js and potential racer script(s): ${candidateRacerJsFiles.join(', ')}.${c.reset}`
+      `${c.red}Error: Ambiguous race directory: found race.spec.js and racer script(s) matching settings.racers: ${conflictingSharedSpecRacerJsFiles.join(', ')}.${c.reset}`
     );
     console.error(
-      `${c.dim}  Remove extra racer scripts to use shared-spec mode, or remove settings.racers to use file-based discovery.${c.reset}`
+      `${c.dim}  Remove matching racer scripts to use shared-spec mode, or remove settings.racers to use file-based discovery.${c.reset}`
     );
     process.exit(1);
   }
 
   let racerNames;
   let effectiveRacerFiles;
+  let scriptFiles;
 
   if (hasOnlySharedSpec && hasRacersConfig) {
     try {
@@ -842,7 +849,10 @@ function loadRaceDir(raceDir) {
       }
     }
 
-    effectiveRacerFiles = racerNames.map(() => 'race.spec.js');
+    // Keep physical race files deduplicated for asset copy and player links.
+    effectiveRacerFiles = ['race.spec.js'];
+    // Runner still needs one script payload per racer.
+    scriptFiles = racerNames.map(() => 'race.spec.js');
   } else {
     const { racerFiles, racerNames: discoveredNames, totalFound, dropped } = discoverRacers(raceDir);
     if (racerFiles.length < 2) {
@@ -884,9 +894,10 @@ function loadRaceDir(raceDir) {
       }
       return script;
     });
+    scriptFiles = effectiveRacerFiles;
   }
 
-  const scripts = effectiveRacerFiles.map(f =>
+  const scripts = scriptFiles.map(f =>
     fs.readFileSync(path.join(raceDir, f), 'utf-8')
   );
 
