@@ -319,10 +319,10 @@ The terminal delivers the verdict in style:
 | `format` | `--format=<fmt>` | `webm`, `mov`, `gif` | `webm` |
 | `ffmpeg` | `--ffmpeg` | `true` / `false` | `false` |
 | `har` | `--har` | `true` / `false` | `false` |
-| `noOverlay` | `--overlay` | `true` / `false` (`0/1` supported) | `false` |
-| `noRecording` | `--recording` | `true` / `false` (`0/1` supported) | `false` |
-| `noWasm` | `--wasm` | `true` / `false` (`0/1` supported) | `false` |
-| `noServe` | `--serve` | `true` / `false` (`0/1` supported) | `false` |
+| `noOverlay` | `--overlay` | `true` / `false` (`0/1` supported; inverted: `overlay=false` => `noOverlay=true`) | `false` |
+| `noRecording` | `--recording` | `true` / `false` (`0/1` supported; inverted: `recording=false` => `noRecording=true`) | `false` |
+| `noWasm` | `--wasm` | `true` / `false` (`0/1` supported; inverted: `wasm=false` => `noWasm=true`) | `false` |
+| `noServe` | `--serve` | `true` / `false` (`0/1` supported; inverted: `serve=false` => `noServe=true`) | `false` |
 | `pauseBetweenRuns` | `--pause` | `true` / `false` | `false` |
 | `ignoreHTTPSErrors` | `--ignore-https-errors` | `true` / `false` | `false` |
 | `viewportHeight` | `--height=<px>` | integer, 480–4320 | `720` |

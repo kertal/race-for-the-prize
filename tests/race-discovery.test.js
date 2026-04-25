@@ -363,6 +363,11 @@ describe('settings override', () => {
     expect(s.noServe).toBe(true);
     expect(s.noWasm).toBe(false);
   });
+
+  it('kv boolean --gemini=false overrides bool flag --gemini', () => {
+    const s = applyOverrides({}, new Set(['gemini']), { gemini: 'false' });
+    expect(s.gemini).toBe(false);
+  });
 });
 
 describe('applyOverrides — invalid input throws InvalidSettingError', () => {

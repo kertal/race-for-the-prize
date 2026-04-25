@@ -267,6 +267,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('serve')) s.noServe = false;
   if (boolFlags.has('pause')) s.pauseBetweenRuns = true;
   if (boolFlags.has('ignore-https-errors')) s.ignoreHTTPSErrors = true;
+  if (boolFlags.has('gemini')) s.gemini = true;
   // Explicit boolean values (for example --parallel=false) override presence flags.
   if (kvFlags.parallel !== undefined) s.parallel = parseCliBoolean(kvFlags.parallel, '--parallel');
   if (kvFlags.headless !== undefined) s.headless = parseCliBoolean(kvFlags.headless, '--headless');
@@ -343,7 +344,6 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
       }
     }
   }
-  if (boolFlags.has('gemini')) s.gemini = true;
   return s;
 }
 
