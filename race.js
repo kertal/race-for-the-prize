@@ -13,7 +13,7 @@
  *   node race.js ./races/my-race --parallel   Run both browsers simultaneously
  *   node race.js ./races/my-race --headless   Run headless
  *   node race.js ./races/my-race --network=fast-3g --cpu=4
- *   node race.js ./races/my-race --har --no-wasm --no-serve
+ *   node race.js ./races/my-race --har --wasm=0 --serve=0
  */
 
 import fs from 'fs';
@@ -973,21 +973,20 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--results${c.reset}            View recent results
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--parallel${c.reset}           Run both browsers simultaneously
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--headless${c.reset}           Hide browsers
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--headed${c.reset}            Show browsers (overrides ${c.dim}settings.json${c.reset} ${c.dim}headless${c.reset})
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--network${c.reset}=${c.green}slow-3g${c.reset}   Network: none, slow-3g, fast-3g, 4g
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}4${c.reset}              CPU throttle multiplier (1=none)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--format${c.reset}=${c.green}mov${c.reset}          Output format: webm (default), mov, gif
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--runs${c.reset}=${c.green}3${c.reset}            Run multiple times, report median
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--pause${c.reset}              Pause between runs (press Enter to continue)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--slowmo${c.reset}=${c.green}2${c.reset}           Slow-motion side-by-side replay (2x, 3x, etc.)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-overlay${c.reset}         Record videos without overlays
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-recording${c.reset}      Skip video recording, just measure
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--overlay${c.reset}=${c.green}0${c.reset}        Disable overlays in recordings (1=enable, 0=disable)
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--recording${c.reset}=${c.green}0${c.reset}      Skip video recording, just measure (1=enable, 0=disable)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ffmpeg${c.reset}             Enable FFmpeg processing (trim, merge, convert)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--har${c.reset}                Record network HAR files alongside videos
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-wasm${c.reset}            Skip copying ffmpeg.wasm files (~25 MB) to results
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--wasm${c.reset}=${c.green}0${c.reset}           Skip copying ffmpeg.wasm files (~25 MB) to results
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--height${c.reset}=${c.green}900${c.reset}          Viewport/recording height in pixels (480–4320, default 720)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ignore-https-errors${c.reset}  Accept invalid/self-signed TLS certificates
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-serve${c.reset}           Don't start local results server (CI/headless; open index.html manually)
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--serve${c.reset}=${c.green}0${c.reset}          Don't start local results server (CI/headless; open index.html manually)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--gemini${c.reset}             Gemini CLI sports reporter commentary after race
   node race.js ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset} ${c.yellow}--gemini-spec${c.reset}=${c.green}"prompt"${c.reset}  Generate specs via Gemini + Playwright HTML research
 

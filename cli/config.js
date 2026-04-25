@@ -7,16 +7,26 @@ import fs from 'fs';
 import path from 'path';
 
 const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'height', 'gemini-spec']);
+const BOOLEAN_VALUE_FLAGS = new Set([
+  'parallel', 'headless', 'overlay', 'recording',
+  'ffmpeg', 'har', 'wasm', 'serve', 'pause', 'ignore-https-errors', 'gemini',
+]);
 
 /** Boolean flags the CLI recognises. Unknown flags produce an error. */
 export const KNOWN_BOOL_FLAGS = new Set([
-  'parallel', 'headed', 'headless', 'no-overlay', 'no-recording',
-  'ffmpeg', 'har', 'no-wasm', 'serve', 'no-serve', 'pause', 'ignore-https-errors',
+  'parallel', 'headless', 'overlay', 'recording',
+  'ffmpeg', 'har', 'wasm', 'serve', 'pause', 'ignore-https-errors',
   'gemini', 'results', 'init', 'verbose', 'help', 'version',
 ]);
 
-/** Combined set of all valid flag names (bool + kv). `--serve` accepts both bool and legacy kv form. */
+/** Combined set of all valid flag names (bool + kv). */
 export const KNOWN_FLAGS = new Set([...KNOWN_BOOL_FLAGS, ...KV_FLAG_NAMES]);
+
+function isBooleanLikeValue(value) {
+  if (typeof value !== 'string') return false;
+  const s = value.trim().toLowerCase();
+  return s === 'true' || s === 'false' || s === '1' || s === '0' || s === 'yes' || s === 'no';
+}
 
 export function parseArgs(argv) {
   const positional = [];
@@ -32,6 +42,14 @@ export function parseArgs(argv) {
       } else {
         const name = arg.slice(2);
         if (KV_FLAG_NAMES.has(name) && argv[i + 1] !== undefined && !argv[i + 1].startsWith('--')) {
+          kvFlags[name] = argv[i + 1];
+          i++;
+        } else if (
+          BOOLEAN_VALUE_FLAGS.has(name) &&
+          argv[i + 1] !== undefined &&
+          !argv[i + 1].startsWith('--') &&
+          isBooleanLikeValue(argv[i + 1])
+        ) {
           kvFlags[name] = argv[i + 1];
           i++;
         } else {
@@ -266,6 +284,17 @@ export function applyDefaults(settings) {
 export const VALID_NETWORKS = ['none', 'slow-3g', 'fast-3g', '4g'];
 export const VALID_FORMATS = ['webm', 'mov', 'gif'];
 
+function parseCliBoolean(value, flagName) {
+  if (value === true || value === 1) return true;
+  if (value === false || value === 0) return false;
+  if (typeof value === 'string') {
+    const s = value.trim().toLowerCase();
+    if (s === 'true' || s === '1' || s === 'yes') return true;
+    if (s === 'false' || s === '0' || s === 'no') return false;
+  }
+  throw new InvalidSettingError(`${flagName} must be a boolean (true/false, 1/0, yes/no), got "${value}"`);
+}
+
 /** Error thrown for invalid user-supplied settings. CLI catches and exits 2 (convention: misuse). */
 export class InvalidSettingError extends Error {
   constructor(message) {
@@ -283,20 +312,30 @@ export class InvalidSettingError extends Error {
 export function applyOverrides(settings, boolFlags, kvFlags) {
   const s = { ...settings };
   if (boolFlags.has('parallel')) s.parallel = true;
-  if (boolFlags.has('headed')) s.headless = false;
   if (boolFlags.has('headless')) s.headless = true;
-  if (boolFlags.has('no-overlay')) s.noOverlay = true;
-  if (boolFlags.has('no-recording')) s.noRecording = true;
+  if (boolFlags.has('overlay')) s.noOverlay = false;
+  if (boolFlags.has('recording')) s.noRecording = false;
   if (boolFlags.has('ffmpeg')) s.ffmpeg = true;
   if (boolFlags.has('har')) s.har = true;
-  if (boolFlags.has('no-wasm')) s.noWasm = true;
-  if (boolFlags.has('no-serve')) s.noServe = true;
+  if (boolFlags.has('wasm')) s.noWasm = false;
   if (boolFlags.has('serve')) s.noServe = false;
-  // Backward compatibility: legacy --serve=false / --serve=true
-  if (kvFlags.serve === 'false') s.noServe = true;
-  else if (kvFlags.serve === 'true') s.noServe = false;
   if (boolFlags.has('pause')) s.pauseBetweenRuns = true;
   if (boolFlags.has('ignore-https-errors')) s.ignoreHTTPSErrors = true;
+  if (boolFlags.has('gemini')) s.gemini = true;
+  // Explicit boolean values (for example --parallel=false) override presence flags.
+  if (kvFlags.parallel !== undefined) s.parallel = parseCliBoolean(kvFlags.parallel, '--parallel');
+  if (kvFlags.headless !== undefined) s.headless = parseCliBoolean(kvFlags.headless, '--headless');
+  if (kvFlags.overlay !== undefined) s.noOverlay = !parseCliBoolean(kvFlags.overlay, '--overlay');
+  if (kvFlags.recording !== undefined) s.noRecording = !parseCliBoolean(kvFlags.recording, '--recording');
+  if (kvFlags.ffmpeg !== undefined) s.ffmpeg = parseCliBoolean(kvFlags.ffmpeg, '--ffmpeg');
+  if (kvFlags.har !== undefined) s.har = parseCliBoolean(kvFlags.har, '--har');
+  if (kvFlags.wasm !== undefined) s.noWasm = !parseCliBoolean(kvFlags.wasm, '--wasm');
+  if (kvFlags.serve !== undefined) s.noServe = !parseCliBoolean(kvFlags.serve, '--serve');
+  if (kvFlags.pause !== undefined) s.pauseBetweenRuns = parseCliBoolean(kvFlags.pause, '--pause');
+  if (kvFlags['ignore-https-errors'] !== undefined) {
+    s.ignoreHTTPSErrors = parseCliBoolean(kvFlags['ignore-https-errors'], '--ignore-https-errors');
+  }
+  if (kvFlags.gemini !== undefined) s.gemini = parseCliBoolean(kvFlags.gemini, '--gemini');
   if (kvFlags.network !== undefined) {
     if (!VALID_NETWORKS.includes(kvFlags.network)) {
       throw new InvalidSettingError(`Unknown network preset "${kvFlags.network}". Valid values: ${VALID_NETWORKS.join(', ')}`);
@@ -359,7 +398,6 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
       }
     }
   }
-  if (boolFlags.has('gemini')) s.gemini = true;
   return s;
 }
 

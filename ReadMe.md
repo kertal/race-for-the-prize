@@ -287,18 +287,18 @@ node race.js <dir> --format=mov           # Broadcast-ready replay format (requi
 node race.js <dir> --format=gif           # Quick highlight reel (requires --ffmpeg)
 node race.js <dir> --runs=3               # Best of 3 — median wins
 node race.js <dir> --slowmo=2             # Slow-motion replay (2x, 3x, etc.)
-node race.js <dir> --no-overlay           # Record videos without overlays
-node race.js <dir> --no-recording         # Skip video recording, just measure
+node race.js <dir> --overlay=false        # Record videos without overlays
+node race.js <dir> --recording=false      # Skip video recording, just measure
 node race.js <dir> --ffmpeg               # Enable FFmpeg processing (trim, merge, convert)
 node race.js <dir> --har                  # Record network HAR files alongside videos
-node race.js <dir> --no-wasm              # Skip copying ffmpeg.wasm files (~25 MB) to results
-node race.js <dir> --no-serve             # Don't start local results server or auto-open; print results HTML path
+node race.js <dir> --wasm=false           # Skip copying ffmpeg.wasm files (~25 MB) to results
+node race.js <dir> --serve=false          # Don't start local results server or auto-open; print results HTML path
 node race.js <dir> --pause                # Pause between racers — run all laps for each racer, then press Enter for the next
 node race.js <dir> --height=900           # Set viewport/recording height in pixels (480–4320, default 720)
 node race.js <dir> --ignore-https-errors  # Accept invalid/self-signed TLS certificates
 ```
 
-CLI flags always override `settings.json`. The stewards have spoken.
+CLI flags always override `settings.json`. For boolean flags, you can pass explicit values like `--parallel=false` or `--ffmpeg=true`.
 
 ### Network Throttling Presets
 
@@ -375,27 +375,27 @@ The terminal delivers the verdict in style:
 }
 ```
 
-| Field | CLI flag | Values | Default |
+| Field | CLI flag | Values (booleans accept `true`/`false`, `1`/`0`, `yes`/`no`) | Default |
 |---|---|---|---|
 | `parallel` | `--parallel` | `true` / `false` | `false` |
 | `network` | `--network=<preset>` | `none`, `slow-3g`, `fast-3g`, `4g` | `none` |
 | `cpuThrottle` | `--cpu=<n>` | `1` (none) to any multiplier | `1` |
-| `headless` | `--headless`, `--headed` | `true` / `false` | `false` |
+| `headless` | `--headless` | `true` / `false` | `false` |
 | `runs` | `--runs=<n>` | integer ≥ 1 (median of N runs) | `1` |
 | `slowmo` | `--slowmo=<n>` | `0` (off) to `20` (multiplier) | `0` |
 | `format` | `--format=<fmt>` | `webm`, `mov`, `gif` | `webm` |
 | `ffmpeg` | `--ffmpeg` | `true` / `false` | `false` |
 | `har` | `--har` | `true` / `false` | `false` |
-| `noOverlay` | `--no-overlay` | `true` / `false` | `false` |
-| `noRecording` | `--no-recording` | `true` / `false` | `false` |
-| `noWasm` | `--no-wasm` | `true` / `false` | `false` |
-| `noServe` | `--no-serve` | `true` / `false` | `false` |
+| `noOverlay` | `--overlay` | `true` / `false` (inverted: `overlay=false` => `noOverlay=true`) | `false` |
+| `noRecording` | `--recording` | `true` / `false` (inverted: `recording=false` => `noRecording=true`) | `false` |
+| `noWasm` | `--wasm` | `true` / `false` (inverted: `wasm=false` => `noWasm=true`) | `false` |
+| `noServe` | `--serve` | `true` / `false` (inverted: `serve=false` => `noServe=true`) | `false` |
 | `pauseBetweenRuns` | `--pause` | `true` / `false` | `false` |
 | `ignoreHTTPSErrors` | `--ignore-https-errors` | `true` / `false` | `false` |
 | `viewportHeight` | `--height=<px>` | integer, 480–4320 | `720` |
 | `racers` | — | optional object keyed by racer name | not present by default |
 
-For boolean fields, prefer JSON literals `true` / `false` (not strings). String values like `"false"` are normalized when possible. `--headed` shows the browser and overrides `headless` in `settings.json`; `--headless` wins if both flags are passed.
+For boolean fields, prefer JSON literals `true` / `false` (not strings). String values like `"false"` are normalized when possible. On the CLI, boolean flags also accept explicit values (`--headless=false`, `--har=true`) and short values (`--serve=0`, `--overlay=1`).
 
 ## Setup and Teardown Scripts
 

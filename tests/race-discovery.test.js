@@ -224,9 +224,9 @@ describe('argument parsing', () => {
     expect(boolFlags.has('results')).toBe(true);
   });
 
-  it('parses --no-overlay flag', () => {
-    const { boolFlags } = parseArgs(['dir', '--no-overlay']);
-    expect(boolFlags.has('no-overlay')).toBe(true);
+  it('parses --overlay flag', () => {
+    const { boolFlags } = parseArgs(['dir', '--overlay']);
+    expect(boolFlags.has('overlay')).toBe(true);
   });
 
   it('handles key=value flags', () => {
@@ -280,13 +280,8 @@ describe('settings override', () => {
     expect(s.headless).toBe(true);
   });
 
-  it('CLI --headed sets headless false', () => {
-    const s = applyOverrides({ headless: true }, new Set(['headed']), {});
-    expect(s.headless).toBe(false);
-  });
-
-  it('CLI --headless overrides --headed', () => {
-    const s = applyOverrides({}, new Set(['headed', 'headless']), {});
+  it('CLI --headless sets headless true', () => {
+    const s = applyOverrides({ headless: false }, new Set(['headless']), {});
     expect(s.headless).toBe(true);
   });
 
@@ -300,9 +295,9 @@ describe('settings override', () => {
     expect(s.cpuThrottle).toBe(4);
   });
 
-  it('CLI --no-overlay sets noOverlay', () => {
-    const s = applyOverrides({}, new Set(['no-overlay']), {});
-    expect(s.noOverlay).toBe(true);
+  it('CLI --overlay enables overlay', () => {
+    const s = applyOverrides({ noOverlay: true }, new Set(['overlay']), {});
+    expect(s.noOverlay).toBe(false);
   });
 
   it('CLI --slowmo sets slowmo factor', () => {
@@ -315,24 +310,19 @@ describe('settings override', () => {
     expect(s.pauseBetweenRuns).toBe(true);
   });
 
-  it('CLI --no-serve sets noServe', () => {
-    const s = applyOverrides({}, new Set(['no-serve']), {});
-    expect(s.noServe).toBe(true);
-  });
-
-  it('legacy --serve=false sets noServe for backward compatibility', () => {
-    const s = applyOverrides({}, new Set(), { serve: 'false' });
-    expect(s.noServe).toBe(true);
-  });
-
-  it('legacy --serve=true explicitly enables serving', () => {
-    const s = applyOverrides({ noServe: true }, new Set(), { serve: 'true' });
+  it('CLI --serve enables serving', () => {
+    const s = applyOverrides({ noServe: true }, new Set(['serve']), {});
     expect(s.noServe).toBe(false);
   });
 
-  it('CLI --no-recording sets noRecording', () => {
-    const s = applyOverrides({}, new Set(['no-recording']), {});
-    expect(s.noRecording).toBe(true);
+  it('kv boolean --serve=false disables serving', () => {
+    const s = applyOverrides({ noServe: false }, new Set(), { serve: 'false' });
+    expect(s.noServe).toBe(true);
+  });
+
+  it('CLI --recording enables recording', () => {
+    const s = applyOverrides({ noRecording: true }, new Set(['recording']), {});
+    expect(s.noRecording).toBe(false);
   });
 
   it('preserves settings when no overrides', () => {
@@ -391,68 +381,141 @@ describe('settings override', () => {
     const s = applyOverrides({}, new Set(), {});
     expect(s.gemini).toBeUndefined();
   });
+
+  it('kv boolean --parallel=false overrides settings.json true', () => {
+    const s = applyOverrides({ parallel: true }, new Set(), { parallel: 'false' });
+    expect(s.parallel).toBe(false);
+  });
+
+  it('kv boolean --ffmpeg=false overrides settings.json true', () => {
+    const s = applyOverrides({ ffmpeg: true }, new Set(), { ffmpeg: 'false' });
+    expect(s.ffmpeg).toBe(false);
+  });
+
+  it('kv boolean --overlay=false overrides bool flag --overlay', () => {
+    const s = applyOverrides({}, new Set(['overlay']), { overlay: 'false' });
+    expect(s.noOverlay).toBe(true);
+  });
+
+  it('kv boolean --headless=false overrides bool flag --headless', () => {
+    const s = applyOverrides({}, new Set(['headless']), { headless: 'false' });
+    expect(s.headless).toBe(false);
+  });
+
+  it('kv boolean --serve=false overrides bool flag --serve', () => {
+    const s = applyOverrides({}, new Set(['serve']), { serve: 'false' });
+    expect(s.noServe).toBe(true);
+  });
+
+  it('kv boolean --overlay=0 and --recording=1 support short values', () => {
+    const s = applyOverrides({}, new Set(), { overlay: '0', recording: '1' });
+    expect(s.noOverlay).toBe(true);
+    expect(s.noRecording).toBe(false);
+  });
+
+  it('parseArgs supports boolean value form with spaces', () => {
+    const { kvFlags, positional } = parseArgs(['--headless', 'false', './races/test']);
+    expect(kvFlags.headless).toBe('false');
+    expect(positional).toEqual(['./races/test']);
+  });
+
+  it('parseArgs supports short boolean value form with spaces', () => {
+    const { kvFlags, positional } = parseArgs(['--overlay', '0', './races/test']);
+    expect(kvFlags.overlay).toBe('0');
+    expect(positional).toEqual(['./races/test']);
+  });
+
+  it('parseArgs supports --parallel=false equals form', () => {
+    const { kvFlags, boolFlags, positional } = parseArgs(['--parallel=false', './races/test']);
+    expect(kvFlags.parallel).toBe('false');
+    expect(boolFlags.has('parallel')).toBe(false);
+    expect(positional).toEqual(['./races/test']);
+  });
+
+  it('parseArgs supports --ffmpeg=true equals form', () => {
+    const { kvFlags, boolFlags, positional } = parseArgs(['--ffmpeg=true', './races/test']);
+    expect(kvFlags.ffmpeg).toBe('true');
+    expect(boolFlags.has('ffmpeg')).toBe(false);
+    expect(positional).toEqual(['./races/test']);
+  });
+
+  it('kv boolean --serve=0 and --wasm=1 support short values', () => {
+    const s = applyOverrides({}, new Set(), { serve: '0', wasm: '1' });
+    expect(s.noServe).toBe(true);
+    expect(s.noWasm).toBe(false);
+  });
+
+  it('kv boolean --gemini=false overrides bool flag --gemini', () => {
+    const s = applyOverrides({}, new Set(['gemini']), { gemini: 'false' });
+    expect(s.gemini).toBe(false);
+  });
 });
 
 describe('applyOverrides — invalid input throws InvalidSettingError', () => {
   it('throws on unknown --network preset', () => {
-    expect(() => applyOverrides({}, new Set(), { network: 'fiber' }))
-      .toThrow(InvalidSettingError);
-    expect(() => applyOverrides({}, new Set(), { network: 'fiber' }))
-      .toThrow(/Unknown network preset.*fiber/);
+    const attempt = () => applyOverrides({}, new Set(), { network: 'fiber' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/Unknown network preset.*fiber/);
   });
 
   it('throws on unknown --format value', () => {
-    expect(() => applyOverrides({}, new Set(), { format: 'mp4' }))
-      .toThrow(InvalidSettingError);
-    expect(() => applyOverrides({}, new Set(), { format: 'mp4' }))
-      .toThrow(/Unknown format.*mp4/);
+    const attempt = () => applyOverrides({}, new Set(), { format: 'mp4' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/Unknown format.*mp4/);
   });
 
   it('throws on non-numeric --cpu', () => {
-    expect(() => applyOverrides({}, new Set(), { cpu: 'fast' }))
-      .toThrow(InvalidSettingError);
-    expect(() => applyOverrides({}, new Set(), { cpu: 'fast' }))
-      .toThrow(/--cpu must be a number/);
+    const attempt = () => applyOverrides({}, new Set(), { cpu: 'fast' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/--cpu must be a number/);
   });
 
   it('throws on --cpu below 1', () => {
-    expect(() => applyOverrides({}, new Set(), { cpu: '0' }))
-      .toThrow(InvalidSettingError);
+    const attempt = () => applyOverrides({}, new Set(), { cpu: '0' });
+
+    expect(attempt).toThrow(InvalidSettingError);
   });
 
   it('throws on non-numeric --runs', () => {
-    expect(() => applyOverrides({}, new Set(), { runs: 'many' }))
-      .toThrow(InvalidSettingError);
-    expect(() => applyOverrides({}, new Set(), { runs: 'many' }))
-      .toThrow(/--runs must be a positive integer/);
+    const attempt = () => applyOverrides({}, new Set(), { runs: 'many' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/--runs must be a positive integer/);
   });
 
   it('throws on --runs < 1', () => {
-    expect(() => applyOverrides({}, new Set(), { runs: '0' }))
-      .toThrow(InvalidSettingError);
+    const attempt = () => applyOverrides({}, new Set(), { runs: '0' });
+
+    expect(attempt).toThrow(InvalidSettingError);
   });
 
   it('throws on negative --slowmo', () => {
-    expect(() => applyOverrides({}, new Set(), { slowmo: '-1' }))
-      .toThrow(InvalidSettingError);
-    expect(() => applyOverrides({}, new Set(), { slowmo: '-1' }))
-      .toThrow(/--slowmo must be a non-negative number/);
+    const attempt = () => applyOverrides({}, new Set(), { slowmo: '-1' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/--slowmo must be a non-negative number/);
   });
 
   it('throws on non-numeric --slowmo', () => {
-    expect(() => applyOverrides({}, new Set(), { slowmo: 'fast' }))
-      .toThrow(InvalidSettingError);
+    const attempt = () => applyOverrides({}, new Set(), { slowmo: 'fast' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+  });
+
+  it('throws on invalid boolean value for bool flags', () => {
+    const attempt = () => applyOverrides({}, new Set(), { parallel: 'maybe' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/--parallel must be a boolean/i);
   });
 });
 
-describe('applyOverrides — --serve boolean flag', () => {
-  it('bool --serve clears noServe (pairs with --no-serve)', () => {
+describe('applyOverrides — serve boolean flag', () => {
+  it('bool --serve enables serving', () => {
     const s = applyOverrides({ noServe: true }, new Set(['serve']), {});
-    expect(s.noServe).toBe(false);
-  });
-
-  it('explicit --serve wins when both --serve and --no-serve are given', () => {
-    const s = applyOverrides({}, new Set(['serve', 'no-serve']), {});
     expect(s.noServe).toBe(false);
   });
 });
