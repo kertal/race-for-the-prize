@@ -372,60 +372,63 @@ describe('settings override', () => {
 
 describe('applyOverrides — invalid input throws InvalidSettingError', () => {
   it('throws on unknown --network preset', () => {
-    expect(() => applyOverrides({}, new Set(), { network: 'fiber' }))
-      .toThrow(InvalidSettingError);
-    expect(() => applyOverrides({}, new Set(), { network: 'fiber' }))
-      .toThrow(/Unknown network preset.*fiber/);
+    const attempt = () => applyOverrides({}, new Set(), { network: 'fiber' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/Unknown network preset.*fiber/);
   });
 
   it('throws on unknown --format value', () => {
-    expect(() => applyOverrides({}, new Set(), { format: 'mp4' }))
-      .toThrow(InvalidSettingError);
-    expect(() => applyOverrides({}, new Set(), { format: 'mp4' }))
-      .toThrow(/Unknown format.*mp4/);
+    const attempt = () => applyOverrides({}, new Set(), { format: 'mp4' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/Unknown format.*mp4/);
   });
 
   it('throws on non-numeric --cpu', () => {
-    expect(() => applyOverrides({}, new Set(), { cpu: 'fast' }))
-      .toThrow(InvalidSettingError);
-    expect(() => applyOverrides({}, new Set(), { cpu: 'fast' }))
-      .toThrow(/--cpu must be a number/);
+    const attempt = () => applyOverrides({}, new Set(), { cpu: 'fast' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/--cpu must be a number/);
   });
 
   it('throws on --cpu below 1', () => {
-    expect(() => applyOverrides({}, new Set(), { cpu: '0' }))
-      .toThrow(InvalidSettingError);
+    const attempt = () => applyOverrides({}, new Set(), { cpu: '0' });
+
+    expect(attempt).toThrow(InvalidSettingError);
   });
 
   it('throws on non-numeric --runs', () => {
-    expect(() => applyOverrides({}, new Set(), { runs: 'many' }))
-      .toThrow(InvalidSettingError);
-    expect(() => applyOverrides({}, new Set(), { runs: 'many' }))
-      .toThrow(/--runs must be a positive integer/);
+    const attempt = () => applyOverrides({}, new Set(), { runs: 'many' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/--runs must be a positive integer/);
   });
 
   it('throws on --runs < 1', () => {
-    expect(() => applyOverrides({}, new Set(), { runs: '0' }))
-      .toThrow(InvalidSettingError);
+    const attempt = () => applyOverrides({}, new Set(), { runs: '0' });
+
+    expect(attempt).toThrow(InvalidSettingError);
   });
 
   it('throws on negative --slowmo', () => {
-    expect(() => applyOverrides({}, new Set(), { slowmo: '-1' }))
-      .toThrow(InvalidSettingError);
-    expect(() => applyOverrides({}, new Set(), { slowmo: '-1' }))
-      .toThrow(/--slowmo must be a non-negative number/);
+    const attempt = () => applyOverrides({}, new Set(), { slowmo: '-1' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/--slowmo must be a non-negative number/);
   });
 
   it('throws on non-numeric --slowmo', () => {
-    expect(() => applyOverrides({}, new Set(), { slowmo: 'fast' }))
-      .toThrow(InvalidSettingError);
+    const attempt = () => applyOverrides({}, new Set(), { slowmo: 'fast' });
+
+    expect(attempt).toThrow(InvalidSettingError);
   });
 
   it('throws on invalid boolean value for bool flags', () => {
-    expect(() => applyOverrides({}, new Set(), { parallel: 'maybe' }))
-      .toThrow(InvalidSettingError);
-    expect(() => applyOverrides({}, new Set(), { parallel: 'maybe' }))
-      .toThrow(/--parallel must be a boolean/i);
+    const attempt = () => applyOverrides({}, new Set(), { parallel: 'maybe' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/--parallel must be a boolean/i);
   });
 });
 
