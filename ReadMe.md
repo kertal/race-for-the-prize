@@ -308,7 +308,7 @@ The terminal delivers the verdict in style:
 }
 ```
 
-| Field | CLI flag | Values | Default |
+| Field | CLI flag | Values (booleans accept `true`/`false`, `1`/`0`, `yes`/`no`) | Default |
 |---|---|---|---|
 | `parallel` | `--parallel` | `true` / `false` | `false` |
 | `network` | `--network=<preset>` | `none`, `slow-3g`, `fast-3g`, `4g` | `none` |
@@ -319,10 +319,10 @@ The terminal delivers the verdict in style:
 | `format` | `--format=<fmt>` | `webm`, `mov`, `gif` | `webm` |
 | `ffmpeg` | `--ffmpeg` | `true` / `false` | `false` |
 | `har` | `--har` | `true` / `false` | `false` |
-| `noOverlay` | `--overlay` | `true` / `false` (`0/1` supported; inverted: `overlay=false` => `noOverlay=true`) | `false` |
-| `noRecording` | `--recording` | `true` / `false` (`0/1` supported; inverted: `recording=false` => `noRecording=true`) | `false` |
-| `noWasm` | `--wasm` | `true` / `false` (`0/1` supported; inverted: `wasm=false` => `noWasm=true`) | `false` |
-| `noServe` | `--serve` | `true` / `false` (`0/1` supported; inverted: `serve=false` => `noServe=true`) | `false` |
+| `noOverlay` | `--overlay` | `true` / `false` (inverted: `overlay=false` => `noOverlay=true`) | `false` |
+| `noRecording` | `--recording` | `true` / `false` (inverted: `recording=false` => `noRecording=true`) | `false` |
+| `noWasm` | `--wasm` | `true` / `false` (inverted: `wasm=false` => `noWasm=true`) | `false` |
+| `noServe` | `--serve` | `true` / `false` (inverted: `serve=false` => `noServe=true`) | `false` |
 | `pauseBetweenRuns` | `--pause` | `true` / `false` | `false` |
 | `ignoreHTTPSErrors` | `--ignore-https-errors` | `true` / `false` | `false` |
 | `viewportHeight` | `--height=<px>` | integer, 480–4320 | `720` |
