@@ -238,7 +238,7 @@ function parseCliBoolean(value, flagName) {
     if (s === 'true' || s === '1' || s === 'yes') return true;
     if (s === 'false' || s === '0' || s === 'no') return false;
   }
-  throw new InvalidSettingError(`${flagName} must be a boolean (true/false), got "${value}"`);
+  throw new InvalidSettingError(`${flagName} must be a boolean (true/false, 1/0, yes/no), got "${value}"`);
 }
 
 /** Error thrown for invalid user-supplied settings. CLI catches and exits 2 (convention: misuse). */
