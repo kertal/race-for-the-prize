@@ -910,14 +910,14 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--runs${c.reset}=${c.green}3${c.reset}            Run multiple times, report median
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--pause${c.reset}              Pause between runs (press Enter to continue)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--slowmo${c.reset}=${c.green}2${c.reset}           Slow-motion side-by-side replay (2x, 3x, etc.)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--overlay${c.reset}            Enable overlays in recordings (default)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--recording${c.reset}          Enable video recording (default)
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--overlay${c.reset}=${c.green}0${c.reset}        Disable overlays in recordings (1=enable, 0=disable)
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--recording${c.reset}=${c.green}0${c.reset}      Skip video recording, just measure (1=enable, 0=disable)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ffmpeg${c.reset}             Enable FFmpeg processing (trim, merge, convert)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--har${c.reset}                Record network HAR files alongside videos
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--wasm${c.reset}               Copy ffmpeg.wasm files (~25 MB) to results (default)
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--wasm${c.reset}=${c.green}0${c.reset}           Skip copying ffmpeg.wasm files (~25 MB) to results
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--height${c.reset}=${c.green}900${c.reset}          Viewport/recording height in pixels (480–4320, default 720)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ignore-https-errors${c.reset}  Accept invalid/self-signed TLS certificates
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--serve${c.reset}              Start local results server and auto-open (default)
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--serve${c.reset}=${c.green}0${c.reset}          Don't start local results server (CI/headless; open index.html manually)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--gemini${c.reset}             Gemini CLI sports reporter commentary after race
   node race.js ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset} ${c.yellow}--gemini-spec${c.reset}=${c.green}"prompt"${c.reset}  Generate specs via Gemini + Playwright HTML research
 

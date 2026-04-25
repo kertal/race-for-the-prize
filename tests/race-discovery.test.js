@@ -351,6 +351,18 @@ describe('settings override', () => {
     expect(kvFlags.headless).toBe('false');
     expect(positional).toEqual(['./races/test']);
   });
+
+  it('parseArgs supports short boolean value form with spaces', () => {
+    const { kvFlags, positional } = parseArgs(['--overlay', '0', './races/test']);
+    expect(kvFlags.overlay).toBe('0');
+    expect(positional).toEqual(['./races/test']);
+  });
+
+  it('kv boolean --serve=0 and --wasm=1 support short values', () => {
+    const s = applyOverrides({}, new Set(), { serve: '0', wasm: '1' });
+    expect(s.noServe).toBe(true);
+    expect(s.noWasm).toBe(false);
+  });
 });
 
 describe('applyOverrides — invalid input throws InvalidSettingError', () => {
