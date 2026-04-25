@@ -393,7 +393,7 @@ The terminal delivers the verdict in style:
 | `pauseBetweenRuns` | `--pause` | `true` / `false` | `false` |
 | `ignoreHTTPSErrors` | `--ignore-https-errors` | `true` / `false` | `false` |
 | `viewportHeight` | `--height=<px>` | integer, 480–4320 | `720` |
-| `racers` | — | object keyed by racer name | `{}` |
+| `racers` | — | optional object keyed by racer name | not present by default |
 
 For boolean fields, prefer JSON literals `true` / `false` (not strings). String values like `"false"` are normalized when possible. `--headed` shows the browser and overrides `headless` in `settings.json`; `--headless` wins if both flags are passed.
 
