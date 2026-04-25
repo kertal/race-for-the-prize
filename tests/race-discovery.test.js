@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { discoverRacers, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown, InvalidSettingError } from '../cli/config.js';
+import { discoverRacers, resolveSharedRacerNames, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown, InvalidSettingError } from '../cli/config.js';
 
 let tmpDir;
 
@@ -139,6 +139,35 @@ describe('racer file discovery', () => {
     fs.writeFileSync(path.join(tmpDir, 'beta.js'), '');
 
     expect(() => discoverRacers(tmpDir)).toThrow('Duplicate racer names detected: alpha');
+  });
+});
+
+describe('shared-spec racer resolution', () => {
+  it('uses settings.racers declaration order', () => {
+    const names = resolveSharedRacerNames({
+      racers: {
+        bravo: {},
+        alpha: {},
+      },
+    });
+    expect(names).toEqual(['bravo', 'alpha']);
+  });
+
+  it('throws when fewer than 2 racers are declared', () => {
+    expect(() => resolveSharedRacerNames({ racers: { alpha: {} } }))
+      .toThrow(InvalidSettingError);
+  });
+
+  it('throws when racer names include path separators', () => {
+    expect(() => resolveSharedRacerNames({
+      racers: { 'a/b': {}, bravo: {} },
+    })).toThrow(/must not contain path separators/i);
+  });
+
+  it('throws when racer names are dot segments', () => {
+    expect(() => resolveSharedRacerNames({
+      racers: { '..': {}, bravo: {} },
+    })).toThrow(/is not allowed/i);
   });
 });
 

@@ -91,6 +91,49 @@ export function discoverRacers(raceDir) {
 }
 
 /**
+ * Resolve racer names for shared-spec mode from settings.json.
+ * Shared-spec mode uses one race.spec.js script and settings-defined racers.
+ *
+ * Rules:
+ * - settings.racers must be an object with 2..5 keys
+ * - racer names must be non-empty strings
+ * - racer order follows declaration order in settings.racers
+ *
+ * @param {object} settings
+ * @returns {string[]} ordered racer names
+ * @throws {InvalidSettingError}
+ */
+export function resolveSharedRacerNames(settings) {
+  const racers = settings?.racers;
+  if (!racers || typeof racers !== 'object' || Array.isArray(racers)) {
+    throw new InvalidSettingError('shared-spec mode requires settings.racers to be an object');
+  }
+
+  const names = Object.keys(racers);
+  if (names.length < 2) {
+    throw new InvalidSettingError(`shared-spec mode requires at least 2 racers in settings.racers, found ${names.length}`);
+  }
+  if (names.length > 5) {
+    throw new InvalidSettingError(`shared-spec mode supports up to 5 racers, found ${names.length}`);
+  }
+  const emptyName = names.find(name => typeof name !== 'string' || name.trim() === '');
+  if (emptyName !== undefined) {
+    throw new InvalidSettingError('shared-spec mode racer names must be non-empty strings');
+  }
+  for (const name of names) {
+    // Keep names filesystem-safe because they become output directory names.
+    if (name === '.' || name === '..') {
+      throw new InvalidSettingError(`shared-spec racer name "${name}" is not allowed`);
+    }
+    if (name !== path.basename(name)) {
+      throw new InvalidSettingError(`shared-spec racer name "${name}" must not contain path separators`);
+    }
+  }
+
+  return names;
+}
+
+/**
  * Check if a string is a valid http(s) URL with a hostname.
  */
 export function isUrl(str) {
@@ -389,4 +432,23 @@ export function discoverRacerSetupTeardown(raceDir, racerName, settings = {}) {
   const teardown = racerSettings.teardown !== undefined ? racerSettings.teardown : (teardownConvention || null);
 
   return { setup, teardown };
+}
+
+/**
+ * Convert per-racer `vars` (from settings.json) into `RACE_VAR_*` env vars
+ * for per-racer setup/teardown scripts.
+ *
+ * Keys are uppercased and non-alphanumeric chars replaced with `_`.
+ * String/number/boolean values are stringified; objects/arrays are JSON-encoded.
+ * `null`/`undefined` values are skipped. Non-object `vars` returns `{}`.
+ */
+export function varsToEnv(vars) {
+  if (!vars || typeof vars !== 'object' || Array.isArray(vars)) return {};
+  const env = {};
+  for (const [key, value] of Object.entries(vars)) {
+    if (value === null || value === undefined) continue;
+    const envKey = 'RACE_VAR_' + String(key).toUpperCase().replace(/[^A-Z0-9]/g, '_');
+    env[envKey] = typeof value === 'object' ? JSON.stringify(value) : String(value);
+  }
+  return env;
 }

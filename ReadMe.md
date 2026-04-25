@@ -77,7 +77,11 @@ npx race-for-the-prize my-race
 
 ## Building Your Own Grand Prix
 
-Every race needs at least two contenders (up to five). Create a folder with `.spec.js` scripts:
+Every race needs at least two contenders (up to five). RaceForThePrize supports two modes:
+
+### Mode 1: Multi-spec mode
+
+Use this when each racer needs custom logic. Create one `.spec.js` file per racer:
 
 ```text
 races/my-race/
@@ -88,6 +92,36 @@ races/my-race/
   setup.sh               # Optional: runs before the race (see Setup and Teardown)
   teardown.sh            # Optional: runs after the race
 ```
+
+### Mode 2: Shared-spec mode
+
+Use this when racers share the same script but differ by variables (URL, commit, feature flags). Keep one `race.spec.js` and define racers in `settings.json`:
+
+```text
+races/my-race/
+  race.spec.js           # Shared script used by all racers
+  settings.json          # Required: defines racers + vars
+  setup.sh               # Optional: global setup
+  teardown.sh            # Optional: global teardown
+```
+
+```json
+{
+  "racers": {
+    "commit-a": { "vars": { "URL": "https://app.example.com?ref=a" } },
+    "commit-b": { "vars": { "URL": "https://app.example.com?ref=b" } }
+  }
+}
+```
+
+In shared-spec mode, racer order follows key declaration order in `racers`. Access per-racer values via `race.vars`:
+
+```js
+await page.goto(race.vars.URL);
+```
+
+Setup scripts are optional in both modes.
+If both modes are technically possible, prefer shared-spec mode for faster A/B experiments with less duplicated code.
 
 Each script gets a Playwright `page` object with race timing built in:
 
@@ -132,7 +166,9 @@ If you skip `raceRecordingStart`/`End`, the video automatically wraps your first
 
 ### A/B testing different versions of your app
 
-Ship a performance regression? Find out before your users do. Point two racers at the same workflow — one against your current release, one against the candidate build:
+Ship a performance regression? Find out before your users do. You can race two builds with either separate scripts (multi-spec mode) or one shared script (shared-spec mode).
+
+#### Multi-spec mode example
 
 ```text
 races/checkout-v2-vs-v3/
@@ -140,12 +176,47 @@ races/checkout-v2-vs-v3/
   checkout-v3.spec.js    # Staging: https://staging.example.com
 ```
 
-```js
-// checkout-v3.spec.js
-await page.goto('https://staging.example.com/products');
-await page.waitForSelector('.product-list');
+#### Shared-spec mode example (single codebase, commit-to-commit)
 
-// Start recording with a brief pause so viewers see the initial state
+Use one script and switch commits per racer in a per-racer setup script:
+
+```text
+races/checkout-commits/
+  race.spec.js
+  checkout-commit.sh
+  settings.json
+```
+
+`settings.json`:
+
+```json
+{
+  "racers": {
+    "main": {
+      "setup": "./checkout-commit.sh",
+      "vars": { "COMMIT_SHA": "origin/main", "URL": "http://localhost:5601/app/home" }
+    },
+    "candidate": {
+      "setup": "./checkout-commit.sh",
+      "vars": { "COMMIT_SHA": "feature/checkout-fast", "URL": "http://localhost:5601/app/home" }
+    }
+  }
+}
+```
+
+`checkout-commit.sh`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+git -C /path/to/your/repo checkout "$RACE_VAR_COMMIT_SHA"
+```
+
+`race.spec.js`:
+
+```js
+await page.goto(race.vars.URL);
+await page.waitForSelector('.product-list');
 await page.raceRecordingStart();
 await page.waitForTimeout(1500);
 
@@ -154,12 +225,6 @@ await page.click('.add-to-cart');
 await page.waitForSelector('.cart-badge');
 page.raceEnd('Add to cart flow');
 
-await page.raceStart('Checkout render');
-await page.click('.checkout-button');
-await page.waitForSelector('.payment-form');
-page.raceEnd('Checkout render');
-
-// Let the final state linger in the recording
 await page.waitForTimeout(1500);
 await page.raceRecordingEnd();
 ```
@@ -326,6 +391,7 @@ The terminal delivers the verdict in style:
 | `pauseBetweenRuns` | `--pause` | `true` / `false` | `false` |
 | `ignoreHTTPSErrors` | `--ignore-https-errors` | `true` / `false` | `false` |
 | `viewportHeight` | `--height=<px>` | integer, 480–4320 | `720` |
+| `racers` | — | object keyed by racer name | `{}` |
 
 For boolean fields, prefer JSON literals `true` / `false` (not strings). String values like `"false"` are normalized when possible. `--headed` shows the browser and overrides `headless` in `settings.json`; `--headless` wins if both flags are passed.
 
@@ -348,7 +414,7 @@ races/my-race/
 
 Supported extensions: `.sh` (shell, requires bash) and `.js` (Node.js). When both exist, `.sh` takes priority. Note: `.js` files run according to Node's module resolution rules (ESM or CommonJS depends on the nearest `package.json` with `"type": "module"`).
 
-Scripts receive the `RACE_DIR` environment variable pointing to the race directory.
+Scripts receive the `RACE_DIR` environment variable pointing to the race directory. Per-racer setup and teardown scripts also receive each entry from that racer's `vars` (in `settings.json`) as `RACE_VAR_<KEY>` — useful for sharing one script across racers that only differ by a commit hash, branch name, etc.
 
 ### Settings-based configuration
 

@@ -25,7 +25,7 @@ import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c, FORMAT_EXTENSIONS } from './cli/colors.js';
-import { parseArgs, discoverRacers, applyOverrides, applyDefaults, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown, findUnknownFlags, InvalidSettingError } from './cli/config.js';
+import { parseArgs, discoverRacers, resolveSharedRacerNames, applyOverrides, applyDefaults, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown, findUnknownFlags, varsToEnv, InvalidSettingError } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex, findMedianRunIndexPerRacer } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
@@ -788,16 +788,6 @@ function loadRaceDir(raceDir) {
     process.exit(1);
   }
 
-  const { racerFiles, racerNames, totalFound, dropped } = discoverRacers(raceDir);
-  if (racerFiles.length < 2) {
-    console.error(`${c.red}Error: Need at least 2 .spec.js (or .js) script files in ${raceDir}, found ${racerFiles.length}${c.reset}`);
-    process.exit(1);
-  }
-  if (totalFound > 5) {
-    console.error(`${c.yellow}Warning: Found ${totalFound} script files, using first five: ${racerFiles.join(', ')}${c.reset}`);
-    console.error(`${c.dim}  Skipped: ${dropped.join(', ')}${c.reset}`);
-  }
-
   let settings = {};
   const settingsPath = path.join(raceDir, 'settings.json');
   if (fs.existsSync(settingsPath)) {
@@ -811,34 +801,75 @@ function loadRaceDir(raceDir) {
   }
   settings = applySettingsOrExit(settings);
 
-  // Compute effective racer files (may be overridden by settings.racers[name].script).
-  // Security: restrict to a basename within raceDir; no separators, no parent traversal.
-  const effectiveRacerFiles = racerFiles.map((f, i) => {
-    const name = racerNames[i];
-    const script = settings.racers?.[name]?.script;
-    if (!script) return f;
-    const fail = (reason) => {
-      console.error(`${c.red}Error: settings.racers.${name}.script ${reason}${c.reset}`);
-      process.exit(1);
-    };
-    if (typeof script !== 'string' || script.trim() === '') fail('must be a non-empty string');
-    if (path.basename(script) !== script || script.includes('..') || path.isAbsolute(script)) {
-      fail(`must be a filename (no path separators): ${script}`);
-    }
-    const scriptPath = path.join(raceDir, script);
-    let stat;
+  const allFiles = fs.readdirSync(raceDir).filter(f => !f.startsWith('.'));
+  const specFiles = allFiles.filter(f => f.endsWith('.spec.js')).sort();
+  const hasOnlySharedSpec = specFiles.length === 1 && specFiles[0] === 'race.spec.js';
+  const hasRacersConfig = settings.racers !== undefined;
+
+  let racerNames;
+  let effectiveRacerFiles;
+
+  if (hasOnlySharedSpec && hasRacersConfig) {
     try {
-      stat = fs.lstatSync(scriptPath);
-    } catch {
-      fail(`not found: ${script}`);
+      racerNames = resolveSharedRacerNames(settings);
+    } catch (e) {
+      if (e instanceof InvalidSettingError) {
+        console.error(`${c.red}Error: ${e.message}${c.reset}`);
+        process.exit(2);
+      }
+      throw e;
     }
-    // Reject symlinks and directories up front — readFileSync would fail later
-    // with a less specific error, and symlinks could point outside raceDir.
-    if (!stat.isFile()) {
-      fail(`must be a regular file (symlinks and directories are not allowed): ${script}`);
+
+    for (const name of racerNames) {
+      if (Object.prototype.hasOwnProperty.call(settings.racers?.[name] || {}, 'script')) {
+        console.error(`${c.red}Error: shared-spec mode does not support settings.racers.${name}.script; use race.spec.js for all racers${c.reset}`);
+        process.exit(1);
+      }
     }
-    return script;
-  });
+
+    effectiveRacerFiles = racerNames.map(() => 'race.spec.js');
+  } else {
+    const { racerFiles, racerNames: discoveredNames, totalFound, dropped } = discoverRacers(raceDir);
+    if (racerFiles.length < 2) {
+      console.error(`${c.red}Error: Need at least 2 .spec.js (or .js) script files in ${raceDir}, found ${racerFiles.length}${c.reset}`);
+      process.exit(1);
+    }
+    if (totalFound > 5) {
+      console.error(`${c.yellow}Warning: Found ${totalFound} script files, using first five: ${racerFiles.join(', ')}${c.reset}`);
+      console.error(`${c.dim}  Skipped: ${dropped.join(', ')}${c.reset}`);
+    }
+
+    racerNames = discoveredNames;
+
+    // Compute effective racer files (may be overridden by settings.racers[name].script).
+    // Security: restrict to a basename within raceDir; no separators, no parent traversal.
+    effectiveRacerFiles = racerFiles.map((f, i) => {
+      const name = racerNames[i];
+      const script = settings.racers?.[name]?.script;
+      if (!script) return f;
+      const fail = (reason) => {
+        console.error(`${c.red}Error: settings.racers.${name}.script ${reason}${c.reset}`);
+        process.exit(1);
+      };
+      if (typeof script !== 'string' || script.trim() === '') fail('must be a non-empty string');
+      if (path.basename(script) !== script || script.includes('..') || path.isAbsolute(script)) {
+        fail(`must be a filename (no path separators): ${script}`);
+      }
+      const scriptPath = path.join(raceDir, script);
+      let stat;
+      try {
+        stat = fs.lstatSync(scriptPath);
+      } catch {
+        fail(`not found: ${script}`);
+      }
+      // Reject symlinks and directories up front — readFileSync would fail later
+      // with a less specific error, and symlinks could point outside raceDir.
+      if (!stat.isFile()) {
+        fail(`must be a regular file (symlinks and directories are not allowed): ${script}`);
+      }
+      return script;
+    });
+  }
 
   const scripts = effectiveRacerFiles.map(f =>
     fs.readFileSync(path.join(raceDir, f), 'utf-8')
@@ -860,12 +891,14 @@ ${c.dim}  Race two browsers. Measure everything. Crown a winner.  🏎️ 💨${
 
 ${c.bold}  Quick Start:${c.reset}
 ${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
-  ${c.bold}1.${c.reset} Create a race folder with two Playwright spec scripts:
+  ${c.bold}1.${c.reset} Choose a race mode:
 
      ${c.cyan}races/my-race/${c.reset}
-       ${c.green}contender-a.spec.js${c.reset}  ${c.dim}# Racer 1 (name = filename without .spec.js)${c.reset}
+       ${c.green}contender-a.spec.js${c.reset}  ${c.dim}# Multi-spec mode: one file per racer${c.reset}
        ${c.blue}contender-b.spec.js${c.reset}  ${c.dim}# Racer 2${c.reset}
-       ${c.dim}settings.json${c.reset}        ${c.dim}# Optional: { parallel, network, cpuThrottle, setup, teardown }${c.reset}
+       ${c.dim}OR${c.reset}
+       ${c.green}race.spec.js${c.reset}        ${c.dim}# Shared-spec mode: one file for all racers${c.reset}
+       ${c.dim}settings.json${c.reset}        ${c.dim}# shared mode racers + optional race settings${c.reset}
        ${c.dim}setup.sh${c.reset}             ${c.dim}# Optional: global setup before race${c.reset}
        ${c.dim}teardown.sh${c.reset}          ${c.dim}# Optional: global teardown after race${c.reset}
        ${c.dim}contender-a.setup.sh${c.reset} ${c.dim}# Optional: per-racer setup (runs before this racer)${c.reset}
@@ -1025,6 +1058,7 @@ const { setup: setupScript, teardown: teardownScript } = urlMode
 // Per-racer setup/teardown (e.g., lauda.setup.sh, hunt.teardown.js)
 const racerScripts = racerNames.map(name => ({
   name,
+  vars: settings.racers?.[name]?.vars,
   ...(urlMode ? { setup: null, teardown: null } : discoverRacerSetupTeardown(raceDir, name, settings)),
 }));
 
@@ -1035,9 +1069,10 @@ const racerScripts = racerNames.map(name => ({
  *
  * @param {string|object} script - Script path or config object
  * @param {string} label - Label for logging ('Setup' or 'Teardown')
+ * @param {object} [vars] - Per-racer vars exposed to the script as RACE_VAR_* env vars
  * @returns {Promise<void>}
  */
-async function runScript(script, label) {
+async function runScript(script, label, vars) {
   if (!script) return;
 
   const config = typeof script === 'string' ? { command: script } : script;
@@ -1106,7 +1141,7 @@ async function runScript(script, label) {
     const child = spawn(cmd, args, {
       cwd: raceDir,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, RACE_DIR: raceDir },
+      env: { ...process.env, RACE_DIR: raceDir, ...varsToEnv(vars) },
     });
 
     let stderr = '';
@@ -1411,7 +1446,7 @@ async function main() {
         }
         // Run per-racer setup right before this racer's runs
         if (racerScripts[ri].setup) {
-          await runScript(racerScripts[ri].setup, `Setup [${racerScripts[ri].name}]`);
+          await runScript(racerScripts[ri].setup, `Setup [${racerScripts[ri].name}]`, racerScripts[ri].vars);
         }
         for (let i = 0; i < totalRuns; i++) {
           if (i > 0 && settings.pauseBetweenRuns) {
@@ -1476,7 +1511,7 @@ async function main() {
     for (const racer of racerScripts) {
       if (racer.teardown) {
         try {
-          await runScript(racer.teardown, `Teardown [${racer.name}]`);
+          await runScript(racer.teardown, `Teardown [${racer.name}]`, racer.vars);
         } catch (e) {
           console.error(`\n${c.yellow}Teardown for ${racer.name} failed:${c.reset} ${e.message}`);
         }
