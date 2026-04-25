@@ -156,6 +156,61 @@ describe('per-racer setup/teardown discovery edge cases', () => {
     expect(b.setup).toBe('commit-b.setup.sh');
   });
 
+  it('uses race.setup.sh convention in shared-spec mode', () => {
+    fs.writeFileSync(path.join(tmpDir, 'race.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'race.setup.sh'), '#!/bin/bash');
+
+    const settings = {
+      racers: {
+        alpha: { vars: { COMMIT_SHA: 'abc123' } },
+        beta: { vars: { COMMIT_SHA: 'def456' } },
+      },
+    };
+
+    const alpha = discoverRacerSetupTeardown(tmpDir, 'alpha', settings);
+    const beta = discoverRacerSetupTeardown(tmpDir, 'beta', settings);
+
+    expect(alpha.setup).toBe('race.setup.sh');
+    expect(beta.setup).toBe('race.setup.sh');
+  });
+
+  it('prefers racer-specific setup over race.setup.sh in shared-spec mode', () => {
+    fs.writeFileSync(path.join(tmpDir, 'race.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'race.setup.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'alpha.setup.sh'), '#!/bin/bash');
+
+    const settings = {
+      racers: {
+        alpha: {},
+        beta: {},
+      },
+    };
+
+    const alpha = discoverRacerSetupTeardown(tmpDir, 'alpha', settings);
+    const beta = discoverRacerSetupTeardown(tmpDir, 'beta', settings);
+
+    expect(alpha.setup).toBe('alpha.setup.sh');
+    expect(beta.setup).toBe('race.setup.sh');
+  });
+
+  it('uses race.teardown.sh convention in shared-spec mode', () => {
+    fs.writeFileSync(path.join(tmpDir, 'race.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'race.teardown.sh'), '#!/bin/bash');
+
+    const settings = {
+      racers: {
+        alpha: {},
+        beta: {},
+      },
+    };
+
+    const alpha = discoverRacerSetupTeardown(tmpDir, 'alpha', settings);
+    const beta = discoverRacerSetupTeardown(tmpDir, 'beta', settings);
+
+    expect(alpha.teardown).toBe('race.teardown.sh');
+    expect(beta.teardown).toBe('race.teardown.sh');
+  });
+
   it.each([
     { desc: 'hyphens', name: 'my-app-v1', other: 'my-app-v2', ext: '.sh', content: '#!/bin/bash' },
     { desc: 'dots', name: 'app.v1.0', other: 'app.v2.0', ext: '.sh', content: '#!/bin/bash' },

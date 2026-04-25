@@ -101,6 +101,7 @@ Use this when racers share the same script but differ by variables (URL, commit,
 races/my-race/
   race.spec.js           # Shared script used by all racers
   settings.json          # Required: defines racers + vars
+  race.setup.sh          # Optional: shared per-racer setup in shared-spec mode
   setup.sh               # Optional: global setup
   teardown.sh            # Optional: global teardown
 ```
@@ -122,6 +123,7 @@ await page.goto(race.vars.URL);
 
 Setup scripts are optional in both modes.
 If both modes are technically possible, prefer shared-spec mode for faster A/B experiments with less duplicated code.
+In shared-spec mode, `race.setup.sh`/`.js` can be used as a shared per-racer setup convention (still overridable per racer in `settings.racers.<name>.setup`).
 
 Each script gets a Playwright `page` object with race timing built in:
 

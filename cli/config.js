@@ -405,6 +405,7 @@ export function discoverSetupTeardown(raceDir, settings = {}) {
  * Discover per-racer setup and teardown scripts.
  * Convention: {racer-name}.setup.sh, {racer-name}.setup.js,
  *             {racer-name}.teardown.sh, {racer-name}.teardown.js
+ * Shared-spec convention (single race.spec.js): race.setup.sh/.js, race.teardown.sh/.js
  * Can be overridden via settings.json racers.{name}.setup/teardown fields.
  *
  * @param {string} raceDir - Path to the race directory
@@ -414,10 +415,14 @@ export function discoverSetupTeardown(raceDir, settings = {}) {
  */
 export function discoverRacerSetupTeardown(raceDir, racerName, settings = {}) {
   const allFiles = fs.readdirSync(raceDir).filter(f => !f.startsWith('.'));
+  const specFiles = allFiles.filter(f => f.endsWith('.spec.js')).sort();
+  const isSharedSpecMode = specFiles.length === 1 && specFiles[0] === 'race.spec.js' && settings.racers?.[racerName] !== undefined;
 
   // Convention-based discovery (.sh preferred over .js)
   const setupOrder = getScriptOrder(`${racerName}.setup`);
   const teardownOrder = getScriptOrder(`${racerName}.teardown`);
+  const sharedSetupOrder = getScriptOrder('race.setup');
+  const sharedTeardownOrder = getScriptOrder('race.teardown');
 
   const setupConvention = setupOrder.find(f =>
     allFiles.includes(f) && isFile(path.join(raceDir, f))
@@ -425,11 +430,19 @@ export function discoverRacerSetupTeardown(raceDir, racerName, settings = {}) {
   const teardownConvention = teardownOrder.find(f =>
     allFiles.includes(f) && isFile(path.join(raceDir, f))
   );
+  const sharedSetupConvention = sharedSetupOrder.find(f =>
+    allFiles.includes(f) && isFile(path.join(raceDir, f))
+  );
+  const sharedTeardownConvention = sharedTeardownOrder.find(f =>
+    allFiles.includes(f) && isFile(path.join(raceDir, f))
+  );
+  const effectiveSetupConvention = setupConvention || (isSharedSpecMode ? sharedSetupConvention : null);
+  const effectiveTeardownConvention = teardownConvention || (isSharedSpecMode ? sharedTeardownConvention : null);
 
   // Settings override convention (settings.racers.{name}.setup/teardown)
   const racerSettings = settings.racers?.[racerName] || {};
-  const setup = racerSettings.setup !== undefined ? racerSettings.setup : (setupConvention || null);
-  const teardown = racerSettings.teardown !== undefined ? racerSettings.teardown : (teardownConvention || null);
+  const setup = racerSettings.setup !== undefined ? racerSettings.setup : (effectiveSetupConvention || null);
+  const teardown = racerSettings.teardown !== undefined ? racerSettings.teardown : (effectiveTeardownConvention || null);
 
   return { setup, teardown };
 }
