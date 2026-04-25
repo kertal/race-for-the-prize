@@ -173,6 +173,16 @@ function copyRaceAssets(raceDir, racerFiles, runDir) {
 }
 
 /**
+ * Build a unique temporary recordings directory for a race run.
+ * Uses process-local entropy so concurrent races in the same raceDir do not
+ * stomp each other's files.
+ */
+function buildRecordingsDir(baseDir, prefix = 'tmp') {
+  const nonce = `${Date.now()}-${process.pid}-${crypto.randomBytes(3).toString('hex')}`;
+  return path.join(baseDir, `${prefix}-${nonce}`);
+}
+
+/**
  * Build clip times from recording segments for player-level trimming (default mode).
  * Uses only the first segment per racer — multiple non-contiguous segments are not
  * supported in player-level trimming (--ffmpeg mode concatenates them into one video).
@@ -332,7 +342,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
   const racerRunDirs = racerNames.map(name => path.join(runDir, name));
   racerRunDirs.forEach(d => fs.mkdirSync(d, { recursive: true }));
 
-  const recordingsDir = path.join(ctx.raceDir || path.dirname(runDir), 'tmp');
+  const recordingsDir = buildRecordingsDir(ctx.raceDir || path.dirname(runDir));
   fs.mkdirSync(recordingsDir, { recursive: true });
   const raceCtx = { ...ctx, runnerConfig: { ...ctx.runnerConfig, recordingsDir } };
 
@@ -1297,7 +1307,7 @@ const resultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}-${
  * Returns { rawResult, movedResult } with recordings moved into racerRunDir.
  */
 async function runRacerAlone(browserIdx, racerRunDir) {
-  const recordingsDir = path.join(ctx.raceDir || resultsDir, `tmp-r${browserIdx}`);
+  const recordingsDir = buildRecordingsDir(ctx.raceDir || resultsDir, `tmp-r${browserIdx}`);
   fs.mkdirSync(recordingsDir, { recursive: true });
   fs.mkdirSync(racerRunDir, { recursive: true });
 
