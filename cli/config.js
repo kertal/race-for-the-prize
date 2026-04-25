@@ -8,14 +8,14 @@ import path from 'path';
 
 const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'height', 'gemini-spec']);
 const BOOLEAN_VALUE_FLAGS = new Set([
-  'parallel', 'headless', 'no-overlay', 'no-recording',
-  'ffmpeg', 'har', 'no-wasm', 'no-serve', 'pause', 'ignore-https-errors', 'gemini',
+  'parallel', 'headless', 'overlay', 'recording',
+  'ffmpeg', 'har', 'wasm', 'serve', 'pause', 'ignore-https-errors', 'gemini',
 ]);
 
 /** Boolean flags the CLI recognises. Unknown flags produce an error. */
 export const KNOWN_BOOL_FLAGS = new Set([
-  'parallel', 'headless', 'no-overlay', 'no-recording',
-  'ffmpeg', 'har', 'no-wasm', 'no-serve', 'pause', 'ignore-https-errors',
+  'parallel', 'headless', 'overlay', 'recording',
+  'ffmpeg', 'har', 'wasm', 'serve', 'pause', 'ignore-https-errors',
   'gemini', 'results', 'init', 'verbose', 'help', 'version',
 ]);
 
@@ -259,23 +259,23 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   const s = { ...settings };
   if (boolFlags.has('parallel')) s.parallel = true;
   if (boolFlags.has('headless')) s.headless = true;
-  if (boolFlags.has('no-overlay')) s.noOverlay = true;
-  if (boolFlags.has('no-recording')) s.noRecording = true;
+  if (boolFlags.has('overlay')) s.noOverlay = false;
+  if (boolFlags.has('recording')) s.noRecording = false;
   if (boolFlags.has('ffmpeg')) s.ffmpeg = true;
   if (boolFlags.has('har')) s.har = true;
-  if (boolFlags.has('no-wasm')) s.noWasm = true;
-  if (boolFlags.has('no-serve')) s.noServe = true;
+  if (boolFlags.has('wasm')) s.noWasm = false;
+  if (boolFlags.has('serve')) s.noServe = false;
   if (boolFlags.has('pause')) s.pauseBetweenRuns = true;
   if (boolFlags.has('ignore-https-errors')) s.ignoreHTTPSErrors = true;
   // Explicit boolean values (for example --parallel=false) override presence flags.
   if (kvFlags.parallel !== undefined) s.parallel = parseCliBoolean(kvFlags.parallel, '--parallel');
   if (kvFlags.headless !== undefined) s.headless = parseCliBoolean(kvFlags.headless, '--headless');
-  if (kvFlags['no-overlay'] !== undefined) s.noOverlay = parseCliBoolean(kvFlags['no-overlay'], '--no-overlay');
-  if (kvFlags['no-recording'] !== undefined) s.noRecording = parseCliBoolean(kvFlags['no-recording'], '--no-recording');
+  if (kvFlags.overlay !== undefined) s.noOverlay = !parseCliBoolean(kvFlags.overlay, '--overlay');
+  if (kvFlags.recording !== undefined) s.noRecording = !parseCliBoolean(kvFlags.recording, '--recording');
   if (kvFlags.ffmpeg !== undefined) s.ffmpeg = parseCliBoolean(kvFlags.ffmpeg, '--ffmpeg');
   if (kvFlags.har !== undefined) s.har = parseCliBoolean(kvFlags.har, '--har');
-  if (kvFlags['no-wasm'] !== undefined) s.noWasm = parseCliBoolean(kvFlags['no-wasm'], '--no-wasm');
-  if (kvFlags['no-serve'] !== undefined) s.noServe = parseCliBoolean(kvFlags['no-serve'], '--no-serve');
+  if (kvFlags.wasm !== undefined) s.noWasm = !parseCliBoolean(kvFlags.wasm, '--wasm');
+  if (kvFlags.serve !== undefined) s.noServe = !parseCliBoolean(kvFlags.serve, '--serve');
   if (kvFlags.pause !== undefined) s.pauseBetweenRuns = parseCliBoolean(kvFlags.pause, '--pause');
   if (kvFlags['ignore-https-errors'] !== undefined) {
     s.ignoreHTTPSErrors = parseCliBoolean(kvFlags['ignore-https-errors'], '--ignore-https-errors');

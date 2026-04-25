@@ -157,9 +157,9 @@ describe('argument parsing', () => {
     expect(boolFlags.has('results')).toBe(true);
   });
 
-  it('parses --no-overlay flag', () => {
-    const { boolFlags } = parseArgs(['dir', '--no-overlay']);
-    expect(boolFlags.has('no-overlay')).toBe(true);
+  it('parses --overlay flag', () => {
+    const { boolFlags } = parseArgs(['dir', '--overlay']);
+    expect(boolFlags.has('overlay')).toBe(true);
   });
 
   it('handles key=value flags', () => {
@@ -228,9 +228,9 @@ describe('settings override', () => {
     expect(s.cpuThrottle).toBe(4);
   });
 
-  it('CLI --no-overlay sets noOverlay', () => {
-    const s = applyOverrides({}, new Set(['no-overlay']), {});
-    expect(s.noOverlay).toBe(true);
+  it('CLI --overlay enables overlay', () => {
+    const s = applyOverrides({ noOverlay: true }, new Set(['overlay']), {});
+    expect(s.noOverlay).toBe(false);
   });
 
   it('CLI --slowmo sets slowmo factor', () => {
@@ -243,19 +243,19 @@ describe('settings override', () => {
     expect(s.pauseBetweenRuns).toBe(true);
   });
 
-  it('CLI --no-serve sets noServe', () => {
-    const s = applyOverrides({}, new Set(['no-serve']), {});
-    expect(s.noServe).toBe(true);
-  });
-
-  it('kv boolean --no-serve=false enables serving', () => {
-    const s = applyOverrides({ noServe: true }, new Set(), { 'no-serve': 'false' });
+  it('CLI --serve enables serving', () => {
+    const s = applyOverrides({ noServe: true }, new Set(['serve']), {});
     expect(s.noServe).toBe(false);
   });
 
-  it('CLI --no-recording sets noRecording', () => {
-    const s = applyOverrides({}, new Set(['no-recording']), {});
-    expect(s.noRecording).toBe(true);
+  it('kv boolean --serve=false disables serving', () => {
+    const s = applyOverrides({ noServe: false }, new Set(), { serve: 'false' });
+    expect(s.noServe).toBe(true);
+  });
+
+  it('CLI --recording enables recording', () => {
+    const s = applyOverrides({ noRecording: true }, new Set(['recording']), {});
+    expect(s.noRecording).toBe(false);
   });
 
   it('preserves settings when no overrides', () => {
@@ -325,9 +325,9 @@ describe('settings override', () => {
     expect(s.ffmpeg).toBe(false);
   });
 
-  it('kv boolean --no-overlay=false overrides bool flag --no-overlay', () => {
-    const s = applyOverrides({}, new Set(['no-overlay']), { 'no-overlay': 'false' });
-    expect(s.noOverlay).toBe(false);
+  it('kv boolean --overlay=false overrides bool flag --overlay', () => {
+    const s = applyOverrides({}, new Set(['overlay']), { overlay: 'false' });
+    expect(s.noOverlay).toBe(true);
   });
 
   it('kv boolean --headless=false overrides bool flag --headless', () => {
@@ -335,9 +335,15 @@ describe('settings override', () => {
     expect(s.headless).toBe(false);
   });
 
-  it('kv boolean --no-serve=false overrides bool flag --no-serve', () => {
-    const s = applyOverrides({}, new Set(['no-serve']), { 'no-serve': 'false' });
-    expect(s.noServe).toBe(false);
+  it('kv boolean --serve=false overrides bool flag --serve', () => {
+    const s = applyOverrides({}, new Set(['serve']), { serve: 'false' });
+    expect(s.noServe).toBe(true);
+  });
+
+  it('kv boolean --overlay=0 and --recording=1 support short values', () => {
+    const s = applyOverrides({}, new Set(), { overlay: '0', recording: '1' });
+    expect(s.noOverlay).toBe(true);
+    expect(s.noRecording).toBe(false);
   });
 
   it('parseArgs supports boolean value form with spaces', () => {
@@ -406,10 +412,10 @@ describe('applyOverrides — invalid input throws InvalidSettingError', () => {
   });
 });
 
-describe('applyOverrides — no-serve boolean flag', () => {
-  it('bool --no-serve disables serving', () => {
-    const s = applyOverrides({ noServe: false }, new Set(['no-serve']), {});
-    expect(s.noServe).toBe(true);
+describe('applyOverrides — serve boolean flag', () => {
+  it('bool --serve enables serving', () => {
+    const s = applyOverrides({ noServe: true }, new Set(['serve']), {});
+    expect(s.noServe).toBe(false);
   });
 });
 

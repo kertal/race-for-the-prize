@@ -140,7 +140,7 @@ Parallel mode is the demo day showpiece — all browsers racing side by side in 
 
 *[For DevOps-heavy audiences, spend more time here. For developer audiences, keep it brief.]*
 
-Running races in CI is straightforward. `--headless` means no visible browser, `--no-serve` skips the auto-open, and `--runs=3` gives you stable results.
+Running races in CI is straightforward. `--headless` means no visible browser, `--serve=false` skips the auto-open, and `--runs=3` gives you stable results.
 
 The `summary.json` output is designed for machines. Parse it in your CI pipeline to check the winner, compare timings, or fail the build if a threshold is exceeded.
 

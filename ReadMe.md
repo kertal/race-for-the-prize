@@ -220,12 +220,12 @@ node race.js <dir> --format=mov           # Broadcast-ready replay format (requi
 node race.js <dir> --format=gif           # Quick highlight reel (requires --ffmpeg)
 node race.js <dir> --runs=3               # Best of 3 — median wins
 node race.js <dir> --slowmo=2             # Slow-motion replay (2x, 3x, etc.)
-node race.js <dir> --no-overlay           # Record videos without overlays
-node race.js <dir> --no-recording         # Skip video recording, just measure
+node race.js <dir> --overlay=false        # Record videos without overlays
+node race.js <dir> --recording=false      # Skip video recording, just measure
 node race.js <dir> --ffmpeg               # Enable FFmpeg processing (trim, merge, convert)
 node race.js <dir> --har                  # Record network HAR files alongside videos
-node race.js <dir> --no-wasm              # Skip copying ffmpeg.wasm files (~25 MB) to results
-node race.js <dir> --no-serve             # Don't start local results server or auto-open; print results HTML path
+node race.js <dir> --wasm=false           # Skip copying ffmpeg.wasm files (~25 MB) to results
+node race.js <dir> --serve=false          # Don't start local results server or auto-open; print results HTML path
 node race.js <dir> --pause                # Pause between racers — run all laps for each racer, then press Enter for the next
 node race.js <dir> --height=900           # Set viewport/recording height in pixels (480–4320, default 720)
 node race.js <dir> --ignore-https-errors  # Accept invalid/self-signed TLS certificates
@@ -319,15 +319,15 @@ The terminal delivers the verdict in style:
 | `format` | `--format=<fmt>` | `webm`, `mov`, `gif` | `webm` |
 | `ffmpeg` | `--ffmpeg` | `true` / `false` | `false` |
 | `har` | `--har` | `true` / `false` | `false` |
-| `noOverlay` | `--no-overlay` | `true` / `false` | `false` |
-| `noRecording` | `--no-recording` | `true` / `false` | `false` |
-| `noWasm` | `--no-wasm` | `true` / `false` | `false` |
-| `noServe` | `--no-serve` | `true` / `false` | `false` |
+| `noOverlay` | `--overlay` | `true` / `false` (`0/1` supported) | `false` |
+| `noRecording` | `--recording` | `true` / `false` (`0/1` supported) | `false` |
+| `noWasm` | `--wasm` | `true` / `false` (`0/1` supported) | `false` |
+| `noServe` | `--serve` | `true` / `false` (`0/1` supported) | `false` |
 | `pauseBetweenRuns` | `--pause` | `true` / `false` | `false` |
 | `ignoreHTTPSErrors` | `--ignore-https-errors` | `true` / `false` | `false` |
 | `viewportHeight` | `--height=<px>` | integer, 480–4320 | `720` |
 
-For boolean fields, prefer JSON literals `true` / `false` (not strings). String values like `"false"` are normalized when possible. On the CLI, boolean flags also accept explicit values (`--headless=false`, `--har=true`).
+For boolean fields, prefer JSON literals `true` / `false` (not strings). String values like `"false"` are normalized when possible. On the CLI, boolean flags also accept explicit values (`--headless=false`, `--har=true`) and short values (`--serve=0`, `--overlay=1`).
 
 ## Setup and Teardown Scripts
 
