@@ -358,6 +358,20 @@ describe('settings override', () => {
     expect(positional).toEqual(['./races/test']);
   });
 
+  it('parseArgs supports --parallel=false equals form', () => {
+    const { kvFlags, boolFlags, positional } = parseArgs(['--parallel=false', './races/test']);
+    expect(kvFlags.parallel).toBe('false');
+    expect(boolFlags.has('parallel')).toBe(false);
+    expect(positional).toEqual(['./races/test']);
+  });
+
+  it('parseArgs supports --ffmpeg=true equals form', () => {
+    const { kvFlags, boolFlags, positional } = parseArgs(['--ffmpeg=true', './races/test']);
+    expect(kvFlags.ffmpeg).toBe('true');
+    expect(boolFlags.has('ffmpeg')).toBe(false);
+    expect(positional).toEqual(['./races/test']);
+  });
+
   it('kv boolean --serve=0 and --wasm=1 support short values', () => {
     const s = applyOverrides({}, new Set(), { serve: '0', wasm: '1' });
     expect(s.noServe).toBe(true);
