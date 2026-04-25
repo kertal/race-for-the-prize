@@ -231,7 +231,7 @@ node race.js <dir> --height=900           # Set viewport/recording height in pix
 node race.js <dir> --ignore-https-errors  # Accept invalid/self-signed TLS certificates
 ```
 
-CLI flags always override `settings.json`. The stewards have spoken.
+CLI flags always override `settings.json`. For boolean flags, you can pass explicit values like `--parallel=false` or `--ffmpeg=true`.
 
 ### Network Throttling Presets
 
@@ -327,7 +327,7 @@ The terminal delivers the verdict in style:
 | `ignoreHTTPSErrors` | `--ignore-https-errors` | `true` / `false` | `false` |
 | `viewportHeight` | `--height=<px>` | integer, 480–4320 | `720` |
 
-For boolean fields, prefer JSON literals `true` / `false` (not strings). String values like `"false"` are normalized when possible. `--headed` shows the browser and overrides `headless` in `settings.json`; `--headless` wins if both flags are passed.
+For boolean fields, prefer JSON literals `true` / `false` (not strings). String values like `"false"` are normalized when possible. On the CLI, boolean flags also accept explicit values (`--headless=false`, `--har=true`). `--headed` shows the browser and overrides `headless` in `settings.json`; `--headless` wins if both flags are passed.
 
 ## Setup and Teardown Scripts
 

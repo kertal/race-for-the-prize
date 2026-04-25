@@ -212,6 +212,17 @@ export function applyDefaults(settings) {
 export const VALID_NETWORKS = ['none', 'slow-3g', 'fast-3g', '4g'];
 export const VALID_FORMATS = ['webm', 'mov', 'gif'];
 
+function parseCliBoolean(value, flagName) {
+  if (value === true || value === 1) return true;
+  if (value === false || value === 0) return false;
+  if (typeof value === 'string') {
+    const s = value.trim().toLowerCase();
+    if (s === 'true' || s === '1' || s === 'yes') return true;
+    if (s === 'false' || s === '0' || s === 'no') return false;
+  }
+  throw new InvalidSettingError(`${flagName} must be a boolean (true/false), got "${value}"`);
+}
+
 /** Error thrown for invalid user-supplied settings. CLI catches and exits 2 (convention: misuse). */
 export class InvalidSettingError extends Error {
   constructor(message) {
@@ -238,11 +249,24 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('no-wasm')) s.noWasm = true;
   if (boolFlags.has('no-serve')) s.noServe = true;
   if (boolFlags.has('serve')) s.noServe = false;
-  // Backward compatibility: legacy --serve=false / --serve=true
-  if (kvFlags.serve === 'false') s.noServe = true;
-  else if (kvFlags.serve === 'true') s.noServe = false;
   if (boolFlags.has('pause')) s.pauseBetweenRuns = true;
   if (boolFlags.has('ignore-https-errors')) s.ignoreHTTPSErrors = true;
+  // Explicit boolean values (for example --parallel=false) override presence flags.
+  if (kvFlags.parallel !== undefined) s.parallel = parseCliBoolean(kvFlags.parallel, '--parallel');
+  if (kvFlags.headed !== undefined) s.headless = !parseCliBoolean(kvFlags.headed, '--headed');
+  if (kvFlags.headless !== undefined) s.headless = parseCliBoolean(kvFlags.headless, '--headless');
+  if (kvFlags['no-overlay'] !== undefined) s.noOverlay = parseCliBoolean(kvFlags['no-overlay'], '--no-overlay');
+  if (kvFlags['no-recording'] !== undefined) s.noRecording = parseCliBoolean(kvFlags['no-recording'], '--no-recording');
+  if (kvFlags.ffmpeg !== undefined) s.ffmpeg = parseCliBoolean(kvFlags.ffmpeg, '--ffmpeg');
+  if (kvFlags.har !== undefined) s.har = parseCliBoolean(kvFlags.har, '--har');
+  if (kvFlags['no-wasm'] !== undefined) s.noWasm = parseCliBoolean(kvFlags['no-wasm'], '--no-wasm');
+  if (kvFlags['no-serve'] !== undefined) s.noServe = parseCliBoolean(kvFlags['no-serve'], '--no-serve');
+  if (kvFlags.serve !== undefined) s.noServe = !parseCliBoolean(kvFlags.serve, '--serve');
+  if (kvFlags.pause !== undefined) s.pauseBetweenRuns = parseCliBoolean(kvFlags.pause, '--pause');
+  if (kvFlags['ignore-https-errors'] !== undefined) {
+    s.ignoreHTTPSErrors = parseCliBoolean(kvFlags['ignore-https-errors'], '--ignore-https-errors');
+  }
+  if (kvFlags.gemini !== undefined) s.gemini = parseCliBoolean(kvFlags.gemini, '--gemini');
   if (kvFlags.network !== undefined) {
     if (!VALID_NETWORKS.includes(kvFlags.network)) {
       throw new InvalidSettingError(`Unknown network preset "${kvFlags.network}". Valid values: ${VALID_NETWORKS.join(', ')}`);

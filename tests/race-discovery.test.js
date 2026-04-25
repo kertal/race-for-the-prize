@@ -324,6 +324,31 @@ describe('settings override', () => {
     const s = applyOverrides({}, new Set(), {});
     expect(s.gemini).toBeUndefined();
   });
+
+  it('kv boolean --parallel=false overrides settings.json true', () => {
+    const s = applyOverrides({ parallel: true }, new Set(), { parallel: 'false' });
+    expect(s.parallel).toBe(false);
+  });
+
+  it('kv boolean --ffmpeg=false overrides settings.json true', () => {
+    const s = applyOverrides({ ffmpeg: true }, new Set(), { ffmpeg: 'false' });
+    expect(s.ffmpeg).toBe(false);
+  });
+
+  it('kv boolean --no-overlay=false overrides bool flag --no-overlay', () => {
+    const s = applyOverrides({}, new Set(['no-overlay']), { 'no-overlay': 'false' });
+    expect(s.noOverlay).toBe(false);
+  });
+
+  it('kv boolean --headless=false overrides bool flag --headless', () => {
+    const s = applyOverrides({}, new Set(['headless']), { headless: 'false' });
+    expect(s.headless).toBe(false);
+  });
+
+  it('kv boolean --serve=false overrides bool flag --serve', () => {
+    const s = applyOverrides({}, new Set(['serve']), { serve: 'false' });
+    expect(s.noServe).toBe(true);
+  });
 });
 
 describe('applyOverrides — invalid input throws InvalidSettingError', () => {
@@ -375,6 +400,13 @@ describe('applyOverrides — invalid input throws InvalidSettingError', () => {
   it('throws on non-numeric --slowmo', () => {
     expect(() => applyOverrides({}, new Set(), { slowmo: 'fast' }))
       .toThrow(InvalidSettingError);
+  });
+
+  it('throws on invalid boolean value for bool flags', () => {
+    expect(() => applyOverrides({}, new Set(), { parallel: 'maybe' }))
+      .toThrow(InvalidSettingError);
+    expect(() => applyOverrides({}, new Set(), { parallel: 'maybe' }))
+      .toThrow(/--parallel must be a boolean/i);
   });
 });
 
