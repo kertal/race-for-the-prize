@@ -7,16 +7,26 @@ import fs from 'fs';
 import path from 'path';
 
 const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'height', 'gemini-spec']);
+const BOOLEAN_VALUE_FLAGS = new Set([
+  'parallel', 'headless', 'no-overlay', 'no-recording',
+  'ffmpeg', 'har', 'no-wasm', 'no-serve', 'pause', 'ignore-https-errors', 'gemini',
+]);
 
 /** Boolean flags the CLI recognises. Unknown flags produce an error. */
 export const KNOWN_BOOL_FLAGS = new Set([
-  'parallel', 'headed', 'headless', 'no-overlay', 'no-recording',
-  'ffmpeg', 'har', 'no-wasm', 'serve', 'no-serve', 'pause', 'ignore-https-errors',
+  'parallel', 'headless', 'no-overlay', 'no-recording',
+  'ffmpeg', 'har', 'no-wasm', 'no-serve', 'pause', 'ignore-https-errors',
   'gemini', 'results', 'init', 'verbose', 'help', 'version',
 ]);
 
-/** Combined set of all valid flag names (bool + kv). `--serve` accepts both bool and legacy kv form. */
+/** Combined set of all valid flag names (bool + kv). */
 export const KNOWN_FLAGS = new Set([...KNOWN_BOOL_FLAGS, ...KV_FLAG_NAMES]);
+
+function isBooleanLikeValue(value) {
+  if (typeof value !== 'string') return false;
+  const s = value.trim().toLowerCase();
+  return s === 'true' || s === 'false' || s === '1' || s === '0' || s === 'yes' || s === 'no';
+}
 
 export function parseArgs(argv) {
   const positional = [];
@@ -32,6 +42,14 @@ export function parseArgs(argv) {
       } else {
         const name = arg.slice(2);
         if (KV_FLAG_NAMES.has(name) && argv[i + 1] !== undefined && !argv[i + 1].startsWith('--')) {
+          kvFlags[name] = argv[i + 1];
+          i++;
+        } else if (
+          BOOLEAN_VALUE_FLAGS.has(name) &&
+          argv[i + 1] !== undefined &&
+          !argv[i + 1].startsWith('--') &&
+          isBooleanLikeValue(argv[i + 1])
+        ) {
           kvFlags[name] = argv[i + 1];
           i++;
         } else {
@@ -240,7 +258,6 @@ export class InvalidSettingError extends Error {
 export function applyOverrides(settings, boolFlags, kvFlags) {
   const s = { ...settings };
   if (boolFlags.has('parallel')) s.parallel = true;
-  if (boolFlags.has('headed')) s.headless = false;
   if (boolFlags.has('headless')) s.headless = true;
   if (boolFlags.has('no-overlay')) s.noOverlay = true;
   if (boolFlags.has('no-recording')) s.noRecording = true;
@@ -248,12 +265,10 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('har')) s.har = true;
   if (boolFlags.has('no-wasm')) s.noWasm = true;
   if (boolFlags.has('no-serve')) s.noServe = true;
-  if (boolFlags.has('serve')) s.noServe = false;
   if (boolFlags.has('pause')) s.pauseBetweenRuns = true;
   if (boolFlags.has('ignore-https-errors')) s.ignoreHTTPSErrors = true;
   // Explicit boolean values (for example --parallel=false) override presence flags.
   if (kvFlags.parallel !== undefined) s.parallel = parseCliBoolean(kvFlags.parallel, '--parallel');
-  if (kvFlags.headed !== undefined) s.headless = !parseCliBoolean(kvFlags.headed, '--headed');
   if (kvFlags.headless !== undefined) s.headless = parseCliBoolean(kvFlags.headless, '--headless');
   if (kvFlags['no-overlay'] !== undefined) s.noOverlay = parseCliBoolean(kvFlags['no-overlay'], '--no-overlay');
   if (kvFlags['no-recording'] !== undefined) s.noRecording = parseCliBoolean(kvFlags['no-recording'], '--no-recording');
@@ -261,7 +276,6 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (kvFlags.har !== undefined) s.har = parseCliBoolean(kvFlags.har, '--har');
   if (kvFlags['no-wasm'] !== undefined) s.noWasm = parseCliBoolean(kvFlags['no-wasm'], '--no-wasm');
   if (kvFlags['no-serve'] !== undefined) s.noServe = parseCliBoolean(kvFlags['no-serve'], '--no-serve');
-  if (kvFlags.serve !== undefined) s.noServe = !parseCliBoolean(kvFlags.serve, '--serve');
   if (kvFlags.pause !== undefined) s.pauseBetweenRuns = parseCliBoolean(kvFlags.pause, '--pause');
   if (kvFlags['ignore-https-errors'] !== undefined) {
     s.ignoreHTTPSErrors = parseCliBoolean(kvFlags['ignore-https-errors'], '--ignore-https-errors');

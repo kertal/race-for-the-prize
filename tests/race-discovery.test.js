@@ -213,13 +213,8 @@ describe('settings override', () => {
     expect(s.headless).toBe(true);
   });
 
-  it('CLI --headed sets headless false', () => {
-    const s = applyOverrides({ headless: true }, new Set(['headed']), {});
-    expect(s.headless).toBe(false);
-  });
-
-  it('CLI --headless overrides --headed', () => {
-    const s = applyOverrides({}, new Set(['headed', 'headless']), {});
+  it('CLI --headless sets headless true', () => {
+    const s = applyOverrides({ headless: false }, new Set(['headless']), {});
     expect(s.headless).toBe(true);
   });
 
@@ -253,13 +248,8 @@ describe('settings override', () => {
     expect(s.noServe).toBe(true);
   });
 
-  it('legacy --serve=false sets noServe for backward compatibility', () => {
-    const s = applyOverrides({}, new Set(), { serve: 'false' });
-    expect(s.noServe).toBe(true);
-  });
-
-  it('legacy --serve=true explicitly enables serving', () => {
-    const s = applyOverrides({ noServe: true }, new Set(), { serve: 'true' });
+  it('kv boolean --no-serve=false enables serving', () => {
+    const s = applyOverrides({ noServe: true }, new Set(), { 'no-serve': 'false' });
     expect(s.noServe).toBe(false);
   });
 
@@ -345,9 +335,15 @@ describe('settings override', () => {
     expect(s.headless).toBe(false);
   });
 
-  it('kv boolean --serve=false overrides bool flag --serve', () => {
-    const s = applyOverrides({}, new Set(['serve']), { serve: 'false' });
-    expect(s.noServe).toBe(true);
+  it('kv boolean --no-serve=false overrides bool flag --no-serve', () => {
+    const s = applyOverrides({}, new Set(['no-serve']), { 'no-serve': 'false' });
+    expect(s.noServe).toBe(false);
+  });
+
+  it('parseArgs supports boolean value form with spaces', () => {
+    const { kvFlags, positional } = parseArgs(['--headless', 'false', './races/test']);
+    expect(kvFlags.headless).toBe('false');
+    expect(positional).toEqual(['./races/test']);
   });
 });
 
@@ -410,15 +406,10 @@ describe('applyOverrides — invalid input throws InvalidSettingError', () => {
   });
 });
 
-describe('applyOverrides — --serve boolean flag', () => {
-  it('bool --serve clears noServe (pairs with --no-serve)', () => {
-    const s = applyOverrides({ noServe: true }, new Set(['serve']), {});
-    expect(s.noServe).toBe(false);
-  });
-
-  it('explicit --serve wins when both --serve and --no-serve are given', () => {
-    const s = applyOverrides({}, new Set(['serve', 'no-serve']), {});
-    expect(s.noServe).toBe(false);
+describe('applyOverrides — no-serve boolean flag', () => {
+  it('bool --no-serve disables serving', () => {
+    const s = applyOverrides({ noServe: false }, new Set(['no-serve']), {});
+    expect(s.noServe).toBe(true);
   });
 });
 
