@@ -760,6 +760,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
   const outputDir = recordingsDir ? path.join(recordingsDir, id) : path.join(__dirname, 'recordings', id);
   let browser = null;
   let context = null;
+  let page = null;
   let metricsCollector = null;
   let error = null;
 
@@ -797,7 +798,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     const recordingOffset = (recordingStartTime - contextCreationStart) / 1000;
     activeContexts.push(context);
 
-    const page = await context.newPage();
+    page = await context.newPage();
     page.setDefaultTimeout(PAGE_TIMEOUT_MS);
     page.setDefaultNavigationTimeout(PAGE_TIMEOUT_MS);
 
@@ -876,13 +877,38 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
   } catch (e) {
     error = e;
     console.error(`[${id}] Error: ${e.message}`);
-    if (metricsCollector) { try { await metricsCollector.detach(); } catch {} }
+    // Set hasError + release barriers BEFORE doing capture, so the other
+    // racer in parallel mode doesn't sit at its barrier while we snapshot.
     if (sharedState) { sharedState.hasError = true; sharedState.errorMessage = e.message; }
     if (barriers) {
       barriers.ready.releaseAll();
       barriers.recordingStart.releaseAll();
       barriers.stop.releaseAll();
     }
+    if (page) {
+      try { console.error(`[${id}] Failure URL: ${page.url()}`); } catch {}
+      try {
+        const screenshotPath = path.join(outputDir, `${id}.failure.png`);
+        await page.screenshot({ path: screenshotPath, fullPage: true, timeout: 5000 });
+        console.error(`[${id}] Failure screenshot saved: ${screenshotPath}`);
+      } catch (e2) {
+        console.error(`[${id}] Could not capture screenshot: ${e2.message}`);
+      }
+      try {
+        const htmlPath = path.join(outputDir, `${id}.failure.html`);
+        // page.content() honors the page's default timeout (90s) — cap it
+        // ourselves so a hung renderer can't stall cleanup.
+        const html = await Promise.race([
+          page.content(),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('content() timed out after 5s')), 5000)),
+        ]);
+        fs.writeFileSync(htmlPath, html);
+        console.error(`[${id}] Failure HTML saved: ${htmlPath}`);
+      } catch (e2) {
+        console.error(`[${id}] Could not capture HTML: ${e2.message}`);
+      }
+    }
+    if (metricsCollector) { try { await metricsCollector.detach(); } catch {} }
   }
 
   if (context) { try { await context.close(); } catch {} }
