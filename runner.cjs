@@ -902,7 +902,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
           page.content(),
           new Promise((_, rej) => setTimeout(() => rej(new Error('content() timed out after 5s')), 5000)),
         ]);
-        fs.writeFileSync(htmlPath, html);
+        await fs.promises.writeFile(htmlPath, html);
         console.error(`[${id}] Failure HTML saved: ${htmlPath}`);
       } catch (e2) {
         console.error(`[${id}] Could not capture HTML: ${e2.message}`);

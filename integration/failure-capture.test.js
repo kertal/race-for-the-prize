@@ -13,6 +13,18 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
 
+function hasChromiumInstalled() {
+  const check = spawnSync(
+    'node',
+    [
+      '-e',
+      "const { chromium } = require('playwright'); const fs = require('fs'); process.exit(fs.existsSync(chromium.executablePath()) ? 0 : 1);",
+    ],
+    { cwd: projectRoot, timeout: 10_000 }
+  );
+  return check.status === 0;
+}
+
 describe('failure capture', () => {
   let recordingsDir;
 
@@ -22,7 +34,10 @@ describe('failure capture', () => {
     }
   });
 
-  it('writes screenshot and HTML when a race script throws', () => {
+  it('writes screenshot and HTML when a race script throws', ({ skip }) => {
+    if (!hasChromiumInstalled()) {
+      skip('Playwright Chromium binary not installed; skipping failure-capture integration test');
+    }
     recordingsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'race-failure-'));
 
     const config = {
