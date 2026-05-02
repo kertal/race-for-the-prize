@@ -79,6 +79,16 @@ describe('buildSummary', () => {
     expect(summary.wins).toEqual({ lauda: 1, hunt: 1 });
   });
 
+  it('declares draw when performance difference is below threshold', () => {
+    const results = [
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 1.03, duration: 1.03 }], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 1.00, duration: 1.00 }], videoPath: null, fullVideoPath: null, error: null },
+    ];
+    const summary = buildSummary(names, results, {}, '/tmp/results');
+    // 3% difference is below the 5% threshold → draw
+    expect(summary.overallWinner).toBe('draw');
+  });
+
   it('handles measurement present in only one racer', () => {
     const results = [
       { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], videoPath: null, fullVideoPath: null, error: null },
@@ -183,6 +193,11 @@ describe('buildMarkdownSummary', () => {
   it('shows tie when applicable', () => {
     const md = buildMarkdownSummary(makeSummary({ overallWinner: 'tie' }));
     expect(md).toContain("It's a Tie!");
+  });
+
+  it('shows unentschieden when draw', () => {
+    const md = buildMarkdownSummary(makeSummary({ overallWinner: 'draw' }));
+    expect(md).toContain('Unentschieden');
   });
 
   it('includes results table with trophy for winner and delta for loser', () => {
@@ -320,6 +335,27 @@ describe('buildMedianSummary', () => {
   it('returns undefined machineInfo when no summary has it', () => {
     const median = buildMedianSummary(makeSummaries(), 'test-results');
     expect(median.machineInfo).toBeUndefined();
+  });
+
+  it('declares draw when run winners are inconsistent', () => {
+    const summaries = [
+      {
+        racers: ['a', 'b'],
+        settings: {},
+        comparisons: [{ name: 'Load', racers: [{ duration: 1.0 }, { duration: 3.0 }], winner: 'a', diffPercent: 200 }],
+        overallWinner: 'a',
+        errors: [],
+      },
+      {
+        racers: ['a', 'b'],
+        settings: {},
+        comparisons: [{ name: 'Load', racers: [{ duration: 3.0 }, { duration: 1.0 }], winner: 'b', diffPercent: 200 }],
+        overallWinner: 'b',
+        errors: [],
+      },
+    ];
+    const median = buildMedianSummary(summaries, '/tmp/results');
+    expect(median.overallWinner).toBe('draw');
   });
 
   it('collects errors from all runs', () => {
