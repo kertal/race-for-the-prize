@@ -91,7 +91,7 @@ export function buildRunNavHtml(runNav, racers, runSummaries) {
   const winnerColors = [];
   if (runSummaries && racers) {
     for (const s of runSummaries) {
-      const idx = s.overallWinner && s.overallWinner !== 'tie' ? racers.indexOf(s.overallWinner) : -1;
+      const idx = s.overallWinner && s.overallWinner !== 'tie' && s.overallWinner !== 'draw' ? racers.indexOf(s.overallWinner) : -1;
       winnerColors.push(idx >= 0 ? RACER_CSS_COLORS[idx % RACER_CSS_COLORS.length] : null);
     }
   }
@@ -253,7 +253,9 @@ export function buildProfileHtml(profileComparison, racers) {
         }) + '\n';
       }
     }
-    if (scope.section.overallWinner === 'tie') {
+    if (scope.section.overallWinner === 'draw') {
+      html += `<div class="profile-winner">&#129309; Draw!</div>`;
+    } else if (scope.section.overallWinner === 'tie') {
       html += `<div class="profile-winner">&#129309; Tie!</div>`;
     } else if (scope.section.overallWinner) {
       const idx = racers.indexOf(scope.section.overallWinner);

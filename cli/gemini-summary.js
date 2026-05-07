@@ -83,11 +83,13 @@ export function buildGeminiPrompt(summary) {
     lines.push(`  "${comp.name}": ${times.join(' vs ')}${winStr}`);
   }
 
-  if (overallWinner && overallWinner !== 'tie') {
-    const winsCount = wins?.[overallWinner] ?? 0;
-    lines.push(`\n  Overall winner: ${overallWinner} (won ${winsCount} of ${comparisons?.length ?? 0} measurements)`);
+  if (overallWinner === 'draw') {
+    lines.push('\n  Overall result: DRAW (too close to call)');
   } else if (overallWinner === 'tie') {
     lines.push('\n  Overall result: TIE');
+  } else if (overallWinner) {
+    const winsCount = wins?.[overallWinner] ?? 0;
+    lines.push(`\n  Overall winner: ${overallWinner} (won ${winsCount} of ${comparisons?.length ?? 0} measurements)`);
   }
 
   if (profileComparison) {
