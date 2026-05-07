@@ -59,7 +59,7 @@ describe('buildSummary', () => {
     expect(summary.comparisons[0].diff).toBeCloseTo(0);
   });
 
-  it('handles multiple measurements with split winners', () => {
+  it('handles multiple measurements with split winners and equal totals', () => {
     const results = [
       { measurements: [
         { name: 'Load', startTime: 0, endTime: 1, duration: 1.0 },
@@ -72,11 +72,36 @@ describe('buildSummary', () => {
     ];
     const summary = buildSummary(names, results, {}, '/tmp/results');
 
-    expect(summary.comparisons).toHaveLength(2);
+    // 2 sections + 1 Total = 3 comparisons
+    expect(summary.comparisons).toHaveLength(3);
     expect(summary.comparisons[0].winner).toBe('lauda');  // Load: 1 < 3
     expect(summary.comparisons[1].winner).toBe('hunt');  // Render: 2 < 4
+    expect(summary.comparisons[2].name).toBe('Total');
+    // lauda total: 1+4=5, hunt total: 3+2=5 → tie
     expect(summary.overallWinner).toBe('tie');
     expect(summary.wins).toEqual({ lauda: 1, hunt: 1 });
+  });
+
+  it('determines winner by total time when section wins are split', () => {
+    const results = [
+      { measurements: [
+        { name: 'Load', startTime: 0, endTime: 1, duration: 1.0 },
+        { name: 'Render', startTime: 1, endTime: 4, duration: 3.0 },
+      ], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [
+        { name: 'Load', startTime: 0, endTime: 3, duration: 3.0 },
+        { name: 'Render', startTime: 3, endTime: 5, duration: 2.0 },
+      ], videoPath: null, fullVideoPath: null, error: null },
+    ];
+    const summary = buildSummary(names, results, {}, '/tmp/results');
+
+    // lauda total: 1+3=4, hunt total: 3+2=5 → lauda wins by total
+    expect(summary.overallWinner).toBe('lauda');
+    expect(summary.wins).toEqual({ lauda: 1, hunt: 1 }); // section wins still 1-1
+    expect(summary.comparisons[2].name).toBe('Total');
+    expect(summary.comparisons[2].winner).toBe('lauda');
+    expect(summary.comparisons[2].racers[0].duration).toBeCloseTo(4.0);
+    expect(summary.comparisons[2].racers[1].duration).toBeCloseTo(5.0);
   });
 
   it('handles measurement present in only one racer', () => {

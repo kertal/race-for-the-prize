@@ -48,6 +48,27 @@ function computeWins(racerNames, comparisons) {
 }
 
 /**
+ * Determine overall winner. For multiple sections, uses total time across all sections.
+ * For a single section, falls back to win counts via determineOverallWinner.
+ */
+function computeOverallWinner(racerNames, comparisons) {
+  if (comparisons.length === 0) return null;
+  if (comparisons.length === 1) {
+    const wins = computeWins(racerNames, comparisons);
+    return determineOverallWinner(wins, racerNames, comparisons);
+  }
+  const totals = racerNames.map((_, i) => {
+    const durs = comparisons.map(c => c.racers[i]?.duration).filter(d => d != null);
+    return durs.length ? durs.reduce((a, b) => a + b, 0) : null;
+  });
+  const valid = racerNames.map((name, i) => ({ name, total: totals[i] })).filter(r => r.total != null);
+  if (valid.length < 2) return null;
+  const min = Math.min(...valid.map(r => r.total));
+  const fastest = valid.filter(r => r.total === min);
+  return fastest.length === 1 ? fastest[0].name : 'tie';
+}
+
+/**
  * Compute comparison stats for a single measurement across racers.
  * Returns { name, racers, winner, diff, diffPercent, rankings }.
  */
@@ -151,7 +172,15 @@ export function buildSummary(racerNames, results, settings, resultsDir) {
   });
 
   const wins = computeWins(racerNames, comparisons);
-  const overallWinner = determineOverallWinner(wins, racerNames, comparisons);
+  const overallWinner = computeOverallWinner(racerNames, comparisons);
+
+  if (comparisons.length > 1) {
+    const totalVals = racerNames.map((_, i) => {
+      const durs = comparisons.map(c => c.racers[i]?.duration).filter(d => d != null);
+      return durs.length ? { duration: durs.reduce((a, b) => a + b, 0) } : null;
+    });
+    comparisons.push(computeComparison('Total', totalVals, racerNames));
+  }
 
   return {
     timestamp: new Date().toISOString(),
@@ -434,7 +463,15 @@ export function buildMedianSummary(summaries, resultsDir) {
   });
 
   const wins = computeWins(racers, comparisons);
-  const overallWinner = determineOverallWinner(wins, racers, comparisons);
+  const overallWinner = computeOverallWinner(racers, comparisons);
+
+  if (comparisons.length > 1) {
+    const totalVals = racers.map((_, i) => {
+      const durs = comparisons.map(c => c.racers[i]?.duration).filter(d => d != null);
+      return durs.length ? { duration: durs.reduce((a, b) => a + b, 0) } : null;
+    });
+    comparisons.push(computeComparison('Total', totalVals, racers));
+  }
 
   const medianProfileMetrics = buildMedianProfileMetrics(summaries);
 
