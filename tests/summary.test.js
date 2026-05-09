@@ -79,6 +79,16 @@ describe('buildSummary', () => {
     expect(summary.wins).toEqual({ lauda: 1, hunt: 1 });
   });
 
+  it('declares the faster racer as global winner even for small differences', () => {
+    const results = [
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 1.02, duration: 1.02 }], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 1.00, duration: 1.00 }], videoPath: null, fullVideoPath: null, error: null },
+    ];
+    const summary = buildSummary(names, results, {}, '/tmp/results');
+    // Global race winner uses wins only (no threshold), so hunt still wins.
+    expect(summary.overallWinner).toBe('hunt');
+  });
+
   it('handles measurement present in only one racer', () => {
     const results = [
       { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], videoPath: null, fullVideoPath: null, error: null },
@@ -320,6 +330,27 @@ describe('buildMedianSummary', () => {
   it('returns undefined machineInfo when no summary has it', () => {
     const median = buildMedianSummary(makeSummaries(), 'test-results');
     expect(median.machineInfo).toBeUndefined();
+  });
+
+  it('declares tie when run winners are inconsistent', () => {
+    const summaries = [
+      {
+        racers: ['a', 'b'],
+        settings: {},
+        comparisons: [{ name: 'Load', racers: [{ duration: 1.0 }, { duration: 3.0 }], winner: 'a', diffPercent: 200 }],
+        overallWinner: 'a',
+        errors: [],
+      },
+      {
+        racers: ['a', 'b'],
+        settings: {},
+        comparisons: [{ name: 'Load', racers: [{ duration: 3.0 }, { duration: 1.0 }], winner: 'b', diffPercent: 200 }],
+        overallWinner: 'b',
+        errors: [],
+      },
+    ];
+    const median = buildMedianSummary(summaries, '/tmp/results');
+    expect(median.overallWinner).toBe('tie');
   });
 
   it('collects errors from all runs', () => {

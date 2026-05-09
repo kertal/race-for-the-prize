@@ -151,7 +151,8 @@ export function buildSummary(racerNames, results, settings, resultsDir) {
   });
 
   const wins = computeWins(racerNames, comparisons);
-  const overallWinner = determineOverallWinner(wins, racerNames, comparisons);
+  // Global race result must always pick a winner unless wins are actually tied.
+  const overallWinner = determineOverallWinner(wins, racerNames, comparisons, 0);
 
   return {
     timestamp: new Date().toISOString(),
@@ -434,7 +435,12 @@ export function buildMedianSummary(summaries, resultsDir) {
   });
 
   const wins = computeWins(racers, comparisons);
-  const overallWinner = determineOverallWinner(wins, racers, comparisons);
+  // Global race result must always pick a winner unless wins are actually tied.
+  let overallWinner = determineOverallWinner(wins, racers, comparisons, 0);
+
+  // If individual runs had inconsistent winners, the result is too noisy to call
+  const runWinners = summaries.map(s => s.overallWinner).filter(w => w && w !== 'tie');
+  if (new Set(runWinners).size > 1) overallWinner = 'tie';
 
   const medianProfileMetrics = buildMedianProfileMetrics(summaries);
 
