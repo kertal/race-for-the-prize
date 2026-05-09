@@ -195,8 +195,8 @@ describe('buildMarkdownSummary', () => {
     expect(md).toContain("It's a Tie!");
   });
 
-  it('shows tie when draw is provided for backward compatibility', () => {
-    const md = buildMarkdownSummary(makeSummary({ overallWinner: 'draw' }));
+  it('shows tie when overall winner is tie', () => {
+    const md = buildMarkdownSummary(makeSummary({ overallWinner: 'tie' }));
     expect(md).toContain("It's a Tie!");
   });
 

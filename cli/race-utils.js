@@ -4,8 +4,6 @@
 
 // Performance differences below this percentage are considered too close to declare a winner.
 export const TIE_THRESHOLD_PERCENT = 3;
-// Backward-compatible alias kept for existing imports.
-export const DRAW_THRESHOLD_PERCENT = TIE_THRESHOLD_PERCENT;
 
 /**
  * Determine overall winner from win counts.
@@ -14,16 +12,16 @@ export const DRAW_THRESHOLD_PERCENT = TIE_THRESHOLD_PERCENT;
  * @param {Object} wins - Object mapping racer names to win counts
  * @param {string[]} racerNames - Array of racer names
  * @param {Array} comparisons - Array of comparison objects with diffPercent values
- * @param {number} drawThresholdPercent - Minimum % difference required to declare a winner
+ * @param {number} tieThresholdPercent - Minimum % difference required to declare a winner
  * @returns {string|null} Racer name, 'tie', or null
  */
-export function determineOverallWinner(wins, racerNames, comparisons, drawThresholdPercent = DRAW_THRESHOLD_PERCENT) {
+export function determineOverallWinner(wins, racerNames, comparisons, tieThresholdPercent = TIE_THRESHOLD_PERCENT) {
   if (comparisons.length === 0) return null;
 
   const competitiveComps = comparisons.filter(c => c.diffPercent != null);
   if (competitiveComps.length > 0) {
     const avgDiffPercent = competitiveComps.reduce((sum, c) => sum + c.diffPercent, 0) / competitiveComps.length;
-    if (avgDiffPercent < drawThresholdPercent) return 'tie';
+    if (avgDiffPercent < tieThresholdPercent) return 'tie';
   }
 
   const maxWins = Math.max(...racerNames.map(n => wins[n]));

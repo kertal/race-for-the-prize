@@ -231,7 +231,7 @@ export function printSummary(summary) {
   }
 
   write(`  ${c.dim}${'─'.repeat(w)}${c.reset}\n`);
-  if (overallWinner === 'tie' || overallWinner === 'draw') {
+  if (overallWinner === 'tie') {
     write(`  ${c.yellow}${c.bold}🤝 It's a tie!${c.reset}\n`);
   } else if (overallWinner) {
     const winnerIdx = racers.indexOf(overallWinner);
@@ -261,7 +261,7 @@ export function buildMarkdownSummary(summary, sideBySideName) {
   lines.push('');
 
   // Winner announcement
-  if (overallWinner === 'tie' || overallWinner === 'draw') {
+  if (overallWinner === 'tie') {
     const winsStr = racers.map(r => `${r} ${wins[r]}`).join(' - ');
     lines.push(`## It's a Tie! ${winsStr}`);
   } else if (overallWinner) {
@@ -439,7 +439,7 @@ export function buildMedianSummary(summaries, resultsDir) {
   let overallWinner = determineOverallWinner(wins, racers, comparisons, 0);
 
   // If individual runs had inconsistent winners, the result is too noisy to call
-  const runWinners = summaries.map(s => s.overallWinner).filter(w => w && w !== 'tie' && w !== 'draw');
+  const runWinners = summaries.map(s => s.overallWinner).filter(w => w && w !== 'tie');
   if (new Set(runWinners).size > 1) overallWinner = 'tie';
 
   const medianProfileMetrics = buildMedianProfileMetrics(summaries);
@@ -682,7 +682,7 @@ export function printRecentRaces(raceDir) {
       const racers = s.racers;
 
       let badge = '';
-      if (s.overallWinner === 'tie' || s.overallWinner === 'draw') badge = `${c.yellow}🤝 Tie${c.reset}`;
+      if (s.overallWinner === 'tie') badge = `${c.yellow}🤝 Tie${c.reset}`;
       else if (s.overallWinner) {
         const winnerIdx = racers.indexOf(s.overallWinner);
         const wc = RACER_COLORS[winnerIdx % RACER_COLORS.length];

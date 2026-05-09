@@ -97,7 +97,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   let debugPanelOut = '';
 
   if (hasVideos) {
-    const isTie = summary.overallWinner === 'tie' || summary.overallWinner === 'draw';
+    const isTie = summary.overallWinner === 'tie';
     const videoElements = placementOrder.map((origIdx, displayIdx) => {
       const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
       const racer = racers[origIdx];
