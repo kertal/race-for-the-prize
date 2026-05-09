@@ -128,7 +128,16 @@
     <option value="1" selected>🚙 1x</option>
     <option value="2">🏎️ 2x</option>
   </select>
+  <button class="frame-btn" id="speedCurveToggle" title="Speed Curve" aria-label="Toggle speed curve editor">&#x223F;</button>
   <button class="frame-btn" id="modeDebug" title="Calibration" aria-label="Toggle calibration" style="display:none">🎛️</button>
+</div>
+<div class="speed-curve-panel" id="speedCurvePanel" style="display:none">
+  <div class="speed-curve-header">
+    <span class="speed-curve-title">Speed Curve</span>
+    <span class="speed-curve-hint">Click to add &middot; Drag to move &middot; Right-click to remove</span>
+    <button class="speed-curve-reset" id="speedCurveReset">Reset</button>
+  </div>
+  <canvas class="speed-curve-canvas" id="speedCurveCanvas"></canvas>
 </div>
 </div>
 </template>

@@ -934,3 +934,53 @@ video {
   .controls-row { min-width: auto; flex-wrap: wrap; }
   .time-display { min-width: auto; }
 }
+/* --- Speed Curve Editor --- */
+.speed-curve-panel {
+  max-width: 900px;
+  width: 100%;
+  padding: 0 1.5rem 0.8rem;
+}
+.speed-curve-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.2rem 0 0.4rem;
+}
+.speed-curve-title {
+  font-size: 0.72rem;
+  color: #d4af37;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+.speed-curve-hint {
+  font-size: 0.68rem;
+  color: #555;
+  flex: 1;
+}
+.speed-curve-reset {
+  background: #2a2a2a;
+  color: #777;
+  border: 1px solid #444;
+  border-radius: 4px;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.72rem;
+  cursor: pointer;
+  font-family: ui-monospace, 'Courier New', monospace;
+  transition: border-color 0.2s, color 0.2s;
+  flex-shrink: 0;
+}
+.speed-curve-reset:hover {
+  border-color: #d4af37;
+  color: #e8e0d0;
+}
+.speed-curve-canvas {
+  width: 100%;
+  height: 90px;
+  display: block;
+  border-radius: 4px;
+  cursor: crosshair;
+  border: 1px solid #222;
+  touch-action: none;
+}

@@ -994,6 +994,311 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFullscreen(); }
 });
 
+// --- Speed Curve Editor ---
+
+const speedCurvePanel = document.getElementById('speedCurvePanel');
+const speedCurveCanvas = document.getElementById('speedCurveCanvas');
+const speedCurveToggle = document.getElementById('speedCurveToggle');
+const speedCurveReset = document.getElementById('speedCurveReset');
+
+const SC_MIN = 0.1;
+const SC_MAX = 4;
+const SC_GRID = [0.1, 0.25, 0.5, 1, 2, 4];
+const SC_POINT_R = 6;
+const SC_SNAP_PX = 14;
+let _scIdCounter = 0;
+
+// scPoints: array of { t: seconds, s: speed multiplier, id: unique number }
+let scPoints = [];
+let scPanelOpen = false;
+let scInitialized = false;
+let scRafRunning = false;
+let scDragId = -1;
+let scHoverIdx = -1;
+
+function scSpeedToFrac(speed) {
+  const lo = Math.log(SC_MIN), hi = Math.log(SC_MAX);
+  return (Math.log(Math.max(SC_MIN, Math.min(SC_MAX, speed))) - lo) / (hi - lo);
+}
+
+function scFracToSpeed(frac) {
+  const lo = Math.log(SC_MIN), hi = Math.log(SC_MAX);
+  return Math.exp(lo + Math.max(0, Math.min(1, frac)) * (hi - lo));
+}
+
+function scGetCurrentElapsed() {
+  const d = clipDuration();
+  return d > 0 ? (scrubber.value / 1000) * d : 0;
+}
+
+function scGetSpeedAt(elapsed) {
+  if (scPoints.length === 0) return parseFloat(speedSelect.value) || 1;
+  const pts = scPoints;
+  if (elapsed <= pts[0].t) return pts[0].s;
+  if (elapsed >= pts[pts.length - 1].t) return pts[pts.length - 1].s;
+  for (let i = 1; i < pts.length; i++) {
+    if (elapsed <= pts[i].t) {
+      const a = pts[i - 1], b = pts[i];
+      const frac = (elapsed - a.t) / (b.t - a.t);
+      // Interpolate in log-speed space for smooth transitions
+      return scFracToSpeed(scSpeedToFrac(a.s) + frac * (scSpeedToFrac(b.s) - scSpeedToFrac(a.s)));
+    }
+  }
+  return 1;
+}
+
+function scDraw() {
+  if (!speedCurveCanvas || !scPanelOpen) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = speedCurveCanvas.clientWidth;
+  const H = speedCurveCanvas.clientHeight;
+  if (!W || !H) return;
+  if (speedCurveCanvas.width !== Math.round(W * dpr) || speedCurveCanvas.height !== Math.round(H * dpr)) {
+    speedCurveCanvas.width = Math.round(W * dpr);
+    speedCurveCanvas.height = Math.round(H * dpr);
+  }
+  const ctx = speedCurveCanvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const d = clipDuration();
+  const tToX = (t) => d > 0 ? (t / d) * W : 0;
+  const sToY = (s) => H - scSpeedToFrac(s) * H;
+
+  ctx.fillStyle = '#0e0e0e';
+  ctx.fillRect(0, 0, W, H);
+
+  // Grid lines and speed labels
+  ctx.font = '9px ui-monospace, monospace';
+  ctx.textAlign = 'left';
+  for (const gs of SC_GRID) {
+    const y = sToY(gs);
+    const is1x = gs === 1;
+    ctx.strokeStyle = is1x ? '#383838' : '#1e1e1e';
+    ctx.lineWidth = is1x ? 1.5 : 1;
+    ctx.setLineDash(is1x ? [] : [3, 3]);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = is1x ? '#666' : '#3a3a3a';
+    ctx.fillText(gs >= 1 ? gs + 'x' : gs + 'x', 3, y - 2);
+  }
+
+  // Current-time position indicator
+  const cx = tToX(scGetCurrentElapsed());
+  ctx.strokeStyle = 'rgba(212,175,55,0.4)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([2, 3]);
+  ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, H); ctx.stroke();
+  ctx.setLineDash([]);
+
+  if (scPoints.length === 0) {
+    // Dashed line at base speed
+    const baseSpeed = parseFloat(speedSelect.value) || 1;
+    const y = sToY(baseSpeed);
+    ctx.strokeStyle = '#2a2a2a';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#3a3a3a';
+    ctx.font = '10px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Click to add speed keyframes', W / 2, H / 2 + 4);
+    return;
+  }
+
+  const pts = scPoints;
+  const firstY = sToY(pts[0].s);
+  const lastY = sToY(pts[pts.length - 1].s);
+
+  // Filled area under curve
+  ctx.fillStyle = 'rgba(212,175,55,0.07)';
+  ctx.beginPath();
+  ctx.moveTo(0, H);
+  ctx.lineTo(0, firstY);
+  ctx.lineTo(tToX(pts[0].t), firstY);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(tToX(pts[i].t), sToY(pts[i].s));
+  ctx.lineTo(W, lastY);
+  ctx.lineTo(W, H);
+  ctx.closePath();
+  ctx.fill();
+
+  // Curve stroke
+  ctx.strokeStyle = '#d4af37';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, firstY);
+  ctx.lineTo(tToX(pts[0].t), firstY);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(tToX(pts[i].t), sToY(pts[i].s));
+  ctx.lineTo(W, lastY);
+  ctx.stroke();
+
+  // Control points
+  const dragIdx = scPoints.findIndex(p => p.id === scDragId);
+  for (let i = 0; i < pts.length; i++) {
+    const pt = pts[i];
+    const px = tToX(pt.t);
+    const py = sToY(pt.s);
+    const hot = i === scHoverIdx || i === dragIdx;
+    ctx.fillStyle = hot ? '#f0d060' : '#d4af37';
+    ctx.strokeStyle = '#0e0e0e';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(px, py, SC_POINT_R, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    if (hot) {
+      const label = pt.t.toFixed(1) + 's · ' + pt.s.toFixed(2) + 'x';
+      ctx.font = 'bold 10px ui-monospace, monospace';
+      const lw = ctx.measureText(label).width;
+      const lx = Math.max(2, Math.min(W - lw - 4, px - lw / 2));
+      const ly = py > H / 2 ? py - SC_POINT_R - 4 : py + SC_POINT_R + 12;
+      ctx.fillStyle = '#e8c445';
+      ctx.textAlign = 'left';
+      ctx.fillText(label, lx, ly);
+    }
+  }
+}
+
+function scNearestPoint(x, y) {
+  if (!speedCurveCanvas) return -1;
+  const W = speedCurveCanvas.clientWidth;
+  const H = speedCurveCanvas.clientHeight;
+  const d = clipDuration();
+  const tToX = (t) => d > 0 ? (t / d) * W : 0;
+  const sToY = (s) => H - scSpeedToFrac(s) * H;
+  let best = -1, bestDist = Infinity;
+  for (let i = 0; i < scPoints.length; i++) {
+    const dist = Math.hypot(x - tToX(scPoints[i].t), y - sToY(scPoints[i].s));
+    if (dist < bestDist) { bestDist = dist; best = i; }
+  }
+  return bestDist < SC_POINT_R * 2 + 4 ? best : -1;
+}
+
+function scXYToTSpeed(x, y) {
+  const W = speedCurveCanvas.clientWidth;
+  const H = speedCurveCanvas.clientHeight;
+  const d = clipDuration();
+  const t = d > 0 ? Math.max(0, Math.min(d, (x / W) * d)) : 0;
+  let speed = scFracToSpeed(Math.max(0, Math.min(1, 1 - y / H)));
+  // Snap to grid speed levels
+  let bestSnap = speed, bestSnapDist = Infinity;
+  for (const gs of SC_GRID) {
+    const gy = H - scSpeedToFrac(gs) * H;
+    const dist = Math.abs(y - gy);
+    if (dist < SC_SNAP_PX && dist < bestSnapDist) { bestSnapDist = dist; bestSnap = gs; }
+  }
+  return { t, speed: bestSnap };
+}
+
+function scOnMouseDown(e) {
+  if (e.button !== 0) return;
+  const rect = speedCurveCanvas.getBoundingClientRect();
+  const x = e.clientX - rect.left, y = e.clientY - rect.top;
+  const near = scNearestPoint(x, y);
+  if (near >= 0) {
+    scDragId = scPoints[near].id;
+    return;
+  }
+  const { t, speed } = scXYToTSpeed(x, y);
+  const newPt = { t, s: speed, id: ++_scIdCounter };
+  scPoints.push(newPt);
+  scPoints.sort((a, b) => a.t - b.t);
+  scDragId = newPt.id;
+  scDraw();
+}
+
+function scOnMouseMove(e) {
+  if (!speedCurveCanvas) return;
+  const rect = speedCurveCanvas.getBoundingClientRect();
+  const x = e.clientX - rect.left, y = e.clientY - rect.top;
+  const dragIdx = scPoints.findIndex(p => p.id === scDragId);
+  if (dragIdx >= 0) {
+    const { t, speed } = scXYToTSpeed(x, y);
+    scPoints[dragIdx] = { t, s: speed, id: scDragId };
+    scPoints.sort((a, b) => a.t - b.t);
+    speedCurveCanvas.style.cursor = 'grabbing';
+    scHoverIdx = -1;
+  } else {
+    const near = scNearestPoint(x, y);
+    scHoverIdx = near;
+    speedCurveCanvas.style.cursor = near >= 0 ? 'grab' : 'crosshair';
+  }
+  scDraw();
+}
+
+function scOnMouseUp() {
+  scDragId = -1;
+}
+
+function scOnContextMenu(e) {
+  e.preventDefault();
+  const rect = speedCurveCanvas.getBoundingClientRect();
+  const near = scNearestPoint(e.clientX - rect.left, e.clientY - rect.top);
+  if (near >= 0) {
+    scPoints.splice(near, 1);
+    scHoverIdx = -1;
+    scDragId = -1;
+    if (scPoints.length === 0) {
+      const rate = parseFloat(speedSelect.value) || 1;
+      videos.forEach(v => { if (v) v.playbackRate = rate; });
+    }
+    scDraw();
+  }
+}
+
+function scInitCanvas() {
+  if (scInitialized) return;
+  scInitialized = true;
+  speedCurveCanvas.addEventListener('mousedown', scOnMouseDown);
+  window.addEventListener('mousemove', (e) => { if (scPanelOpen) scOnMouseMove(e); });
+  window.addEventListener('mouseup', scOnMouseUp);
+  speedCurveCanvas.addEventListener('contextmenu', scOnContextMenu);
+  speedCurveCanvas.addEventListener('mouseleave', () => { if (scDragId < 0) { scHoverIdx = -1; scDraw(); } });
+  new ResizeObserver(scDraw).observe(speedCurveCanvas);
+}
+
+function scStartRaf() {
+  if (scRafRunning) return;
+  scRafRunning = true;
+  function tick() {
+    if (!scPanelOpen) { scRafRunning = false; return; }
+    const anyPlaying = videos.some(v => v && !v.paused);
+    if (anyPlaying && scPoints.length > 0) {
+      const speed = scGetSpeedAt(scGetCurrentElapsed());
+      videos.forEach(v => { if (v) v.playbackRate = speed; });
+    }
+    scDraw();
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+function toggleSpeedCurve() {
+  scPanelOpen = !scPanelOpen;
+  if (speedCurvePanel) speedCurvePanel.style.display = scPanelOpen ? 'block' : 'none';
+  speedCurveToggle.classList.toggle('active', scPanelOpen);
+  if (scPanelOpen) {
+    scInitCanvas();
+    scStartRaf();
+    scDraw();
+  } else {
+    // Restore playback rate to speedSelect
+    const rate = parseFloat(speedSelect.value) || 1;
+    if (scPoints.length === 0) videos.forEach(v => { if (v) v.playbackRate = rate; });
+  }
+}
+
+if (speedCurveToggle) speedCurveToggle.addEventListener('click', toggleSpeedCurve);
+
+if (speedCurveReset) speedCurveReset.addEventListener('click', () => {
+  scPoints = [];
+  scHoverIdx = -1;
+  scDragId = -1;
+  const rate = parseFloat(speedSelect.value) || 1;
+  videos.forEach(v => { if (v) v.playbackRate = rate; });
+  scDraw();
+});
+
 // --- Notes: persist in localStorage ---
 
 const notesTextarea = document.getElementById('notesTextarea');
@@ -1378,13 +1683,19 @@ async function startExport() {
   };
 
   recorder.start();
+  const hasCurve = scPoints.length > 0;
   const exportRate = parseFloat(speedSelect.value) || 1;
-  raceVideos.forEach(v => { if (v) { v.playbackRate = exportRate; v.play(); } });
-  const speedLabel = exportRate !== 1 ? ' (' + exportRate + 'x)' : '';
+  if (!hasCurve) raceVideos.forEach(v => { if (v) v.playbackRate = exportRate; });
+  raceVideos.forEach(v => { if (v) v.play(); });
+  const speedLabel = hasCurve ? ' (speed curve)' : (exportRate !== 1 ? ' (' + exportRate + 'x)' : '');
 
   let exportTimeOffset = null;
   function tick() {
     if (cancelled) return;
+    if (hasCurve) {
+      const speed = scGetSpeedAt(scGetCurrentElapsed());
+      raceVideos.forEach(v => { if (v) v.playbackRate = speed; });
+    }
     const cur = Math.max(...raceVideos.map(v => v?.currentTime || 0));
     if (exportTimeOffset === null) exportTimeOffset = cur;
     const elapsed = cur - exportTimeOffset;
