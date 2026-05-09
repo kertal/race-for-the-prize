@@ -81,11 +81,11 @@ describe('buildSummary', () => {
 
   it('declares tie when performance difference is below threshold', () => {
     const results = [
-      { measurements: [{ name: 'Load', startTime: 0, endTime: 1.03, duration: 1.03 }], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 1.02, duration: 1.02 }], videoPath: null, fullVideoPath: null, error: null },
       { measurements: [{ name: 'Load', startTime: 0, endTime: 1.00, duration: 1.00 }], videoPath: null, fullVideoPath: null, error: null },
     ];
     const summary = buildSummary(names, results, {}, '/tmp/results');
-    // 3% difference is below the 5% threshold → tie
+    // 2% difference is below the 3% threshold → tie
     expect(summary.overallWinner).toBe('tie');
   });
 

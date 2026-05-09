@@ -3,11 +3,13 @@
  */
 
 // Performance differences below this percentage are considered too close to declare a winner.
-export const DRAW_THRESHOLD_PERCENT = 5;
+export const TIE_THRESHOLD_PERCENT = 3;
+// Backward-compatible alias kept for existing imports.
+export const DRAW_THRESHOLD_PERCENT = TIE_THRESHOLD_PERCENT;
 
 /**
  * Determine overall winner from win counts.
- * Returns 'tie' when the average performance difference is within DRAW_THRESHOLD_PERCENT,
+ * Returns 'tie' when the average performance difference is within TIE_THRESHOLD_PERCENT,
  * 'tie' when win counts are equal, the winner name, or null (no data).
  * @param {Object} wins - Object mapping racer names to win counts
  * @param {string[]} racerNames - Array of racer names

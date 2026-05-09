@@ -66,6 +66,25 @@ describe('buildProfileComparison', () => {
     expect(totalComp.winner).toBeNull();
   });
 
+  it('does not count near-equal metrics as wins when below category threshold', () => {
+    const metrics1 = {
+      total: { scriptDuration: 1000 },
+      measured: { scriptDuration: 1000 }
+    };
+    const metrics2 = {
+      total: { scriptDuration: 1020 }, // 2% slower, below computation threshold (3%)
+      measured: { scriptDuration: 1020 }
+    };
+    const result = buildProfileComparison(['a', 'b'], [metrics1, metrics2]);
+
+    const totalScript = result.total.comparisons.find(c => c.key === 'total.scriptDuration');
+    expect(totalScript.diffPercent).toBe(2);
+    expect(totalScript.winner).toBeNull();
+    expect(result.total.wins.a).toBe(0);
+    expect(result.total.wins.b).toBe(0);
+    expect(result.total.overallWinner).toBeNull();
+  });
+
   it('calculates separate winners for measured and total', () => {
     const metrics1 = {
       total: { networkTransferSize: 2000, scriptDuration: 100 },

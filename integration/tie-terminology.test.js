@@ -83,11 +83,11 @@ await page.raceRecordingEnd();
 await page.raceRecordingStart();
 
 await page.raceStart('Measure A');
-await page.waitForTimeout(1545);
+await page.waitForTimeout(1530);
 page.raceEnd('Measure A');
 
 await page.raceStart('Measure B');
-await page.waitForTimeout(1854);
+await page.waitForTimeout(1836);
 page.raceEnd('Measure B');
 
 await page.raceRecordingEnd();
