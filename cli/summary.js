@@ -137,6 +137,16 @@ function formatDurationCell(dur, bestDur, isWinner, bold) {
   return bold ? `**${content}**` : content;
 }
 
+function sortComparisonsForDisplay(comparisons) {
+  return [...comparisons].sort((a, b) => {
+    const aIsTotal = a?.name === 'Total';
+    const bIsTotal = b?.name === 'Total';
+    if (aIsTotal && !bIsTotal) return -1;
+    if (!aIsTotal && bIsTotal) return 1;
+    return 0;
+  });
+}
+
 /**
  * Build markdown results table rows.
  * Returns array of markdown lines for the table.
@@ -146,7 +156,7 @@ function buildResultsTable(comparisons, racers) {
   const headerCols = ['Measurement', ...racers];
   lines.push(`| ${headerCols.join(' | ')} |`);
   lines.push(`|${headerCols.map(() => '---').join('|')}|`);
-  for (const comp of comparisons) {
+  for (const comp of sortComparisonsForDisplay(comparisons)) {
     const bestDur = comp.winner ? comp.racers[racers.indexOf(comp.winner)]?.duration : null;
     const durations = racers.map((r, i) =>
       formatDurationCell(comp.racers[i]?.duration, bestDur, comp.winner === r, false)
@@ -228,7 +238,7 @@ export function printSummary(summary) {
     write(`  ${c.dim}No measurements recorded.${c.reset}\n`);
     write(`  ${c.dim}Use page.raceStart() / page.raceEnd() in scripts.${c.reset}\n`);
   } else {
-    for (const comp of comparisons) {
+    for (const comp of sortComparisonsForDisplay(comparisons)) {
       const maxDur = Math.max(...comp.racers.map(r => r?.duration || 0));
 
       // Sort racers by duration ascending (best/fastest first), nulls last
@@ -501,7 +511,8 @@ function buildRunComparisonSection(medianSummary, summaries) {
 
   const lines = ['', '<details>', '<summary><b>Run-by-Run Comparison</b></summary>', ''];
 
-  for (const name of allNames) {
+  const orderedNames = sortComparisonsForDisplay([...allNames].map(name => ({ name }))).map(c => c.name);
+  for (const name of orderedNames) {
     lines.push(`#### ${name}`, '');
     const headerCols = ['Run', ...racers];
     lines.push(`| ${headerCols.join(' | ')} |`);
@@ -722,7 +733,7 @@ export function printRecentRaces(raceDir) {
 
       write(`  ${num}  ${c.dim}${dateStr}${c.reset}  ${badge}\n`);
 
-      for (const comp of s.comparisons) {
+      for (const comp of sortComparisonsForDisplay(s.comparisons)) {
         const durations = comp.racers.map((r, j) => r ? `${r.duration.toFixed(3)}s` : '-');
         // Assign medals based on ranking
         const medals = racers.map(r => {

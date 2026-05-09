@@ -217,6 +217,28 @@ describe('buildMarkdownSummary', () => {
     expect(md).not.toContain('Diff');
   });
 
+  it('renders Total before section rows when present', () => {
+    const md = buildMarkdownSummary(makeSummary({
+      comparisons: [
+        {
+          name: 'Load',
+          racers: [{ duration: 1.0 }, { duration: 2.0 }],
+          winner: 'lauda',
+          diff: 1.0,
+          diffPercent: 100.0,
+        },
+        {
+          name: 'Total',
+          racers: [{ duration: 3.0 }, { duration: 4.0 }],
+          winner: 'lauda',
+          diff: 1.0,
+          diffPercent: 33.3,
+        },
+      ],
+    }));
+    expect(md.indexOf('| Total |')).toBeLessThan(md.indexOf('| Load |'));
+  });
+
   it('includes video file links', () => {
     const md = buildMarkdownSummary(makeSummary());
     expect(md).toContain('lauda.race.webm');

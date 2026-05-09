@@ -55,6 +55,21 @@ function racerName(racers, origIdx) {
   return render(T['racer-name'], { color, name: escHtml(racers[origIdx]) });
 }
 
+function formatSectionTitle(name) {
+  if (name === 'Total') return name;
+  return /^section\b/i.test(name) ? name : `Section ${name}`;
+}
+
+function sortComparisonsForDisplay(comparisons) {
+  return [...comparisons].sort((a, b) => {
+    const aIsTotal = a?.name === 'Total';
+    const bIsTotal = b?.name === 'Total';
+    if (aIsTotal && !bIsTotal) return -1;
+    if (!aIsTotal && bIsTotal) return 1;
+    return 0;
+  });
+}
+
 /** Build sorted bar-chart HTML rows for a single metric. */
 function buildMetricRowsHtml(entries, winner, formatDelta) {
   const nonNullVals = entries.filter(e => e.val !== null).map(e => e.val);
@@ -161,14 +176,14 @@ export function buildErrorsHtml(errors) {
 
 export function buildResultsHtml(comparisons, racers) {
   let html = '';
-  for (const comp of comparisons) {
+  for (const comp of sortComparisonsForDisplay(comparisons)) {
     const sorted = sortByValue(racers, i => {
       const r = comp.racers[i];
       return { val: r ? r.duration : null, formatted: r ? `${r.duration.toFixed(3)}s` : '-' };
     });
     html += render(T['profile-metric'], {
       titleAttr: '',
-      name: escHtml(comp.name),
+      name: escHtml(formatSectionTitle(comp.name)),
       desc: '',
       rows: buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`),
     }) + '\n';
@@ -312,8 +327,9 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
   let html = `<details class="section">\n  <summary><h2>Run-by-Run Comparison</h2></summary>\n  <div class="section-body">`;
 
   // --- Measurement comparisons ---
-  for (const name of allNames) {
-    html += `<h3>${escHtml(name)}</h3>\n`;
+  const orderedNames = sortComparisonsForDisplay([...allNames].map(name => ({ name }))).map(c => c.name);
+  for (const name of orderedNames) {
+    html += `<h3>${escHtml(formatSectionTitle(name))}</h3>\n`;
     html += `<table class="run-comparison-table"><thead><tr><th>Run</th>`;
     html += coloredHeader;
     html += `</tr></thead><tbody>`;
