@@ -177,7 +177,7 @@ function copyRaceAssets(raceDir, racerFiles, runDir) {
  * Uses process-local entropy so concurrent races in the same raceDir do not
  * stomp each other's files.
  */
-function buildRecordingsDir(baseDir, prefix = 'tmp') {
+export function buildRecordingsDir(baseDir, prefix = 'tmp') {
   const nonce = `${Date.now()}-${process.pid}-${crypto.randomBytes(3).toString('hex')}`;
   return path.join(baseDir, `${prefix}-${nonce}`);
 }
