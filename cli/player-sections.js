@@ -253,9 +253,7 @@ export function buildProfileHtml(profileComparison, racers) {
         }) + '\n';
       }
     }
-    if (scope.section.overallWinner === 'draw') {
-      html += `<div class="profile-winner">&#129309; Draw!</div>`;
-    } else if (scope.section.overallWinner === 'tie') {
+    if (scope.section.overallWinner === 'tie' || scope.section.overallWinner === 'draw') {
       html += `<div class="profile-winner">&#129309; Tie!</div>`;
     } else if (scope.section.overallWinner) {
       const idx = racers.indexOf(scope.section.overallWinner);

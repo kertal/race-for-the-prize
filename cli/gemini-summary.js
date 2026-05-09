@@ -83,9 +83,7 @@ export function buildGeminiPrompt(summary) {
     lines.push(`  "${comp.name}": ${times.join(' vs ')}${winStr}`);
   }
 
-  if (overallWinner === 'draw') {
-    lines.push('\n  Overall result: DRAW (too close to call)');
-  } else if (overallWinner === 'tie') {
+  if (overallWinner === 'tie' || overallWinner === 'draw') {
     lines.push('\n  Overall result: TIE');
   } else if (overallWinner) {
     const winsCount = wins?.[overallWinner] ?? 0;

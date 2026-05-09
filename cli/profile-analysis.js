@@ -253,9 +253,7 @@ function printProfileSection(title, section, racers, w, write) {
 
   write(`  ${c.dim}${'─'.repeat(w)}${c.reset}\n`);
 
-  if (overallWinner === 'draw') {
-    write(`  ${c.yellow}${c.bold}🤝 Draw!${c.reset}\n`);
-  } else if (overallWinner === 'tie') {
+  if (overallWinner === 'tie' || overallWinner === 'draw') {
     write(`  ${c.yellow}${c.bold}🤝 Tie!${c.reset}\n`);
   } else if (overallWinner) {
     const winnerIdx = racers.indexOf(overallWinner);
@@ -313,9 +311,7 @@ function buildScopeMarkdown(title, section, racers) {
     lines.push('');
   }
 
-  if (overallWinner === 'draw') {
-    lines.push('**Result:** Draw');
-  } else if (overallWinner === 'tie') {
+  if (overallWinner === 'tie' || overallWinner === 'draw') {
     lines.push('**Result:** Tie');
   } else if (overallWinner) {
     lines.push(`**Winner:** ${overallWinner}`);

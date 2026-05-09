@@ -79,14 +79,14 @@ describe('buildSummary', () => {
     expect(summary.wins).toEqual({ lauda: 1, hunt: 1 });
   });
 
-  it('declares draw when performance difference is below threshold', () => {
+  it('declares tie when performance difference is below threshold', () => {
     const results = [
       { measurements: [{ name: 'Load', startTime: 0, endTime: 1.03, duration: 1.03 }], videoPath: null, fullVideoPath: null, error: null },
       { measurements: [{ name: 'Load', startTime: 0, endTime: 1.00, duration: 1.00 }], videoPath: null, fullVideoPath: null, error: null },
     ];
     const summary = buildSummary(names, results, {}, '/tmp/results');
-    // 3% difference is below the 5% threshold → draw
-    expect(summary.overallWinner).toBe('draw');
+    // 3% difference is below the 5% threshold → tie
+    expect(summary.overallWinner).toBe('tie');
   });
 
   it('handles measurement present in only one racer', () => {
@@ -195,9 +195,9 @@ describe('buildMarkdownSummary', () => {
     expect(md).toContain("It's a Tie!");
   });
 
-  it('shows unentschieden when draw', () => {
+  it('shows tie when draw is provided for backward compatibility', () => {
     const md = buildMarkdownSummary(makeSummary({ overallWinner: 'draw' }));
-    expect(md).toContain('Unentschieden');
+    expect(md).toContain("It's a Tie!");
   });
 
   it('includes results table with trophy for winner and delta for loser', () => {
@@ -337,7 +337,7 @@ describe('buildMedianSummary', () => {
     expect(median.machineInfo).toBeUndefined();
   });
 
-  it('declares draw when run winners are inconsistent', () => {
+  it('declares tie when run winners are inconsistent', () => {
     const summaries = [
       {
         racers: ['a', 'b'],
@@ -355,7 +355,7 @@ describe('buildMedianSummary', () => {
       },
     ];
     const median = buildMedianSummary(summaries, '/tmp/results');
-    expect(median.overallWinner).toBe('draw');
+    expect(median.overallWinner).toBe('tie');
   });
 
   it('collects errors from all runs', () => {
