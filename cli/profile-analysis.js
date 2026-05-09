@@ -49,6 +49,20 @@ for (const metric of TOTAL_METRICS) {
   PROFILE_METRICS[`total.${metric}`] = { ...def, scope: 'total' };
 }
 
+// Metric significance thresholds (all below or equal to 4%).
+// Small deltas below these values are treated as noise and don't count as metric wins.
+const PROFILE_CATEGORY_TIE_THRESHOLD_PERCENT = {
+  loading: 2.5,
+  computation: 3,
+  rendering: 3,
+  network: 4,
+  memory: 4,
+};
+
+function getProfileCategoryThresholdPercent(category) {
+  return PROFILE_CATEGORY_TIE_THRESHOLD_PERCENT[category] ?? 3;
+}
+
 function formatBytes(bytes) {
   if (bytes <= 0) return '0 B';
   const k = 1024;
@@ -122,19 +136,26 @@ export function buildProfileComparison(racerNames, profileData) {
       const worstVal = racersWithData[racersWithData.length - 1].value;
       comp.rankings = racersWithData.map(r => racerNames[r.index]);
 
-      // Only declare a winner if best and worst differ
+      // Only declare a winner when the difference meets or exceeds the category threshold.
       if (bestVal !== worstVal) {
-        const winIdx = racersWithData[0].index;
-        comp.winner = racerNames[winIdx];
         comp.diff = worstVal - bestVal;
+        // bestVal === 0 means the relative percent is effectively unbounded, so we keep
+        // diffPercent as null and treat it as significant below by design.
         comp.diffPercent = bestVal > 0
           ? (comp.diff / bestVal * 100)
           : null;
+        const thresholdPercent = getProfileCategoryThresholdPercent(metric.category);
+        const isSignificant = comp.diffPercent == null || comp.diffPercent >= thresholdPercent;
 
-        if (metric.scope === 'measured') {
-          measuredWins[racerNames[winIdx]]++;
-        } else {
-          totalWins[racerNames[winIdx]]++;
+        if (isSignificant) {
+          const winIdx = racersWithData[0].index;
+          comp.winner = racerNames[winIdx];
+
+          if (metric.scope === 'measured') {
+            measuredWins[racerNames[winIdx]]++;
+          } else {
+            totalWins[racerNames[winIdx]]++;
+          }
         }
       }
     }
@@ -147,8 +168,9 @@ export function buildProfileComparison(racerNames, profileData) {
   }
 
   // Determine overall winners
-  const measuredOverallWinner = determineOverallWinner(measuredWins, racerNames, measuredComparisons);
-  const totalOverallWinner = determineOverallWinner(totalWins, racerNames, totalComparisons);
+  // Use 0 here because per-metric significance thresholds are already applied above.
+  const measuredOverallWinner = determineOverallWinner(measuredWins, racerNames, measuredComparisons, 0);
+  const totalOverallWinner = determineOverallWinner(totalWins, racerNames, totalComparisons, 0);
 
   return {
     measured: {
@@ -311,10 +333,10 @@ function buildScopeMarkdown(title, section, racers) {
     lines.push('');
   }
 
-  if (overallWinner && overallWinner !== 'tie') {
-    lines.push(`**Winner:** ${overallWinner}`);
-  } else if (overallWinner === 'tie') {
+  if (overallWinner === 'tie') {
     lines.push('**Result:** Tie');
+  } else if (overallWinner) {
+    lines.push(`**Winner:** ${overallWinner}`);
   }
   lines.push('');
 

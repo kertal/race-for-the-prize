@@ -56,14 +56,14 @@ function racerName(racers, origIdx) {
 }
 
 function formatSectionTitle(name) {
-  if (name === 'Total') return name;
+  if (/^Total(?:\b| \()/i.test(name)) return name;
   return /^section\b/i.test(name) ? name : `Section ${name}`;
 }
 
 function sortComparisonsForDisplay(comparisons) {
   return [...comparisons].sort((a, b) => {
-    const aIsTotal = a?.name === 'Total';
-    const bIsTotal = b?.name === 'Total';
+    const aIsTotal = a?.isSyntheticTotal === true || /^Total(?:\b| \()/i.test(a?.name || '');
+    const bIsTotal = b?.isSyntheticTotal === true || /^Total(?:\b| \()/i.test(b?.name || '');
     if (aIsTotal && !bIsTotal) return -1;
     if (!aIsTotal && bIsTotal) return 1;
     return 0;

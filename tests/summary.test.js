@@ -104,6 +104,16 @@ describe('buildSummary', () => {
     expect(summary.comparisons[2].racers[1].duration).toBeCloseTo(5.0);
   });
 
+  it('declares the faster racer as global winner even for small differences', () => {
+    const results = [
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 1.02, duration: 1.02 }], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 1.00, duration: 1.00 }], videoPath: null, fullVideoPath: null, error: null },
+    ];
+    const summary = buildSummary(names, results, {}, '/tmp/results');
+    // No threshold: even tiny differences still produce a winner.
+    expect(summary.overallWinner).toBe('hunt');
+  });
+
   it('handles measurement present in only one racer', () => {
     const results = [
       { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], videoPath: null, fullVideoPath: null, error: null },
@@ -115,6 +125,57 @@ describe('buildSummary', () => {
     expect(summary.comparisons[0].racers[0]).not.toBeNull();
     expect(summary.comparisons[0].racers[1]).toBeNull();
     expect(summary.comparisons[0].winner).toBeNull();
+  });
+
+  it('does not declare winner by total when a racer misses sections', () => {
+    const results = [
+      { measurements: [
+        { name: 'Load', startTime: 0, endTime: 1, duration: 1.0 },
+        { name: 'Render', startTime: 1, endTime: 2, duration: 1.0 },
+      ], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [
+        { name: 'Load', startTime: 0, endTime: 0.5, duration: 0.5 },
+      ], videoPath: null, fullVideoPath: null, error: null },
+    ];
+
+    const summary = buildSummary(names, results, {}, '/tmp/results');
+    expect(summary.overallWinner).toBeNull();
+    expect(summary.comparisons.find(c => c.name === 'Total')?.winner).toBeNull();
+  });
+
+  it('treats near-equal multi-section totals as tie', () => {
+    const results = [
+      { measurements: [
+        { name: 'A', startTime: 0, endTime: 0.1, duration: 0.1 },
+        { name: 'B', startTime: 0.1, endTime: 0.3, duration: 0.2 },
+      ], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [
+        { name: 'A', startTime: 0, endTime: 0.2, duration: 0.2 },
+        { name: 'B', startTime: 0.2, endTime: 0.3, duration: 0.1 + 1e-12 },
+      ], videoPath: null, fullVideoPath: null, error: null },
+    ];
+
+    const summary = buildSummary(names, results, {}, '/tmp/results');
+    expect(summary.overallWinner).toBe('tie');
+  });
+
+  it('uses a non-colliding synthetic total name when section is named Total', () => {
+    const results = [
+      { measurements: [
+        { name: 'Total', startTime: 0, endTime: 1, duration: 1.0 },
+        { name: 'Render', startTime: 1, endTime: 2, duration: 1.0 },
+      ], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [
+        { name: 'Total', startTime: 0, endTime: 2, duration: 2.0 },
+        { name: 'Render', startTime: 2, endTime: 3, duration: 1.0 },
+      ], videoPath: null, fullVideoPath: null, error: null },
+    ];
+
+    const summary = buildSummary(names, results, {}, '/tmp/results');
+    const namesInSummary = summary.comparisons.map(c => c.name);
+    expect(namesInSummary).toContain('Total');
+    expect(namesInSummary).toContain('Total (All Sections)');
+    expect(summary.comparisons.find(c => c.name === 'Total (All Sections)')?.isSyntheticTotal).toBe(true);
   });
 
   it('collects errors from results', () => {
@@ -369,6 +430,27 @@ describe('buildMedianSummary', () => {
     expect(median.machineInfo).toBeUndefined();
   });
 
+  it('declares tie when run winners are inconsistent', () => {
+    const summaries = [
+      {
+        racers: ['a', 'b'],
+        settings: {},
+        comparisons: [{ name: 'Load', racers: [{ duration: 1.0 }, { duration: 3.0 }], winner: 'a', diffPercent: 200 }],
+        overallWinner: 'a',
+        errors: [],
+      },
+      {
+        racers: ['a', 'b'],
+        settings: {},
+        comparisons: [{ name: 'Load', racers: [{ duration: 3.0 }, { duration: 1.0 }], winner: 'b', diffPercent: 200 }],
+        overallWinner: 'b',
+        errors: [],
+      },
+    ];
+    const median = buildMedianSummary(summaries, '/tmp/results');
+    expect(median.overallWinner).toBe('tie');
+  });
+
   it('collects errors from all runs', () => {
     const summaries = makeSummaries();
     summaries[0].errors = ['a: timeout'];
@@ -385,6 +467,42 @@ describe('buildMedianSummary', () => {
     const median = buildMedianSummary(summaries, '/tmp/results');
     expect(median.comparisons[0].racers[1]).toBeNull();
     expect(median.comparisons[0].winner).toBeNull();
+  });
+
+  it('does not double-count synthetic Total rows from run summaries', () => {
+    const summaries = [
+      {
+        racers: ['a', 'b'],
+        settings: {},
+        comparisons: [
+          { name: 'Load', racers: [{ duration: 1.0 }, { duration: 2.0 }], winner: 'a' },
+          { name: 'Render', racers: [{ duration: 4.0 }, { duration: 5.0 }], winner: 'a' },
+          { name: 'Total', racers: [{ duration: 5.0 }, { duration: 7.0 }], winner: 'a', isSyntheticTotal: true },
+        ],
+        errors: [],
+        overallWinner: 'a',
+      },
+      {
+        racers: ['a', 'b'],
+        settings: {},
+        comparisons: [
+          { name: 'Load', racers: [{ duration: 3.0 }, { duration: 4.0 }], winner: 'a' },
+          { name: 'Render', racers: [{ duration: 6.0 }, { duration: 8.0 }], winner: 'a' },
+          { name: 'Total', racers: [{ duration: 9.0 }, { duration: 12.0 }], winner: 'a', isSyntheticTotal: true },
+        ],
+        errors: [],
+        overallWinner: 'a',
+      },
+    ];
+
+    const median = buildMedianSummary(summaries, '/tmp/results');
+    const load = median.comparisons.find(c => c.name === 'Load');
+    const render = median.comparisons.find(c => c.name === 'Render');
+    const totalRows = median.comparisons.filter(c => c.name === 'Total');
+    expect(load?.racers[0]?.duration).toBe(2.0);
+    expect(render?.racers[0]?.duration).toBe(5.0);
+    expect(totalRows).toHaveLength(1);
+    expect(totalRows[0].isSyntheticTotal).toBe(true);
   });
 });
 

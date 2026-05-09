@@ -47,24 +47,61 @@ function computeWins(racerNames, comparisons) {
   return Object.fromEntries(racerNames.map(name => [name, comparisons.filter(x => x.winner === name).length]));
 }
 
+const SYNTHETIC_TOTAL_NAME = 'Total';
+const SYNTHETIC_TOTAL_FALLBACK_NAME = 'Total (All Sections)';
+const TOTAL_TIE_EPSILON = 1e-9;
+
+function isSyntheticTotalComparison(comp) {
+  return comp?.isSyntheticTotal === true;
+}
+
+function getSectionComparisons(comparisons) {
+  return comparisons.filter(comp => !isSyntheticTotalComparison(comp));
+}
+
+function getSyntheticTotalName(existingComparisons) {
+  const names = new Set(existingComparisons.map(c => c.name));
+  return names.has(SYNTHETIC_TOTAL_NAME) ? SYNTHETIC_TOTAL_FALLBACK_NAME : SYNTHETIC_TOTAL_NAME;
+}
+
+function appendSyntheticTotalComparison(comparisons, racerNames) {
+  const sections = getSectionComparisons(comparisons);
+  if (sections.length <= 1) return;
+
+  const totalVals = racerNames.map((_, i) => {
+    const durs = sections.map(c => c.racers[i]?.duration);
+    if (durs.some(d => d == null)) return null;
+    return { duration: durs.reduce((a, b) => a + b, 0) };
+  });
+
+  const totalComp = computeComparison(getSyntheticTotalName(comparisons), totalVals, racerNames);
+  totalComp.isSyntheticTotal = true;
+  comparisons.push(totalComp);
+}
+
 /**
- * Determine overall winner. For multiple sections, uses total time across all sections.
- * For a single section, falls back to win counts via determineOverallWinner.
+ * Determine overall winner. For multiple sections, uses summed time across sections.
+ * Racers missing any section are ineligible for the total-based winner.
  */
 function computeOverallWinner(racerNames, comparisons) {
-  if (comparisons.length === 0) return null;
-  if (comparisons.length === 1) {
-    const wins = computeWins(racerNames, comparisons);
-    return determineOverallWinner(wins, racerNames, comparisons);
+  const sections = getSectionComparisons(comparisons);
+  if (sections.length === 0) return null;
+
+  if (sections.length === 1) {
+    const wins = computeWins(racerNames, sections);
+    return determineOverallWinner(wins, racerNames, sections, 0);
   }
-  const totals = racerNames.map((_, i) => {
-    const durs = comparisons.map(c => c.racers[i]?.duration).filter(d => d != null);
-    return durs.length ? durs.reduce((a, b) => a + b, 0) : null;
-  });
-  const valid = racerNames.map((name, i) => ({ name, total: totals[i] })).filter(r => r.total != null);
-  if (valid.length < 2) return null;
-  const min = Math.min(...valid.map(r => r.total));
-  const fastest = valid.filter(r => r.total === min);
+
+  const totals = racerNames.map((name, i) => {
+    const durs = sections.map(c => c.racers[i]?.duration);
+    if (durs.some(d => d == null)) return { name, total: null };
+    return { name, total: durs.reduce((a, b) => a + b, 0) };
+  }).filter(r => r.total != null);
+
+  if (totals.length < 2) return null;
+
+  const min = Math.min(...totals.map(r => r.total));
+  const fastest = totals.filter(r => Math.abs(r.total - min) <= TOTAL_TIE_EPSILON);
   return fastest.length === 1 ? fastest[0].name : 'tie';
 }
 
@@ -139,8 +176,8 @@ function formatDurationCell(dur, bestDur, isWinner, bold) {
 
 function sortComparisonsForDisplay(comparisons) {
   return [...comparisons].sort((a, b) => {
-    const aIsTotal = a?.name === 'Total';
-    const bIsTotal = b?.name === 'Total';
+    const aIsTotal = isSyntheticTotalComparison(a) || a?.name === SYNTHETIC_TOTAL_NAME || a?.name === SYNTHETIC_TOTAL_FALLBACK_NAME;
+    const bIsTotal = isSyntheticTotalComparison(b) || b?.name === SYNTHETIC_TOTAL_NAME || b?.name === SYNTHETIC_TOTAL_FALLBACK_NAME;
     if (aIsTotal && !bIsTotal) return -1;
     if (!aIsTotal && bIsTotal) return 1;
     return 0;
@@ -183,14 +220,7 @@ export function buildSummary(racerNames, results, settings, resultsDir) {
 
   const wins = computeWins(racerNames, comparisons);
   const overallWinner = computeOverallWinner(racerNames, comparisons);
-
-  if (comparisons.length > 1) {
-    const totalVals = racerNames.map((_, i) => {
-      const durs = comparisons.map(c => c.racers[i]?.duration).filter(d => d != null);
-      return durs.length ? { duration: durs.reduce((a, b) => a + b, 0) } : null;
-    });
-    comparisons.push(computeComparison('Total', totalVals, racerNames));
-  }
+  appendSyntheticTotalComparison(comparisons, racerNames);
 
   return {
     timestamp: new Date().toISOString(),
@@ -459,7 +489,9 @@ function buildMedianProfileMetrics(summaries) {
 /** Compute median of each measurement across multiple runs. */
 export function buildMedianSummary(summaries, resultsDir) {
   const racers = summaries[0].racers;
-  const allNames = new Set(summaries.flatMap(s => s.comparisons.map(c => c.name)));
+  const allNames = new Set(
+    summaries.flatMap(s => s.comparisons.filter(c => !isSyntheticTotalComparison(c)).map(c => c.name))
+  );
 
   const comparisons = [...allNames].map(name => {
     const vals = racers.map((_, i) => {
@@ -473,15 +505,13 @@ export function buildMedianSummary(summaries, resultsDir) {
   });
 
   const wins = computeWins(racers, comparisons);
-  const overallWinner = computeOverallWinner(racers, comparisons);
+  let overallWinner = computeOverallWinner(racers, comparisons);
 
-  if (comparisons.length > 1) {
-    const totalVals = racers.map((_, i) => {
-      const durs = comparisons.map(c => c.racers[i]?.duration).filter(d => d != null);
-      return durs.length ? { duration: durs.reduce((a, b) => a + b, 0) } : null;
-    });
-    comparisons.push(computeComparison('Total', totalVals, racers));
-  }
+  // If individual runs had inconsistent winners, the result is too noisy to call
+  const runWinners = summaries.map(s => s.overallWinner).filter(w => w && w !== 'tie');
+  if (new Set(runWinners).size > 1) overallWinner = 'tie';
+
+  appendSyntheticTotalComparison(comparisons, racers);
 
   const medianProfileMetrics = buildMedianProfileMetrics(summaries);
 
