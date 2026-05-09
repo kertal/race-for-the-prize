@@ -9,13 +9,13 @@ describe('buildSummary', () => {
       { measurements: [], videoPath: null, fullVideoPath: null, error: null },
       { measurements: [], videoPath: null, fullVideoPath: null, error: null },
     ];
-    const summary = buildSummary(names, results, {}, '/tmp/results');
+    const summary = buildSummary(names, results, {}, 'test-results');
 
     expect(summary.racers).toEqual(['lauda', 'hunt']);
     expect(summary.comparisons).toEqual([]);
     expect(summary.overallWinner).toBeNull();
     expect(summary.errors).toEqual([]);
-    expect(summary.resultsDir).toBe('/tmp/results');
+    expect(summary.resultsDir).toBe('test-results');
     expect(summary.wins).toEqual({ lauda: 0, hunt: 0 });
   });
 
@@ -24,7 +24,7 @@ describe('buildSummary', () => {
       { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], videoPath: null, fullVideoPath: null, error: null },
       { measurements: [{ name: 'Load', startTime: 0, endTime: 2, duration: 2.0 }], videoPath: null, fullVideoPath: null, error: null },
     ];
-    const summary = buildSummary(names, results, {}, '/tmp/results');
+    const summary = buildSummary(names, results, {}, 'test-results');
 
     expect(summary.comparisons).toHaveLength(1);
     const comp = summary.comparisons[0];
@@ -41,7 +41,7 @@ describe('buildSummary', () => {
       { measurements: [{ name: 'Load', startTime: 0, endTime: 3, duration: 3.0 }], videoPath: null, fullVideoPath: null, error: null },
       { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], videoPath: null, fullVideoPath: null, error: null },
     ];
-    const summary = buildSummary(names, results, {}, '/tmp/results');
+    const summary = buildSummary(names, results, {}, 'test-results');
 
     expect(summary.comparisons[0].winner).toBe('hunt');
     expect(summary.overallWinner).toBe('hunt');
@@ -52,7 +52,7 @@ describe('buildSummary', () => {
       { measurements: [{ name: 'Load', startTime: 0, endTime: 2, duration: 2.0 }], videoPath: null, fullVideoPath: null, error: null },
       { measurements: [{ name: 'Load', startTime: 0, endTime: 2, duration: 2.0 }], videoPath: null, fullVideoPath: null, error: null },
     ];
-    const summary = buildSummary(names, results, {}, '/tmp/results');
+    const summary = buildSummary(names, results, {}, 'test-results');
 
     // Equal duration: racer1 wins (<=), so it's 1-0 not a tie
     expect(summary.comparisons[0].winner).toBe('lauda');
@@ -70,7 +70,7 @@ describe('buildSummary', () => {
         { name: 'Render', startTime: 3, endTime: 5, duration: 2.0 },
       ], videoPath: null, fullVideoPath: null, error: null },
     ];
-    const summary = buildSummary(names, results, {}, '/tmp/results');
+    const summary = buildSummary(names, results, {}, 'test-results');
 
     // 2 sections + 1 Total = 3 comparisons
     expect(summary.comparisons).toHaveLength(3);
@@ -93,7 +93,7 @@ describe('buildSummary', () => {
         { name: 'Render', startTime: 3, endTime: 5, duration: 2.0 },
       ], videoPath: null, fullVideoPath: null, error: null },
     ];
-    const summary = buildSummary(names, results, {}, '/tmp/results');
+    const summary = buildSummary(names, results, {}, 'test-results');
 
     // lauda total: 1+3=4, hunt total: 3+2=5 → lauda wins by total
     expect(summary.overallWinner).toBe('lauda');
@@ -138,7 +138,7 @@ describe('buildSummary', () => {
       ], videoPath: null, fullVideoPath: null, error: null },
     ];
 
-    const summary = buildSummary(names, results, {}, '/tmp/results');
+    const summary = buildSummary(names, results, {}, 'test-results');
     expect(summary.overallWinner).toBeNull();
     expect(summary.comparisons.find(c => c.name === 'Total')?.winner).toBeNull();
   });
@@ -155,7 +155,7 @@ describe('buildSummary', () => {
       ], videoPath: null, fullVideoPath: null, error: null },
     ];
 
-    const summary = buildSummary(names, results, {}, '/tmp/results');
+    const summary = buildSummary(names, results, {}, 'test-results');
     expect(summary.overallWinner).toBe('tie');
   });
 
@@ -171,7 +171,7 @@ describe('buildSummary', () => {
       ], videoPath: null, fullVideoPath: null, error: null },
     ];
 
-    const summary = buildSummary(names, results, {}, '/tmp/results');
+    const summary = buildSummary(names, results, {}, 'test-results');
     const namesInSummary = summary.comparisons.map(c => c.name);
     expect(namesInSummary).toContain('Total');
     expect(namesInSummary).toContain('Total (All Sections)');
@@ -469,7 +469,7 @@ describe('buildMedianSummary', () => {
     expect(median.comparisons[0].winner).toBeNull();
   });
 
-  it('does not double-count synthetic Total rows from run summaries', () => {
+  it('does not double-count preexisting Total rows in run summaries', () => {
     const summaries = [
       {
         racers: ['a', 'b'],
@@ -477,7 +477,7 @@ describe('buildMedianSummary', () => {
         comparisons: [
           { name: 'Load', racers: [{ duration: 1.0 }, { duration: 2.0 }], winner: 'a' },
           { name: 'Render', racers: [{ duration: 4.0 }, { duration: 5.0 }], winner: 'a' },
-          { name: 'Total', racers: [{ duration: 5.0 }, { duration: 7.0 }], winner: 'a', isSyntheticTotal: true },
+          { name: 'Total', racers: [{ duration: 5.0 }, { duration: 7.0 }], winner: 'a' },
         ],
         errors: [],
         overallWinner: 'a',
@@ -488,7 +488,7 @@ describe('buildMedianSummary', () => {
         comparisons: [
           { name: 'Load', racers: [{ duration: 3.0 }, { duration: 4.0 }], winner: 'a' },
           { name: 'Render', racers: [{ duration: 6.0 }, { duration: 8.0 }], winner: 'a' },
-          { name: 'Total', racers: [{ duration: 9.0 }, { duration: 12.0 }], winner: 'a', isSyntheticTotal: true },
+          { name: 'Total', racers: [{ duration: 9.0 }, { duration: 12.0 }], winner: 'a' },
         ],
         errors: [],
         overallWinner: 'a',
@@ -503,6 +503,8 @@ describe('buildMedianSummary', () => {
     expect(render?.racers[0]?.duration).toBe(5.0);
     expect(totalRows).toHaveLength(1);
     expect(totalRows[0].isSyntheticTotal).toBe(true);
+    expect(median.wins).toEqual({ a: 2, b: 0 });
+    expect(median.overallWinner).toBe('a');
   });
 });
 

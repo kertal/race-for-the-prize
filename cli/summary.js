@@ -51,12 +51,41 @@ const SYNTHETIC_TOTAL_NAME = 'Total';
 const SYNTHETIC_TOTAL_FALLBACK_NAME = 'Total (All Sections)';
 const TOTAL_TIE_EPSILON = 1e-9;
 
+function isTotalNamedComparison(comp) {
+  return comp?.name === SYNTHETIC_TOTAL_NAME || comp?.name === SYNTHETIC_TOTAL_FALLBACK_NAME;
+}
+
 function isSyntheticTotalComparison(comp) {
   return comp?.isSyntheticTotal === true;
 }
 
+function isLikelyLegacySyntheticTotalComparison(comp, comparisons) {
+  if (!comp || comp.name !== SYNTHETIC_TOTAL_NAME) return false;
+  if (isSyntheticTotalComparison(comp)) return true;
+
+  const otherSections = comparisons.filter(c => c !== comp && !isSyntheticTotalComparison(c) && c.name !== SYNTHETIC_TOTAL_FALLBACK_NAME);
+  if (otherSections.length <= 1) return false;
+
+  const racerCount = comp.racers?.length || 0;
+  let comparedRacers = 0;
+  for (let i = 0; i < racerCount; i++) {
+    const totalVal = comp.racers[i]?.duration;
+    const sectionVals = otherSections.map(c => c.racers?.[i]?.duration);
+    if (totalVal == null || sectionVals.some(v => v == null)) continue;
+    const summed = sectionVals.reduce((a, b) => a + b, 0);
+    if (Math.abs(totalVal - summed) > TOTAL_TIE_EPSILON) return false;
+    comparedRacers++;
+  }
+  return comparedRacers > 0;
+}
+
 function getSectionComparisons(comparisons) {
-  return comparisons.filter(comp => !isSyntheticTotalComparison(comp));
+  return comparisons.filter(comp => {
+    if (isSyntheticTotalComparison(comp)) return false;
+    if (comp?.name === SYNTHETIC_TOTAL_FALLBACK_NAME) return false;
+    if (isLikelyLegacySyntheticTotalComparison(comp, comparisons)) return false;
+    return true;
+  });
 }
 
 function getSyntheticTotalName(existingComparisons) {
@@ -67,6 +96,7 @@ function getSyntheticTotalName(existingComparisons) {
 function appendSyntheticTotalComparison(comparisons, racerNames) {
   const sections = getSectionComparisons(comparisons);
   if (sections.length <= 1) return;
+  if (comparisons.some(comp => isSyntheticTotalComparison(comp) || isLikelyLegacySyntheticTotalComparison(comp, comparisons))) return;
 
   const totalVals = racerNames.map((_, i) => {
     const durs = sections.map(c => c.racers[i]?.duration);
@@ -75,6 +105,18 @@ function appendSyntheticTotalComparison(comparisons, racerNames) {
   });
 
   const totalComp = computeComparison(getSyntheticTotalName(comparisons), totalVals, racerNames);
+  const validTotals = totalVals
+    .map((v, i) => v ? { i, duration: v.duration } : null)
+    .filter(Boolean);
+  if (validTotals.length >= 2) {
+    const best = Math.min(...validTotals.map(v => v.duration));
+    const worst = Math.max(...validTotals.map(v => v.duration));
+    if (Math.abs(worst - best) <= TOTAL_TIE_EPSILON) {
+      totalComp.winner = null;
+      totalComp.diff = 0;
+      totalComp.diffPercent = 0;
+    }
+  }
   totalComp.isSyntheticTotal = true;
   comparisons.push(totalComp);
 }
@@ -176,8 +218,8 @@ function formatDurationCell(dur, bestDur, isWinner, bold) {
 
 function sortComparisonsForDisplay(comparisons) {
   return [...comparisons].sort((a, b) => {
-    const aIsTotal = isSyntheticTotalComparison(a) || a?.name === SYNTHETIC_TOTAL_NAME || a?.name === SYNTHETIC_TOTAL_FALLBACK_NAME;
-    const bIsTotal = isSyntheticTotalComparison(b) || b?.name === SYNTHETIC_TOTAL_NAME || b?.name === SYNTHETIC_TOTAL_FALLBACK_NAME;
+    const aIsTotal = isSyntheticTotalComparison(a) || isTotalNamedComparison(a);
+    const bIsTotal = isSyntheticTotalComparison(b) || isTotalNamedComparison(b);
     if (aIsTotal && !bIsTotal) return -1;
     if (!aIsTotal && bIsTotal) return 1;
     return 0;
@@ -490,7 +532,7 @@ function buildMedianProfileMetrics(summaries) {
 export function buildMedianSummary(summaries, resultsDir) {
   const racers = summaries[0].racers;
   const allNames = new Set(
-    summaries.flatMap(s => s.comparisons.filter(c => !isSyntheticTotalComparison(c)).map(c => c.name))
+    summaries.flatMap(s => getSectionComparisons(s.comparisons).map(c => c.name))
   );
 
   const comparisons = [...allNames].map(name => {
