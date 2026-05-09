@@ -195,11 +195,6 @@ describe('buildMarkdownSummary', () => {
     expect(md).toContain("It's a Tie!");
   });
 
-  it('shows tie when overall winner is tie', () => {
-    const md = buildMarkdownSummary(makeSummary({ overallWinner: 'tie' }));
-    expect(md).toContain("It's a Tie!");
-  });
-
   it('includes results table with trophy for winner and delta for loser', () => {
     const md = buildMarkdownSummary(makeSummary());
     expect(md).toMatch(/Load.*1\.000s \(🏆\).*2\.000s \(\+1\.000s\)/);

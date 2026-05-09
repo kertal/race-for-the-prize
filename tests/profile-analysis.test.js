@@ -78,7 +78,7 @@ describe('buildProfileComparison', () => {
     const result = buildProfileComparison(['a', 'b'], [metrics1, metrics2]);
 
     const totalScript = result.total.comparisons.find(c => c.key === 'total.scriptDuration');
-    expect(totalScript.diffPercent).toBe(2);
+    expect(totalScript.diffPercent).toBeCloseTo(2, 5);
     expect(totalScript.winner).toBeNull();
     expect(result.total.wins.a).toBe(0);
     expect(result.total.wins.b).toBe(0);

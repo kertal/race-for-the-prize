@@ -7,7 +7,7 @@ export const TIE_THRESHOLD_PERCENT = 3;
 
 /**
  * Determine overall winner from win counts.
- * Returns 'tie' when the average performance difference is within TIE_THRESHOLD_PERCENT,
+ * Returns 'tie' when the average performance difference is below TIE_THRESHOLD_PERCENT,
  * 'tie' when win counts are equal, the winner name, or null (no data).
  * @param {Object} wins - Object mapping racer names to win counts
  * @param {string[]} racerNames - Array of racer names
