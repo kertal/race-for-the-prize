@@ -136,9 +136,11 @@ export function buildProfileComparison(racerNames, profileData) {
       const worstVal = racersWithData[racersWithData.length - 1].value;
       comp.rankings = racersWithData.map(r => racerNames[r.index]);
 
-      // Only declare a winner when the difference exceeds the category threshold.
+      // Only declare a winner when the difference meets or exceeds the category threshold.
       if (bestVal !== worstVal) {
         comp.diff = worstVal - bestVal;
+        // bestVal === 0 means the relative percent is effectively unbounded, so we keep
+        // diffPercent as null and treat it as significant below by design.
         comp.diffPercent = bestVal > 0
           ? (comp.diff / bestVal * 100)
           : null;
