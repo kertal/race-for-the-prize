@@ -108,7 +108,7 @@ describe('tie terminology integration', () => {
 
     const proc = spawnSync(
       'node',
-      ['race.js', tempRaceDir, '--headless', '--no-recording', '--no-serve', '--runs=1'],
+      ['race.js', tempRaceDir, '--headless', '--recording=false', '--serve=false', '--runs=1'],
       {
         cwd: projectRoot,
         timeout: 90_000,
@@ -136,7 +136,7 @@ describe('tie terminology integration', () => {
     expect(proc.stderr).not.toContain('Unentschieden');
   });
 
-  it('reports tie when average performance difference is below threshold', ({ skip }) => {
+  it('reports winner when one racer consistently wins, even for small differences', ({ skip }) => {
     if (!hasChromiumInstalled()) {
       skip('Playwright Chromium binary not installed; skipping tie threshold integration test');
     }
@@ -146,7 +146,7 @@ describe('tie terminology integration', () => {
 
     const proc = spawnSync(
       'node',
-      ['race.js', tempRaceDir, '--headless', '--no-recording', '--no-serve', '--runs=1'],
+      ['race.js', tempRaceDir, '--headless', '--recording=false', '--serve=false', '--runs=1'],
       {
         cwd: projectRoot,
         timeout: 90_000,
@@ -163,10 +163,11 @@ describe('tie terminology integration', () => {
 
     const summary = JSON.parse(fs.readFileSync(path.join(resultsDir, 'summary.json'), 'utf-8'));
     expect(summary.wins['racer-a']).toBeGreaterThan(summary.wins['racer-b']);
-    expect(summary.overallWinner).toBe('tie');
+    expect(summary.overallWinner).toBe('racer-a');
 
     const readme = fs.readFileSync(path.join(resultsDir, 'README.md'), 'utf-8');
-    expect(readme).toContain("It's a Tie!");
+    expect(readme).toContain('Winner: racer-a');
+    expect(readme).not.toContain("It's a Tie!");
     expect(readme).not.toContain('Draw');
     expect(readme).not.toContain('Unentschieden');
   });

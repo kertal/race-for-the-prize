@@ -79,14 +79,14 @@ describe('buildSummary', () => {
     expect(summary.wins).toEqual({ lauda: 1, hunt: 1 });
   });
 
-  it('declares tie when performance difference is below threshold', () => {
+  it('declares the faster racer as global winner even for small differences', () => {
     const results = [
       { measurements: [{ name: 'Load', startTime: 0, endTime: 1.02, duration: 1.02 }], videoPath: null, fullVideoPath: null, error: null },
       { measurements: [{ name: 'Load', startTime: 0, endTime: 1.00, duration: 1.00 }], videoPath: null, fullVideoPath: null, error: null },
     ];
     const summary = buildSummary(names, results, {}, '/tmp/results');
-    // 2% difference is below the 3% threshold → tie
-    expect(summary.overallWinner).toBe('tie');
+    // Global race winner uses wins only (no threshold), so hunt still wins.
+    expect(summary.overallWinner).toBe('hunt');
   });
 
   it('handles measurement present in only one racer', () => {
