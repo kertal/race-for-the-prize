@@ -132,6 +132,23 @@ function buildResultsTable(comparisons, racers) {
     );
     lines.push(`| ${comp.name} | ${durations.join(' | ')} |`);
   }
+
+  if (comparisons.length > 1) {
+    const totalDurations = racers.map((_, i) => {
+      const hasData = comparisons.some(comp => comp.racers[i]?.duration != null);
+      if (!hasData) return null;
+      return comparisons.reduce((acc, comp) => acc + (comp.racers[i]?.duration ?? 0), 0);
+    });
+    const nonNull = totalDurations.filter(d => d != null);
+    const minTotal = nonNull.length >= 2 ? Math.min(...nonNull) : null;
+    const isStrictWinner = (dur) =>
+      dur != null && minTotal != null && dur === minTotal && nonNull.filter(d => d === minTotal).length === 1;
+    const cells = racers.map((_, i) =>
+      formatDurationCell(totalDurations[i], minTotal, isStrictWinner(totalDurations[i]), true)
+    );
+    lines.push(`| **Total** | ${cells.join(' | ')} |`);
+  }
+
   return lines;
 }
 
@@ -223,6 +240,42 @@ export function printSummary(summary) {
             delta = ` ${c.dim}(+${(entry.racer.duration - bestDur).toFixed(3)}s)${c.reset}`;
           }
           write(`${printBar(entry.name, entry.racer.duration, maxDur, color, isWinner, 30, labelWidth)}${delta}\n`);
+        } else {
+          write(`    ${color}${c.bold}${entry.name.padEnd(labelWidth)}${c.reset} ${c.dim}(no data)${c.reset}\n`);
+        }
+      }
+    }
+
+    if (comparisons.length > 1) {
+      const totalDurations = racers.map((_, i) => {
+        const hasData = comparisons.some(comp => comp.racers[i]?.duration != null);
+        if (!hasData) return null;
+        return comparisons.reduce((acc, comp) => acc + (comp.racers[i]?.duration ?? 0), 0);
+      });
+      const nonNull = totalDurations.filter(d => d != null);
+      const maxTotal = nonNull.length > 0 ? Math.max(...nonNull) : 0;
+      const minTotal = nonNull.length >= 2 ? Math.min(...nonNull) : null;
+      const isStrictWinner = (dur) =>
+        dur != null && minTotal != null && dur === minTotal && nonNull.filter(d => d === minTotal).length === 1;
+
+      const sortedTotals = racers
+        .map((name, i) => ({ name, index: i, duration: totalDurations[i] }))
+        .sort((a, b) => {
+          if (a.duration == null) return 1;
+          if (b.duration == null) return -1;
+          return a.duration - b.duration;
+        });
+
+      write(`  ${c.dim}${'─'.repeat(w)}${c.reset}\n`);
+      write(`  ${c.dim}⏱ Total${c.reset}\n`);
+      for (const entry of sortedTotals) {
+        const color = RACER_COLORS[entry.index % RACER_COLORS.length];
+        if (entry.duration != null) {
+          let delta = '';
+          if (minTotal !== null && entry.duration !== minTotal) {
+            delta = ` ${c.dim}(+${(entry.duration - minTotal).toFixed(3)}s)${c.reset}`;
+          }
+          write(`${printBar(entry.name, entry.duration, maxTotal, color, isStrictWinner(entry.duration), 30, labelWidth)}${delta}\n`);
         } else {
           write(`    ${color}${c.bold}${entry.name.padEnd(labelWidth)}${c.reset} ${c.dim}(no data)${c.reset}\n`);
         }
