@@ -222,11 +222,12 @@ function buildResultsTable(comparisons, racers) {
     lines.push(`| ${comp.name} | ${durations.join(' | ')} |`);
   }
 
-  if (comparisons.length > 1) {
+  const sections = getSectionComparisons(comparisons);
+  if (sections.length > 1) {
     const totalDurations = racers.map((_, i) => {
-      const hasData = comparisons.some(comp => comp.racers[i]?.duration != null);
-      if (!hasData) return null;
-      return comparisons.reduce((acc, comp) => acc + (comp.racers[i]?.duration ?? 0), 0);
+      const hasCompleteData = sections.every(comp => comp.racers[i]?.duration != null);
+      if (!hasCompleteData) return null;
+      return sections.reduce((acc, comp) => acc + comp.racers[i].duration, 0);
     });
     const nonNull = totalDurations.filter(d => d != null);
     const minTotal = nonNull.length >= 2 ? Math.min(...nonNull) : null;
@@ -335,11 +336,12 @@ export function printSummary(summary) {
       }
     }
 
-    if (comparisons.length > 1) {
+    const sections = getSectionComparisons(comparisons);
+    if (sections.length > 1) {
       const totalDurations = racers.map((_, i) => {
-        const hasData = comparisons.some(comp => comp.racers[i]?.duration != null);
-        if (!hasData) return null;
-        return comparisons.reduce((acc, comp) => acc + (comp.racers[i]?.duration ?? 0), 0);
+        const hasCompleteData = sections.every(comp => comp.racers[i]?.duration != null);
+        if (!hasCompleteData) return null;
+        return sections.reduce((acc, comp) => acc + comp.racers[i].duration, 0);
       });
       const nonNull = totalDurations.filter(d => d != null);
       const maxTotal = nonNull.length > 0 ? Math.max(...nonNull) : 0;
