@@ -469,7 +469,7 @@ describe('buildMedianSummary', () => {
     expect(median.comparisons[0].winner).toBeNull();
   });
 
-  it('does not double-count preexisting Total rows in run summaries', () => {
+  it('does not double-count preexisting synthetic Total rows in run summaries', () => {
     const summaries = [
       {
         racers: ['a', 'b'],
@@ -477,7 +477,7 @@ describe('buildMedianSummary', () => {
         comparisons: [
           { name: 'Load', racers: [{ duration: 1.0 }, { duration: 2.0 }], winner: 'a' },
           { name: 'Render', racers: [{ duration: 4.0 }, { duration: 5.0 }], winner: 'a' },
-          { name: 'Total', racers: [{ duration: 5.0 }, { duration: 7.0 }], winner: 'a' },
+          { name: 'Total', racers: [{ duration: 5.0 }, { duration: 7.0 }], winner: 'a', isSyntheticTotal: true },
         ],
         errors: [],
         overallWinner: 'a',
@@ -488,7 +488,7 @@ describe('buildMedianSummary', () => {
         comparisons: [
           { name: 'Load', racers: [{ duration: 3.0 }, { duration: 4.0 }], winner: 'a' },
           { name: 'Render', racers: [{ duration: 6.0 }, { duration: 8.0 }], winner: 'a' },
-          { name: 'Total', racers: [{ duration: 9.0 }, { duration: 12.0 }], winner: 'a' },
+          { name: 'Total', racers: [{ duration: 9.0 }, { duration: 12.0 }], winner: 'a', isSyntheticTotal: true },
         ],
         errors: [],
         overallWinner: 'a',
