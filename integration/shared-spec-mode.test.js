@@ -37,7 +37,7 @@ describe('shared-spec mode integration', () => {
 
     const proc = spawnSync(
       'node',
-      ['race.js', './races/trim-test', '--headless', '--no-recording', '--no-serve', '--runs=1'],
+      ['race.js', './races/trim-test', '--headless', '--recording=false', '--serve=false', '--runs=1'],
       {
         cwd: projectRoot,
         timeout: 90_000,

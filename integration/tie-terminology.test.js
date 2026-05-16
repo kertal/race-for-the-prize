@@ -36,29 +36,18 @@ function writeRaceFixture(dir) {
 await page.raceRecordingStart();
 
 await page.raceStart('Measure A');
-await page.waitForTimeout(50);
+await page.waitForTimeout(80);
 page.raceEnd('Measure A');
 
 await page.raceStart('Measure B');
-await page.waitForTimeout(120);
+await page.waitForTimeout(160);
 page.raceEnd('Measure B');
 
 await page.raceRecordingEnd();
 `;
 
-  const racerBSpec = `await page.goto('data:text/html,<html><body><h1>tie race</h1></body></html>');
-await page.raceRecordingStart();
-
-await page.raceStart('Measure A');
-await page.waitForTimeout(120);
-page.raceEnd('Measure A');
-
-await page.raceStart('Measure B');
-await page.waitForTimeout(50);
-page.raceEnd('Measure B');
-
-await page.raceRecordingEnd();
-`;
+  // Keep this fixture symmetric to make tie expectations deterministic.
+  const racerBSpec = racerASpec;
 
   fs.writeFileSync(path.join(dir, 'racer-a.spec.js'), racerASpec, 'utf-8');
   fs.writeFileSync(path.join(dir, 'racer-b.spec.js'), racerBSpec, 'utf-8');

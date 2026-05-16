@@ -38,6 +38,35 @@ const withSummary = (overrides) => buildPlayerHtml(makeSummary(overrides), video
 const withOptions = (opts, summary) => buildPlayerHtml(summary || makeSummary(), videoFiles, null, null, opts);
 const defaultHtml = withSummary();
 const noVideosHtml = buildPlayerHtml(makeSummary(), []);
+const loadRenderComparisons = [
+  { name: 'Load', racers: [{ duration: 1.1 }, { duration: 1.4 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
+  { name: 'Render', racers: [{ duration: 0.9 }, { duration: 1.2 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
+];
+
+function getProfileSection(html) {
+  const profileStart = html.indexOf('Performance Profile');
+  expect(profileStart).toBeGreaterThan(-1);
+  return html.slice(profileStart);
+}
+
+function buildPerSectionMetricFixtures({ includeRender = true, includeMeasuredTotals = true } = {}) {
+  const measuredA = includeMeasuredTotals ? { networkTransferSize: 2000, scriptDuration: 40 } : {};
+  const measuredB = includeMeasuredTotals ? { networkTransferSize: 2500, scriptDuration: 55 } : {};
+  const measuredSectionsA = {
+    Load: { networkTransferSize: 1200, networkRequestCount: 4, scriptDuration: 25, layoutDuration: 5, recalcStyleDuration: 2, taskDuration: 35 },
+  };
+  const measuredSectionsB = {
+    Load: { networkTransferSize: 1400, networkRequestCount: 5, scriptDuration: 30, layoutDuration: 6, recalcStyleDuration: 3, taskDuration: 40 },
+  };
+  if (includeRender) {
+    measuredSectionsA.Render = { networkTransferSize: 800, networkRequestCount: 2, scriptDuration: 10, layoutDuration: 3, recalcStyleDuration: 1, taskDuration: 15 };
+    measuredSectionsB.Render = { networkTransferSize: 900, networkRequestCount: 3, scriptDuration: 12, layoutDuration: 4, recalcStyleDuration: 2, taskDuration: 18 };
+  }
+  return [
+    { total: {}, measured: measuredA, measuredSections: measuredSectionsA },
+    { total: {}, measured: measuredB, measuredSections: measuredSectionsB },
+  ];
+}
 
 function withTmpDir(fn) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'race-test-'));
@@ -304,9 +333,7 @@ describe('buildPlayerHtml', () => {
     const metrics2 = { total: {}, measured: { networkTransferSize: 1000 } };
     const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
     const html = withSummary({ profileComparison });
-    const profileStart = html.indexOf('Performance Profile');
-    expect(profileStart).toBeGreaterThan(-1);
-    const profileSection = html.slice(profileStart);
+    const profileSection = getProfileSection(html);
     expect(profileSection.indexOf('>hunt<')).toBeLessThan(profileSection.indexOf('>lauda<'));
     expect(profileSection).toContain('(+');
   });
@@ -316,33 +343,15 @@ describe('buildPlayerHtml', () => {
     const metrics2 = { total: {}, measured: { networkTransferSize: 1000 } };
     const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
     const html = withSummary({
-      comparisons: [
-        { name: 'Load', racers: [{ duration: 1.1 }, { duration: 1.4 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
-        { name: 'Render', racers: [{ duration: 0.9 }, { duration: 1.2 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
-      ],
+      comparisons: loadRenderComparisons,
       profileComparison,
     });
-    const profileStart = html.indexOf('Performance Profile');
-    expect(profileStart).toBeGreaterThan(-1);
-    const profileSection = html.slice(profileStart);
+    const profileSection = getProfileSection(html);
     expect(profileSection).not.toContain('Section Timings');
   });
 
   it('hides per-section measured profile metrics when only one section exists', () => {
-    const metrics1 = {
-      total: {},
-      measured: { networkTransferSize: 2000, scriptDuration: 40 },
-      measuredSections: {
-        Load: { networkTransferSize: 1200, networkRequestCount: 4, scriptDuration: 25, layoutDuration: 5, recalcStyleDuration: 2, taskDuration: 35 },
-      },
-    };
-    const metrics2 = {
-      total: {},
-      measured: { networkTransferSize: 2500, scriptDuration: 55 },
-      measuredSections: {
-        Load: { networkTransferSize: 1400, networkRequestCount: 5, scriptDuration: 30, layoutDuration: 6, recalcStyleDuration: 3, taskDuration: 40 },
-      },
-    };
+    const [metrics1, metrics2] = buildPerSectionMetricFixtures({ includeRender: false, includeMeasuredTotals: true });
     const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
     const html = withSummary({
       comparisons: [
@@ -351,41 +360,19 @@ describe('buildPlayerHtml', () => {
       profileComparison,
       profileMetrics: [metrics1, metrics2],
     });
-    const profileStart = html.indexOf('Performance Profile');
-    expect(profileStart).toBeGreaterThan(-1);
-    const profileSection = html.slice(profileStart);
+    const profileSection = getProfileSection(html);
     expect(profileSection).not.toContain('Per-Section Profile Metrics');
   });
 
   it('shows per-section measured profile metrics when multiple sections exist', () => {
-    const metrics1 = {
-      total: {},
-      measured: { networkTransferSize: 2000, scriptDuration: 40 },
-      measuredSections: {
-        Load: { networkTransferSize: 1200, networkRequestCount: 4, scriptDuration: 25, layoutDuration: 5, recalcStyleDuration: 2, taskDuration: 35 },
-        Render: { networkTransferSize: 800, networkRequestCount: 2, scriptDuration: 10, layoutDuration: 3, recalcStyleDuration: 1, taskDuration: 15 },
-      },
-    };
-    const metrics2 = {
-      total: {},
-      measured: { networkTransferSize: 2500, scriptDuration: 55 },
-      measuredSections: {
-        Load: { networkTransferSize: 1400, networkRequestCount: 5, scriptDuration: 30, layoutDuration: 6, recalcStyleDuration: 3, taskDuration: 40 },
-        Render: { networkTransferSize: 900, networkRequestCount: 3, scriptDuration: 12, layoutDuration: 4, recalcStyleDuration: 2, taskDuration: 18 },
-      },
-    };
+    const [metrics1, metrics2] = buildPerSectionMetricFixtures({ includeRender: true, includeMeasuredTotals: true });
     const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
     const html = withSummary({
-      comparisons: [
-        { name: 'Load', racers: [{ duration: 1.1 }, { duration: 1.4 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
-        { name: 'Render', racers: [{ duration: 0.9 }, { duration: 1.2 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
-      ],
+      comparisons: loadRenderComparisons,
       profileComparison,
       profileMetrics: [metrics1, metrics2],
     });
-    const profileStart = html.indexOf('Performance Profile');
-    expect(profileStart).toBeGreaterThan(-1);
-    const profileSection = html.slice(profileStart);
+    const profileSection = getProfileSection(html);
     expect(profileSection).toContain('Per-Section Profile Metrics');
     expect(profileSection).toContain('Race Section Load');
     expect(profileSection).toContain('Race Section Render');
@@ -393,35 +380,15 @@ describe('buildPlayerHtml', () => {
   });
 
   it('renders profile when only per-section measured metrics are available', () => {
-    const metrics1 = {
-      total: {},
-      measured: {},
-      measuredSections: {
-        Load: { networkTransferSize: 1200, networkRequestCount: 4, scriptDuration: 25, layoutDuration: 5, recalcStyleDuration: 2, taskDuration: 35 },
-        Render: { networkTransferSize: 800, networkRequestCount: 2, scriptDuration: 10, layoutDuration: 3, recalcStyleDuration: 1, taskDuration: 15 },
-      },
-    };
-    const metrics2 = {
-      total: {},
-      measured: {},
-      measuredSections: {
-        Load: { networkTransferSize: 1400, networkRequestCount: 5, scriptDuration: 30, layoutDuration: 6, recalcStyleDuration: 3, taskDuration: 40 },
-        Render: { networkTransferSize: 900, networkRequestCount: 3, scriptDuration: 12, layoutDuration: 4, recalcStyleDuration: 2, taskDuration: 18 },
-      },
-    };
+    const [metrics1, metrics2] = buildPerSectionMetricFixtures({ includeRender: true, includeMeasuredTotals: false });
     const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
     const html = withSummary({
-      comparisons: [
-        { name: 'Load', racers: [{ duration: 1.1 }, { duration: 1.4 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
-        { name: 'Render', racers: [{ duration: 0.9 }, { duration: 1.2 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
-      ],
+      comparisons: loadRenderComparisons,
       profileComparison,
       profileMetrics: [metrics1, metrics2],
     });
     expect(html).toContain('Performance Profile');
-    const profileStart = html.indexOf('Performance Profile');
-    expect(profileStart).toBeGreaterThan(-1);
-    const profileSection = html.slice(profileStart);
+    const profileSection = getProfileSection(html);
     expect(profileSection).toContain('Per-Section Profile Metrics');
     expect(profileSection).toContain('Race Section Load');
     expect(profileSection).toContain('Race Section Render');
