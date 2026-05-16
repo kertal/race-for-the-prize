@@ -6,10 +6,12 @@
  * videoplayer.js extracts them at load time and passes them via setTemplates().
  */
 
-import { PROFILE_METRICS, categoryDescriptions } from './profile-analysis.js';
+import { PROFILE_METRICS, categoryDescriptions, determineProfileMetricOutcome } from './profile-analysis.js';
 import { formatPlatform } from './summary.js';
 
 export const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f', '#9b59b6'];
+const LEGACY_TOTAL_NAMES = new Set(['Total', 'Total (All Sections)']);
+const AGGREGATE_DISPLAY_NAMES = new Set(['Race', 'Race (All Sections)', ...LEGACY_TOTAL_NAMES]);
 
 let T = {};
 
@@ -56,7 +58,7 @@ function racerName(racers, origIdx) {
 }
 
 function formatSectionTitle(name) {
-  if (/^(?:Total|Race)(?:\b| \()/i.test(name)) return name;
+  if (AGGREGATE_DISPLAY_NAMES.has(name)) return name;
   if (/^race section\b/i.test(name)) return name;
   if (/^section\b/i.test(name)) return name.replace(/^section\b/i, 'Race Section');
   return `Race Section ${name}`;
@@ -64,8 +66,8 @@ function formatSectionTitle(name) {
 
 function sortComparisonsForDisplay(comparisons) {
   return [...comparisons].sort((a, b) => {
-    const aIsTotal = a?.isSyntheticTotal === true || /^(?:Total|Race)(?:\b| \()/i.test(a?.name || '');
-    const bIsTotal = b?.isSyntheticTotal === true || /^(?:Total|Race)(?:\b| \()/i.test(b?.name || '');
+    const aIsTotal = a?.isSyntheticTotal === true || LEGACY_TOTAL_NAMES.has(a?.name);
+    const bIsTotal = b?.isSyntheticTotal === true || LEGACY_TOTAL_NAMES.has(b?.name);
     if (aIsTotal && !bIsTotal) return -1;
     if (!aIsTotal && bIsTotal) return 1;
     return 0;
@@ -73,7 +75,7 @@ function sortComparisonsForDisplay(comparisons) {
 }
 
 function isTotalComparison(comp) {
-  return comp?.isSyntheticTotal === true || /^(?:Total|Race)(?:\b| \()/i.test(comp?.name || '');
+  return comp?.isSyntheticTotal === true || LEGACY_TOTAL_NAMES.has(comp?.name);
 }
 
 /** Build sorted bar-chart HTML rows for a single metric. */
@@ -123,17 +125,7 @@ function buildSectionMeasuredComparisons(rawProfileMetrics, racers) {
       const values = racers.map((_, i) => rawProfileMetrics[i]?.measuredSections?.[sectionName]?.[metricName] ?? null);
       if (values.every(v => v == null)) continue;
 
-      const withData = values
-        .map((v, i) => (v != null ? { i, v } : null))
-        .filter(Boolean)
-        .sort((a, b) => a.v - b.v);
-
-      const best = withData[0]?.v ?? null;
-      const worst = withData[withData.length - 1]?.v ?? null;
-      let winner = null;
-      if (withData.length >= 2 && best !== worst) {
-        winner = racers[withData[0].i];
-      }
+      const { winner } = determineProfileMetricOutcome(metric, racers, values);
 
       comparisons.push({
         key: `measured.${metricName}`,

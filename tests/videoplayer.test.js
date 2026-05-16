@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { buildPlayerHtml } from '../cli/videoplayer.js';
-import { buildRunNavHtml, RACER_CSS_COLORS } from '../cli/player-sections.js';
+import { buildRunNavHtml, buildResultsHtml, buildProfileHtml, RACER_CSS_COLORS } from '../cli/player-sections.js';
 import { buildProfileComparison } from '../cli/profile-analysis.js';
 import { copyFFmpegFiles } from '../cli/results.js';
 import { fileURLToPath } from 'node:url';
@@ -102,7 +102,7 @@ describe('buildPlayerHtml', () => {
     const html = withSummary({
       comparisons: [
         { name: 'Load', racers: [{ duration: 1 }, { duration: 2 }], winner: 'lauda', diff: 1, diffPercent: 100, rankings: ['lauda', 'hunt'] },
-        { name: 'Race', racers: [{ duration: 3 }, { duration: 4 }], winner: 'lauda', diff: 1, diffPercent: 33.3, rankings: ['lauda', 'hunt'] },
+        { name: 'Race', racers: [{ duration: 3 }, { duration: 4 }], winner: 'lauda', diff: 1, diffPercent: 33.3, rankings: ['lauda', 'hunt'], isSyntheticTotal: true },
       ],
     });
     expect(html).toContain('profile-metric-total');
@@ -112,6 +112,28 @@ describe('buildPlayerHtml', () => {
     expect(raceIdx).toBeGreaterThan(-1);
     expect(sectionIdx).toBeGreaterThan(-1);
     expect(raceIdx).toBeLessThan(sectionIdx);
+  });
+
+  it('keeps a real Race section separate from the synthetic fallback total in HTML', () => {
+    const html = buildResultsHtml([
+      { name: 'Race', racers: [{ duration: 1 }, { duration: 2 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
+      { name: 'Load', racers: [{ duration: 2 }, { duration: 3 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
+      { name: 'Race (All Sections)', racers: [{ duration: 3 }, { duration: 5 }], winner: 'lauda', rankings: ['lauda', 'hunt'], isSyntheticTotal: true },
+    ], ['lauda', 'hunt']);
+
+    expect(html.match(/profile-metric-total/g) ?? []).toHaveLength(1);
+    expect(html).toContain('<summary><span class="profile-metric-name">Race</span></summary>');
+    expect(html.indexOf('Race (All Sections)')).toBeLessThan(html.indexOf('<summary><span class="profile-metric-name">Race</span></summary>'));
+  });
+
+  it('prefixes section names that start with Race but are not totals', () => {
+    const html = withSummary({
+      comparisons: [
+        { name: 'Race Setup', racers: [{ duration: 1 }, { duration: 2 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
+      ],
+    });
+
+    expect(html).toContain('Race Section Race Setup');
   });
 
   it('expands single section rows by default', () => {
@@ -403,6 +425,36 @@ describe('buildPlayerHtml', () => {
     expect(profileSection).toContain('Per-Section Profile Metrics');
     expect(profileSection).toContain('Race Section Load');
     expect(profileSection).toContain('Race Section Render');
+  });
+
+  it('applies profile significance thresholds to per-section metric winners', () => {
+    const metrics1 = {
+      total: {},
+      measured: {},
+      measuredSections: {
+        Load: { scriptDuration: 100 },
+        Render: { scriptDuration: 80 },
+      },
+    };
+    const metrics2 = {
+      total: {},
+      measured: {},
+      measuredSections: {
+        Load: { scriptDuration: 102 },
+        Render: { scriptDuration: 120 },
+      },
+    };
+    const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
+    const html = buildProfileHtml({
+      ...profileComparison,
+      rawProfileMetrics: [metrics1, metrics2],
+    }, ['lauda', 'hunt']);
+
+    const loadSection = html.slice(
+      html.indexOf('Race Section Load'),
+      html.indexOf('Race Section Render')
+    );
+    expect(loadSection).not.toContain('profile-medal');
   });
 
   it('shows profile with 3+ racers', () => {
@@ -1365,4 +1417,3 @@ describe('buildPlayerHtml run-by-run comparison', () => {
     expect(html).not.toContain('Run-by-Run Comparison');
   });
 });
-

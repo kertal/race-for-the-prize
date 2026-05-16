@@ -185,8 +185,10 @@ async function cleanup(signal) {
   process.exit(signalExitCode(signal));
 }
 
-process.on('SIGTERM', () => cleanup('SIGTERM'));
-process.on('SIGINT', () => cleanup('SIGINT'));
+if (require.main === module) {
+  process.on('SIGTERM', () => cleanup('SIGTERM'));
+  process.on('SIGINT', () => cleanup('SIGINT'));
+}
 
 // --- Sync barrier for parallel mode ---
 
@@ -349,7 +351,7 @@ async function setupMetricsCollection(page, id) {
           recalcStyleDuration: null,
           taskDuration: null
         },
-        measuredSections: {}
+        measuredSections: Object.create(null)
       };
 
       try {
@@ -1114,4 +1116,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { RESULT_SENTINEL };  // Re-exported for back-compat with existing imports.
+module.exports = { RESULT_SENTINEL, setupMetricsCollection, runMarkerMode };  // Re-exported for back-compat with existing imports.

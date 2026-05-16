@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { buildSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, getPlacementOrder, findMedianRunIndex } from '../cli/summary.js';
+import { describe, it, expect, vi } from 'vitest';
+import { buildSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, getPlacementOrder, findMedianRunIndex, printSummary } from '../cli/summary.js';
 
 describe('buildSummary', () => {
   const names = ['lauda', 'hunt'];
@@ -294,6 +294,7 @@ describe('buildMarkdownSummary', () => {
           winner: 'lauda',
           diff: 1.0,
           diffPercent: 33.3,
+          isSyntheticTotal: true,
         },
       ],
     }));
@@ -302,6 +303,57 @@ describe('buildMarkdownSummary', () => {
     expect(raceIdx).toBeGreaterThan(-1);
     expect(loadIdx).toBeGreaterThan(-1);
     expect(raceIdx).toBeLessThan(loadIdx);
+  });
+
+  it('does not duplicate the synthetic Race row for multi-section summaries', () => {
+    const summary = buildSummary(['lauda', 'hunt'], [
+      {
+        measurements: [
+          { name: 'Load', startTime: 0, endTime: 1, duration: 1.0 },
+          { name: 'Render', startTime: 1, endTime: 3, duration: 2.0 },
+        ],
+      },
+      {
+        measurements: [
+          { name: 'Load', startTime: 0, endTime: 2, duration: 2.0 },
+          { name: 'Render', startTime: 2, endTime: 5, duration: 3.0 },
+        ],
+      },
+    ], {}, 'test-results');
+
+    const md = buildMarkdownSummary(summary);
+    expect(md.match(/^\| Race \|/gm) ?? []).toHaveLength(1);
+  });
+
+  it('keeps a real Race section separate from the synthetic fallback total row', () => {
+    const md = buildMarkdownSummary(makeSummary({
+      comparisons: [
+        {
+          name: 'Race',
+          racers: [{ duration: 1.0 }, { duration: 2.0 }],
+          winner: 'lauda',
+          diff: 1.0,
+          diffPercent: 100.0,
+        },
+        {
+          name: 'Load',
+          racers: [{ duration: 2.0 }, { duration: 3.0 }],
+          winner: 'lauda',
+          diff: 1.0,
+          diffPercent: 50.0,
+        },
+        {
+          name: 'Race (All Sections)',
+          racers: [{ duration: 3.0 }, { duration: 5.0 }],
+          winner: 'lauda',
+          diff: 2.0,
+          diffPercent: 66.7,
+          isSyntheticTotal: true,
+        },
+      ],
+    }));
+
+    expect(md.indexOf('| Race (All Sections) |')).toBeLessThan(md.indexOf('| Race |'));
   });
 
   it('includes video file links', () => {
@@ -509,6 +561,39 @@ describe('buildMedianSummary', () => {
     expect(totalRows[0].isSyntheticTotal).toBe(true);
     expect(median.wins).toEqual({ a: 2, b: 0 });
     expect(median.overallWinner).toBe('a');
+  });
+});
+
+describe('printSummary', () => {
+  it('does not print a duplicate synthetic Race block', () => {
+    const summary = buildSummary(['lauda', 'hunt'], [
+      {
+        measurements: [
+          { name: 'Load', startTime: 0, endTime: 1, duration: 1.0 },
+          { name: 'Render', startTime: 1, endTime: 3, duration: 2.0 },
+        ],
+      },
+      {
+        measurements: [
+          { name: 'Load', startTime: 0, endTime: 2, duration: 2.0 },
+          { name: 'Render', startTime: 2, endTime: 5, duration: 3.0 },
+        ],
+      },
+    ], {}, 'test-results');
+
+    let output = '';
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(chunk => {
+      output += String(chunk);
+      return true;
+    });
+
+    try {
+      printSummary(summary);
+    } finally {
+      writeSpy.mockRestore();
+    }
+
+    expect(output.match(/⏱ Race/g) ?? []).toHaveLength(1);
   });
 });
 
