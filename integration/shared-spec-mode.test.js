@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
+import { hasChromiumInstalled, parseResultsDir } from './test-helpers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,28 +11,9 @@ const projectRoot = path.resolve(__dirname, '..');
 
 let resultsDir = null;
 
-function hasChromiumInstalled() {
-  const check = spawnSync(
-    'node',
-    [
-      '-e',
-      "const { chromium } = require('playwright'); const fs = require('fs'); process.exit(fs.existsSync(chromium.executablePath()) ? 0 : 1);",
-    ],
-    { cwd: projectRoot, timeout: 10_000 }
-  );
-  return check.status === 0;
-}
-
-function parseResultsDir(stderrText) {
-  const ansiRe = new RegExp('\\u001B\\[[0-9;]*m', 'g');
-  const stripped = stderrText.replace(ansiRe, '');
-  const match = stripped.match(/📂\s+(.+)/);
-  return match ? path.resolve(projectRoot, match[1].trim()) : null;
-}
-
 describe('shared-spec mode integration', () => {
   it('runs trim-test in shared mode and produces ordered measurements', ({ skip }) => {
-    if (!hasChromiumInstalled()) {
+    if (!hasChromiumInstalled(projectRoot)) {
       skip('Playwright Chromium binary not installed; skipping shared-spec integration test');
     }
 
@@ -48,7 +30,7 @@ describe('shared-spec mode integration', () => {
 
     expect(proc.status).toBe(0);
 
-    resultsDir = parseResultsDir(proc.stderr);
+    resultsDir = parseResultsDir(projectRoot, proc.stderr);
     expect(resultsDir).toBeTruthy();
     expect(fs.existsSync(resultsDir)).toBe(true);
 

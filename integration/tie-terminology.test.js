@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { hasChromiumInstalled, parseResultsDir } from './test-helpers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,25 +12,6 @@ const projectRoot = path.resolve(__dirname, '..');
 
 let tempRaceDir = null;
 let resultsDir = null;
-
-function hasChromiumInstalled() {
-  const check = spawnSync(
-    'node',
-    [
-      '-e',
-      "const { chromium } = require('playwright'); const fs = require('fs'); process.exit(fs.existsSync(chromium.executablePath()) ? 0 : 1);",
-    ],
-    { cwd: projectRoot, timeout: 10_000 }
-  );
-  return check.status === 0;
-}
-
-function parseResultsDir(stderrText) {
-  const ansiRe = new RegExp('\\u001B\\[[0-9;]*m', 'g');
-  const stripped = stderrText.replace(ansiRe, '');
-  const match = stripped.match(/📂\s+(.+)/);
-  return match ? path.resolve(projectRoot, match[1].trim()) : null;
-}
 
 function writeRaceFixture(dir) {
   const racerASpec = `await page.goto('data:text/html,<html><body><h1>tie race</h1></body></html>');
@@ -88,7 +70,7 @@ await page.raceRecordingEnd();
 
 describe('tie terminology integration', () => {
   it('reports tie wording in summary output and files', ({ skip }) => {
-    if (!hasChromiumInstalled()) {
+    if (!hasChromiumInstalled(projectRoot)) {
       skip('Playwright Chromium binary not installed; skipping tie terminology integration test');
     }
 
@@ -108,7 +90,7 @@ describe('tie terminology integration', () => {
 
     expect(proc.status).toBe(0);
 
-    resultsDir = parseResultsDir(proc.stderr);
+    resultsDir = parseResultsDir(projectRoot, proc.stderr);
     expect(resultsDir).toBeTruthy();
     expect(fs.existsSync(resultsDir)).toBe(true);
 
@@ -126,7 +108,7 @@ describe('tie terminology integration', () => {
   });
 
   it('reports winner when one racer consistently wins, even for small differences', ({ skip }) => {
-    if (!hasChromiumInstalled()) {
+    if (!hasChromiumInstalled(projectRoot)) {
       skip('Playwright Chromium binary not installed; skipping tie threshold integration test');
     }
 
@@ -146,7 +128,7 @@ describe('tie terminology integration', () => {
 
     expect(proc.status).toBe(0);
 
-    resultsDir = parseResultsDir(proc.stderr);
+    resultsDir = parseResultsDir(projectRoot, proc.stderr);
     expect(resultsDir).toBeTruthy();
     expect(fs.existsSync(resultsDir)).toBe(true);
 
