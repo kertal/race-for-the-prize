@@ -47,24 +47,17 @@ function computeWins(racerNames, comparisons) {
   return Object.fromEntries(racerNames.map(name => [name, comparisons.filter(x => x.winner === name).length]));
 }
 
-const SYNTHETIC_TOTAL_NAME = 'Total';
-const SYNTHETIC_TOTAL_FALLBACK_NAME = 'Total (All Sections)';
-const TOTAL_TIE_EPSILON = 1e-9;
-
-function isTotalNamedComparison(comp) {
-  return comp?.name === SYNTHETIC_TOTAL_NAME || comp?.name === SYNTHETIC_TOTAL_FALLBACK_NAME;
-}
+const SYNTHETIC_TOTAL_NAME = 'Race';
+const SYNTHETIC_TOTAL_FALLBACK_NAME = 'Race (All Sections)';
+// Treat sub-frame timing noise as ties for summed multi-section totals.
+const TOTAL_TIE_EPSILON = 0.01;
 
 function isSyntheticTotalComparison(comp) {
   return comp?.isSyntheticTotal === true;
 }
 
 function getSectionComparisons(comparisons) {
-  return comparisons.filter(comp => {
-    if (isSyntheticTotalComparison(comp)) return false;
-    if (comp?.name === SYNTHETIC_TOTAL_FALLBACK_NAME) return false;
-    return true;
-  });
+  return comparisons.filter(comp => !isSyntheticTotalComparison(comp));
 }
 
 function getSyntheticTotalName(existingComparisons) {
@@ -197,8 +190,8 @@ function formatDurationCell(dur, bestDur, isWinner, bold) {
 
 function sortComparisonsForDisplay(comparisons) {
   return [...comparisons].sort((a, b) => {
-    const aIsTotal = isSyntheticTotalComparison(a) || isTotalNamedComparison(a);
-    const bIsTotal = isSyntheticTotalComparison(b) || isTotalNamedComparison(b);
+    const aIsTotal = isSyntheticTotalComparison(a);
+    const bIsTotal = isSyntheticTotalComparison(b);
     if (aIsTotal && !bIsTotal) return -1;
     if (!aIsTotal && bIsTotal) return 1;
     return 0;
@@ -221,6 +214,7 @@ function buildResultsTable(comparisons, racers) {
     );
     lines.push(`| ${comp.name} | ${durations.join(' | ')} |`);
   }
+
   return lines;
 }
 
@@ -624,8 +618,8 @@ function buildRunComparisonSection(medianSummary, summaries) {
     }
 
     const scopes = [
-      { scope: 'measured', title: 'Performance: During Measurement' },
-      { scope: 'total', title: 'Performance: Total Session' },
+      { scope: 'measured', title: 'Performance: Race' },
+      { scope: 'total', title: 'Performance: Total Recording (Including Pre and Post race)' },
     ];
     for (const { scope: scopeName, title: scopeTitle } of scopes) {
       const scopeMetrics = metricsWithData.filter(m => m.scope === scopeName);

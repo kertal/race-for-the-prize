@@ -2,8 +2,8 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { hasChromiumInstalled, parseResultsDir } from './test-helpers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,122 +11,68 @@ const projectRoot = path.resolve(__dirname, '..');
 
 let tempRaceDir = null;
 let resultsDir = null;
+const testResultsRoot = path.join(projectRoot, 'test-results');
 
-function hasChromiumInstalled() {
-  const check = spawnSync(
+function buildSpec(title, measureAWaitMs, measureBWaitMs) {
+  return `await page.goto('data:text/html,<html><body><h1>${title}</h1></body></html>');
+await page.raceRecordingStart();
+
+await page.raceStart('Measure A');
+await page.waitForTimeout(${measureAWaitMs});
+page.raceEnd('Measure A');
+
+await page.raceStart('Measure B');
+await page.waitForTimeout(${measureBWaitMs});
+page.raceEnd('Measure B');
+
+await page.raceRecordingEnd();
+`;
+}
+
+function writeFixture(dir, racerASpec, racerBSpec) {
+  fs.writeFileSync(path.join(dir, 'racer-a.spec.js'), racerASpec, 'utf-8');
+  fs.writeFileSync(path.join(dir, 'racer-b.spec.js'), racerBSpec, 'utf-8');
+}
+
+function runRaceFixture(tempPrefix, buildSpecs) {
+  fs.mkdirSync(testResultsRoot, { recursive: true });
+  tempRaceDir = fs.mkdtempSync(path.join(testResultsRoot, tempPrefix));
+  const { racerASpec, racerBSpec } = buildSpecs();
+  writeFixture(tempRaceDir, racerASpec, racerBSpec);
+
+  const proc = spawnSync(
     'node',
-    [
-      '-e',
-      "const { chromium } = require('playwright'); const fs = require('fs'); process.exit(fs.existsSync(chromium.executablePath()) ? 0 : 1);",
-    ],
-    { cwd: projectRoot, timeout: 10_000 }
+    ['race.js', tempRaceDir, '--headless', '--recording=false', '--serve=false', '--runs=1'],
+    {
+      cwd: projectRoot,
+      timeout: 90_000,
+      encoding: 'utf-8',
+      env: { ...process.env, FORCE_COLOR: '0' },
+    }
   );
-  return check.status === 0;
-}
 
-function parseResultsDir(stderrText) {
-  const ansiRe = new RegExp('\\u001B\\[[0-9;]*m', 'g');
-  const stripped = stderrText.replace(ansiRe, '');
-  const match = stripped.match(/📂\s+(.+)/);
-  return match ? path.resolve(projectRoot, match[1].trim()) : null;
-}
+  expect(proc.status).toBe(0);
+  resultsDir = parseResultsDir(projectRoot, proc.stderr);
+  expect(resultsDir).toBeTruthy();
+  expect(fs.existsSync(resultsDir)).toBe(true);
 
-function writeRaceFixture(dir) {
-  const racerASpec = `await page.goto('data:text/html,<html><body><h1>tie race</h1></body></html>');
-await page.raceRecordingStart();
-
-await page.raceStart('Measure A');
-await page.waitForTimeout(50);
-page.raceEnd('Measure A');
-
-await page.raceStart('Measure B');
-await page.waitForTimeout(120);
-page.raceEnd('Measure B');
-
-await page.raceRecordingEnd();
-`;
-
-  const racerBSpec = `await page.goto('data:text/html,<html><body><h1>tie race</h1></body></html>');
-await page.raceRecordingStart();
-
-await page.raceStart('Measure A');
-await page.waitForTimeout(120);
-page.raceEnd('Measure A');
-
-await page.raceStart('Measure B');
-await page.waitForTimeout(50);
-page.raceEnd('Measure B');
-
-await page.raceRecordingEnd();
-`;
-
-  fs.writeFileSync(path.join(dir, 'racer-a.spec.js'), racerASpec, 'utf-8');
-  fs.writeFileSync(path.join(dir, 'racer-b.spec.js'), racerBSpec, 'utf-8');
-}
-
-function writeThresholdTieFixture(dir) {
-  const racerASpec = `await page.goto('data:text/html,<html><body><h1>threshold tie race</h1></body></html>');
-await page.raceRecordingStart();
-
-await page.raceStart('Measure A');
-await page.waitForTimeout(1500);
-page.raceEnd('Measure A');
-
-await page.raceStart('Measure B');
-await page.waitForTimeout(1800);
-page.raceEnd('Measure B');
-
-await page.raceRecordingEnd();
-`;
-
-  const racerBSpec = `await page.goto('data:text/html,<html><body><h1>threshold tie race</h1></body></html>');
-await page.raceRecordingStart();
-
-await page.raceStart('Measure A');
-await page.waitForTimeout(1530);
-page.raceEnd('Measure A');
-
-await page.raceStart('Measure B');
-await page.waitForTimeout(1836);
-page.raceEnd('Measure B');
-
-await page.raceRecordingEnd();
-`;
-
-  fs.writeFileSync(path.join(dir, 'racer-a.spec.js'), racerASpec, 'utf-8');
-  fs.writeFileSync(path.join(dir, 'racer-b.spec.js'), racerBSpec, 'utf-8');
+  const summary = JSON.parse(fs.readFileSync(path.join(resultsDir, 'summary.json'), 'utf-8'));
+  const readme = fs.readFileSync(path.join(resultsDir, 'README.md'), 'utf-8');
+  return { proc, summary, readme };
 }
 
 describe('tie terminology integration', () => {
   it('reports tie wording in summary output and files', ({ skip }) => {
-    if (!hasChromiumInstalled()) {
+    if (!hasChromiumInstalled(projectRoot)) {
       skip('Playwright Chromium binary not installed; skipping tie terminology integration test');
     }
 
-    tempRaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rftp-tie-'));
-    writeRaceFixture(tempRaceDir);
-
-    const proc = spawnSync(
-      'node',
-      ['race.js', tempRaceDir, '--headless', '--recording=false', '--serve=false', '--runs=1'],
-      {
-        cwd: projectRoot,
-        timeout: 90_000,
-        encoding: 'utf-8',
-        env: { ...process.env, FORCE_COLOR: '0' },
-      }
-    );
-
-    expect(proc.status).toBe(0);
-
-    resultsDir = parseResultsDir(proc.stderr);
-    expect(resultsDir).toBeTruthy();
-    expect(fs.existsSync(resultsDir)).toBe(true);
-
-    const summary = JSON.parse(fs.readFileSync(path.join(resultsDir, 'summary.json'), 'utf-8'));
+    const { proc, summary, readme } = runRaceFixture('rftp-tie-', () => {
+      const racerASpec = buildSpec('tie race', 80, 160);
+      // Keep this fixture symmetric to make tie expectations deterministic.
+      return { racerASpec, racerBSpec: racerASpec };
+    });
     expect(summary.overallWinner).toBe('tie');
-
-    const readme = fs.readFileSync(path.join(resultsDir, 'README.md'), 'utf-8');
     expect(readme).toContain("It's a Tie!");
     expect(readme).not.toContain('Draw');
     expect(readme).not.toContain('Unentschieden');
@@ -137,35 +83,16 @@ describe('tie terminology integration', () => {
   });
 
   it('reports winner when one racer consistently wins, even for small differences', ({ skip }) => {
-    if (!hasChromiumInstalled()) {
+    if (!hasChromiumInstalled(projectRoot)) {
       skip('Playwright Chromium binary not installed; skipping tie threshold integration test');
     }
 
-    tempRaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rftp-tie-threshold-'));
-    writeThresholdTieFixture(tempRaceDir);
-
-    const proc = spawnSync(
-      'node',
-      ['race.js', tempRaceDir, '--headless', '--recording=false', '--serve=false', '--runs=1'],
-      {
-        cwd: projectRoot,
-        timeout: 90_000,
-        encoding: 'utf-8',
-        env: { ...process.env, FORCE_COLOR: '0' },
-      }
-    );
-
-    expect(proc.status).toBe(0);
-
-    resultsDir = parseResultsDir(proc.stderr);
-    expect(resultsDir).toBeTruthy();
-    expect(fs.existsSync(resultsDir)).toBe(true);
-
-    const summary = JSON.parse(fs.readFileSync(path.join(resultsDir, 'summary.json'), 'utf-8'));
+    const { summary, readme } = runRaceFixture('rftp-tie-threshold-', () => ({
+      racerASpec: buildSpec('threshold tie race', 1500, 1800),
+      racerBSpec: buildSpec('threshold tie race', 1530, 1836),
+    }));
     expect(summary.wins['racer-a']).toBeGreaterThan(summary.wins['racer-b']);
     expect(summary.overallWinner).toBe('racer-a');
-
-    const readme = fs.readFileSync(path.join(resultsDir, 'README.md'), 'utf-8');
     expect(readme).toContain('Winner: racer-a');
     expect(readme).not.toContain("It's a Tie!");
     expect(readme).not.toContain('Draw');

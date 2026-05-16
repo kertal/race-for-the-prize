@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { buildSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, getPlacementOrder, findMedianRunIndex } from '../cli/summary.js';
+import { describe, it, expect, vi } from 'vitest';
+import { buildSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, getPlacementOrder, findMedianRunIndex, printSummary } from '../cli/summary.js';
 
 describe('buildSummary', () => {
   const names = ['lauda', 'hunt'];
@@ -72,11 +72,11 @@ describe('buildSummary', () => {
     ];
     const summary = buildSummary(names, results, {}, 'test-results');
 
-    // 2 sections + 1 Total = 3 comparisons
+    // 2 sections + 1 Race = 3 comparisons
     expect(summary.comparisons).toHaveLength(3);
     expect(summary.comparisons[0].winner).toBe('lauda');  // Load: 1 < 3
     expect(summary.comparisons[1].winner).toBe('hunt');  // Render: 2 < 4
-    expect(summary.comparisons[2].name).toBe('Total');
+    expect(summary.comparisons[2].name).toBe('Race');
     // lauda total: 1+4=5, hunt total: 3+2=5 → tie
     expect(summary.overallWinner).toBe('tie');
     expect(summary.wins).toEqual({ lauda: 1, hunt: 1 });
@@ -98,7 +98,7 @@ describe('buildSummary', () => {
     // lauda total: 1+3=4, hunt total: 3+2=5 → lauda wins by total
     expect(summary.overallWinner).toBe('lauda');
     expect(summary.wins).toEqual({ lauda: 1, hunt: 1 }); // section wins still 1-1
-    expect(summary.comparisons[2].name).toBe('Total');
+    expect(summary.comparisons[2].name).toBe('Race');
     expect(summary.comparisons[2].winner).toBe('lauda');
     expect(summary.comparisons[2].racers[0].duration).toBeCloseTo(4.0);
     expect(summary.comparisons[2].racers[1].duration).toBeCloseTo(5.0);
@@ -140,7 +140,7 @@ describe('buildSummary', () => {
 
     const summary = buildSummary(names, results, {}, 'test-results');
     expect(summary.overallWinner).toBeNull();
-    expect(summary.comparisons.find(c => c.name === 'Total')?.winner).toBeNull();
+    expect(summary.comparisons.find(c => c.name === 'Race')?.winner).toBeNull();
   });
 
   it('treats near-equal multi-section totals as tie', () => {
@@ -159,23 +159,23 @@ describe('buildSummary', () => {
     expect(summary.overallWinner).toBe('tie');
   });
 
-  it('uses a non-colliding synthetic total name when section is named Total', () => {
+  it('uses a non-colliding synthetic race name when section is named Race', () => {
     const results = [
       { measurements: [
-        { name: 'Total', startTime: 0, endTime: 1, duration: 1.0 },
+        { name: 'Race', startTime: 0, endTime: 1, duration: 1.0 },
         { name: 'Render', startTime: 1, endTime: 2, duration: 1.0 },
       ], videoPath: null, fullVideoPath: null, error: null },
       { measurements: [
-        { name: 'Total', startTime: 0, endTime: 2, duration: 2.0 },
+        { name: 'Race', startTime: 0, endTime: 2, duration: 2.0 },
         { name: 'Render', startTime: 2, endTime: 3, duration: 1.0 },
       ], videoPath: null, fullVideoPath: null, error: null },
     ];
 
     const summary = buildSummary(names, results, {}, 'test-results');
     const namesInSummary = summary.comparisons.map(c => c.name);
-    expect(namesInSummary).toContain('Total');
-    expect(namesInSummary).toContain('Total (All Sections)');
-    expect(summary.comparisons.find(c => c.name === 'Total (All Sections)')?.isSyntheticTotal).toBe(true);
+    expect(namesInSummary).toContain('Race');
+    expect(namesInSummary).toContain('Race (All Sections)');
+    expect(summary.comparisons.find(c => c.name === 'Race (All Sections)')?.isSyntheticTotal).toBe(true);
   });
 
   it('collects errors from results', () => {
@@ -278,7 +278,7 @@ describe('buildMarkdownSummary', () => {
     expect(md).not.toContain('Diff');
   });
 
-  it('renders Total before section rows when present', () => {
+  it('renders Race before section rows when present', () => {
     const md = buildMarkdownSummary(makeSummary({
       comparisons: [
         {
@@ -289,15 +289,71 @@ describe('buildMarkdownSummary', () => {
           diffPercent: 100.0,
         },
         {
-          name: 'Total',
+          name: 'Race',
           racers: [{ duration: 3.0 }, { duration: 4.0 }],
           winner: 'lauda',
           diff: 1.0,
           diffPercent: 33.3,
+          isSyntheticTotal: true,
         },
       ],
     }));
-    expect(md.indexOf('| Total |')).toBeLessThan(md.indexOf('| Load |'));
+    const raceIdx = md.indexOf('| Race |');
+    const loadIdx = md.indexOf('| Load |');
+    expect(raceIdx).toBeGreaterThan(-1);
+    expect(loadIdx).toBeGreaterThan(-1);
+    expect(raceIdx).toBeLessThan(loadIdx);
+  });
+
+  it('does not duplicate the synthetic Race row for multi-section summaries', () => {
+    const summary = buildSummary(['lauda', 'hunt'], [
+      {
+        measurements: [
+          { name: 'Load', startTime: 0, endTime: 1, duration: 1.0 },
+          { name: 'Render', startTime: 1, endTime: 3, duration: 2.0 },
+        ],
+      },
+      {
+        measurements: [
+          { name: 'Load', startTime: 0, endTime: 2, duration: 2.0 },
+          { name: 'Render', startTime: 2, endTime: 5, duration: 3.0 },
+        ],
+      },
+    ], {}, 'test-results');
+
+    const md = buildMarkdownSummary(summary);
+    expect(md.match(/^\| Race \|/gm) ?? []).toHaveLength(1);
+  });
+
+  it('keeps a real Race section separate from the synthetic fallback total row', () => {
+    const md = buildMarkdownSummary(makeSummary({
+      comparisons: [
+        {
+          name: 'Race',
+          racers: [{ duration: 1.0 }, { duration: 2.0 }],
+          winner: 'lauda',
+          diff: 1.0,
+          diffPercent: 100.0,
+        },
+        {
+          name: 'Load',
+          racers: [{ duration: 2.0 }, { duration: 3.0 }],
+          winner: 'lauda',
+          diff: 1.0,
+          diffPercent: 50.0,
+        },
+        {
+          name: 'Race (All Sections)',
+          racers: [{ duration: 3.0 }, { duration: 5.0 }],
+          winner: 'lauda',
+          diff: 2.0,
+          diffPercent: 66.7,
+          isSyntheticTotal: true,
+        },
+      ],
+    }));
+
+    expect(md.indexOf('| Race (All Sections) |')).toBeLessThan(md.indexOf('| Race |'));
   });
 
   it('includes video file links', () => {
@@ -469,7 +525,7 @@ describe('buildMedianSummary', () => {
     expect(median.comparisons[0].winner).toBeNull();
   });
 
-  it('does not double-count preexisting synthetic Total rows in run summaries', () => {
+  it('does not double-count preexisting synthetic Race rows in run summaries', () => {
     const summaries = [
       {
         racers: ['a', 'b'],
@@ -477,7 +533,7 @@ describe('buildMedianSummary', () => {
         comparisons: [
           { name: 'Load', racers: [{ duration: 1.0 }, { duration: 2.0 }], winner: 'a' },
           { name: 'Render', racers: [{ duration: 4.0 }, { duration: 5.0 }], winner: 'a' },
-          { name: 'Total', racers: [{ duration: 5.0 }, { duration: 7.0 }], winner: 'a', isSyntheticTotal: true },
+          { name: 'Race', racers: [{ duration: 5.0 }, { duration: 7.0 }], winner: 'a', isSyntheticTotal: true },
         ],
         errors: [],
         overallWinner: 'a',
@@ -488,7 +544,7 @@ describe('buildMedianSummary', () => {
         comparisons: [
           { name: 'Load', racers: [{ duration: 3.0 }, { duration: 4.0 }], winner: 'a' },
           { name: 'Render', racers: [{ duration: 6.0 }, { duration: 8.0 }], winner: 'a' },
-          { name: 'Total', racers: [{ duration: 9.0 }, { duration: 12.0 }], winner: 'a', isSyntheticTotal: true },
+          { name: 'Race', racers: [{ duration: 9.0 }, { duration: 12.0 }], winner: 'a', isSyntheticTotal: true },
         ],
         errors: [],
         overallWinner: 'a',
@@ -498,13 +554,46 @@ describe('buildMedianSummary', () => {
     const median = buildMedianSummary(summaries, 'test-results');
     const load = median.comparisons.find(c => c.name === 'Load');
     const render = median.comparisons.find(c => c.name === 'Render');
-    const totalRows = median.comparisons.filter(c => c.name === 'Total');
+    const totalRows = median.comparisons.filter(c => c.name === 'Race');
     expect(load?.racers[0]?.duration).toBe(2.0);
     expect(render?.racers[0]?.duration).toBe(5.0);
     expect(totalRows).toHaveLength(1);
     expect(totalRows[0].isSyntheticTotal).toBe(true);
     expect(median.wins).toEqual({ a: 2, b: 0 });
     expect(median.overallWinner).toBe('a');
+  });
+});
+
+describe('printSummary', () => {
+  it('does not print a duplicate synthetic Race block', () => {
+    const summary = buildSummary(['lauda', 'hunt'], [
+      {
+        measurements: [
+          { name: 'Load', startTime: 0, endTime: 1, duration: 1.0 },
+          { name: 'Render', startTime: 1, endTime: 3, duration: 2.0 },
+        ],
+      },
+      {
+        measurements: [
+          { name: 'Load', startTime: 0, endTime: 2, duration: 2.0 },
+          { name: 'Render', startTime: 2, endTime: 5, duration: 3.0 },
+        ],
+      },
+    ], {}, 'test-results');
+
+    let output = '';
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(chunk => {
+      output += String(chunk);
+      return true;
+    });
+
+    try {
+      printSummary(summary);
+    } finally {
+      writeSpy.mockRestore();
+    }
+
+    expect(output.match(/⏱ Race/g) ?? []).toHaveLength(1);
   });
 });
 
@@ -581,7 +670,7 @@ describe('buildMultiRunMarkdown', () => {
       },
     ];
     const md = buildMultiRunMarkdown(medianSummary, summaries);
-    expect(md).toContain('Performance: During Measurement');
+    expect(md).toContain('Performance: Race');
     expect(md).toContain('Script Execution');
     expect(md).toContain('| **Median** |');
   });

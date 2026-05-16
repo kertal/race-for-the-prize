@@ -283,7 +283,7 @@ describe('buildProfileMarkdown', () => {
 
     expect(markdown).toContain('### Performance Profile Analysis');
     expect(markdown).toContain('Lower values are better');
-    expect(markdown).toContain('During Measurement');
+    expect(markdown).toContain('Race');
     expect(markdown).toContain('| Metric |');
     expect(markdown).toContain('racer1');
     expect(markdown).toContain('racer2');
