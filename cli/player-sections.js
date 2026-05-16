@@ -10,8 +10,7 @@ import { PROFILE_METRICS, categoryDescriptions, determineProfileMetricOutcome } 
 import { formatPlatform } from './summary.js';
 
 export const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f', '#9b59b6'];
-const LEGACY_TOTAL_NAMES = new Set(['Total', 'Total (All Sections)']);
-const NON_PREFIX_SECTION_NAMES = new Set(['Race', 'Race (All Sections)', ...LEGACY_TOTAL_NAMES]);
+const NON_PREFIX_SECTION_NAMES = new Set(['Race', 'Race (All Sections)']);
 
 let T = {};
 
@@ -66,8 +65,8 @@ function formatSectionTitle(name) {
 
 function sortComparisonsForDisplay(comparisons) {
   return [...comparisons].sort((a, b) => {
-    const aIsTotal = a?.isSyntheticTotal === true || LEGACY_TOTAL_NAMES.has(a?.name);
-    const bIsTotal = b?.isSyntheticTotal === true || LEGACY_TOTAL_NAMES.has(b?.name);
+    const aIsTotal = a?.isSyntheticTotal === true;
+    const bIsTotal = b?.isSyntheticTotal === true;
     if (aIsTotal && !bIsTotal) return -1;
     if (!aIsTotal && bIsTotal) return 1;
     return 0;
@@ -75,7 +74,7 @@ function sortComparisonsForDisplay(comparisons) {
 }
 
 function isTotalComparison(comp) {
-  return comp?.isSyntheticTotal === true || LEGACY_TOTAL_NAMES.has(comp?.name);
+  return comp?.isSyntheticTotal === true;
 }
 
 /** Build sorted bar-chart HTML rows for a single metric. */

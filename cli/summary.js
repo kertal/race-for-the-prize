@@ -49,24 +49,15 @@ function computeWins(racerNames, comparisons) {
 
 const SYNTHETIC_TOTAL_NAME = 'Race';
 const SYNTHETIC_TOTAL_FALLBACK_NAME = 'Race (All Sections)';
-const LEGACY_TOTAL_NAMES = new Set(['Total', 'Total (All Sections)']);
 // Treat sub-frame timing noise as ties for summed multi-section totals.
 const TOTAL_TIE_EPSILON = 0.01;
-
-function isTotalNamedComparison(comp) {
-  return LEGACY_TOTAL_NAMES.has(comp?.name);
-}
 
 function isSyntheticTotalComparison(comp) {
   return comp?.isSyntheticTotal === true;
 }
 
 function getSectionComparisons(comparisons) {
-  return comparisons.filter(comp => {
-    if (isSyntheticTotalComparison(comp)) return false;
-    if (comp?.name === SYNTHETIC_TOTAL_FALLBACK_NAME) return false;
-    return true;
-  });
+  return comparisons.filter(comp => !isSyntheticTotalComparison(comp));
 }
 
 function getSyntheticTotalName(existingComparisons) {
@@ -199,8 +190,8 @@ function formatDurationCell(dur, bestDur, isWinner, bold) {
 
 function sortComparisonsForDisplay(comparisons) {
   return [...comparisons].sort((a, b) => {
-    const aIsTotal = isSyntheticTotalComparison(a) || isTotalNamedComparison(a);
-    const bIsTotal = isSyntheticTotalComparison(b) || isTotalNamedComparison(b);
+    const aIsTotal = isSyntheticTotalComparison(a);
+    const bIsTotal = isSyntheticTotalComparison(b);
     if (aIsTotal && !bIsTotal) return -1;
     if (!aIsTotal && bIsTotal) return 1;
     return 0;
