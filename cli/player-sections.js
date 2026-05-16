@@ -70,6 +70,10 @@ function sortComparisonsForDisplay(comparisons) {
   });
 }
 
+function isTotalComparison(comp) {
+  return comp?.isSyntheticTotal === true || /^Total(?:\b| \()/i.test(comp?.name || '');
+}
+
 /** Build sorted bar-chart HTML rows for a single metric. */
 function buildMetricRowsHtml(entries, winner, formatDelta) {
   const nonNullVals = entries.filter(e => e.val !== null).map(e => e.val);
@@ -182,6 +186,7 @@ export function buildResultsHtml(comparisons, racers) {
       return { val: r ? r.duration : null, formatted: r ? `${r.duration.toFixed(3)}s` : '-' };
     });
     html += render(T['profile-metric'], {
+      metricClass: isTotalComparison(comp) ? 'profile-metric-total' : 'profile-metric-collapsed-fixed',
       titleAttr: '',
       name: escHtml(formatSectionTitle(comp.name)),
       desc: '',

@@ -485,6 +485,37 @@ video {
   font-size: 0.8rem;
   margin-bottom: 0.2rem;
 }
+.profile-metric-total {
+  border: 1px solid #6c5520;
+  border-radius: 6px;
+  background: linear-gradient(180deg, rgba(212, 175, 55, 0.12), rgba(212, 175, 55, 0.03));
+  padding: 0.55rem 0.65rem 0.35rem;
+  margin-bottom: 0.8rem;
+}
+.profile-metric-total .profile-metric-name {
+  color: #e8c445;
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.35rem;
+}
+.profile-metric-collapsed-fixed {
+  border-left: 2px solid #333;
+  padding-left: 0.55rem;
+  opacity: 0.9;
+}
+.profile-metric-collapsed-fixed .profile-metric-name {
+  color: #999;
+  margin-bottom: 0;
+}
+.profile-metric-collapsed-fixed .profile-metric-name::after {
+  content: " (collapsed)";
+  color: #666;
+  font-size: 0.72rem;
+}
+.profile-metric-collapsed-fixed .profile-row,
+.profile-metric-collapsed-fixed .profile-metric-desc {
+  display: none;
+}
 .profile-row {
   display: flex;
   align-items: center;
