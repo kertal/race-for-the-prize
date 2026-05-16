@@ -999,3 +999,9 @@ video {
   .controls-row { min-width: auto; flex-wrap: wrap; }
   .time-display { min-width: auto; }
 }
+/* --- Speed Curve Editor --- */
+.speed-curve-panel {
+  max-width: 900px;
+  width: 100%;
+  padding: 0 1.5rem 0.8rem;
+}
