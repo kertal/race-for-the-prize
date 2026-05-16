@@ -69,10 +69,34 @@ describe('buildPlayerHtml', () => {
   });
 
   it('includes results with measurement data and deltas', () => {
+    expect(defaultHtml).toContain('Section Load');
     expect(defaultHtml).toContain('1.000s');
     expect(defaultHtml).toContain('2.000s');
     expect(defaultHtml).toContain('(+1.000s)');
     expect(defaultHtml).toContain('profile-bar-fill');
+  });
+
+  it('renders Total before section metrics when present', () => {
+    const html = withSummary({
+      comparisons: [
+        { name: 'Load', racers: [{ duration: 1 }, { duration: 2 }], winner: 'lauda', diff: 1, diffPercent: 100, rankings: ['lauda', 'hunt'] },
+        { name: 'Total', racers: [{ duration: 3 }, { duration: 4 }], winner: 'lauda', diff: 1, diffPercent: 33.3, rankings: ['lauda', 'hunt'] },
+      ],
+    });
+    expect(html).toContain('profile-metric-total');
+    expect(html).toContain('profile-metric-collapsed-fixed');
+    expect(html.indexOf('>Total<')).toBeLessThan(html.indexOf('Section Load'));
+  });
+
+  it('marks section rows as permanently collapsed', () => {
+    const html = withSummary({
+      comparisons: [
+        { name: 'Load', racers: [{ duration: 1 }, { duration: 2 }], winner: 'lauda', diff: 1, diffPercent: 100, rankings: ['lauda', 'hunt'] },
+      ],
+    });
+    expect(html).toContain('profile-metric-collapsed-fixed');
+    expect(html).toContain('Section Load');
+    expect(html).toContain('(collapsed)');
   });
 
   it('shows winner trophy on racer label', () => {
