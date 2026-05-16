@@ -297,7 +297,11 @@ describe('buildMarkdownSummary', () => {
         },
       ],
     }));
-    expect(md.indexOf('| Race |')).toBeLessThan(md.indexOf('| Load |'));
+    const raceIdx = md.indexOf('| Race |');
+    const loadIdx = md.indexOf('| Load |');
+    expect(raceIdx).toBeGreaterThan(-1);
+    expect(loadIdx).toBeGreaterThan(-1);
+    expect(raceIdx).toBeLessThan(loadIdx);
   });
 
   it('includes video file links', () => {

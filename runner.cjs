@@ -291,6 +291,9 @@ async function setupMetricsCollection(page, id) {
 
     async startSectionMeasurement(name = 'default') {
       const sectionName = String(name);
+      if (sectionMeasurements.has(sectionName)) {
+        console.warn(`[${id}] Section measurement "${sectionName}" started again before ending; previous measurement will be lost`);
+      }
       const startCdp = await getCdpMetrics();
       sectionMeasurements.set(sectionName, {
         startCdp,

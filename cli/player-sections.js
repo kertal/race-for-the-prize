@@ -230,7 +230,10 @@ export function buildErrorsHtml(errors) {
 
 export function buildResultsHtml(comparisons, racers) {
   let html = '';
-  for (const comp of sortComparisonsForDisplay(comparisons)) {
+  const displayComparisons = sortComparisonsForDisplay(comparisons);
+  const sectionComparisonCount = displayComparisons.filter(comp => !isTotalComparison(comp)).length;
+  const expandSingleSection = sectionComparisonCount === 1;
+  for (const comp of displayComparisons) {
     const sorted = sortByValue(racers, i => {
       const r = comp.racers[i];
       return { val: r ? r.duration : null, formatted: r ? `${r.duration.toFixed(3)}s` : '-' };
@@ -245,7 +248,7 @@ export function buildResultsHtml(comparisons, racers) {
         rows,
       }) + '\n';
     } else {
-      html += buildCollapsibleSectionMetricHtml(formatSectionTitle(comp.name), rows, false) + '\n';
+      html += buildCollapsibleSectionMetricHtml(formatSectionTitle(comp.name), rows, expandSingleSection) + '\n';
     }
   }
   return html;
@@ -254,18 +257,6 @@ export function buildResultsHtml(comparisons, racers) {
 export function buildProfileSummaryHtml(profileComparison, racers) {
   const sectionComparisons = (profileComparison?.sectionComparisons || [])
     .filter(comp => !isTotalComparison(comp));
-
-  const sectionRows = sectionComparisons.map(comp => {
-    const sorted = sortByValue(racers, i => {
-      const r = comp.racers[i];
-      return { val: r ? r.duration : null, formatted: r ? `${r.duration.toFixed(3)}s` : '-' };
-    });
-    return buildCollapsibleSectionMetricHtml(
-      formatSectionTitle(comp.name),
-      buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`),
-      false
-    );
-  }).join('\n');
 
   function buildWinRows(winsMap) {
     if (!racers.some(n => winsMap[n] > 0)) return '';
@@ -283,17 +274,28 @@ export function buildProfileSummaryHtml(profileComparison, racers) {
   const measuredRows = buildWinRows(measuredWins);
   const totalRows = buildWinRows(totalWins);
 
-  if (!measuredRows && !totalRows && !sectionRows) return '';
+  if (!measuredRows && !totalRows && sectionComparisons.length === 0) return '';
 
   let html = `<details class="section" open>
-  <summary><h2>Performance Summary</h2></summary>
+  <summary><h2>Performance Results</h2></summary>
   <div class="section-body">`;
 
   if (measuredRows) {
     html += render(T['profile-metric'], { metricClass: 'profile-metric-total', titleAttr: '', name: 'Race', desc: '', rows: measuredRows });
   }
-  if (sectionRows) {
-    html += sectionRows;
+  if (sectionComparisons.length > 0) {
+    const openSectionRows = sectionComparisons.length === 1;
+    html += sectionComparisons.map(comp => {
+      const sorted = sortByValue(racers, i => {
+        const r = comp.racers[i];
+        return { val: r ? r.duration : null, formatted: r ? `${r.duration.toFixed(3)}s` : '-' };
+      });
+      return buildCollapsibleSectionMetricHtml(
+        formatSectionTitle(comp.name),
+        buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`),
+        openSectionRows
+      );
+    }).join('\n');
   }
   if (totalRows) {
     html += render(T['profile-metric'], { metricClass: '', titleAttr: '', name: 'Total Recording (Including Pre and Post race)', desc: '', rows: totalRows });
@@ -308,7 +310,7 @@ export function buildProfileHtml(profileComparison, racers) {
   const measured = profileComparison.measured || { comparisons: [], byCategory: {}, overallWinner: null };
   const total = profileComparison.total || { comparisons: [], byCategory: {}, overallWinner: null };
   const sectionMeasuredComparisons = buildSectionMeasuredComparisons(profileComparison.rawProfileMetrics || [], racers);
-  if (measured.comparisons.length === 0 && total.comparisons.length === 0) return '';
+  if (measured.comparisons.length === 0 && total.comparisons.length === 0 && sectionMeasuredComparisons.length === 0) return '';
 
   let html = `<details class="section">
   <summary><h2>Performance Profile</h2></summary>
@@ -349,7 +351,7 @@ export function buildProfileHtml(profileComparison, racers) {
         }) + '\n';
       }
     }
-    if (scope.section === measured && sectionMeasuredComparisons.length > 0) {
+    if (scope.section === measured && sectionMeasuredComparisons.length > 1) {
       html += `<h4>Per-Section Profile Metrics</h4>\n`;
       for (const section of sectionMeasuredComparisons) {
         let sectionMetricsRows = '';
