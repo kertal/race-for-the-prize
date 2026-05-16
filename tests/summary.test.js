@@ -109,7 +109,7 @@ describe('buildSummary', () => {
       { measurements: [{ name: 'Load', startTime: 0, endTime: 1.02, duration: 1.02 }], videoPath: null, fullVideoPath: null, error: null },
       { measurements: [{ name: 'Load', startTime: 0, endTime: 1.00, duration: 1.00 }], videoPath: null, fullVideoPath: null, error: null },
     ];
-    const summary = buildSummary(names, results, {}, '/tmp/results');
+    const summary = buildSummary(names, results, {}, 'test-results');
     // No threshold: even tiny differences still produce a winner.
     expect(summary.overallWinner).toBe('hunt');
   });
@@ -119,7 +119,7 @@ describe('buildSummary', () => {
       { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], videoPath: null, fullVideoPath: null, error: null },
       { measurements: [], videoPath: null, fullVideoPath: null, error: null },
     ];
-    const summary = buildSummary(names, results, {}, '/tmp/results');
+    const summary = buildSummary(names, results, {}, 'test-results');
 
     expect(summary.comparisons).toHaveLength(1);
     expect(summary.comparisons[0].racers[0]).not.toBeNull();
@@ -183,7 +183,7 @@ describe('buildSummary', () => {
       { measurements: [], videoPath: null, fullVideoPath: null, error: 'timeout' },
       { measurements: [], videoPath: null, fullVideoPath: null, error: null },
     ];
-    const summary = buildSummary(names, results, {}, '/tmp/results');
+    const summary = buildSummary(names, results, {}, 'test-results');
 
     expect(summary.errors).toEqual(['lauda: timeout']);
   });
@@ -193,7 +193,7 @@ describe('buildSummary', () => {
       { measurements: [], videoPath: '/tmp/a.webm', fullVideoPath: '/tmp/a_full.webm', error: null },
       { measurements: [], videoPath: '/tmp/b.webm', fullVideoPath: null, error: null },
     ];
-    const summary = buildSummary(names, results, {}, '/tmp/results');
+    const summary = buildSummary(names, results, {}, 'test-results');
 
     expect(summary.videos.lauda).toBe('/tmp/a.webm');
     expect(summary.videos.lauda_full).toBe('/tmp/a_full.webm');
@@ -207,7 +207,7 @@ describe('buildSummary', () => {
       { measurements: [], videoPath: null, fullVideoPath: null, error: null },
     ];
     const settings = { network: 'fast-3g', cpuThrottle: 2 };
-    const summary = buildSummary(names, results, settings, '/tmp/results');
+    const summary = buildSummary(names, results, settings, 'test-results');
 
     expect(summary.settings).toEqual(settings);
   });
@@ -248,7 +248,7 @@ describe('buildMarkdownSummary', () => {
       overallWinner: 'lauda',
       wins: { lauda: 1, hunt: 0 },
       errors: [],
-      videos: { lauda: '/tmp/results/lauda.race.webm', hunt: '/tmp/results/hunt.race.webm' },
+      videos: { lauda: 'test-results/lauda.race.webm', hunt: 'test-results/hunt.race.webm' },
       settings: { parallel: true },
       timestamp: '2025-01-01T00:00:00.000Z',
       ...overrides,
@@ -389,31 +389,31 @@ describe('buildMedianSummary', () => {
   }
 
   it('computes median durations across runs', () => {
-    const median = buildMedianSummary(makeSummaries(), '/tmp/results');
+    const median = buildMedianSummary(makeSummaries(), 'test-results');
     expect(median.comparisons[0].racers[0].duration).toBe(2.0);
     expect(median.comparisons[0].racers[1].duration).toBe(4.0);
   });
 
   it('computes winner from median values', () => {
-    const median = buildMedianSummary(makeSummaries(), '/tmp/results');
+    const median = buildMedianSummary(makeSummaries(), 'test-results');
     expect(median.comparisons[0].winner).toBe('a');
     expect(median.overallWinner).toBe('a');
   });
 
   it('records the number of runs', () => {
-    const median = buildMedianSummary(makeSummaries(), '/tmp/results');
+    const median = buildMedianSummary(makeSummaries(), 'test-results');
     expect(median.runs).toBe(3);
   });
 
   it('handles even number of runs (averages two middle values)', () => {
     const summaries = makeSummaries().slice(0, 2);
-    const median = buildMedianSummary(summaries, '/tmp/results');
+    const median = buildMedianSummary(summaries, 'test-results');
     expect(median.comparisons[0].racers[0].duration).toBe(1.5);
     expect(median.comparisons[0].racers[1].duration).toBe(3.5);
   });
 
   it('preserves settings from first run', () => {
-    const median = buildMedianSummary(makeSummaries(), '/tmp/results');
+    const median = buildMedianSummary(makeSummaries(), 'test-results');
     expect(median.settings).toEqual({ parallel: true });
   });
 
@@ -447,7 +447,7 @@ describe('buildMedianSummary', () => {
         errors: [],
       },
     ];
-    const median = buildMedianSummary(summaries, '/tmp/results');
+    const median = buildMedianSummary(summaries, 'test-results');
     expect(median.overallWinner).toBe('tie');
   });
 
@@ -455,7 +455,7 @@ describe('buildMedianSummary', () => {
     const summaries = makeSummaries();
     summaries[0].errors = ['a: timeout'];
     summaries[2].errors = ['b: crash'];
-    const median = buildMedianSummary(summaries, '/tmp/results');
+    const median = buildMedianSummary(summaries, 'test-results');
     expect(median.errors).toEqual(['a: timeout', 'b: crash']);
   });
 
@@ -464,7 +464,7 @@ describe('buildMedianSummary', () => {
       { racers: ['a', 'b'], settings: {}, comparisons: [{ name: 'Load', racers: [{ duration: 1.0 }, null] }], errors: [] },
       { racers: ['a', 'b'], settings: {}, comparisons: [{ name: 'Load', racers: [{ duration: 2.0 }, null] }], errors: [] },
     ];
-    const median = buildMedianSummary(summaries, '/tmp/results');
+    const median = buildMedianSummary(summaries, 'test-results');
     expect(median.comparisons[0].racers[1]).toBeNull();
     expect(median.comparisons[0].winner).toBeNull();
   });
@@ -495,7 +495,7 @@ describe('buildMedianSummary', () => {
       },
     ];
 
-    const median = buildMedianSummary(summaries, '/tmp/results');
+    const median = buildMedianSummary(summaries, 'test-results');
     const load = median.comparisons.find(c => c.name === 'Load');
     const render = median.comparisons.find(c => c.name === 'Render');
     const totalRows = median.comparisons.filter(c => c.name === 'Total');
@@ -616,7 +616,7 @@ describe('buildSummary with 3+ racers', () => {
       { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], videoPath: null, fullVideoPath: null, error: null },
       { measurements: [{ name: 'Load', startTime: 0, endTime: 3, duration: 3.0 }], videoPath: null, fullVideoPath: null, error: null },
     ];
-    const summary = buildSummary(threeNames, results, {}, '/tmp/results');
+    const summary = buildSummary(threeNames, results, {}, 'test-results');
 
     expect(summary.comparisons).toHaveLength(1);
     expect(summary.comparisons[0].winner).toBe('beta'); // 1.0s is fastest
@@ -630,7 +630,7 @@ describe('buildSummary with 3+ racers', () => {
       { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], videoPath: null, fullVideoPath: null, error: null },
       { measurements: [{ name: 'Load', startTime: 0, endTime: 4, duration: 4.0 }], videoPath: null, fullVideoPath: null, error: null },
     ];
-    const summary = buildSummary(threeNames, results, {}, '/tmp/results');
+    const summary = buildSummary(threeNames, results, {}, 'test-results');
 
     // Diff is between fastest (1.0) and slowest (4.0)
     expect(summary.comparisons[0].diff).toBeCloseTo(3.0);
@@ -655,7 +655,7 @@ describe('buildSummary with 3+ racers', () => {
         { name: 'Hydrate', startTime: 5, endTime: 6, duration: 1.0 },
       ], videoPath: null, fullVideoPath: null, error: null },
     ];
-    const summary = buildSummary(threeNames, results, {}, '/tmp/results');
+    const summary = buildSummary(threeNames, results, {}, 'test-results');
 
     // Each racer wins one measurement
     expect(summary.wins).toEqual({ alpha: 1, beta: 1, gamma: 1 });
@@ -668,7 +668,7 @@ describe('buildSummary with 3+ racers', () => {
       { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], videoPath: null, fullVideoPath: null, error: null },
       { measurements: [{ name: 'Load', startTime: 0, endTime: 3, duration: 3.0 }], videoPath: null, fullVideoPath: null, error: null },
     ];
-    const summary = buildSummary(threeNames, results, {}, '/tmp/results');
+    const summary = buildSummary(threeNames, results, {}, 'test-results');
 
     expect(summary.comparisons[0].rankings).toEqual(['beta', 'alpha', 'gamma']);
   });
@@ -684,7 +684,7 @@ describe('buildSummary with 5 racers', () => {
       fullVideoPath: null,
       error: null,
     }));
-    const summary = buildSummary(fiveNames, results, {}, '/tmp/results');
+    const summary = buildSummary(fiveNames, results, {}, 'test-results');
 
     expect(summary.comparisons[0].winner).toBe('a'); // duration 1 is fastest
     expect(summary.overallWinner).toBe('a');
@@ -699,7 +699,7 @@ describe('buildSummary with 5 racers', () => {
       { measurements: [], videoPath: null, fullVideoPath: null, error: null }, // no data
       { measurements: [{ name: 'Load', startTime: 0, endTime: 3, duration: 3.0 }], videoPath: null, fullVideoPath: null, error: null },
     ];
-    const summary = buildSummary(fiveNames, results, {}, '/tmp/results');
+    const summary = buildSummary(fiveNames, results, {}, 'test-results');
 
     expect(summary.comparisons[0].winner).toBe('c'); // 1.0s is fastest among those with data
     expect(summary.comparisons[0].racers[1]).toBeNull(); // b has no data
