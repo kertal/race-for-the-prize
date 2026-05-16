@@ -485,6 +485,63 @@ video {
   font-size: 0.8rem;
   margin-bottom: 0.2rem;
 }
+.profile-metric-total {
+  border: 1px solid #6c5520;
+  border-radius: 6px;
+  background: linear-gradient(180deg, rgba(212, 175, 55, 0.12), rgba(212, 175, 55, 0.03));
+  padding: 0.55rem 0.65rem 0.35rem;
+  margin-bottom: 0.8rem;
+}
+.profile-metric-total .profile-metric-name {
+  color: #e8c445;
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.35rem;
+}
+.section-metric {
+  border-left: 2px solid #333;
+  padding-left: 0.4rem;
+  opacity: 0.95;
+  margin: 0.45rem 0 0.7rem;
+}
+.section-metric > summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.section-metric > summary:focus-visible {
+  outline: 2px solid #d4af37;
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.section-metric > summary::-webkit-details-marker { display: none; }
+.section-metric > summary::before {
+  content: "\25B6";
+  font-size: 0.55rem;
+  color: #666;
+  display: inline-block;
+  transition: transform 0.2s;
+}
+.section-metric[open] > summary::before {
+  transform: rotate(90deg);
+}
+.section-metric > summary .profile-metric-name {
+  color: #999;
+  margin-bottom: 0;
+}
+.section-metric:not([open]) > summary .profile-metric-name::after {
+  content: " (collapsed)";
+  color: #666;
+  font-size: 0.72rem;
+}
+.section-metric-body {
+  margin-top: 0.25rem;
+  padding: 0.35rem 0.45rem 0.25rem;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+}
 .profile-row {
   display: flex;
   align-items: center;
@@ -539,6 +596,11 @@ video {
   align-items: center;
   gap: 0.5rem;
 }
+.profile-collapsible summary:focus-visible {
+  outline: 2px solid #d4af37;
+  outline-offset: 2px;
+  border-radius: 3px;
+}
 .profile-collapsible summary::-webkit-details-marker { display: none; }
 .profile-collapsible summary::before {
   content: "\25B6";
@@ -550,6 +612,9 @@ video {
 }
 .profile-collapsible[open] summary::before {
   transform: rotate(90deg);
+}
+.profile-collapsible-title {
+  display: inline;
 }
 .file-links {
   display: flex;
