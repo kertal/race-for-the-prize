@@ -28,7 +28,11 @@ describe('runner metrics collection', () => {
       makePerformanceMetrics({ scriptDuration: 1, taskDuration: 2 }),
       makePerformanceMetrics({ scriptDuration: 2, taskDuration: 3 }),
       makePerformanceMetrics({ scriptDuration: 7, taskDuration: 9 }),
-      makePerformanceMetrics({ scriptDuration: 9, taskDuration: 12 }),
+      makePerformanceMetrics({ scriptDuration: 8, taskDuration: 10 }),
+      makePerformanceMetrics({ scriptDuration: 13, taskDuration: 16 }),
+      makePerformanceMetrics({ scriptDuration: 14, taskDuration: 17 }),
+      makePerformanceMetrics({ scriptDuration: 19, taskDuration: 23 }),
+      makePerformanceMetrics({ scriptDuration: 23, taskDuration: 29 }),
     ];
 
     const client = {
@@ -70,7 +74,15 @@ describe('runner metrics collection', () => {
     await runMarkerMode(
       page,
       null,
-      { id: 'lauda', script: "await page.raceStart('__proto__'); page.raceEnd('__proto__');" },
+      {
+        id: 'lauda',
+        script: `
+          for (const name of ['__proto__', 'constructor', 'hasOwnProperty']) {
+            await page.raceStart(name);
+            page.raceEnd(name);
+          }
+        `,
+      },
       null,
       false,
       { finishOrder: [] },
@@ -83,7 +95,7 @@ describe('runner metrics collection', () => {
     const profileMetrics = await metricsCollector.collect();
 
     expect(Object.getPrototypeOf(profileMetrics.measuredSections)).toBeNull();
-    expect(Object.keys(profileMetrics.measuredSections)).toEqual(['__proto__']);
+    expect(Object.keys(profileMetrics.measuredSections)).toEqual(['__proto__', 'constructor', 'hasOwnProperty']);
     expect(profileMetrics.measuredSections.__proto__).toEqual({
       networkTransferSize: 0,
       networkRequestCount: 0,
@@ -92,7 +104,23 @@ describe('runner metrics collection', () => {
       recalcStyleDuration: 0,
       taskDuration: 6,
     });
-    expect(profileMetrics.measured.scriptDuration).toBe(8);
-    expect(profileMetrics.measured.taskDuration).toBe(10);
+    expect(profileMetrics.measuredSections.constructor).toEqual({
+      networkTransferSize: 0,
+      networkRequestCount: 0,
+      scriptDuration: 5,
+      layoutDuration: 0,
+      recalcStyleDuration: 0,
+      taskDuration: 6,
+    });
+    expect(profileMetrics.measuredSections.hasOwnProperty).toEqual({
+      networkTransferSize: 0,
+      networkRequestCount: 0,
+      scriptDuration: 5,
+      layoutDuration: 0,
+      recalcStyleDuration: 0,
+      taskDuration: 6,
+    });
+    expect(profileMetrics.measured.scriptDuration).toBe(22);
+    expect(profileMetrics.measured.taskDuration).toBe(27);
   });
 });

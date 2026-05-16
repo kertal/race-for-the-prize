@@ -11,7 +11,7 @@ import { formatPlatform } from './summary.js';
 
 export const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f', '#9b59b6'];
 const LEGACY_TOTAL_NAMES = new Set(['Total', 'Total (All Sections)']);
-const AGGREGATE_DISPLAY_NAMES = new Set(['Race', 'Race (All Sections)', ...LEGACY_TOTAL_NAMES]);
+const NON_PREFIX_SECTION_NAMES = new Set(['Race', 'Race (All Sections)', ...LEGACY_TOTAL_NAMES]);
 
 let T = {};
 
@@ -58,7 +58,7 @@ function racerName(racers, origIdx) {
 }
 
 function formatSectionTitle(name) {
-  if (AGGREGATE_DISPLAY_NAMES.has(name)) return name;
+  if (NON_PREFIX_SECTION_NAMES.has(name)) return name;
   if (/^race section\b/i.test(name)) return name;
   if (/^section\b/i.test(name)) return name.replace(/^section\b/i, 'Race Section');
   return `Race Section ${name}`;
