@@ -124,8 +124,10 @@ function clipDuration() {
 function updateTimeDisplay() {
   const d = clipDuration();
   const t = d > 0 ? (scrubber.value / 1000) * d : 0;
-  timeDisplay.textContent = fmt(Math.max(0, t)) + ' / ' + fmt(d);
+  const displayed = fmt(Math.max(0, t)) + ' / ' + fmt(d);
+  timeDisplay.textContent = displayed;
   frameDisplay.textContent = getTime(Math.max(0, t));
+  if (scrubber) scrubber.setAttribute('aria-valuetext', displayed);
 }
 
 function isValidClipEntry(c) {
@@ -345,6 +347,7 @@ if (settingsToggle && settingsPanel) {
   settingsToggle.addEventListener('click', () => {
     const visible = settingsPanel.classList.toggle('visible');
     settingsToggle.classList.toggle('active', visible);
+    settingsToggle.setAttribute('aria-expanded', String(visible));
   });
 }
 
@@ -355,12 +358,14 @@ if (shareToggle && shareMenu) {
   shareToggle.addEventListener('click', () => {
     const visible = shareMenu.classList.toggle('visible');
     shareToggle.classList.toggle('active', visible);
+    shareToggle.setAttribute('aria-expanded', String(visible));
   });
   // Close menu when clicking outside
   document.addEventListener('click', (e) => {
     if (!shareToggle.contains(e.target) && !shareMenu.contains(e.target)) {
       shareMenu.classList.remove('visible');
       shareToggle.classList.remove('active');
+      shareToggle.setAttribute('aria-expanded', 'false');
     }
   });
 }
@@ -775,7 +780,9 @@ function buildRacerFilter() {
   const racerDivs = playerContainer ? playerContainer.querySelectorAll('.racer') : [];
   for (let i = 0; i < raceVideos.length; i++) {
     const btn = document.createElement('button');
+    btn.type = 'button';
     btn.className = 'racer-filter-btn active';
+    btn.setAttribute('aria-pressed', 'true');
     btn.style.color = racerColors[i];
     btn.textContent = racerNames[i];
     btn.dataset.idx = i;
@@ -792,10 +799,12 @@ function buildRacerFilter() {
     if (isHidden) {
       hiddenRacers.delete(idx);
       btn.classList.add('active');
+      btn.setAttribute('aria-pressed', 'true');
       if (racerDivs[idx]) racerDivs[idx].style.display = '';
     } else {
       hiddenRacers.add(idx);
       btn.classList.remove('active');
+      btn.setAttribute('aria-pressed', 'false');
       if (racerDivs[idx]) racerDivs[idx].style.display = 'none';
     }
     activeClip = resolveAdjustedClip();
@@ -1448,6 +1457,8 @@ function onFullscreenChange() {
   if (fullscreenBtn) {
     fullscreenBtn.textContent = fs ? '\u2716' : '\u26F6';
     fullscreenBtn.title = fs ? 'Exit fullscreen (Esc)' : 'Fullscreen (F)';
+    fullscreenBtn.setAttribute('aria-pressed', String(fs));
+    fullscreenBtn.setAttribute('aria-label', fs ? 'Exit fullscreen' : 'Toggle fullscreen');
   }
   if (fs) {
     // Compute optimal grid columns: ceil(sqrt(visibleCount))

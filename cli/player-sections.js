@@ -94,8 +94,10 @@ function buildMetricRowsHtml(entries, winner, formatDelta) {
       color,
       name: escHtml(entry.name),
       barPct,
+      ariaValueText: escHtml(entry.formatted),
+      ariaLabel: `${escHtml(entry.name)}: ${escHtml(entry.formatted)}`,
       value: escHtml(entry.formatted) + delta,
-      medal: winner === entry.name ? '<span class="profile-medal">&#127942;</span>' : '',
+      medal: winner === entry.name ? '<span class="profile-medal" aria-label="winner">&#127942;</span>' : '',
     });
   }
   return html;
@@ -156,7 +158,7 @@ export function buildRunNavHtml(runNav, racers, runSummaries) {
     }
   }
 
-  let html = '<div class="run-nav">';
+  let html = '<nav class="run-nav" aria-label="Race runs">';
   const isMedianCurrent = currentRun === 'median';
   const medianCls = isMedianCurrent ? 'run-nav-btn active' : 'run-nav-btn';
   if (isMedianCurrent) {
@@ -176,7 +178,7 @@ export function buildRunNavHtml(runNav, racers, runSummaries) {
       html += `<a class="${cls}"${style} href="${escHtml(pathPrefix)}${i}/index.html">Run ${i}</a>`;
     }
   }
-  html += '</div>';
+  html += '</nav>';
   return html;
 }
 
@@ -216,7 +218,7 @@ export function buildMachineInfoHtml(machineInfo) {
 
 export function buildErrorsHtml(errors) {
   if (!errors || errors.length === 0) return '';
-  return `<div class="errors"><ul>${errors.map(e => `<li>${escHtml(e)}</li>`).join('')}</ul></div>`;
+  return `<div class="errors" role="alert"><ul>${errors.map(e => `<li>${escHtml(e)}</li>`).join('')}</ul></div>`;
 }
 
 export function buildResultsHtml(comparisons, racers) {
@@ -422,8 +424,9 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
   // --- Measurement comparisons ---
   const orderedNames = sortComparisonsForDisplay([...allNames].map(name => ({ name }))).map(c => c.name);
   for (const name of orderedNames) {
-    html += `<h3>${escHtml(formatSectionTitle(name))}</h3>\n`;
-    html += `<table class="run-comparison-table"><thead><tr><th>Run</th>`;
+    const sectionTitle = formatSectionTitle(name);
+    html += `<h3>${escHtml(sectionTitle)}</h3>\n`;
+    html += `<table class="run-comparison-table"><caption class="sr-only">Per-run durations for ${escHtml(sectionTitle)}</caption><thead><tr><th scope="col">Run</th>`;
     html += coloredHeader;
     html += `</tr></thead><tbody>`;
 
@@ -498,7 +501,7 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
 
         for (const { metric, metricName } of scopeMetrics) {
           html += `<h4>${escHtml(metric.name)}</h4>\n`;
-          html += `<table class="run-comparison-table"><thead><tr><th>Run</th>`;
+          html += `<table class="run-comparison-table"><caption class="sr-only">Per-run ${escHtml(metric.name)} (${escHtml(scopeTitle)})</caption><thead><tr><th scope="col">Run</th>`;
           html += coloredHeader;
           html += `</tr></thead><tbody>`;
 

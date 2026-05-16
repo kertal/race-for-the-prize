@@ -972,7 +972,7 @@ describe('buildPlayerHtml export', () => {
   });
 
   it('export modal canvas has max-height to keep buttons visible', () => {
-    expect(defaultHtml).toContain('max-height: 50vh');
+    expect(defaultHtml).toContain('max-height: 50dvh');
   });
 });
 
