@@ -117,7 +117,7 @@ describe('trim-accuracy integration', () => {
     expect(summary.comparisons[0].rankings).toEqual(['alpha', 'bravo', 'charlie', 'delta']);
     expect(summary.comparisons[1].name).toBe('Reload');
     expect(summary.comparisons[1].rankings).toEqual(['alpha', 'bravo', 'charlie', 'delta']);
-    expect(summary.comparisons[2].name).toBe('Total');
+    expect(summary.comparisons[2].name).toBe('Race');
 
     for (const racer of RACERS) {
       const racerDir = path.join(resultsDir, racer.name);

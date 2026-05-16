@@ -47,12 +47,15 @@ function computeWins(racerNames, comparisons) {
   return Object.fromEntries(racerNames.map(name => [name, comparisons.filter(x => x.winner === name).length]));
 }
 
-const SYNTHETIC_TOTAL_NAME = 'Total';
-const SYNTHETIC_TOTAL_FALLBACK_NAME = 'Total (All Sections)';
+const SYNTHETIC_TOTAL_NAME = 'Race';
+const SYNTHETIC_TOTAL_FALLBACK_NAME = 'Race (All Sections)';
+const LEGACY_TOTAL_NAMES = new Set(['Total', 'Total (All Sections)']);
 const TOTAL_TIE_EPSILON = 1e-9;
 
 function isTotalNamedComparison(comp) {
-  return comp?.name === SYNTHETIC_TOTAL_NAME || comp?.name === SYNTHETIC_TOTAL_FALLBACK_NAME;
+  return comp?.name === SYNTHETIC_TOTAL_NAME
+    || comp?.name === SYNTHETIC_TOTAL_FALLBACK_NAME
+    || LEGACY_TOTAL_NAMES.has(comp?.name);
 }
 
 function isSyntheticTotalComparison(comp) {
@@ -236,7 +239,7 @@ function buildResultsTable(comparisons, racers) {
     const cells = racers.map((_, i) =>
       formatDurationCell(totalDurations[i], minTotal, isStrictWinner(totalDurations[i]), true)
     );
-    lines.push(`| **Total** | ${cells.join(' | ')} |`);
+    lines.push(`| **Race** | ${cells.join(' | ')} |`);
   }
 
   return lines;
@@ -358,7 +361,7 @@ export function printSummary(summary) {
         });
 
       write(`  ${c.dim}${'─'.repeat(w)}${c.reset}\n`);
-      write(`  ${c.dim}⏱ Total${c.reset}\n`);
+      write(`  ${c.dim}⏱ Race${c.reset}\n`);
       for (const entry of sortedTotals) {
         const color = RACER_COLORS[entry.index % RACER_COLORS.length];
         if (entry.duration != null) {
@@ -679,8 +682,8 @@ function buildRunComparisonSection(medianSummary, summaries) {
     }
 
     const scopes = [
-      { scope: 'measured', title: 'Performance: During Measurement' },
-      { scope: 'total', title: 'Performance: Total Session' },
+      { scope: 'measured', title: 'Performance: Race' },
+      { scope: 'total', title: 'Performance: Total Recording (Including Pre and Post race)' },
     ];
     for (const { scope: scopeName, title: scopeTitle } of scopes) {
       const scopeMetrics = metricsWithData.filter(m => m.scope === scopeName);

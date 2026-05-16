@@ -56,14 +56,16 @@ function racerName(racers, origIdx) {
 }
 
 function formatSectionTitle(name) {
-  if (/^Total(?:\b| \()/i.test(name)) return name;
-  return /^section\b/i.test(name) ? name : `Section ${name}`;
+  if (/^(?:Total|Race)(?:\b| \()/i.test(name)) return name;
+  if (/^race section\b/i.test(name)) return name;
+  if (/^section\b/i.test(name)) return name.replace(/^section\b/i, 'Race Section');
+  return `Race Section ${name}`;
 }
 
 function sortComparisonsForDisplay(comparisons) {
   return [...comparisons].sort((a, b) => {
-    const aIsTotal = a?.isSyntheticTotal === true || /^Total(?:\b| \()/i.test(a?.name || '');
-    const bIsTotal = b?.isSyntheticTotal === true || /^Total(?:\b| \()/i.test(b?.name || '');
+    const aIsTotal = a?.isSyntheticTotal === true || /^(?:Total|Race)(?:\b| \()/i.test(a?.name || '');
+    const bIsTotal = b?.isSyntheticTotal === true || /^(?:Total|Race)(?:\b| \()/i.test(b?.name || '');
     if (aIsTotal && !bIsTotal) return -1;
     if (!aIsTotal && bIsTotal) return 1;
     return 0;
@@ -71,7 +73,7 @@ function sortComparisonsForDisplay(comparisons) {
 }
 
 function isTotalComparison(comp) {
-  return comp?.isSyntheticTotal === true || /^Total(?:\b| \()/i.test(comp?.name || '');
+  return comp?.isSyntheticTotal === true || /^(?:Total|Race)(?:\b| \()/i.test(comp?.name || '');
 }
 
 /** Build sorted bar-chart HTML rows for a single metric. */
@@ -96,6 +98,14 @@ function buildMetricRowsHtml(entries, winner, formatDelta) {
     });
   }
   return html;
+}
+
+function buildCollapsibleSectionMetricHtml(name, rows, open = false) {
+  const openAttr = open ? ' open' : '';
+  return `<details class="profile-metric section-metric"${openAttr}>
+  <summary><span class="profile-metric-name">${escHtml(name)}</span></summary>
+  <div class="section-metric-body">${rows}</div>
+</details>`;
 }
 
 function buildSectionMeasuredComparisons(rawProfileMetrics, racers) {
@@ -225,13 +235,18 @@ export function buildResultsHtml(comparisons, racers) {
       const r = comp.racers[i];
       return { val: r ? r.duration : null, formatted: r ? `${r.duration.toFixed(3)}s` : '-' };
     });
-    html += render(T['profile-metric'], {
-      metricClass: isTotalComparison(comp) ? 'profile-metric-total' : 'profile-metric-collapsed-fixed',
-      titleAttr: '',
-      name: escHtml(formatSectionTitle(comp.name)),
-      desc: '',
-      rows: buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`),
-    }) + '\n';
+    const rows = buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`);
+    if (isTotalComparison(comp)) {
+      html += render(T['profile-metric'], {
+        metricClass: 'profile-metric-total',
+        titleAttr: '',
+        name: escHtml(formatSectionTitle(comp.name)),
+        desc: '',
+        rows,
+      }) + '\n';
+    } else {
+      html += buildCollapsibleSectionMetricHtml(formatSectionTitle(comp.name), rows, false) + '\n';
+    }
   }
   return html;
 }
@@ -245,13 +260,11 @@ export function buildProfileSummaryHtml(profileComparison, racers) {
       const r = comp.racers[i];
       return { val: r ? r.duration : null, formatted: r ? `${r.duration.toFixed(3)}s` : '-' };
     });
-    return render(T['profile-metric'], {
-      metricClass: 'profile-metric-collapsed-fixed',
-      titleAttr: '',
-      name: escHtml(formatSectionTitle(comp.name)),
-      desc: '',
-      rows: buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`),
-    });
+    return buildCollapsibleSectionMetricHtml(
+      formatSectionTitle(comp.name),
+      buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`),
+      false
+    );
   }).join('\n');
 
   function buildWinRows(winsMap) {
@@ -276,14 +289,14 @@ export function buildProfileSummaryHtml(profileComparison, racers) {
   <summary><h2>Performance Summary</h2></summary>
   <div class="section-body">`;
 
-  if (sectionRows) {
-    html += render(T['profile-metric'], { metricClass: 'profile-metric-total', titleAttr: '', name: 'Section Metrics', desc: '', rows: sectionRows });
-  }
   if (measuredRows) {
-    html += render(T['profile-metric'], { metricClass: '', titleAttr: '', name: 'During Measurement', desc: '', rows: measuredRows });
+    html += render(T['profile-metric'], { metricClass: 'profile-metric-total', titleAttr: '', name: 'Race', desc: '', rows: measuredRows });
+  }
+  if (sectionRows) {
+    html += sectionRows;
   }
   if (totalRows) {
-    html += render(T['profile-metric'], { metricClass: '', titleAttr: '', name: 'Total Session', desc: '', rows: totalRows });
+    html += render(T['profile-metric'], { metricClass: '', titleAttr: '', name: 'Total Recording (Including Pre and Post race)', desc: '', rows: totalRows });
   }
 
   html += `\n  </div>\n</details>`;
@@ -294,8 +307,6 @@ export function buildProfileHtml(profileComparison, racers) {
   if (!profileComparison) return '';
   const measured = profileComparison.measured || { comparisons: [], byCategory: {}, overallWinner: null };
   const total = profileComparison.total || { comparisons: [], byCategory: {}, overallWinner: null };
-  const measuredSectionComparisons = (profileComparison.sectionComparisons || [])
-    .filter(comp => !isTotalComparison(comp));
   const sectionMeasuredComparisons = buildSectionMeasuredComparisons(profileComparison.rawProfileMetrics || [], racers);
   if (measured.comparisons.length === 0 && total.comparisons.length === 0) return '';
 
@@ -305,51 +316,18 @@ export function buildProfileHtml(profileComparison, racers) {
   <p class="profile-note">Lower values are better for all metrics. Hover over metric names for details.</p>\n`;
 
   const scopes = [
-    { title: 'During Measurement (raceStart \u2192 raceEnd)', desc: 'Metrics captured only between raceStart() and raceEnd() calls \u2014 isolates the code being tested.', section: measured, collapsed: false },
-    { title: 'Total Session', desc: 'Metrics for the entire browser session from launch to close \u2014 includes page load, setup, and teardown.', section: total, collapsed: true },
+    { title: 'Race', desc: 'Metrics captured only between raceStart() and raceEnd() calls \u2014 isolates the code being tested.', section: measured, collapsed: false },
+    { title: 'Total Recording (Including Pre and Post race)', desc: 'Metrics for the entire recording window including pre-race setup and post-race teardown.', section: total, collapsed: true },
   ];
   for (const scope of scopes) {
     if (scope.section.comparisons.length === 0) continue;
 
     if (scope.collapsed) {
-      html += `<details class="profile-collapsible">\n<summary><h3 style="display:inline">${escHtml(scope.title)}</h3></summary>\n`;
+      html += `<details class="profile-collapsible">\n<summary><h3 class="profile-collapsible-title">${escHtml(scope.title)}</h3></summary>\n`;
     } else {
       html += `<h3>${escHtml(scope.title)}</h3>\n`;
     }
     html += `<p class="profile-scope-desc">${escHtml(scope.desc)}</p>\n`;
-    if (scope.section === measured && measuredSectionComparisons.length > 0) {
-      html += `<h4>Section Timings</h4>\n`;
-      for (const comp of measuredSectionComparisons) {
-        const sorted = sortByValue(racers, i => {
-          const r = comp.racers[i];
-          return { val: r ? r.duration : null, formatted: r ? `${r.duration.toFixed(3)}s` : '-' };
-        });
-        html += render(T['profile-metric'], {
-          metricClass: '',
-          titleAttr: '',
-          name: escHtml(formatSectionTitle(comp.name)),
-          desc: '',
-          rows: buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`),
-        }) + '\n';
-      }
-    }
-    if (scope.section === measured && sectionMeasuredComparisons.length > 0) {
-      html += `<h4>Per-Section Profile Metrics</h4>\n`;
-      for (const section of sectionMeasuredComparisons) {
-        html += `<h4>${escHtml(formatSectionTitle(section.name))}</h4>\n`;
-        for (const comp of section.comparisons) {
-          const sorted = sortByValue(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }));
-          const metricDef = PROFILE_METRICS[comp.key];
-          html += render(T['profile-metric'], {
-            metricClass: '',
-            titleAttr: '',
-            name: escHtml(comp.name),
-            desc: '',
-            rows: buildMetricRowsHtml(sorted, comp.winner, metricDef.format),
-          }) + '\n';
-        }
-      }
-    }
     for (const [category, comps] of Object.entries(scope.section.byCategory)) {
       const catLabel = category[0].toUpperCase() + category.slice(1);
       const catDesc = categoryDescriptions[category] || '';
@@ -369,6 +347,24 @@ export function buildProfileHtml(profileComparison, racers) {
           desc: desc ? `<div class="profile-metric-desc">${escHtml(desc)}</div>` : '',
           rows: buildMetricRowsHtml(sorted, comp.winner, formatDeltaFn),
         }) + '\n';
+      }
+    }
+    if (scope.section === measured && sectionMeasuredComparisons.length > 0) {
+      html += `<h4>Per-Section Profile Metrics</h4>\n`;
+      for (const section of sectionMeasuredComparisons) {
+        let sectionMetricsRows = '';
+        for (const comp of section.comparisons) {
+          const sorted = sortByValue(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }));
+          const metricDef = PROFILE_METRICS[comp.key];
+          sectionMetricsRows += render(T['profile-metric'], {
+            metricClass: '',
+            titleAttr: '',
+            name: escHtml(comp.name),
+            desc: '',
+            rows: buildMetricRowsHtml(sorted, comp.winner, metricDef.format),
+          }) + '\n';
+        }
+        html += buildCollapsibleSectionMetricHtml(formatSectionTitle(section.name), sectionMetricsRows, false) + '\n';
       }
     }
     if (scope.section.overallWinner === 'tie') {
@@ -497,8 +493,8 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
 
     if (metricsWithData.length > 0) {
       const scopes = [
-        { scope: 'measured', title: 'During Measurement' },
-        { scope: 'total', title: 'Total Session' },
+        { scope: 'measured', title: 'Race' },
+        { scope: 'total', title: 'Total Recording (Including Pre and Post race)' },
       ];
       for (const { scope: scopeName, title: scopeTitle } of scopes) {
         const scopeMetrics = metricsWithData.filter(m => m.scope === scopeName);

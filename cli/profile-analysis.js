@@ -303,7 +303,7 @@ export function printProfileAnalysis(profileComparison, racers) {
   write(`\n  ${c.bold}📊 Performance Profile Analysis${c.reset}\n`);
 
   if (measured.comparisons.length > 0) {
-    printProfileSection('⏱️  During Measurement (raceStart → raceEnd)', measured, racers, w, write);
+    printProfileSection('⏱️  Race', measured, racers, w, write);
   }
 }
 
@@ -361,7 +361,7 @@ export function buildProfileMarkdown(profileComparison, racers) {
   lines.push('');
 
   if (measured.comparisons.length > 0) {
-    lines.push(buildScopeMarkdown('During Measurement (raceStart → raceEnd)', measured, racers));
+    lines.push(buildScopeMarkdown('Race', measured, racers));
   }
 
   return lines.join('\n');

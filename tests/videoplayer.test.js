@@ -69,7 +69,7 @@ describe('buildPlayerHtml', () => {
   });
 
   it('includes results with measurement data and deltas', () => {
-    expect(defaultHtml).toContain('Section Load');
+    expect(defaultHtml).toContain('Race Section Load');
     expect(defaultHtml).toContain('1.000s');
     expect(defaultHtml).toContain('2.000s');
     expect(defaultHtml).toContain('(+1.000s)');
@@ -78,30 +78,46 @@ describe('buildPlayerHtml', () => {
 
   it('includes section metrics in Performance Summary', () => {
     expect(defaultHtml).toContain('Performance Summary');
-    expect(defaultHtml).toContain('Section Metrics');
-    expect(defaultHtml).toContain('Section Load');
+    expect(defaultHtml).toContain('Race Section Load');
   });
 
-  it('renders Total before section metrics when present', () => {
+  it('orders Performance Summary as Race, sections, then Total Recording', () => {
+    const metrics1 = { total: { networkTransferSize: 1000, scriptDuration: 100 }, measured: { networkTransferSize: 500 } };
+    const metrics2 = { total: { networkTransferSize: 2000, scriptDuration: 200 }, measured: { networkTransferSize: 800 } };
+    const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
+    const html = withSummary({ profileComparison });
+    const summaryStart = html.indexOf('Performance Summary');
+    const profileSummary = summaryStart >= 0 ? html.slice(summaryStart) : html;
+    const raceIdx = profileSummary.indexOf('>Race<');
+    const sectionIdx = profileSummary.indexOf('Race Section Load');
+    const totalRecordingIdx = profileSummary.indexOf('Total Recording (Including Pre and Post race)');
+    expect(raceIdx).toBeGreaterThan(-1);
+    expect(sectionIdx).toBeGreaterThan(-1);
+    expect(totalRecordingIdx).toBeGreaterThan(-1);
+    expect(raceIdx).toBeLessThan(sectionIdx);
+    expect(sectionIdx).toBeLessThan(totalRecordingIdx);
+  });
+
+  it('renders Race before section metrics when present', () => {
     const html = withSummary({
       comparisons: [
         { name: 'Load', racers: [{ duration: 1 }, { duration: 2 }], winner: 'lauda', diff: 1, diffPercent: 100, rankings: ['lauda', 'hunt'] },
-        { name: 'Total', racers: [{ duration: 3 }, { duration: 4 }], winner: 'lauda', diff: 1, diffPercent: 33.3, rankings: ['lauda', 'hunt'] },
+        { name: 'Race', racers: [{ duration: 3 }, { duration: 4 }], winner: 'lauda', diff: 1, diffPercent: 33.3, rankings: ['lauda', 'hunt'] },
       ],
     });
     expect(html).toContain('profile-metric-total');
-    expect(html).toContain('profile-metric-collapsed-fixed');
-    expect(html.indexOf('>Total<')).toBeLessThan(html.indexOf('Section Load'));
+    expect(html).toContain('section-metric');
+    expect(html.indexOf('>Race<')).toBeLessThan(html.indexOf('Race Section Load'));
   });
 
-  it('marks section rows as permanently collapsed', () => {
+  it('renders section rows as collapsible details', () => {
     const html = withSummary({
       comparisons: [
         { name: 'Load', racers: [{ duration: 1 }, { duration: 2 }], winner: 'lauda', diff: 1, diffPercent: 100, rankings: ['lauda', 'hunt'] },
       ],
     });
-    expect(html).toContain('profile-metric-collapsed-fixed');
-    expect(html).toContain('Section Load');
+    expect(html).toContain('<details class="profile-metric section-metric">');
+    expect(html).toContain('Race Section Load');
     expect(html).toContain('(collapsed)');
   });
 
@@ -242,9 +258,9 @@ describe('buildPlayerHtml', () => {
     const html = withSummary({ profileComparison });
     expect(html).toContain('Performance Profile');
     expect(html).toContain('Lower values are better');
-    expect(html).toContain('During Measurement');
+    expect(html).toContain('Race');
     expect(html).toContain('<details');
-    expect(html).toContain('Total Session');
+    expect(html).toContain('Total Recording (Including Pre and Post race)');
   });
 
   it('shows profile racers sorted by value with deltas', () => {
@@ -252,12 +268,12 @@ describe('buildPlayerHtml', () => {
     const metrics2 = { total: {}, measured: { networkTransferSize: 1000 } };
     const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
     const html = withSummary({ profileComparison });
-    const profileSection = html.slice(html.indexOf('During Measurement'));
+    const profileSection = html.slice(html.indexOf('Race'));
     expect(profileSection.indexOf('>hunt<')).toBeLessThan(profileSection.indexOf('>lauda<'));
     expect(profileSection).toContain('(+');
   });
 
-  it('shows section timing metrics inside During Measurement profile scope', () => {
+  it('does not render section timing metrics inside Race profile scope', () => {
     const metrics1 = { total: {}, measured: { networkTransferSize: 2000 } };
     const metrics2 = { total: {}, measured: { networkTransferSize: 1000 } };
     const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
@@ -268,10 +284,8 @@ describe('buildPlayerHtml', () => {
       ],
       profileComparison,
     });
-    const profileSection = html.slice(html.indexOf('During Measurement (raceStart'));
-    expect(profileSection).toContain('Section Timings');
-    expect(profileSection).toContain('Section Load');
-    expect(profileSection).toContain('Section Render');
+    const profileSection = html.slice(html.indexOf('Race'));
+    expect(profileSection).not.toContain('Section Timings');
   });
 
   it('shows per-section measured profile metrics by section', () => {
@@ -297,11 +311,12 @@ describe('buildPlayerHtml', () => {
       profileComparison,
       profileMetrics: [metrics1, metrics2],
     });
-    const profileSection = html.slice(html.indexOf('During Measurement (raceStart'));
+    const profileSection = html.slice(html.indexOf('Race'));
     expect(profileSection).toContain('Per-Section Profile Metrics');
-    expect(profileSection).toContain('Section Load');
+    expect(profileSection).toContain('Race Section Load');
     expect(profileSection).toContain('Network Transfer');
     expect(profileSection).toContain('Script Execution');
+    expect(profileSection.indexOf('Per-Section Profile Metrics')).toBeGreaterThan(profileSection.indexOf('Computation'));
   });
 
   it('shows profile with 3+ racers', () => {
@@ -1250,7 +1265,7 @@ describe('buildPlayerHtml run-by-run comparison', () => {
 
   it('includes performance metrics comparison tables', () => {
     const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
-    expect(html).toContain('Performance: During Measurement');
+    expect(html).toContain('Performance: Race');
     expect(html).toContain('Script Execution');
   });
 

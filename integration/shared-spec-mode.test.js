@@ -59,7 +59,7 @@ describe('shared-spec mode integration', () => {
     expect(summary.comparisons[0].rankings).toEqual(['alpha', 'bravo', 'charlie', 'delta']);
     expect(summary.comparisons[1].name).toBe('Reload');
     expect(summary.comparisons[1].rankings).toEqual(['alpha', 'bravo', 'charlie', 'delta']);
-    expect(summary.comparisons[2].name).toBe('Total');
+    expect(summary.comparisons[2].name).toBe('Race');
   });
 });
 
