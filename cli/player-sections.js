@@ -98,6 +98,46 @@ function buildMetricRowsHtml(entries, winner, formatDelta) {
   return html;
 }
 
+function buildSectionMeasuredComparisons(rawProfileMetrics, racers) {
+  const measuredMetricDefs = Object.entries(PROFILE_METRICS)
+    .filter(([_, metric]) => metric.scope === 'measured')
+    .map(([key, metric]) => ({ metricName: key.split('.')[1], metric }));
+
+  const sectionNames = [...new Set(
+    rawProfileMetrics.flatMap(pm => Object.keys(pm?.measuredSections || {}))
+  )];
+
+  return sectionNames.map(sectionName => {
+    const comparisons = [];
+    for (const { metricName, metric } of measuredMetricDefs) {
+      const values = racers.map((_, i) => rawProfileMetrics[i]?.measuredSections?.[sectionName]?.[metricName] ?? null);
+      if (values.every(v => v == null)) continue;
+
+      const withData = values
+        .map((v, i) => (v != null ? { i, v } : null))
+        .filter(Boolean)
+        .sort((a, b) => a.v - b.v);
+
+      const best = withData[0]?.v ?? null;
+      const worst = withData[withData.length - 1]?.v ?? null;
+      let winner = null;
+      if (withData.length >= 2 && best !== worst) {
+        winner = racers[withData[0].i];
+      }
+
+      comparisons.push({
+        key: `measured.${metricName}`,
+        name: metric.name,
+        category: metric.category,
+        values,
+        formatted: values.map(v => v != null ? metric.format(v) : '-'),
+        winner,
+      });
+    }
+    return { name: sectionName, comparisons };
+  }).filter(section => section.comparisons.length > 0);
+}
+
 // ---------------------------------------------------------------------------
 // Section Builders
 // ---------------------------------------------------------------------------
@@ -197,6 +237,23 @@ export function buildResultsHtml(comparisons, racers) {
 }
 
 export function buildProfileSummaryHtml(profileComparison, racers) {
+  const sectionComparisons = (profileComparison?.sectionComparisons || [])
+    .filter(comp => !isTotalComparison(comp));
+
+  const sectionRows = sectionComparisons.map(comp => {
+    const sorted = sortByValue(racers, i => {
+      const r = comp.racers[i];
+      return { val: r ? r.duration : null, formatted: r ? `${r.duration.toFixed(3)}s` : '-' };
+    });
+    return render(T['profile-metric'], {
+      metricClass: 'profile-metric-collapsed-fixed',
+      titleAttr: '',
+      name: escHtml(formatSectionTitle(comp.name)),
+      desc: '',
+      rows: buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`),
+    });
+  }).join('\n');
+
   function buildWinRows(winsMap) {
     if (!racers.some(n => winsMap[n] > 0)) return '';
     return racers
@@ -213,17 +270,20 @@ export function buildProfileSummaryHtml(profileComparison, racers) {
   const measuredRows = buildWinRows(measuredWins);
   const totalRows = buildWinRows(totalWins);
 
-  if (!measuredRows && !totalRows) return '';
+  if (!measuredRows && !totalRows && !sectionRows) return '';
 
   let html = `<details class="section" open>
   <summary><h2>Performance Summary</h2></summary>
   <div class="section-body">`;
 
+  if (sectionRows) {
+    html += render(T['profile-metric'], { metricClass: 'profile-metric-total', titleAttr: '', name: 'Section Metrics', desc: '', rows: sectionRows });
+  }
   if (measuredRows) {
-    html += render(T['profile-metric'], { titleAttr: '', name: 'During Measurement', desc: '', rows: measuredRows });
+    html += render(T['profile-metric'], { metricClass: '', titleAttr: '', name: 'During Measurement', desc: '', rows: measuredRows });
   }
   if (totalRows) {
-    html += render(T['profile-metric'], { titleAttr: '', name: 'Total Session', desc: '', rows: totalRows });
+    html += render(T['profile-metric'], { metricClass: '', titleAttr: '', name: 'Total Session', desc: '', rows: totalRows });
   }
 
   html += `\n  </div>\n</details>`;
@@ -232,7 +292,11 @@ export function buildProfileSummaryHtml(profileComparison, racers) {
 
 export function buildProfileHtml(profileComparison, racers) {
   if (!profileComparison) return '';
-  const { measured, total } = profileComparison;
+  const measured = profileComparison.measured || { comparisons: [], byCategory: {}, overallWinner: null };
+  const total = profileComparison.total || { comparisons: [], byCategory: {}, overallWinner: null };
+  const measuredSectionComparisons = (profileComparison.sectionComparisons || [])
+    .filter(comp => !isTotalComparison(comp));
+  const sectionMeasuredComparisons = buildSectionMeasuredComparisons(profileComparison.rawProfileMetrics || [], racers);
   if (measured.comparisons.length === 0 && total.comparisons.length === 0) return '';
 
   let html = `<details class="section">
@@ -253,6 +317,39 @@ export function buildProfileHtml(profileComparison, racers) {
       html += `<h3>${escHtml(scope.title)}</h3>\n`;
     }
     html += `<p class="profile-scope-desc">${escHtml(scope.desc)}</p>\n`;
+    if (scope.section === measured && measuredSectionComparisons.length > 0) {
+      html += `<h4>Section Timings</h4>\n`;
+      for (const comp of measuredSectionComparisons) {
+        const sorted = sortByValue(racers, i => {
+          const r = comp.racers[i];
+          return { val: r ? r.duration : null, formatted: r ? `${r.duration.toFixed(3)}s` : '-' };
+        });
+        html += render(T['profile-metric'], {
+          metricClass: '',
+          titleAttr: '',
+          name: escHtml(formatSectionTitle(comp.name)),
+          desc: '',
+          rows: buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`),
+        }) + '\n';
+      }
+    }
+    if (scope.section === measured && sectionMeasuredComparisons.length > 0) {
+      html += `<h4>Per-Section Profile Metrics</h4>\n`;
+      for (const section of sectionMeasuredComparisons) {
+        html += `<h4>${escHtml(formatSectionTitle(section.name))}</h4>\n`;
+        for (const comp of section.comparisons) {
+          const sorted = sortByValue(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }));
+          const metricDef = PROFILE_METRICS[comp.key];
+          html += render(T['profile-metric'], {
+            metricClass: '',
+            titleAttr: '',
+            name: escHtml(comp.name),
+            desc: '',
+            rows: buildMetricRowsHtml(sorted, comp.winner, metricDef.format),
+          }) + '\n';
+        }
+      }
+    }
     for (const [category, comps] of Object.entries(scope.section.byCategory)) {
       const catLabel = category[0].toUpperCase() + category.slice(1);
       const catDesc = categoryDescriptions[category] || '';
@@ -266,6 +363,7 @@ export function buildProfileHtml(profileComparison, racers) {
         const formatDeltaFn = metricDef.format;
         const desc = metricDef.description || '';
         html += render(T['profile-metric'], {
+          metricClass: '',
           titleAttr: desc ? `title="${escHtml(desc)}"` : '',
           name: escHtml(comp.name) + (desc ? ' <span class="profile-info-icon">&#9432;</span>' : ''),
           desc: desc ? `<div class="profile-metric-desc">${escHtml(desc)}</div>` : '',
