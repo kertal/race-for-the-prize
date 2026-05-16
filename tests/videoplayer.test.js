@@ -370,6 +370,41 @@ describe('buildPlayerHtml', () => {
     expect(profileSection.indexOf('Per-Section Profile Metrics')).toBeGreaterThan(profileSection.indexOf('Computation'));
   });
 
+  it('renders profile when only per-section measured metrics are available', () => {
+    const metrics1 = {
+      total: {},
+      measured: {},
+      measuredSections: {
+        Load: { networkTransferSize: 1200, networkRequestCount: 4, scriptDuration: 25, layoutDuration: 5, recalcStyleDuration: 2, taskDuration: 35 },
+        Render: { networkTransferSize: 800, networkRequestCount: 2, scriptDuration: 10, layoutDuration: 3, recalcStyleDuration: 1, taskDuration: 15 },
+      },
+    };
+    const metrics2 = {
+      total: {},
+      measured: {},
+      measuredSections: {
+        Load: { networkTransferSize: 1400, networkRequestCount: 5, scriptDuration: 30, layoutDuration: 6, recalcStyleDuration: 3, taskDuration: 40 },
+        Render: { networkTransferSize: 900, networkRequestCount: 3, scriptDuration: 12, layoutDuration: 4, recalcStyleDuration: 2, taskDuration: 18 },
+      },
+    };
+    const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
+    const html = withSummary({
+      comparisons: [
+        { name: 'Load', racers: [{ duration: 1.1 }, { duration: 1.4 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
+        { name: 'Render', racers: [{ duration: 0.9 }, { duration: 1.2 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
+      ],
+      profileComparison,
+      profileMetrics: [metrics1, metrics2],
+    });
+    expect(html).toContain('Performance Profile');
+    const profileStart = html.indexOf('Performance Profile');
+    expect(profileStart).toBeGreaterThan(-1);
+    const profileSection = html.slice(profileStart);
+    expect(profileSection).toContain('Per-Section Profile Metrics');
+    expect(profileSection).toContain('Race Section Load');
+    expect(profileSection).toContain('Race Section Render');
+  });
+
   it('shows profile with 3+ racers', () => {
     const data = [
       { total: { networkTransferSize: 3000 }, measured: {} },

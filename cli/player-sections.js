@@ -322,7 +322,8 @@ export function buildProfileHtml(profileComparison, racers) {
     { title: 'Total Recording (Including Pre and Post race)', desc: 'Metrics for the entire recording window including pre-race setup and post-race teardown.', section: total, collapsed: true },
   ];
   for (const scope of scopes) {
-    if (scope.section.comparisons.length === 0) continue;
+    const showMeasuredSectionMetrics = scope.section === measured && sectionMeasuredComparisons.length > 1;
+    if (scope.section.comparisons.length === 0 && !showMeasuredSectionMetrics) continue;
 
     if (scope.collapsed) {
       html += `<details class="profile-collapsible">\n<summary><h3 class="profile-collapsible-title">${escHtml(scope.title)}</h3></summary>\n`;
@@ -351,7 +352,7 @@ export function buildProfileHtml(profileComparison, racers) {
         }) + '\n';
       }
     }
-    if (scope.section === measured && sectionMeasuredComparisons.length > 1) {
+    if (showMeasuredSectionMetrics) {
       html += `<h4>Per-Section Profile Metrics</h4>\n`;
       for (const section of sectionMeasuredComparisons) {
         let sectionMetricsRows = '';
