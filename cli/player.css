@@ -634,6 +634,103 @@ video {
   background: #3a3a3a;
   border-color: #d4af37;
 }
+.race-timeline {
+  max-width: 900px;
+  width: 100%;
+  padding: 0.4rem 1.5rem 0;
+  user-select: none;
+}
+.timeline-bar {
+  position: relative;
+  width: 100%;
+  height: 28px;
+  background: #222;
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: pointer;
+}
+.timeline-region {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 3px;
+  transition: opacity 0.15s;
+}
+.timeline-region-full {
+  background: #2a2a2a;
+  z-index: 0;
+}
+.timeline-region-clip {
+  background: rgba(212, 175, 55, 0.18);
+  border-left: 2px solid rgba(212, 175, 55, 0.5);
+  border-right: 2px solid rgba(212, 175, 55, 0.5);
+  z-index: 1;
+  pointer-events: none;
+}
+.timeline-segment {
+  position: absolute;
+  top: 3px;
+  height: calc(100% - 6px);
+  border-radius: 3px;
+  z-index: 2;
+  cursor: pointer;
+  transition: opacity 0.15s, filter 0.15s;
+  opacity: 0.7;
+  min-width: 4px;
+}
+.timeline-segment:hover {
+  opacity: 1;
+  filter: brightness(1.3);
+}
+.timeline-segment.active {
+  opacity: 1;
+  outline: 2px solid #fff;
+  outline-offset: -1px;
+}
+.timeline-playhead {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2px;
+  height: 100%;
+  background: #fff;
+  z-index: 10;
+  pointer-events: none;
+  transition: left 0.05s linear;
+}
+.timeline-labels {
+  display: flex;
+  gap: 0.3rem;
+  padding: 0.3rem 0 0;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.timeline-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  color: #999;
+  cursor: pointer;
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+  transition: background 0.15s, color 0.15s;
+}
+.timeline-label:hover {
+  background: #2a2a2a;
+  color: #e8e0d0;
+}
+.timeline-label.active {
+  background: #333;
+  color: #d4af37;
+}
+.timeline-label-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
 .debug-panel {
   max-width: 900px;
   width: 100%;
