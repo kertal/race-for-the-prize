@@ -469,7 +469,7 @@ describe('buildPlayerHtml', () => {
     const html = withOptions({ runNavigation: { currentRun: 1, totalRuns: 3, pathPrefix: '../' } });
     for (let i = 1; i <= 3; i++) expect(html).toContain(`Run ${i}`);
     expect(html).toContain('Median');
-    expect(html).toContain('run-nav-btn active');
+    expect(html).toContain('aria-current="page">Run 1</span>');
   });
 });
 
@@ -523,7 +523,7 @@ describe('buildPlayerHtml machine info', () => {
   });
 
   it('omits machine info section when not provided', () => {
-    expect(buildPlayerHtml(abSummary(), abVideoFiles)).not.toContain('<div class="machine-info">');
+    expect(buildPlayerHtml(abSummary(), abVideoFiles)).not.toContain('class="machine-info"');
   });
 
   it('HTML-escapes values', () => {
@@ -556,12 +556,13 @@ describe('buildPlayerHtml gemini commentary', () => {
   it('renders commentary into notes textarea when present', () => {
     const html = withSummary({ geminiCommentary: 'What a thrilling race!' });
     expect(html).toContain('What a thrilling race!');
-    expect(html).toMatch(/<details class="section" open>/);
+    // Notes section is open when commentary present
+    expect(html).toMatch(/<details open>\s*<summary><h2>Notes<\/h2>/);
   });
 
   it('leaves notes empty and collapsed when no commentary', () => {
     const html = withSummary({});
-    expect(html).toMatch(/<details class="section" >/);
+    expect(html).toMatch(/<details >\s*<summary><h2>Notes<\/h2>/);
     expect(html).toContain('placeholder="Add notes about this race..."');
   });
 });
@@ -835,10 +836,9 @@ describe('buildPlayerHtml debug mode', () => {
     }
   });
 
-  it('debug panel contains stats with VIDEO INFO header', () => {
+  it('debug panel contains stats with Video info header', () => {
     expect(debugHtml).toContain('id="debugStats"');
-    expect(debugHtml).toContain('VIDEO INFO');
-    expect(debugHtml).toContain('debug-stats-header');
+    expect(debugHtml).toContain('>Video info</h4>');
   });
 
   it('script includes updateDebugStats function', () => {
@@ -852,9 +852,9 @@ describe('buildPlayerHtml debug mode', () => {
     expect(panelSection.indexOf('>hunt<')).toBeLessThan(panelSection.indexOf('>lauda<'));
   });
 
-  it('renders FRAME POSITIONS section in debug panel', () => {
+  it('renders Frame positions section in debug panel', () => {
     expect(debugHtml).toContain('id="debugFrames"');
-    expect(debugHtml).toContain('FRAME POSITIONS');
+    expect(debugHtml).toContain('>Frame positions</h4>');
     expect(debugHtml).toContain('id="debugFrameRow0"');
     expect(debugHtml).toContain('id="debugFrameRow1"');
   });
@@ -879,8 +879,8 @@ describe('buildPlayerHtml timing events', () => {
   ];
   const timingHtml = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
 
-  it('renders TIMING EVENTS section in debug panel', () => {
-    expect(timingHtml).toContain('TIMING EVENTS');
+  it('renders Timing events section in debug panel', () => {
+    expect(timingHtml).toContain('>Timing events</h4>');
     expect(timingHtml).toContain('id="debugTiming"');
     expect(timingHtml).toContain('debug-timing');
   });
@@ -939,7 +939,7 @@ describe('buildPlayerHtml timing events', () => {
       { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
     ];
     const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes: noMeasClips });
-    expect(html).toContain('TIMING EVENTS');
+    expect(html).toContain('>Timing events</h4>');
     expect(html).toContain('id="debugTimingEvents0"');
     // Should still contain measurement iteration code
     expect(html).toContain('const measurements = ct.measurements || []');

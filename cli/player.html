@@ -15,33 +15,31 @@
 
 <div class="checkered-bar" aria-hidden="true"></div>
 {{runNav}}
-<header class="header-bar">
-  <span class="header-icon header-icon-left" aria-hidden="true">🏆</span>
+<header>
+  <span aria-hidden="true">🏆</span>
   <h1>Race for the Prize</h1>
-  <span class="header-icon header-icon-right">
-    <button class="header-action-btn" id="fullscreenBtn" type="button" title="Fullscreen (F)" aria-label="Toggle fullscreen" aria-pressed="false">&#x26F6;</button>
-    <span class="header-icon-group">
-      <button class="header-action-btn" id="shareToggle" type="button" title="Export / Share" aria-label="Export and share menu" aria-haspopup="menu" aria-expanded="false" aria-controls="shareMenu">&#x1F4E4;</button>
-      <div class="share-menu" id="shareMenu" role="menu" aria-label="Export options">
-        <button class="share-menu-item" id="exportBtn" type="button" role="menuitem">Export Recording</button>
-        <button class="share-menu-item" id="exportHtmlBtn" type="button" role="menuitem">Export Zip</button>
-        <button class="share-menu-item" id="exportHtmlOnlyBtn" type="button" role="menuitem">Export HTML</button>
-      </div>
+  <nav aria-label="Player actions">
+    <button id="fullscreenBtn" type="button" title="Fullscreen (F)" aria-label="Toggle fullscreen" aria-pressed="false">&#x26F6;</button>
+    <span>
+      <button id="shareToggle" type="button" title="Export / Share" aria-label="Export and share menu" aria-haspopup="menu" aria-expanded="false" aria-controls="shareMenu">&#x1F4E4;</button>
+      <menu id="shareMenu" role="menu" aria-label="Export options">
+        <li role="none"><button id="exportBtn" type="button" role="menuitem">Export Recording</button></li>
+        <li role="none"><button id="exportHtmlBtn" type="button" role="menuitem">Export Zip</button></li>
+        <li role="none"><button id="exportHtmlOnlyBtn" type="button" role="menuitem">Export HTML</button></li>
+      </menu>
     </span>
-    <button class="header-action-btn" id="settingsToggle" type="button" title="Settings" aria-label="Toggle settings" aria-expanded="false" aria-controls="settingsPanel">&#x2699;</button>
-  </span>
+    <button id="settingsToggle" type="button" title="Settings" aria-label="Toggle settings" aria-expanded="false" aria-controls="settingsPanel">&#x2699;</button>
+  </nav>
 </header>
 
 <main id="main">
-<div class="winner-banner" role="status" aria-live="polite">{{winnerBanner}}</div>
+<output class="winner-banner" aria-live="polite">{{winnerBanner}}</output>
 {{videoSourceNote}}
 {{errors}}
 <div class="settings-panel" id="settingsPanel">
-  <div class="settings-left">
-    <div id="racerFilter" class="racer-filter" role="group" aria-label="Show or hide racers"></div>
-  </div>
-  <div class="settings-right">
-    <select id="segmentNav" class="segment-nav" aria-label="Recording segment"></select>
+  <div id="racerFilter" role="group" aria-label="Show or hide racers"></div>
+  <div>
+    <select id="segmentNav" aria-label="Recording segment"></select>
     {{modeToggle}}
   </div>
 </div>
@@ -50,9 +48,9 @@
 
 {{debugPanel}}
 
-<details class="section" open>
+<details open>
   <summary><h2>Race Results</h2></summary>
-  <div class="section-body">
+  <div>
 {{results}}
   </div>
 </details>
@@ -65,19 +63,19 @@
 
 {{files}}
 
-<details class="section">
+<details>
   <summary><h2>Run Info</h2></summary>
-  <div class="section-body">
+  <div>
     {{raceInfo}}
     {{machineInfo}}
   </div>
 </details>
 
-<details class="section" {{notesOpen}}>
+<details {{notesOpen}}>
   <summary><h2>Notes</h2></summary>
-  <div class="section-body">
+  <div>
     <label for="notesTextarea" class="sr-only">Race notes</label>
-    <textarea class="notes-textarea" id="notesTextarea" placeholder="Add notes about this race...">{{notesContent}}</textarea>
+    <textarea id="notesTextarea" placeholder="Add notes about this race...">{{notesContent}}</textarea>
   </div>
 </details>
 </main>
@@ -85,8 +83,6 @@
 <footer>
   <div class="checkered-bar" aria-hidden="true"></div>
 </footer>
-
-<template id="build-info-item"><span class="info-item"><span class="info-label">{{label}}</span> {{value}}</span></template>
 
 <template id="build-profile-row">
 <div class="profile-row">
@@ -106,31 +102,31 @@
 </div>
 </template>
 
-<template id="build-file-link"><a href="{{href}}" {{attrs}}>{{text}}</a></template>
+<template id="build-file-link"><li><a href="{{href}}" {{attrs}}>{{text}}</a></li></template>
 
 <template id="build-racer-name"><span class="racer-name" style="color: {{color}}">{{name}}</span></template>
 
 <template id="build-player-section">
 <div class="fullscreen-wrapper" id="fullscreenWrapper">
-<div class="player-container" id="playerContainer">
+<section class="player-container" id="playerContainer" aria-label="Race recordings">
 {{videoElements}}
-</div>
+</section>
 {{mergedVideoElement}}
 
 <div class="controls" role="toolbar" aria-label="Video playback controls">
-  <div class="controls-row">
+  <div>
     <button class="frame-btn" id="goStart" type="button" title="Go to start (Home)" aria-label="Go to start">&#x23EE;</button>
     <button class="frame-btn" id="prevFrame" type="button" title="-0.1s (&larr;)" aria-label="Previous frame">&laquo;</button>
     <button class="play-btn" id="playBtn" type="button" aria-label="Play">&#x25B6;</button>
     <button class="frame-btn" id="nextFrame" type="button" title="+0.1s (&rarr;)" aria-label="Next frame">&raquo;</button>
     <button class="frame-btn" id="goEnd" type="button" title="Go to end (End)" aria-label="Go to end">&#x23ED;</button>
     <label for="scrubber" class="sr-only">Video position</label>
-    <input type="range" class="scrubber" id="scrubber" min="0" max="1000" value="0" aria-label="Video position">
+    <input type="range" id="scrubber" min="0" max="1000" value="0" aria-label="Video position">
   </div>
   <span class="time-display" id="timeDisplay">0:00.000 / 0:00.000</span>
   <span class="frame-display" id="frameDisplay">0.0s</span>
   <label for="speedSelect" class="sr-only">Playback speed</label>
-  <select class="speed-select" id="speedSelect" aria-label="Playback speed">
+  <select id="speedSelect" aria-label="Playback speed">
     <option value="0.25">🚲 0.25x</option>
     <option value="0.5">🐎 0.5x</option>
     <option value="1" selected>🚙 1x</option>
@@ -145,12 +141,12 @@
 <div class="debug-row" data-debug-idx="{{displayIdx}}">
   {{racerNameSpan}}
   <span class="start-info" id="debugStart{{displayIdx}}">start: {{startVal}}s (+0f)</span>
-  <button class="debug-frame-btn" type="button" data-idx="{{displayIdx}}" data-delta="-10">-10f</button>
-  <button class="debug-frame-btn" type="button" data-idx="{{displayIdx}}" data-delta="-5">-5f</button>
-  <button class="debug-frame-btn" type="button" data-idx="{{displayIdx}}" data-delta="-1">-1f</button>
-  <button class="debug-frame-btn" type="button" data-idx="{{displayIdx}}" data-delta="1">+1f</button>
-  <button class="debug-frame-btn" type="button" data-idx="{{displayIdx}}" data-delta="5">+5f</button>
-  <button class="debug-frame-btn" type="button" data-idx="{{displayIdx}}" data-delta="10">+10f</button>
+  <button type="button" data-idx="{{displayIdx}}" data-delta="-10">-10f</button>
+  <button type="button" data-idx="{{displayIdx}}" data-delta="-5">-5f</button>
+  <button type="button" data-idx="{{displayIdx}}" data-delta="-1">-1f</button>
+  <button type="button" data-idx="{{displayIdx}}" data-delta="1">+1f</button>
+  <button type="button" data-idx="{{displayIdx}}" data-delta="5">+5f</button>
+  <button type="button" data-idx="{{displayIdx}}" data-delta="10">+10f</button>
 </div>
 </template>
 
@@ -180,25 +176,25 @@
 <template id="build-debug-panel">
 <aside class="debug-panel" id="debugPanel" aria-label="Calibration debug panel">
   <h3>Calibration</h3>
-  <p class="calibration-note">Video recordings don't start at exactly the same moment &mdash; each browser context begins capturing slightly earlier or later. Use the frame offsets below to align the starting points so racers are visually synchronized during playback.</p>
+  <p>Video recordings don't start at exactly the same moment &mdash; each browser context begins capturing slightly earlier or later. Use the frame offsets below to align the starting points so racers are visually synchronized during playback.</p>
   {{debugRows}}
-  <div class="debug-stats" id="debugStats">
-    <div class="debug-stats-header">VIDEO INFO</div>
+  <section id="debugStats">
+    <h4>Video info</h4>
 {{statsRows}}
-  </div>
-  <div class="debug-frames" id="debugFrames">
-    <div class="debug-stats-header">FRAME POSITIONS</div>
+  </section>
+  <section id="debugFrames">
+    <h4>Frame positions</h4>
 {{frameRows}}
-  </div>
-  <div class="debug-timing" id="debugTiming">
-    <div class="debug-stats-header">TIMING EVENTS</div>
+  </section>
+  <section id="debugTiming">
+    <h4>Timing events</h4>
 {{timingRows}}
-  </div>
-  <div class="debug-footer">
+  </section>
+  <footer>
     <span>1 frame &asymp; 0.040s (assuming 25fps recording)</span>
-    <button class="debug-action-btn" id="debugCopyJson" type="button">Copy JSON</button>
-    <button class="debug-action-btn" id="debugResetAll" type="button">Reset All</button>
-  </div>
+    <button id="debugCopyJson" type="button">Copy JSON</button>
+    <button id="debugResetAll" type="button">Reset All</button>
+  </footer>
 </aside>
 </template>
 

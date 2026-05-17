@@ -1633,7 +1633,12 @@ function buildExportHtml(pathOverrides = {}, { slim = false } = {}) {
     if (stBtn) stBtn.remove();
     // Remove share menu and toggle
     const shBtn = doc.querySelector('#shareToggle');
-    if (shBtn) { const group = shBtn.closest('.header-icon-group'); if (group) group.remove(); else shBtn.remove(); }
+    if (shBtn) {
+      // shareToggle and its <menu> share a wrapper <span>; remove the wrapper if it's just for them
+      const wrapper = shBtn.parentElement;
+      if (wrapper && wrapper.tagName === 'SPAN' && wrapper.contains(doc.querySelector('#shareMenu'))) wrapper.remove();
+      else shBtn.remove();
+    }
   }
 
   // Clear dynamically-built UI so the script rebuilds it cleanly on load

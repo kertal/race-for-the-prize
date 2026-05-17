@@ -108,10 +108,10 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
         ? `<span class="trophy">${isTie ? '&#129309;' : '&#127942;'}</span> `
         : '';
       const vSrc = videoFiles[origIdx].startsWith('data:') ? '' : ` src="${escHtml(videoFiles[origIdx])}"`;
-      return `  <div class="racer">
-    <div class="racer-label" style="color: ${color}">${trophyHtml}${escHtml(racer)}</div>
+      return `  <figure class="racer">
+    <figcaption style="color: ${color}">${trophyHtml}${escHtml(racer)}</figcaption>
     <video id="v${displayIdx}"${vSrc} preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Race recording for ${escHtml(racer)}" data-racer-name="${escHtml(racer)}"></video>
-  </div>`;
+  </figure>`;
     }).join('\n');
 
     const mergedVideoElement = mergedVideoFile ? `
@@ -145,13 +145,13 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     });
   }
 
-  const mergedBtn = hasMergedVideo ? '<button class="mode-btn" id="modeMerged" title="Side-by-side merged video">Merged</button>' : '';
+  const mergedBtn = hasMergedVideo ? '<button type="button" id="modeMerged" title="Side-by-side merged video">Merged</button>' : '';
   const modeToggle = hasMergedVideo ? `
   <div class="mode-toggle">
     ${mergedBtn}
   </div>` : '';
 
-  const layoutCss = `.player-container { max-width: ${containerMaxWidth}px; }\n  .racer { max-width: ${maxWidth}px; }`;
+  const layoutCss = `.player-container { max-width: ${containerMaxWidth}px; }\n  figure.racer { max-width: ${maxWidth}px; }`;
   return render(TEMPLATE, {
     title,
     styles: buildStyles(layoutCss),

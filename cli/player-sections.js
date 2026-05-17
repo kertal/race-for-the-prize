@@ -48,7 +48,7 @@ export function sortByValue(racers, getValue) {
 // ---------------------------------------------------------------------------
 
 function infoItem(label, value) {
-  return render(T['info-item'], { label, value });
+  return `<dt>${escHtml(label)}</dt><dd>${value}</dd>`;
 }
 
 function racerName(racers, origIdx) {
@@ -107,7 +107,7 @@ function buildCollapsibleSectionMetricHtml(name, rows, open = false) {
   const openAttr = open ? ' open' : '';
   return `<details class="profile-metric section-metric"${openAttr}>
   <summary><span class="profile-metric-name">${escHtml(name)}</span></summary>
-  <div class="section-metric-body">${rows}</div>
+  <div>${rows}</div>
 </details>`;
 }
 
@@ -160,22 +160,20 @@ export function buildRunNavHtml(runNav, racers, runSummaries) {
 
   let html = '<nav class="run-nav" aria-label="Race runs">';
   const isMedianCurrent = currentRun === 'median';
-  const medianCls = isMedianCurrent ? 'run-nav-btn active' : 'run-nav-btn';
   if (isMedianCurrent) {
-    html += `<span class="${medianCls}" aria-current="page">Median</span>`;
+    html += `<span aria-current="page">Median</span>`;
   } else {
-    html += `<a class="${medianCls}" href="${escHtml(pathPrefix)}index.html">Median</a>`;
+    html += `<a href="${escHtml(pathPrefix)}index.html">Median</a>`;
   }
   for (let i = 1; i <= totalRuns; i++) {
     const isCurrent = currentRun === i;
-    const cls = isCurrent ? 'run-nav-btn active' : 'run-nav-btn';
     const color = winnerColors[i - 1];
     const textColor = isCurrent ? '#1a1a1a' : '#fff';
     const style = color ? ` style="border-color:${color};color:${textColor}"` : '';
     if (isCurrent) {
-      html += `<span class="${cls}"${style} aria-current="page">Run ${i}</span>`;
+      html += `<span${style} aria-current="page">Run ${i}</span>`;
     } else {
-      html += `<a class="${cls}"${style} href="${escHtml(pathPrefix)}${i}/index.html">Run ${i}</a>`;
+      html += `<a${style} href="${escHtml(pathPrefix)}${i}/index.html">Run ${i}</a>`;
     }
   }
   html += '</nav>';
@@ -199,7 +197,7 @@ export function buildRaceInfoHtml(summary) {
     if (settings.runs && settings.runs > 1) items.push(infoItem('Runs', settings.runs));
   }
   if (items.length === 0) return '';
-  return `<div class="race-info">${items.join('')}</div>`;
+  return `<dl class="race-info">${items.join('')}</dl>`;
 }
 
 export function buildMachineInfoHtml(machineInfo) {
@@ -213,7 +211,7 @@ export function buildMachineInfoHtml(machineInfo) {
   if (machineInfo.nodeVersion) {
     items.push(infoItem('Node.js', escHtml(machineInfo.nodeVersion)));
   }
-  return `<div class="machine-info">${items.join('')}</div>`;
+  return `<dl class="machine-info">${items.join('')}</dl>`;
 }
 
 export function buildErrorsHtml(errors) {
@@ -269,9 +267,9 @@ export function buildProfileSummaryHtml(profileComparison, racers) {
 
   if (!measuredRows && !totalRows && sectionComparisons.length === 0) return '';
 
-  let html = `<details class="section" open>
+  let html = `<details open>
   <summary><h2>Performance Results</h2></summary>
-  <div class="section-body">`;
+  <div>`;
 
   if (measuredRows) {
     html += render(T['profile-metric'], { metricClass: 'profile-metric-total', titleAttr: '', name: 'Race', desc: '', rows: measuredRows });
@@ -305,9 +303,9 @@ export function buildProfileHtml(profileComparison, racers) {
   const sectionMeasuredComparisons = buildSectionMeasuredComparisons(profileComparison.rawProfileMetrics || [], racers);
   if (measured.comparisons.length === 0 && total.comparisons.length === 0 && sectionMeasuredComparisons.length === 0) return '';
 
-  let html = `<details class="section">
+  let html = `<details>
   <summary><h2>Performance Profile</h2></summary>
-  <div class="section-body">
+  <div>
   <p class="profile-note">Lower values are better for all metrics. Hover over metric names for details.</p>\n`;
 
   const scopes = [
@@ -319,7 +317,7 @@ export function buildProfileHtml(profileComparison, racers) {
     if (scope.section.comparisons.length === 0 && !showMeasuredSectionMetrics) continue;
 
     if (scope.collapsed) {
-      html += `<details class="profile-collapsible">\n<summary><h3 class="profile-collapsible-title">${escHtml(scope.title)}</h3></summary>\n`;
+      html += `<details>\n<summary><h3>${escHtml(scope.title)}</h3></summary>\n`;
     } else {
       html += `<h3>${escHtml(scope.title)}</h3>\n`;
     }
@@ -419,7 +417,7 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
     return bold ? `<td><strong>${content}</strong></td>` : `<td>${content}</td>`;
   };
 
-  let html = `<details class="section">\n  <summary><h2>Run-by-Run Comparison</h2></summary>\n  <div class="section-body">`;
+  let html = `<details>\n  <summary><h2>Run-by-Run Comparison</h2></summary>\n  <div>`;
 
   // --- Measurement comparisons ---
   const orderedNames = sortComparisonsForDisplay([...allNames].map(name => ({ name }))).map(c => c.name);
@@ -601,12 +599,12 @@ export function buildFilesHtml(racers, videoFiles, options) {
 
   if (links.length === 0) return '';
 
-  return `<details class="section">
+  return `<details>
   <summary><h2>Files</h2></summary>
-  <div class="section-body">
-    <div class="file-links">
+  <div>
+    <ul class="file-links">
       ${links.join('\n      ')}
-    </div>
+    </ul>
   </div>
 </details>`;
 }
