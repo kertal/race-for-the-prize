@@ -185,8 +185,10 @@ async function cleanup(signal) {
   process.exit(signalExitCode(signal));
 }
 
-process.on('SIGTERM', () => cleanup('SIGTERM'));
-process.on('SIGINT', () => cleanup('SIGINT'));
+if (require.main === module) {
+  process.on('SIGTERM', () => cleanup('SIGTERM'));
+  process.on('SIGINT', () => cleanup('SIGINT'));
+}
 
 // --- Sync barrier for parallel mode ---
 
@@ -215,6 +217,7 @@ async function setupMetricsCollection(page, id) {
   // Network activity during measurement period
   let measuredNetwork = { transferSize: 0, requestCount: 0 };
   let isMeasuring = false;
+  const sectionMeasurements = new Map();
 
   let client = null;
 
@@ -263,6 +266,13 @@ async function setupMetricsCollection(page, id) {
     }
   }
 
+  function cloneNetworkTotals() {
+    return {
+      transferSize: networkTotals.transferSize,
+      requestCount: networkTotals.requestCount,
+    };
+  }
+
   return {
     /**
      * Take a snapshot at measurement start (raceStart).
@@ -281,11 +291,42 @@ async function setupMetricsCollection(page, id) {
       isMeasuring = false;
     },
 
+    async startSectionMeasurement(name = 'default') {
+      const sectionName = String(name);
+      if (sectionMeasurements.has(sectionName)) {
+        console.warn(`[${id}] Section measurement "${sectionName}" started again before ending; previous measurement will be lost`);
+      }
+      const startCdp = await getCdpMetrics();
+      sectionMeasurements.set(sectionName, {
+        startCdp,
+        endCdp: null,
+        startNetwork: cloneNetworkTotals(),
+        endNetwork: null,
+        endCdpPromise: null,
+      });
+    },
+
+    stopSectionMeasurement(name = 'default') {
+      const sectionName = String(name);
+      const section = sectionMeasurements.get(sectionName);
+      if (!section) return;
+      section.endNetwork = cloneNetworkTotals();
+      section.endCdpPromise = getCdpMetrics()
+        .then(metrics => { section.endCdp = metrics; })
+        .catch(() => { section.endCdp = null; });
+    },
+
     /**
      * Collect final metrics at the end of the race.
      * Returns both total session metrics and measurement-scoped metrics.
      */
     async collect() {
+      await Promise.all(
+        [...sectionMeasurements.values()]
+          .map(s => s.endCdpPromise)
+          .filter(Boolean)
+      );
+
       const result = {
         total: {
           networkTransferSize: networkTotals.transferSize,
@@ -309,7 +350,8 @@ async function setupMetricsCollection(page, id) {
           layoutDuration: null,
           recalcStyleDuration: null,
           taskDuration: null
-        }
+        },
+        measuredSections: Object.create(null)
       };
 
       try {
@@ -369,6 +411,39 @@ async function setupMetricsCollection(page, id) {
         }
       } catch (error) {
         console.error(`[${id}] Warning: failed to collect metrics: ${error.message}`);
+      }
+
+      for (const [sectionName, section] of sectionMeasurements.entries()) {
+        const startNetwork = section.startNetwork;
+        const endNetwork = section.endNetwork;
+        const startCdp = section.startCdp;
+        const endCdp = section.endCdp;
+
+        const measuredSection = {
+          networkTransferSize: (startNetwork && endNetwork)
+            ? Math.max(0, endNetwork.transferSize - startNetwork.transferSize)
+            : null,
+          networkRequestCount: (startNetwork && endNetwork)
+            ? Math.max(0, endNetwork.requestCount - startNetwork.requestCount)
+            : null,
+          scriptDuration: null,
+          layoutDuration: null,
+          recalcStyleDuration: null,
+          taskDuration: null,
+        };
+
+        if (startCdp && endCdp) {
+          const computeDelta = (metric) => {
+            const delta = endCdp[metric] - startCdp[metric];
+            return Math.max(0, delta);
+          };
+          measuredSection.scriptDuration = computeDelta('scriptDuration');
+          measuredSection.layoutDuration = computeDelta('layoutDuration');
+          measuredSection.recalcStyleDuration = computeDelta('recalcStyleDuration');
+          measuredSection.taskDuration = computeDelta('taskDuration');
+        }
+
+        result.measuredSections[sectionName] = measuredSection;
       }
 
       return result;
@@ -540,10 +615,16 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     if (metricsCollector && raceStartTime === null) {
       await metricsCollector.startMeasurement();
     }
+    if (metricsCollector) {
+      await metricsCollector.startSectionMeasurement(name);
+    }
     await startMeasure(name);
   };
   page.raceEnd = (name = 'default') => {
     const duration = endMeasure(name);
+    if (metricsCollector) {
+      metricsCollector.stopSectionMeasurement(name);
+    }
     // Stop metrics measurement when the last measurement ends
     if (metricsCollector && Object.keys(activeMeasurements).length === 0) {
       metricsCollector.stopMeasurement();
@@ -1035,4 +1116,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { RESULT_SENTINEL };  // Re-exported for back-compat with existing imports.
+module.exports = { RESULT_SENTINEL, setupMetricsCollection, runMarkerMode };  // Re-exported for back-compat with existing imports.

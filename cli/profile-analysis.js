@@ -49,6 +49,53 @@ for (const metric of TOTAL_METRICS) {
   PROFILE_METRICS[`total.${metric}`] = { ...def, scope: 'total' };
 }
 
+// Metric significance thresholds (all below or equal to 4%).
+// Small deltas below these values are treated as noise and don't count as metric wins.
+const PROFILE_CATEGORY_TIE_THRESHOLD_PERCENT = {
+  loading: 2.5,
+  computation: 3,
+  rendering: 3,
+  network: 4,
+  memory: 4,
+};
+
+function getProfileCategoryThresholdPercent(category) {
+  return PROFILE_CATEGORY_TIE_THRESHOLD_PERCENT[category] ?? 3;
+}
+
+export function determineProfileMetricOutcome(metric, racerNames, values) {
+  const racersWithData = values
+    .map((value, index) => value !== null ? { index, value } : null)
+    .filter(Boolean)
+    .sort((a, b) => a.value - b.value);
+
+  const outcome = {
+    winner: null,
+    diff: null,
+    diffPercent: null,
+    rankings: racersWithData.map(r => racerNames[r.index]),
+  };
+
+  if (racersWithData.length < 2) return outcome;
+
+  const bestVal = racersWithData[0].value;
+  const worstVal = racersWithData[racersWithData.length - 1].value;
+  if (bestVal === worstVal) return outcome;
+
+  outcome.diff = worstVal - bestVal;
+  outcome.diffPercent = bestVal > 0
+    ? (outcome.diff / bestVal * 100)
+    : null;
+
+  const thresholdPercent = getProfileCategoryThresholdPercent(metric.category);
+  const isSignificant = outcome.diffPercent == null || outcome.diffPercent >= thresholdPercent;
+  if (isSignificant) {
+    outcome.winner = racerNames[racersWithData[0].index];
+  }
+
+  return outcome;
+}
+
 function formatBytes(bytes) {
   if (bytes <= 0) return '0 B';
   const k = 1024;
@@ -110,32 +157,17 @@ export function buildProfileComparison(racerNames, profileData) {
       rankings: []
     };
 
-    // Determine winner (lower is better for all metrics)
-    // Rank all racers that have data, sorted by value ascending
-    const racersWithData = vals
-      .map((v, i) => v !== null ? { index: i, value: v } : null)
-      .filter(Boolean)
-      .sort((a, b) => a.value - b.value);
+    const outcome = determineProfileMetricOutcome(metric, racerNames, vals);
+    comp.winner = outcome.winner;
+    comp.diff = outcome.diff;
+    comp.diffPercent = outcome.diffPercent;
+    comp.rankings = outcome.rankings;
 
-    if (racersWithData.length >= 2) {
-      const bestVal = racersWithData[0].value;
-      const worstVal = racersWithData[racersWithData.length - 1].value;
-      comp.rankings = racersWithData.map(r => racerNames[r.index]);
-
-      // Only declare a winner if best and worst differ
-      if (bestVal !== worstVal) {
-        const winIdx = racersWithData[0].index;
-        comp.winner = racerNames[winIdx];
-        comp.diff = worstVal - bestVal;
-        comp.diffPercent = bestVal > 0
-          ? (comp.diff / bestVal * 100)
-          : null;
-
-        if (metric.scope === 'measured') {
-          measuredWins[racerNames[winIdx]]++;
-        } else {
-          totalWins[racerNames[winIdx]]++;
-        }
+    if (comp.winner) {
+      if (metric.scope === 'measured') {
+        measuredWins[comp.winner]++;
+      } else {
+        totalWins[comp.winner]++;
       }
     }
 
@@ -147,8 +179,9 @@ export function buildProfileComparison(racerNames, profileData) {
   }
 
   // Determine overall winners
-  const measuredOverallWinner = determineOverallWinner(measuredWins, racerNames, measuredComparisons);
-  const totalOverallWinner = determineOverallWinner(totalWins, racerNames, totalComparisons);
+  // Use 0 here because per-metric significance thresholds are already applied above.
+  const measuredOverallWinner = determineOverallWinner(measuredWins, racerNames, measuredComparisons, 0);
+  const totalOverallWinner = determineOverallWinner(totalWins, racerNames, totalComparisons, 0);
 
   return {
     measured: {
@@ -281,7 +314,7 @@ export function printProfileAnalysis(profileComparison, racers) {
   write(`\n  ${c.bold}📊 Performance Profile Analysis${c.reset}\n`);
 
   if (measured.comparisons.length > 0) {
-    printProfileSection('⏱️  During Measurement (raceStart → raceEnd)', measured, racers, w, write);
+    printProfileSection('⏱️  Race', measured, racers, w, write);
   }
 }
 
@@ -311,10 +344,10 @@ function buildScopeMarkdown(title, section, racers) {
     lines.push('');
   }
 
-  if (overallWinner && overallWinner !== 'tie') {
-    lines.push(`**Winner:** ${overallWinner}`);
-  } else if (overallWinner === 'tie') {
+  if (overallWinner === 'tie') {
     lines.push('**Result:** Tie');
+  } else if (overallWinner) {
+    lines.push(`**Winner:** ${overallWinner}`);
   }
   lines.push('');
 
@@ -339,7 +372,7 @@ export function buildProfileMarkdown(profileComparison, racers) {
   lines.push('');
 
   if (measured.comparisons.length > 0) {
-    lines.push(buildScopeMarkdown('During Measurement (raceStart → raceEnd)', measured, racers));
+    lines.push(buildScopeMarkdown('Race', measured, racers));
   }
 
   return lines.join('\n');

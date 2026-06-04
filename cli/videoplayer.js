@@ -166,8 +166,15 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     debugPanel: debugPanelOut,
     results: buildResultsHtml(summary.comparisons || [], racers),
     runComparison: buildRunComparisonHtml(runSummaries || null, summary, racers),
-    profileSummary: buildProfileSummaryHtml(summary.profileComparison || null, racers),
-    profile: buildProfileHtml(summary.profileComparison || null, racers),
+    profileSummary: buildProfileSummaryHtml({
+      ...(summary.profileComparison || {}),
+      sectionComparisons: summary.comparisons || [],
+    }, racers),
+    profile: buildProfileHtml({
+      ...(summary.profileComparison || {}),
+      sectionComparisons: summary.comparisons || [],
+      rawProfileMetrics: summary.profileMetrics || [],
+    }, racers),
     files: buildFilesHtml(racers, videoFiles, {
       fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, altFormat, altFiles, placementOrder,
     }),

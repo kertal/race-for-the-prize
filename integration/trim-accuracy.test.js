@@ -112,11 +112,12 @@ describe('trim-accuracy integration', () => {
 
     const summary = JSON.parse(fs.readFileSync(path.join(resultsDir, 'summary.json'), 'utf-8'));
     expect(summary.overallWinner).toBe('alpha');
-    expect(summary.comparisons.length).toBe(2);
+    expect(summary.comparisons.length).toBe(3);
     expect(summary.comparisons[0].name).toBe('Render');
     expect(summary.comparisons[0].rankings).toEqual(['alpha', 'bravo', 'charlie', 'delta']);
     expect(summary.comparisons[1].name).toBe('Reload');
     expect(summary.comparisons[1].rankings).toEqual(['alpha', 'bravo', 'charlie', 'delta']);
+    expect(summary.comparisons[2].name).toBe('Race');
 
     for (const racer of RACERS) {
       const racerDir = path.join(resultsDir, racer.name);
