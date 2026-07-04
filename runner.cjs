@@ -497,10 +497,17 @@ function sanitizeScript(script) {
  *
  * Returns { segments, measurements } for video trimming and result comparison.
  */
-async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay = false, metricsCollector = null, noRecording = false) {
+async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay = false, metricsCollector = null, noRecording = false, cueMarkers = false) {
   const { id, script: raceScript, vars } = config;
 
-  // --- Visual cues for frame-accurate trimming / calibration ---
+  // --- Visual cues (opt-in via --cue-markers) ---
+  // Colored flashes injected at segment boundaries so ffprobe-based tests can
+  // verify trace calibration against ground truth in the recorded frames.
+  // Off by default: the flash forces a reflow and animates a DOM element at
+  // the exact raceStart/raceEnd boundaries, perturbing the CPU/layout/paint
+  // metrics being measured — and no production consumer reads the cues (the
+  // player and ffmpeg trimming both calibrate from the Playwright trace).
+  const flashCues = cueMarkers && !noRecording;
   const CUE_COLOR_START = '#00FF00';
   const CUE_COLOR_END = '#FF0000';
   const traceMarkPrefix = 'race:';
@@ -542,7 +549,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
         await markTrace(`${traceMarkPrefix}recording:start`);
         await Promise.all([
           overlayCtrl.onStartRecording(),
-          !noRecording ? flashCue(page, CUE_COLOR_START) : null,
+          flashCues ? flashCue(page, CUE_COLOR_START) : null,
         ]);
       },
       markRecordingEnd: () => markTrace(`${traceMarkPrefix}recording:end`),
@@ -557,7 +564,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
           }
         }
         await Promise.all([
-          !noRecording ? flashCue(page, CUE_COLOR_END) : null,
+          flashCues ? flashCue(page, CUE_COLOR_END) : null,
           overlayCtrl.onStopRecording(),
         ]);
       },
@@ -789,7 +796,7 @@ function trimVideoWithFfmpeg(outputDir, trimSegments, id) {
  * Called N times (once per racer) by runParallel or runSequential.
  */
 async function runBrowserRecording(config, barriers, isParallel, sharedState, opts = {}) {
-  const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, noRecording = false, ffmpeg = false, har = false, recordingsDir = null, ignoreHTTPSErrors = false, viewportHeight: configViewportHeight = null } = opts;
+  const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, noRecording = false, ffmpeg = false, har = false, cueMarkers = false, recordingsDir = null, ignoreHTTPSErrors = false, viewportHeight: configViewportHeight = null } = opts;
   const { id, headless: headlessRaw } = config;
   const headless = headlessRaw === true;
   const outputDir = recordingsDir ? path.join(recordingsDir, id) : path.join(__dirname, 'recordings', id);
@@ -841,7 +848,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
 
     metricsCollector = await startProfiling(page, browser, id);
 
-    const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay, metricsCollector, noRecording);
+    const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay, metricsCollector, noRecording, cueMarkers);
     const markerSegments = result?.segments || [];
     const markerMeasurements = result?.measurements || [];
 
@@ -1020,9 +1027,9 @@ async function main() {
     process.exit(1);
   }
 
-  const { browsers, executionMode, throttle, headless: headlessRaw, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir, ignoreHTTPSErrors, viewportHeight } = config;
+  const { browsers, executionMode, throttle, headless: headlessRaw, slowmo, noOverlay, noRecording, ffmpeg, har, cueMarkers, recordingsDir, ignoreHTTPSErrors, viewportHeight } = config;
   const headless = headlessRaw === true;
-  const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir, ignoreHTTPSErrors, viewportHeight };
+  const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, har, cueMarkers, recordingsDir, ignoreHTTPSErrors, viewportHeight };
 
   // Set headless flag on all browser configs (strict boolean — strings must not slip through)
   for (const browser of browsers) {

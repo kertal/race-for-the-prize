@@ -94,7 +94,7 @@ describe('trim-accuracy integration', () => {
   it('runs trim-test race and produces accurate measurement durations', () => {
     const projectRoot = path.resolve(__dirname, '..');
 
-    const proc = spawnSync('node', ['race.js', './races/trim-test', '--serve=false'], {
+    const proc = spawnSync('node', ['race.js', './races/trim-test', '--serve=false', '--cue-markers'], {
       cwd: projectRoot,
       timeout: 60_000,
       encoding: 'utf-8',

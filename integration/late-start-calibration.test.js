@@ -64,7 +64,7 @@ describeWithFfprobe('late-start calibration integration', () => {
 
   beforeAll(() => {
     const projectRoot = path.resolve(__dirname, '..');
-    const proc = spawnSync('node', ['race.js', './races/late-start-test', '--serve=false', '--headless'], {
+    const proc = spawnSync('node', ['race.js', './races/late-start-test', '--serve=false', '--headless', '--cue-markers'], {
       cwd: projectRoot,
       timeout: 100_000,
       encoding: 'utf-8',
