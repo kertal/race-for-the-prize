@@ -52,12 +52,17 @@ export function buildResultsPaths(resultsDir, cwd = process.cwd()) {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * Sentinel prefix used by runner.cjs to mark its one real result line.
- * Imported from the shared runner-protocol module so the parent and runner
- * cannot drift out of sync.
+ * Runner ↔ parent contract (result sentinel, protocol version, stderr line
+ * formats). Imported from the shared runner-protocol module so the parent
+ * and runner cannot drift out of sync.
  */
-export const { RESULT_SENTINEL: RUNNER_RESULT_SENTINEL } =
-  createRequire(import.meta.url)('./runner-protocol.cjs');
+const runnerProtocol = createRequire(import.meta.url)('./runner-protocol.cjs');
+export const { RESULT_SENTINEL: RUNNER_RESULT_SENTINEL } = runnerProtocol;
+const {
+  PROTOCOL_VERSION: RUNNER_PROTOCOL_VERSION,
+  createRaceMessageRegex,
+  formatContextClosed,
+} = runnerProtocol;
 
 /**
  * Module-level abort state. Set on SIGINT so in-flight work can bail out
@@ -255,10 +260,8 @@ export function spawnRunner(ctx) {
   animation.start();
 
   // Pre-compile message regexes to avoid recreating them on every stderr event
-  const messageRegexes = racerNames.map(name => {
-    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp(`\\[${escaped}\\] __raceMessage__\\[([\\d.]+)\\]:(.*)`, 'g');
-  });
+  const messageRegexes = racerNames.map(name => createRaceMessageRegex(name));
+  const contextClosedMarkers = racerNames.map(name => formatContextClosed(name));
 
   const runnerPath = path.join(rootDir, 'runner.cjs');
 
@@ -275,7 +278,7 @@ export function spawnRunner(ctx) {
     child.stderr.on('data', d => {
       const text = d.toString();
       racerNames.forEach((name, i) => {
-        if (text.includes(`[${name}] Context closed`)) animation.racerFinished(i);
+        if (text.includes(contextClosedMarkers[i])) animation.racerFinished(i);
         const re = messageRegexes[i];
         re.lastIndex = 0;
         let m;
@@ -325,7 +328,14 @@ export function spawnRunner(ctx) {
         const line = lines[i];
         if (!line.startsWith(RUNNER_RESULT_SENTINEL)) continue;
         try {
-          return resolve(JSON.parse(line.slice(RUNNER_RESULT_SENTINEL.length)));
+          const result = JSON.parse(line.slice(RUNNER_RESULT_SENTINEL.length));
+          if (result.protocolVersion !== RUNNER_PROTOCOL_VERSION) {
+            return reject(new Error(
+              `Runner protocol mismatch: race.js expects v${RUNNER_PROTOCOL_VERSION} but runner.cjs ` +
+              `sent v${result.protocolVersion ?? 'unversioned'}. race.js and runner.cjs must come from the same install.`
+            ));
+          }
+          return resolve(result);
         } catch (e) {
           console.error(`Warning: Malformed runner result line: ${e.message}`);
         }
@@ -465,6 +475,7 @@ export function buildRaceContext({ racerNames, scripts, settings, rootDir = __di
   const throttle = { network: settings.network, cpu: settings.cpuThrottle };
 
   const runnerConfig = {
+    protocolVersion: RUNNER_PROTOCOL_VERSION,
     browsers: racerNames.map((name, i) => ({
       id: name,
       script: scripts[i],

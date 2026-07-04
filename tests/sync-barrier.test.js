@@ -93,6 +93,69 @@ describe('SyncBarrier', () => {
     expect(barrier.released).toBe(true);
   });
 
+  describe('timeout', () => {
+    it('releases a hung waiter with timedOut after timeoutMs', async () => {
+      vi.useFakeTimers();
+      const sharedState = { hasError: false, errorMessage: null };
+      const barrier = new SyncBarrier(2, sharedState, { timeoutMs: 1000 });
+
+      const p1 = barrier.wait('recordingStart');
+      // The second racer never arrives (e.g. a pure-JS hang)
+      await vi.advanceTimersByTimeAsync(1100);
+
+      const result = await p1;
+      expect(result).toEqual({ aborted: true, timedOut: true });
+      expect(sharedState.hasError).toBe(true);
+      expect(sharedState.errorMessage).toContain('timed out');
+      vi.useRealTimers();
+    });
+
+    it('does not time out when all racers arrive in time', async () => {
+      vi.useFakeTimers();
+      const barrier = new SyncBarrier(2, null, { timeoutMs: 1000 });
+
+      const p1 = barrier.wait('a');
+      await vi.advanceTimersByTimeAsync(500);
+      const p2 = barrier.wait('b');
+
+      const results = await Promise.all([p1, p2]);
+      expect(results).toEqual([{ aborted: false }, { aborted: false }]);
+
+      // Advancing past the deadline after release must not flip state
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(barrier.timedOut).toBe(false);
+      vi.useRealTimers();
+    });
+
+    it('late waiters after a timeout see the timedOut abort', async () => {
+      vi.useFakeTimers();
+      const barrier = new SyncBarrier(2, { hasError: false }, { timeoutMs: 1000 });
+
+      const p1 = barrier.wait('a');
+      await vi.advanceTimersByTimeAsync(1100);
+      await p1;
+
+      const late = await barrier.wait('late');
+      expect(late).toEqual({ aborted: true, timedOut: true });
+      vi.useRealTimers();
+    });
+
+    it('no timeout is armed when timeoutMs is 0 (default)', async () => {
+      vi.useFakeTimers();
+      const barrier = new SyncBarrier(2);
+
+      const p1 = barrier.wait('a');
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+      expect(barrier.timedOut).toBe(false);
+      expect(barrier.released).toBe(false);
+
+      barrier.wait('b');
+      const result = await p1;
+      expect(result).toEqual({ aborted: false });
+      vi.useRealTimers();
+    });
+  });
+
   it('can be reused across multiple rounds', async () => {
     // Three barriers for three checkpoints, as used in parallel mode
     const barriers = {

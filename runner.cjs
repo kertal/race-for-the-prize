@@ -21,7 +21,8 @@ const { execFileSync } = require('child_process');
 const { waitForStability } = require('./visual-stability.cjs');
 const { deriveTraceTiming } = require('./trace-calibration.cjs');
 const { flashCue, OverlayController } = require('./overlay.cjs');
-const { RESULT_SENTINEL } = require('./runner-protocol.cjs');
+const { createRaceApi } = require('./race-api.cjs');
+const { RESULT_SENTINEL, PROTOCOL_VERSION, formatRaceMessage, formatContextClosed } = require('./runner-protocol.cjs');
 
 // Track active browsers/contexts for cleanup on SIGTERM/SIGINT
 let activeBrowsers = [];
@@ -36,6 +37,10 @@ const POST_RACE_WAIT_MS = 500;          // Pause after race finishes for final v
 const SLOWMO_MULTIPLIER = 20;           // Playwright slowMo factor per slowmo unit
 const PAGE_TIMEOUT_MS = 90000;          // Default page action/navigation timeout
 const FFMPEG_TIMEOUT_MS = 120000;       // Timeout for ffmpeg operations
+// Barrier deadline sits above the page timeout so Playwright's own errors fire
+// first; it exists to catch pure-JS hangs those timeouts can't see, which would
+// otherwise deadlock the other racer at a sync point forever.
+const BARRIER_TIMEOUT_MS = PAGE_TIMEOUT_MS + 30000;
 
 // --- Constants (loaded from shared ESM module) ---
 
@@ -495,11 +500,6 @@ function sanitizeScript(script) {
 async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay = false, metricsCollector = null, noRecording = false) {
   const { id, script: raceScript, vars } = config;
 
-  const segments = [];
-  let currentSegmentStart = null;
-  const measurements = [];
-  const activeMeasurements = {};
-
   // --- Visual cues for frame-accurate trimming / calibration ---
   const CUE_COLOR_START = '#00FF00';
   const CUE_COLOR_END = '#FF0000';
@@ -529,108 +529,63 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
 
   const overlayCtrl = new OverlayController(page, { noOverlay, noRecording });
 
-  const startRecording = async () => {
-    if (currentSegmentStart !== null) return;
-    if (isParallel && barriers) {
-      const result = await barriers.recordingStart.wait(`${id} startRecording`);
-      if (result?.aborted) return;
-    }
-    const startWallMs = Date.now();
-    currentSegmentStart = (startWallMs - recordingStartTime) / 1000;
-    await markTrace(`${traceMarkPrefix}recording:start`);
-    await Promise.all([
-      overlayCtrl.onStartRecording(),
-      !noRecording ? flashCue(page, CUE_COLOR_START) : null,
-    ]);
-  };
-
-
-  let stopPromise = null;
-  const stopRecording = async () => {
-    if (currentSegmentStart === null) return stopPromise;
-    segments.push({ start: currentSegmentStart, end: (Date.now() - recordingStartTime) / 1000 });
-    await markTrace(`${traceMarkPrefix}recording:end`);
-    currentSegmentStart = null;
-    stopPromise = (async () => {
-      if (sharedState) {
-        const lastMeasurement = measurements[measurements.length - 1];
-        const endTime = lastMeasurement ? lastMeasurement.endTime : (Date.now() - recordingStartTime) / 1000;
-        sharedState.finishOrder.push({ id, endTime });
-        if (!noOverlay && !noRecording) {
-          // Calculate placement from finish order for the medal display
-          const sorted = [...sharedState.finishOrder].sort((a, b) => a.endTime - b.endTime);
-          const place = isParallel ? sorted.findIndex(f => f.id === id) + 1 : null;
-          await overlayCtrl.onFinish(place);
+  // The state machine lives in race-api.cjs; everything runner-specific
+  // (trace marks, overlays, cues, CDP metrics, barriers, stderr protocol)
+  // is injected as hooks.
+  const api = createRaceApi({
+    recordingStartTime,
+    hooks: {
+      gateRecordingStart: isParallel && barriers
+        ? () => barriers.recordingStart.wait(`${id} startRecording`)
+        : null,
+      onRecordingStart: async () => {
+        await markTrace(`${traceMarkPrefix}recording:start`);
+        await Promise.all([
+          overlayCtrl.onStartRecording(),
+          !noRecording ? flashCue(page, CUE_COLOR_START) : null,
+        ]);
+      },
+      markRecordingEnd: () => markTrace(`${traceMarkPrefix}recording:end`),
+      onRecordingStop: async ({ endTime }) => {
+        if (sharedState) {
+          sharedState.finishOrder.push({ id, endTime });
+          if (!noOverlay && !noRecording) {
+            // Calculate placement from finish order for the medal display
+            const sorted = [...sharedState.finishOrder].sort((a, b) => a.endTime - b.endTime);
+            const place = isParallel ? sorted.findIndex(f => f.id === id) + 1 : null;
+            await overlayCtrl.onFinish(place);
+          }
         }
-      }
-      await Promise.all([
-        !noRecording ? flashCue(page, CUE_COLOR_END) : null,
-        overlayCtrl.onStopRecording(),
-      ]);
-    })();
-    return stopPromise;
-  };
-
-  let raceStartTime = null;
-
-  const startMeasure = async (name = 'default') => {
-    if (raceStartTime === null) raceStartTime = Date.now();
-    activeMeasurements[name] = (Date.now() - recordingStartTime) / 1000;
-    await markTrace(`${traceMarkPrefix}measure:start:${encodeMeasureName(name)}`);
-    await overlayCtrl.onMeasureStart();
-  };
-
-  const endMeasure = (name = 'default') => {
-    const start = activeMeasurements[name];
-    if (start === undefined) return 0;
-    const end = (Date.now() - recordingStartTime) / 1000;
-    const duration = end - start;
-    measurements.push({ name, startTime: start, endTime: end, duration });
-    delete activeMeasurements[name];
-    queueTraceMark(`${traceMarkPrefix}measure:end:${encodeMeasureName(name)}`);
-    overlayCtrl.onMeasureEnd();
-    return end - start;
-  };
-
-  let hasExplicitRecording = false;
-  let autoRecordingStarted = false;
-
-  page.raceMessage = (text) => {
-    if (text == null) {
-      text = '';
-    } else if (typeof text !== 'string') {
-      text = String(text);
-    }
-    const elapsed = raceStartTime ? ((Date.now() - raceStartTime) / 1000).toFixed(1) : '0.0';
-    console.error(`[${id}] __raceMessage__[${elapsed}]:${text}`);
-  };
-  page.raceRecordingStart = async () => { hasExplicitRecording = true; await startRecording(); };
-  page.raceRecordingEnd = async () => { hasExplicitRecording = true; await stopRecording(); };
-  page.raceStart = async (name = 'default') => {
-    if (!hasExplicitRecording && !autoRecordingStarted) {
-      autoRecordingStarted = true;
-      await startRecording();
-    }
-    // Start metrics measurement on first raceStart
-    if (metricsCollector && raceStartTime === null) {
-      await metricsCollector.startMeasurement();
-    }
-    if (metricsCollector) {
-      await metricsCollector.startSectionMeasurement(name);
-    }
-    await startMeasure(name);
-  };
-  page.raceEnd = (name = 'default') => {
-    const duration = endMeasure(name);
-    if (metricsCollector) {
-      metricsCollector.stopSectionMeasurement(name);
-    }
-    // Stop metrics measurement when the last measurement ends
-    if (metricsCollector && Object.keys(activeMeasurements).length === 0) {
-      metricsCollector.stopMeasurement();
-    }
-    return duration;
-  };
+        await Promise.all([
+          !noRecording ? flashCue(page, CUE_COLOR_END) : null,
+          overlayCtrl.onStopRecording(),
+        ]);
+      },
+      onMeasureStart: async (name) => {
+        await markTrace(`${traceMarkPrefix}measure:start:${encodeMeasureName(name)}`);
+        await overlayCtrl.onMeasureStart();
+      },
+      onMeasureEnd: (name) => {
+        queueTraceMark(`${traceMarkPrefix}measure:end:${encodeMeasureName(name)}`);
+        overlayCtrl.onMeasureEnd();
+      },
+      onFirstRaceStart: metricsCollector
+        ? () => metricsCollector.startMeasurement()
+        : null,
+      onSectionStart: metricsCollector
+        ? (name) => metricsCollector.startSectionMeasurement(name)
+        : null,
+      onSectionEnd: metricsCollector
+        ? (name, activeCount) => {
+            metricsCollector.stopSectionMeasurement(name);
+            // Stop metrics measurement when the last measurement ends
+            if (activeCount === 0) metricsCollector.stopMeasurement();
+          }
+        : null,
+      onMessage: (elapsed, text) => console.error(formatRaceMessage(id, elapsed, text)),
+    },
+  });
+  api.attach(page);
 
   // CDP session for visual stability checks — created lazily, cleaned up after script
   let cdpSession = null;
@@ -702,7 +657,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   try {
     const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor; // NOSONAR — intentional: executes user-provided race scripts
     const fn = new AsyncFunction('page', 'race', '__startRecording', '__stopRecording', '__startMeasure', '__endMeasure', sanitized); // NOSONAR
-    await fn(page, raceContext, startRecording, stopRecording, startMeasure, endMeasure);
+    await fn(page, raceContext, api.startRecording, api.stopRecording, api.startMeasure, api.endMeasure);
   } catch (error) {
     console.error(`[${id}] Script failed: ${error.message}`);
     throw new Error(`Script execution failed: ${error.message}`);
@@ -714,15 +669,14 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     }
   }
 
-  if (currentSegmentStart !== null) await stopRecording();
-  if (stopPromise) await stopPromise;
+  await api.finalize();
 
   if (isParallel && barriers) {
     await barriers.stop.wait(`${id} finished`);
   }
 
   await page.waitForTimeout(POST_RACE_WAIT_MS);
-  return { segments, measurements };
+  return { segments: api.segments, measurements: api.measurements };
 }
 
 // --- Network & CPU throttling ---
@@ -901,7 +855,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     const wallClockDuration = (Date.now() - contextCreationStart) / 1000;
     activeContexts = activeContexts.filter(ctx => ctx !== context);
     context = null;
-    console.error(`[${id}] Context closed`);
+    console.error(formatContextClosed(id));
 
     await browser.close();
     activeBrowsers = activeBrowsers.filter(b => b !== browser);
@@ -1018,9 +972,9 @@ async function runParallel(browserConfigs, opts = {}) {
   const count = browserConfigs.length;
   const sharedState = { hasError: false, errorMessage: null, finishOrder: [] };
   const barriers = {
-    ready: new SyncBarrier(count, sharedState),
-    recordingStart: new SyncBarrier(count, sharedState),
-    stop: new SyncBarrier(count, sharedState)
+    ready: new SyncBarrier(count, sharedState, { timeoutMs: BARRIER_TIMEOUT_MS }),
+    recordingStart: new SyncBarrier(count, sharedState, { timeoutMs: BARRIER_TIMEOUT_MS }),
+    stop: new SyncBarrier(count, sharedState, { timeoutMs: BARRIER_TIMEOUT_MS })
   };
 
   const promises = browserConfigs.map((config, i) =>
@@ -1058,6 +1012,14 @@ async function main() {
   try { config = JSON.parse(configJson); }
   catch (e) { console.error('Error: Invalid JSON:', e.message); process.exit(1); }
 
+  if (config.protocolVersion !== PROTOCOL_VERSION) {
+    console.error(
+      `Error: Runner protocol mismatch — runner.cjs speaks v${PROTOCOL_VERSION} but the config is ` +
+      `v${config.protocolVersion ?? 'unversioned'}. race.js and runner.cjs must come from the same install.`
+    );
+    process.exit(1);
+  }
+
   const { browsers, executionMode, throttle, headless: headlessRaw, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir, ignoreHTTPSErrors, viewportHeight } = config;
   const headless = headlessRaw === true;
   const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir, ignoreHTTPSErrors, viewportHeight };
@@ -1085,6 +1047,7 @@ async function main() {
   // can reliably distinguish this line from any other stdout (e.g. from
   // subprocess tooling, Playwright logs, or a signal-cleanup stub).
   const payload = JSON.stringify({
+    protocolVersion: PROTOCOL_VERSION,
     browsers: results.map(r => ({
       id: r.id,
       videoPath: r.videoPath || null,
@@ -1111,7 +1074,7 @@ async function main() {
 if (require.main === module) {
   main().catch(err => {
     console.error('Fatal error:', err);
-    console.log(RESULT_SENTINEL + JSON.stringify({ browsers: [], errors: [err.message] }));
+    console.log(RESULT_SENTINEL + JSON.stringify({ protocolVersion: PROTOCOL_VERSION, browsers: [], errors: [err.message] }));
     process.exit(1);
   });
 }

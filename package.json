@@ -8,6 +8,7 @@
   },
   "files": [
     "race.js",
+    "race-api.cjs",
     "runner.cjs",
     "runner-protocol.cjs",
     "sync-barrier.cjs",
