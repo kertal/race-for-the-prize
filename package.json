@@ -9,7 +9,11 @@
   "files": [
     "race.js",
     "runner.cjs",
+    "runner-protocol.cjs",
     "sync-barrier.cjs",
+    "overlay.cjs",
+    "trace-calibration.cjs",
+    "visual-stability.cjs",
     "cli/",
     "races/*/*.spec.js",
     "races/*/settings.json",

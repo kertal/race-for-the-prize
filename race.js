@@ -346,111 +346,114 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
   fs.mkdirSync(recordingsDir, { recursive: true });
   const raceCtx = { ...ctx, runnerConfig: { ...ctx.runnerConfig, recordingsDir } };
 
-  const result = await spawnRunner(raceCtx);
+  // The finally block guarantees the temp recordings dir is removed even when
+  // the runner crashes or the race is aborted mid-run.
+  try {
+    const result = await spawnRunner(raceCtx);
 
-  let results, summary, sideBySidePath = null, sideBySideName = null, clipTimes = null;
-  const { raceScriptFiles, settingsFileCopied } = copyRaceAssets(ctx.raceDir, ctx.racerFiles, runDir);
-  const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
+    let results, summary, sideBySidePath = null, sideBySideName = null, clipTimes = null;
+    const { raceScriptFiles, settingsFileCopied } = copyRaceAssets(ctx.raceDir, ctx.racerFiles, runDir);
+    const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
 
-  if (noRecording) {
-    // No-recording mode: just save measurements, skip all video processing
-    results = racerNames.map((name, i) => {
-      const b = result.browsers?.[i] || {};
-      let tracePath = null;
-      if (b.tracePath) {
-        const sourceTrace = path.join(recordingsDir, b.tracePath);
-        const targetTraceName = `${name}.trace.json`;
-        const targetTrace = path.join(racerRunDirs[i], targetTraceName);
-        try {
-          if (fs.existsSync(sourceTrace)) {
-            fs.copyFileSync(sourceTrace, targetTrace);
-            tracePath = path.join(name, targetTraceName);
-          } else {
-            console.error(`${c.dim}Warning: Trace file missing for ${name}: ${sourceTrace}${c.reset}`);
+    if (noRecording) {
+      // No-recording mode: just save measurements, skip all video processing
+      results = racerNames.map((name, i) => {
+        const b = result.browsers?.[i] || {};
+        let tracePath = null;
+        if (b.tracePath) {
+          const sourceTrace = path.join(recordingsDir, b.tracePath);
+          const targetTraceName = `${name}.trace.json`;
+          const targetTrace = path.join(racerRunDirs[i], targetTraceName);
+          try {
+            if (fs.existsSync(sourceTrace)) {
+              fs.copyFileSync(sourceTrace, targetTrace);
+              tracePath = path.join(name, targetTraceName);
+            } else {
+              console.error(`${c.dim}Warning: Trace file missing for ${name}: ${sourceTrace}${c.reset}`);
+            }
+          } catch (e) {
+            console.error(`${c.dim}Warning: Could not copy trace for ${name}: ${e.message}${c.reset}`);
           }
-        } catch (e) {
-          console.error(`${c.dim}Warning: Could not copy trace for ${name}: ${e.message}${c.reset}`);
+        }
+        const data = {
+          videoPath: null, fullVideoPath: null, tracePath,
+          measurements: b.measurements || [],
+          profileMetrics: b.profileMetrics || null, error: b.error || null,
+        };
+        fs.writeFileSync(path.join(racerRunDirs[i], 'measurements.json'), JSON.stringify(data.measurements, null, 2));
+        if (data.profileMetrics) fs.writeFileSync(path.join(racerRunDirs[i], 'profile-metrics.json'), JSON.stringify(data.profileMetrics, null, 2));
+        return data;
+      });
+      summary = buildSummary(racerNames, results, settings, runDir);
+      fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
+    } else {
+      const progress = startProgress('Processing recordings…');
+      results = racerNames.map((name, i) =>
+        moveResults(recordingsDir, name, racerRunDirs[i], result.browsers?.[i] || {})
+      );
+
+      summary = buildSummary(racerNames, results, settings, runDir);
+      fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
+      progress.done('Recordings processed');
+
+      sideBySideName = `${racerNames.join('-vs-')}${ext}`;
+
+      if (ffmpeg) {
+        // Order videos by placement (winner first) for side-by-side
+        const placementOrder = getPlacementOrder(summary);
+        const videoPaths = placementOrder.map(i => results[i].videoPath).filter(Boolean);
+        sideBySidePath = createSideBySide(videoPaths, path.join(runDir, sideBySideName), format, settings.slowmo);
+
+        if (format !== 'webm') {
+          const convertProgress = startProgress(`Converting videos to ${format}…`);
+          convertVideos(results, format);
+          convertProgress.done(`Videos converted to ${format}`);
         }
       }
-      const data = {
-        videoPath: null, fullVideoPath: null, tracePath,
-        measurements: b.measurements || [],
-        profileMetrics: b.profileMetrics || null, error: b.error || null,
-      };
-      fs.writeFileSync(path.join(racerRunDirs[i], 'measurements.json'), JSON.stringify(data.measurements, null, 2));
-      if (data.profileMetrics) fs.writeFileSync(path.join(racerRunDirs[i], 'profile-metrics.json'), JSON.stringify(data.profileMetrics, null, 2));
-      return data;
-    });
-    fs.rmSync(recordingsDir, { recursive: true, force: true });
-    summary = buildSummary(racerNames, results, settings, runDir);
-    fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
-  } else {
-    const progress = startProgress('Processing recordings…');
-    results = racerNames.map((name, i) =>
-      moveResults(recordingsDir, name, racerRunDirs[i], result.browsers?.[i] || {})
-    );
 
-    fs.rmSync(recordingsDir, { recursive: true, force: true });
-
-    summary = buildSummary(racerNames, results, settings, runDir);
-    fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
-    progress.done('Recordings processed');
-
-    sideBySideName = `${racerNames.join('-vs-')}${ext}`;
-
-    if (ffmpeg) {
-      // Order videos by placement (winner first) for side-by-side
-      const placementOrder = getPlacementOrder(summary);
-      const videoPaths = placementOrder.map(i => results[i].videoPath).filter(Boolean);
-      sideBySidePath = createSideBySide(videoPaths, path.join(runDir, sideBySideName), format, settings.slowmo);
-
-      if (format !== 'webm') {
-        const convertProgress = startProgress(`Converting videos to ${format}…`);
-        convertVideos(results, format);
-        convertProgress.done(`Videos converted to ${format}`);
+      // With --ffmpeg, videos are trimmed and separate full recordings exist.
+      // Without --ffmpeg, the single video IS the full recording — the player handles
+      // virtual trimming via clip times from recordingSegments.
+      let videoFiles, fullVideoFiles, altFiles;
+      if (ffmpeg) {
+        videoFiles = racerNames.map(name => `${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
+        fullVideoFiles = racerNames.map(name => `${name}/${name}.full${FORMAT_EXTENSIONS.webm}`);
+        altFiles = format !== 'webm' ? racerNames.map(name => `${name}/${name}.race${ext}`) : null;
+      } else {
+        // Only the full (untrimmed) video exists — use it for both race and full views
+        videoFiles = racerNames.map(name => `${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
+        fullVideoFiles = null; // same file, no separate full video
+        altFiles = null;       // no format conversion without ffmpeg
       }
+
+      const traceFiles = racerNames.map(name => `${name}/${name}.trace.json`);
+      const harFiles = racerNames.map((name, i) => {
+        return results[i]?.harPath ? `${name}/${name}.har` : null;
+      });
+
+      clipTimes = buildClipTimes(racerNames, (i) => result.browsers?.[i], ffmpeg);
+
+      writePlayerAndAssets({
+        runDir, summary, settings, videoFiles,
+        playerExtras: {
+          fullVideoFiles,
+          mergedVideoFile: sideBySidePath ? sideBySideName : null,
+          traceFiles,
+          harFiles,
+          raceScriptFiles,
+          settingsFileCopied,
+          runNavigation,
+          clipTimes,
+          altFiles,
+        },
+        raceOptions,
+      });
     }
 
-    // With --ffmpeg, videos are trimmed and separate full recordings exist.
-    // Without --ffmpeg, the single video IS the full recording — the player handles
-    // virtual trimming via clip times from recordingSegments.
-    let videoFiles, fullVideoFiles, altFiles;
-    if (ffmpeg) {
-      videoFiles = racerNames.map(name => `${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
-      fullVideoFiles = racerNames.map(name => `${name}/${name}.full${FORMAT_EXTENSIONS.webm}`);
-      altFiles = format !== 'webm' ? racerNames.map(name => `${name}/${name}.race${ext}`) : null;
-    } else {
-      // Only the full (untrimmed) video exists — use it for both race and full views
-      videoFiles = racerNames.map(name => `${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
-      fullVideoFiles = null; // same file, no separate full video
-      altFiles = null;       // no format conversion without ffmpeg
-    }
-
-    const traceFiles = racerNames.map(name => `${name}/${name}.trace.json`);
-    const harFiles = racerNames.map((name, i) => {
-      return results[i]?.harPath ? `${name}/${name}.har` : null;
-    });
-
-    clipTimes = buildClipTimes(racerNames, (i) => result.browsers?.[i], ffmpeg);
-
-    writePlayerAndAssets({
-      runDir, summary, settings, videoFiles,
-      playerExtras: {
-        fullVideoFiles,
-        mergedVideoFile: sideBySidePath ? sideBySideName : null,
-        traceFiles,
-        harFiles,
-        raceScriptFiles,
-        settingsFileCopied,
-        runNavigation,
-        clipTimes,
-        altFiles,
-      },
-      raceOptions,
-    });
+    return { summary, sideBySidePath, sideBySideName, clipTimes };
+  } finally {
+    fs.rmSync(recordingsDir, { recursive: true, force: true });
   }
-
-  return { summary, sideBySidePath, sideBySideName, clipTimes };
 }
 
 /**
@@ -1316,10 +1319,13 @@ async function runRacerAlone(browserIdx, racerRunDir) {
     runnerConfig: { ...ctx.runnerConfig, browsers: [ctx.runnerConfig.browsers[browserIdx]], recordingsDir },
   };
 
-  const rawResult = await spawnRunner(singleCtx);
-  const movedResult = moveResults(recordingsDir, racerNames[browserIdx], racerRunDir, rawResult.browsers?.[0] || {});
-  fs.rmSync(recordingsDir, { recursive: true, force: true });
-  return { rawResult, movedResult };
+  try {
+    const rawResult = await spawnRunner(singleCtx);
+    const movedResult = moveResults(recordingsDir, racerNames[browserIdx], racerRunDir, rawResult.browsers?.[0] || {});
+    return { rawResult, movedResult };
+  } finally {
+    fs.rmSync(recordingsDir, { recursive: true, force: true });
+  }
 }
 
 /**
