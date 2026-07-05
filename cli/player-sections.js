@@ -8,6 +8,13 @@
 
 import { PROFILE_METRICS, categoryDescriptions, determineProfileMetricOutcome } from './profile-analysis.js';
 import { formatPlatform } from './summary.js';
+import {
+  isSyntheticTotal,
+  buildResultsModel,
+  buildRunComparisonModel,
+  rankEntries,
+  rankComparisonDurations,
+} from './report-model.js';
 
 export const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f', '#9b59b6'];
 const NON_PREFIX_SECTION_NAMES = new Set(['Race', 'Race (All Sections)']);
@@ -32,17 +39,6 @@ export function escHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-/** Sort racers by value ascending (best first), nulls last. */
-export function sortByValue(racers, getValue) {
-  return racers
-    .map((name, i) => ({ name, index: i, ...getValue(i) }))
-    .sort((a, b) => {
-      if (a.val === null) return 1;
-      if (b.val === null) return -1;
-      return a.val - b.val;
-    });
-}
-
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -63,33 +59,16 @@ function formatSectionTitle(name) {
   return `Race Section ${name}`;
 }
 
-function sortComparisonsForDisplay(comparisons) {
-  return [...comparisons].sort((a, b) => {
-    const aIsTotal = a?.isSyntheticTotal === true;
-    const bIsTotal = b?.isSyntheticTotal === true;
-    if (aIsTotal && !bIsTotal) return -1;
-    if (!aIsTotal && bIsTotal) return 1;
-    return 0;
-  });
-}
-
-function isTotalComparison(comp) {
-  return comp?.isSyntheticTotal === true;
-}
-
-/** Build sorted bar-chart HTML rows for a single metric. */
-function buildMetricRowsHtml(entries, winner, formatDelta) {
-  const nonNullVals = entries.filter(e => e.val !== null).map(e => e.val);
-  const maxVal = nonNullVals.length > 0 ? Math.max(...nonNullVals) : 0;
-  const bestVal = entries[0]?.val;
+/** Build sorted bar-chart HTML rows for a single metric from a report-model ranking. */
+function buildMetricRowsHtml(ranking, winner) {
+  const { entries, maxValue } = ranking;
   let html = '';
   for (const entry of entries) {
     const color = RACER_CSS_COLORS[entry.index % RACER_CSS_COLORS.length];
-    const barPct = entry.val !== null && maxVal > 0 ? Math.round((entry.val / maxVal) * 100) : 0;
-    let delta = '';
-    if (entry.val !== null && bestVal !== null && entry.val !== bestVal) {
-      delta = `<span class="profile-delta">(+${formatDelta(entry.val - bestVal)})</span>`;
-    }
+    const barPct = entry.val !== null && maxValue > 0 ? Math.round((entry.val / maxValue) * 100) : 0;
+    const delta = entry.delta != null
+      ? `<span class="profile-delta">(+${entry.delta})</span>`
+      : '';
     html += render(T['profile-row'], {
       color,
       name: escHtml(entry.name),
@@ -221,25 +200,20 @@ export function buildErrorsHtml(errors) {
 
 export function buildResultsHtml(comparisons, racers) {
   let html = '';
-  const displayComparisons = sortComparisonsForDisplay(comparisons);
-  const sectionComparisonCount = displayComparisons.filter(comp => !isTotalComparison(comp)).length;
-  const expandSingleSection = sectionComparisonCount === 1;
-  for (const comp of displayComparisons) {
-    const sorted = sortByValue(racers, i => {
-      const r = comp.racers[i];
-      return { val: r ? r.duration : null, formatted: r ? `${r.duration.toFixed(3)}s` : '-' };
-    });
-    const rows = buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`);
-    if (isTotalComparison(comp)) {
+  const { rows: resultRows, sectionCount } = buildResultsModel(comparisons, racers);
+  const expandSingleSection = sectionCount === 1;
+  for (const row of resultRows) {
+    const rows = buildMetricRowsHtml(row.ranking, row.winner);
+    if (row.isTotal) {
       html += render(T['profile-metric'], {
         metricClass: 'profile-metric-total',
         titleAttr: '',
-        name: escHtml(formatSectionTitle(comp.name)),
+        name: escHtml(formatSectionTitle(row.name)),
         desc: '',
         rows,
       }) + '\n';
     } else {
-      html += buildCollapsibleSectionMetricHtml(formatSectionTitle(comp.name), rows, expandSingleSection) + '\n';
+      html += buildCollapsibleSectionMetricHtml(formatSectionTitle(row.name), rows, expandSingleSection) + '\n';
     }
   }
   return html;
@@ -247,7 +221,7 @@ export function buildResultsHtml(comparisons, racers) {
 
 export function buildProfileSummaryHtml(profileComparison, racers) {
   const sectionComparisons = (profileComparison?.sectionComparisons || [])
-    .filter(comp => !isTotalComparison(comp));
+    .filter(comp => !isSyntheticTotal(comp));
 
   function buildWinRows(winsMap) {
     if (!racers.some(n => winsMap[n] > 0)) return '';
@@ -276,17 +250,11 @@ export function buildProfileSummaryHtml(profileComparison, racers) {
   }
   if (sectionComparisons.length > 0) {
     const openSectionRows = sectionComparisons.length === 1;
-    html += sectionComparisons.map(comp => {
-      const sorted = sortByValue(racers, i => {
-        const r = comp.racers[i];
-        return { val: r ? r.duration : null, formatted: r ? `${r.duration.toFixed(3)}s` : '-' };
-      });
-      return buildCollapsibleSectionMetricHtml(
-        formatSectionTitle(comp.name),
-        buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`),
-        openSectionRows
-      );
-    }).join('\n');
+    html += sectionComparisons.map(comp => buildCollapsibleSectionMetricHtml(
+      formatSectionTitle(comp.name),
+      buildMetricRowsHtml(rankComparisonDurations(comp, racers), comp.winner),
+      openSectionRows
+    )).join('\n');
   }
   if (totalRows) {
     html += render(T['profile-metric'], { metricClass: '', titleAttr: '', name: 'Total Recording (Including Pre and Post race)', desc: '', rows: totalRows });
@@ -330,16 +298,15 @@ export function buildProfileHtml(profileComparison, racers) {
         html += `<p class="profile-category-desc">${escHtml(catDesc)}</p>\n`;
       }
       for (const comp of comps) {
-        const sorted = sortByValue(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }));
         const metricDef = PROFILE_METRICS[comp.key];
-        const formatDeltaFn = metricDef.format;
+        const ranking = rankEntries(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }), metricDef.format);
         const desc = metricDef.description || '';
         html += render(T['profile-metric'], {
           metricClass: '',
           titleAttr: desc ? `title="${escHtml(desc)}"` : '',
           name: escHtml(comp.name) + (desc ? ' <span class="profile-info-icon">&#9432;</span>' : ''),
           desc: desc ? `<div class="profile-metric-desc">${escHtml(desc)}</div>` : '',
-          rows: buildMetricRowsHtml(sorted, comp.winner, formatDeltaFn),
+          rows: buildMetricRowsHtml(ranking, comp.winner),
         }) + '\n';
       }
     }
@@ -348,14 +315,14 @@ export function buildProfileHtml(profileComparison, racers) {
       for (const section of sectionMeasuredComparisons) {
         let sectionMetricsRows = '';
         for (const comp of section.comparisons) {
-          const sorted = sortByValue(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }));
           const metricDef = PROFILE_METRICS[comp.key];
+          const ranking = rankEntries(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }), metricDef.format);
           sectionMetricsRows += render(T['profile-metric'], {
             metricClass: '',
             titleAttr: '',
             name: escHtml(comp.name),
             desc: '',
-            rows: buildMetricRowsHtml(sorted, comp.winner, metricDef.format),
+            rows: buildMetricRowsHtml(ranking, comp.winner),
           }) + '\n';
         }
         html += buildCollapsibleSectionMetricHtml(formatSectionTitle(section.name), sectionMetricsRows, false) + '\n';
@@ -376,179 +343,67 @@ export function buildProfileHtml(profileComparison, racers) {
   return html;
 }
 
+/** Render a report-model cell as an HTML <td>: trophy for winner, delta for losers. */
+function renderHtmlCell(cell, bold) {
+  if (cell.value == null) return bold ? '<td><strong>-</strong></td>' : '<td>-</td>';
+  let content;
+  if (cell.isWinner) {
+    content = `${escHtml(cell.formatted)} (\uD83C\uDFC6)`;
+  } else if (cell.delta != null) {
+    content = `${escHtml(cell.formatted)} <span style="opacity:0.5">(${escHtml(`+${cell.delta}`)})</span>`;
+  } else {
+    content = escHtml(cell.formatted);
+  }
+  return bold ? `<td><strong>${content}</strong></td>` : `<td>${content}</td>`;
+}
+
 export function buildRunComparisonHtml(summaries, medianSummary, racers) {
   if (!summaries || summaries.length <= 1) return '';
-  const allNames = new Set(summaries.flatMap(s => s.comparisons.map(c => c.name)));
-  const hasProfileData = summaries.some(s => s.profileMetrics?.some(Boolean));
-  if (allNames.size === 0 && !hasProfileData) return '';
+  const model = buildRunComparisonModel(summaries, medianSummary, racers, PROFILE_METRICS);
+  if (model.isEmpty) return '';
 
   const racerColors = racers.map((_, i) => RACER_CSS_COLORS[i % RACER_CSS_COLORS.length]);
   const coloredHeader = racers.map((r, i) => `<th style="color:${racerColors[i]}">${escHtml(r)}</th>`).join('');
 
-  /** Format a duration cell: trophy for winner, delta for losers. */
-  const durationCell = (dur, bestDur, isWinner, bold) => {
-    if (dur == null) return bold ? '<td><strong>-</strong></td>' : '<td>-</td>';
-    const val = dur.toFixed(3) + 's';
-    let content;
-    if (isWinner) {
-      content = `${escHtml(val)} (\uD83C\uDFC6)`;
-    } else if (bestDur != null) {
-      const delta = `+${(dur - bestDur).toFixed(3)}s`;
-      content = `${escHtml(val)} <span style="opacity:0.5">(${escHtml(delta)})</span>`;
-    } else {
-      content = escHtml(val);
+  /** Render one table (run rows + median/average rows) from a model entry. */
+  const buildTable = ({ runRows, medianRow, averageRow }) => {
+    let table = `<table class="run-comparison-table"><thead><tr><th>Run</th>`;
+    table += coloredHeader;
+    table += `</tr></thead><tbody>`;
+    for (const row of runRows) {
+      table += `<tr><td>${row.label}</td>`;
+      for (const cell of row.cells) table += renderHtmlCell(cell, false);
+      table += `</tr>`;
     }
-    return bold ? `<td><strong>${content}</strong></td>` : `<td>${content}</td>`;
-  };
-
-  /** Format a generic value cell: trophy for winner, delta for losers. */
-  const valueCell = (val, bestVal, isWinner, formatFn, bold) => {
-    if (val == null) return bold ? '<td><strong>-</strong></td>' : '<td>-</td>';
-    const formatted = formatFn(val);
-    let content;
-    if (isWinner) {
-      content = `${escHtml(formatted)} (\uD83C\uDFC6)`;
-    } else if (bestVal != null) {
-      const delta = `+${formatFn(val - bestVal)}`;
-      content = `${escHtml(formatted)} <span style="opacity:0.5">(${escHtml(delta)})</span>`;
-    } else {
-      content = escHtml(formatted);
+    if (medianRow) {
+      table += `<tr class="run-comparison-median"><td><strong>Median</strong></td>`;
+      for (const cell of medianRow.cells) table += renderHtmlCell(cell, true);
+      table += `</tr>`;
     }
-    return bold ? `<td><strong>${content}</strong></td>` : `<td>${content}</td>`;
+    if (averageRow) {
+      table += `<tr class="run-comparison-median"><td><strong>Average</strong></td>`;
+      for (const cell of averageRow.cells) table += renderHtmlCell(cell, true);
+      table += `</tr>`;
+    }
+    table += `</tbody></table>`;
+    return table;
   };
 
   let html = `<details class="section">\n  <summary><h2>Run-by-Run Comparison</h2></summary>\n  <div class="section-body">`;
 
   // --- Measurement comparisons ---
-  const orderedNames = sortComparisonsForDisplay([...allNames].map(name => ({ name }))).map(c => c.name);
-  for (const name of orderedNames) {
-    html += `<h3>${escHtml(formatSectionTitle(name))}</h3>\n`;
-    html += `<table class="run-comparison-table"><thead><tr><th>Run</th>`;
-    html += coloredHeader;
-    html += `</tr></thead><tbody>`;
-
-    for (let i = 0; i < summaries.length; i++) {
-      const comp = summaries[i].comparisons.find(c => c.name === name);
-      html += `<tr><td>${i + 1}</td>`;
-      if (!comp) {
-        for (const _ of racers) html += `<td>-</td>`;
-        html += `</tr>`;
-        continue;
-      }
-      const bestDur = comp.winner ? comp.racers[racers.indexOf(comp.winner)]?.duration : null;
-      for (let j = 0; j < racers.length; j++) {
-        const r = comp.racers[j];
-        html += durationCell(r?.duration, bestDur, comp.winner === racers[j], false);
-      }
-      html += `</tr>`;
-    }
-
-    const medComp = medianSummary.comparisons.find(c => c.name === name);
-    if (medComp) {
-      const bestDur = medComp.winner ? medComp.racers[racers.indexOf(medComp.winner)]?.duration : null;
-      html += `<tr class="run-comparison-median"><td><strong>Median</strong></td>`;
-      for (let j = 0; j < racers.length; j++) {
-        html += durationCell(medComp.racers[j]?.duration, bestDur, medComp.winner === racers[j], true);
-      }
-      html += `</tr>`;
-    }
-
-    // Average row
-    const avgDurations = racers.map((_, j) => {
-      const vals = summaries
-        .map(s => s.comparisons.find(c => c.name === name)?.racers[j]?.duration)
-        .filter(d => d != null);
-      return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-    });
-    if (avgDurations.some(v => v != null)) {
-      const validAvg = avgDurations.filter(v => v != null);
-      const bestAvg = validAvg.length >= 2 ? Math.min(...validAvg) : null;
-      html += `<tr class="run-comparison-median"><td><strong>Average</strong></td>`;
-      for (let j = 0; j < racers.length; j++) {
-        const isWinner = bestAvg != null && avgDurations[j] === bestAvg;
-        html += durationCell(avgDurations[j], bestAvg, isWinner, true);
-      }
-      html += `</tr>`;
-    }
-
-    html += `</tbody></table>`;
+  for (const measurement of model.measurements) {
+    html += `<h3>${escHtml(formatSectionTitle(measurement.name))}</h3>\n`;
+    html += buildTable(measurement);
   }
 
   // --- Performance metrics comparisons ---
-  if (hasProfileData) {
-    const metricsWithData = [];
-    for (const [key, metric] of Object.entries(PROFILE_METRICS)) {
-      const [scope, metricName] = key.split('.');
-      const hasData = summaries.some(s =>
-        racers.some((_, j) => s.profileMetrics?.[j]?.[scope]?.[metricName] != null)
-      );
-      if (hasData) metricsWithData.push({ metric, scope, metricName });
-    }
+  for (const scope of model.profileScopes) {
+    html += `<h3>Performance: ${escHtml(scope.title)}</h3>\n`;
 
-    if (metricsWithData.length > 0) {
-      const scopes = [
-        { scope: 'measured', title: 'Race' },
-        { scope: 'total', title: 'Total Recording (Including Pre and Post race)' },
-      ];
-      for (const { scope: scopeName, title: scopeTitle } of scopes) {
-        const scopeMetrics = metricsWithData.filter(m => m.scope === scopeName);
-        if (scopeMetrics.length === 0) continue;
-
-        html += `<h3>Performance: ${escHtml(scopeTitle)}</h3>\n`;
-
-        for (const { metric, metricName } of scopeMetrics) {
-          html += `<h4>${escHtml(metric.name)}</h4>\n`;
-          html += `<table class="run-comparison-table"><thead><tr><th>Run</th>`;
-          html += coloredHeader;
-          html += `</tr></thead><tbody>`;
-
-          for (let i = 0; i < summaries.length; i++) {
-            const s = summaries[i];
-            html += `<tr><td>${i + 1}</td>`;
-            const vals = racers.map((_, j) => s.profileMetrics?.[j]?.[scopeName]?.[metricName] ?? null);
-            const withData = vals.map((v, j) => v != null ? { j, v } : null).filter(Boolean).sort((a, b) => a.v - b.v);
-            const bestVal = (withData.length >= 2 && withData[0].v !== withData[withData.length - 1].v) ? withData[0].v : null;
-            const winnerIdx = bestVal != null ? withData[0].j : -1;
-            for (let j = 0; j < racers.length; j++) {
-              html += valueCell(vals[j], bestVal, j === winnerIdx, metric.format.bind(metric), false);
-            }
-            html += `</tr>`;
-          }
-
-          // Median row
-          const medVals = racers.map((_, j) => medianSummary.profileMetrics?.[j]?.[scopeName]?.[metricName] ?? null);
-          const medWithData = medVals.map((v, j) => v != null ? { j, v } : null).filter(Boolean).sort((a, b) => a.v - b.v);
-          if (medVals.some(v => v != null)) {
-            const bestMedVal = (medWithData.length >= 2 && medWithData[0].v !== medWithData[medWithData.length - 1].v) ? medWithData[0].v : null;
-            const medWinnerIdx = bestMedVal != null ? medWithData[0].j : -1;
-            html += `<tr class="run-comparison-median"><td><strong>Median</strong></td>`;
-            for (let j = 0; j < racers.length; j++) {
-              html += valueCell(medVals[j], bestMedVal, j === medWinnerIdx, metric.format.bind(metric), true);
-            }
-            html += `</tr>`;
-          }
-
-          // Average row
-          const avgVals = racers.map((_, j) => {
-            const vals = summaries
-              .map(s => s.profileMetrics?.[j]?.[scopeName]?.[metricName] ?? null)
-              .filter(v => v != null);
-            return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-          });
-          if (avgVals.some(v => v != null)) {
-            const avgWithData = avgVals.map((v, j) => v != null ? { j, v } : null).filter(Boolean).sort((a, b) => a.v - b.v);
-            const bestAvgVal = (avgWithData.length >= 2 && avgWithData[0].v !== avgWithData[avgWithData.length - 1].v) ? avgWithData[0].v : null;
-            const avgWinnerIdx = bestAvgVal != null ? avgWithData[0].j : -1;
-            html += `<tr class="run-comparison-median"><td><strong>Average</strong></td>`;
-            for (let j = 0; j < racers.length; j++) {
-              html += valueCell(avgVals[j], bestAvgVal, j === avgWinnerIdx, metric.format.bind(metric), true);
-            }
-            html += `</tr>`;
-          }
-
-          html += `</tbody></table>`;
-        }
-      }
+    for (const metric of scope.metrics) {
+      html += `<h4>${escHtml(metric.name)}</h4>\n`;
+      html += buildTable(metric);
     }
   }
 
