@@ -17,36 +17,32 @@
  */
 
 import fs from 'fs';
-import http from 'http';
 import path from 'path';
 import crypto from 'crypto';
-import { spawn, spawnSync, execSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c, FORMAT_EXTENSIONS } from './cli/colors.js';
-import { parseArgs, discoverRacers, resolveSharedRacerNames, applyOverrides, applyDefaults, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown, findUnknownFlags, varsToEnv, InvalidSettingError } from './cli/config.js';
+import { parseArgs, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown, findUnknownFlags } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex, findMedianRunIndexPerRacer } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
 import { buildPlayerHtml } from './cli/videoplayer.js';
 import { buildRunNavHtml } from './cli/player-sections.js';
 import { runGeminiSummary, runGeminiSpec } from './cli/gemini-summary.js';
+import { buildResultsPaths, createStaticHandler, serveResults } from './cli/serve.js';
+import { loadRaceDir, applySettingsOrExit } from './cli/race-loader.js';
+import { runScript as runTaskScript } from './cli/task-runner.js';
+
+// Re-exports for backwards compatibility — tests (and any external consumers)
+// import these from race.js even though the implementations moved to cli/serve.js.
+export { buildResultsPaths, createStaticHandler, serveResults };
 
 /** Format a Date as YYYY-MM-DD_HH-MM-SS for directory naming. */
 export function formatTimestamp(date) {
   const pad = n => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
-}
-
-/**
- * Build the paths for results output display.
- * Returns { relResults, relHtml } relative to cwd.
- */
-export function buildResultsPaths(resultsDir, cwd = process.cwd()) {
-  const relResults = path.relative(cwd, resultsDir);
-  const relHtml = path.relative(cwd, path.join(resultsDir, 'index.html'));
-  return { relResults, relHtml };
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -497,155 +493,6 @@ export function buildRaceContext({ racerNames, scripts, settings, rootDir = __di
   return { racerNames, settings, executionMode, throttle, runnerConfig, rootDir, raceDir, racerFiles };
 }
 
-// --- Local server ---
-
-const MIME_TYPES = {
-  '.html': 'text/html',
-  '.js': 'application/javascript',
-  '.css': 'text/css',
-  '.webm': 'video/webm',
-  '.mp4': 'video/mp4',
-  '.gif': 'image/gif',
-  '.mov': 'video/quicktime',
-  '.wasm': 'application/wasm',
-  '.json': 'application/json',
-};
-
-/**
- * Create an HTTP request handler that serves static files from `dir`.
- *
- * Security: rejects any path that resolves outside `dir` (path traversal).
- * Range requests: advertises `Accept-Ranges: bytes` and responds with
- * `206 Partial Content` so browsers can seek within media files (WebM, MP4).
- * COOP/COEP headers are required for `SharedArrayBuffer` isolation used by
- * FFmpeg.wasm in the browser player.
- *
- * Exported for testing.
- */
-export function createStaticHandler(dir) {
-  return (req, res) => {
-    let urlPath;
-    try {
-      urlPath = decodeURIComponent(req.url === '/' ? '/index.html' : req.url.split('?')[0]);
-    } catch {
-      res.writeHead(400);
-      res.end('Bad request');
-      return;
-    }
-    const filePath = path.resolve(path.join(dir, urlPath));
-    // Reject paths that escape the served directory. `filePath !== dir` allows
-    // the root directory itself to resolve (though in practice req.url='/' is
-    // rewritten to index.html above).
-    if (!filePath.startsWith(dir + path.sep) && filePath !== dir) {
-      res.writeHead(403);
-      res.end('Forbidden');
-      return;
-    }
-    const ext = path.extname(filePath).toLowerCase();
-    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-    const baseHeaders = {
-      'Content-Type': contentType,
-      'Accept-Ranges': 'bytes',
-      // Required for SharedArrayBuffer isolation (FFmpeg.wasm uses COOP/COEP).
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-    };
-    fs.stat(filePath, (statErr, stat) => {
-      if (statErr || !stat.isFile()) {
-        res.writeHead(404);
-        res.end('Not found');
-        return;
-      }
-      const total = stat.size;
-      const rangeHeader = req.headers['range'];
-
-      const pipeStream = (stream) => {
-        stream.on('error', () => { if (!res.writableEnded) res.end(); });
-        stream.pipe(res);
-      };
-
-      if (rangeHeader) {
-        const m = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
-        if (!m) { res.writeHead(416); res.end(); return; }
-        let start, end;
-        if (!m[1] && !m[2]) {
-          // bytes=- with no numbers is invalid
-          res.writeHead(416); res.end(); return;
-        } else if (!m[1]) {
-          // Suffix range: bytes=-N → last N bytes
-          start = Math.max(0, total - parseInt(m[2], 10));
-          end = total - 1;
-        } else {
-          start = parseInt(m[1], 10);
-          end = m[2] ? Math.min(parseInt(m[2], 10), total - 1) : total - 1;
-        }
-        if (start > end || start >= total) { res.writeHead(416); res.end(); return; }
-        res.writeHead(206, { ...baseHeaders, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${total}` });
-        pipeStream(fs.createReadStream(filePath, { start, end }));
-      } else {
-        res.writeHead(200, { ...baseHeaders, 'Content-Length': total });
-        pipeStream(fs.createReadStream(filePath));
-      }
-    });
-  };
-}
-
-/**
- * Detect whether the current environment is headless/CI, where auto-opening
- * a browser is likely to fail or be unwanted.
- */
-function isHeadlessEnv() {
-  if (process.env.CI) return true;
-  if (!process.stderr.isTTY) return true;
-  if (process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
-    return true;
-  }
-  return false;
-}
-
-/**
- * Serve `dir` over HTTP on a random free port, optionally open `index.html`
- * in the browser, and install a SIGINT handler that cleanly closes the
- * server before exiting. Returns the server instance so callers can close it.
- * In headless/CI environments, returns null without starting a server to
- * avoid hanging non-interactive runs.
- */
-export function serveResults(dir) {
-  if (isHeadlessEnv()) {
-    const { relHtml } = buildResultsPaths(dir);
-    console.error(`  ${c.cyan}${c.bold}open ${relHtml}${c.reset}`);
-    return null;
-  }
-  // NOSONAR — local-only server for viewing race results; binds to 127.0.0.1
-  // with path traversal protection in createStaticHandler
-  const server = http.createServer(createStaticHandler(dir));
-
-  server.listen(0, '127.0.0.1', () => {
-    const { port } = server.address();
-    const url = `http://localhost:${port}/`;
-    console.error(`  ${c.dim}🌐 Serving at ${c.reset}${c.cyan}${c.bold}${url}${c.reset}`);
-    console.error(`  ${c.dim}Press Ctrl+C to stop the server.${c.reset}`);
-
-    const opener = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
-      : process.platform === 'darwin' ? ['open', [url]]
-      : ['xdg-open', [url]];
-    const child = spawn(opener[0], opener[1], { stdio: 'ignore', detached: true });
-    child.on('error', () => {}); // ignore ENOENT when opener isn't available
-    child.unref();
-  });
-
-  const shutdown = () => {
-    process.stderr.write(c.showCursor);
-    server.close(() => process.exit(0));
-    // Fallback if server.close hangs on keep-alive connections
-    setTimeout(() => process.exit(0), 2000).unref();
-  };
-  process.once('SIGINT', shutdown);
-  process.once('SIGTERM', shutdown);
-
-  return server;
-}
-
 // --- CLI entry point ---
 
 // Check if running as main module (not imported)
@@ -789,146 +636,10 @@ ${c.bold}Run it:${c.reset}
   process.exit(0);
 }
 
-/**
- * Apply CLI overrides + defaults, exiting with code 2 on user-visible
- * InvalidSettingError. Anything else rethrows. Used by both directory mode
- * and URL mode so the error-handling stays in one place.
- */
-function applySettingsOrExit(base) {
-  try {
-    return applyDefaults(applyOverrides(base, boolFlags, kvFlags));
-  } catch (e) {
-    if (e instanceof InvalidSettingError) {
-      console.error(`${c.red}Error: ${e.message}${c.reset}`);
-      process.exit(2);
-    }
-    throw e;
-  }
-}
-
-// Helper: load race config for a given directory (discovers racers, loads settings, builds ctx)
-function loadRaceDir(raceDir) {
-  if (!fs.existsSync(raceDir)) {
-    console.error(`${c.red}Error: Race directory not found: ${raceDir}${c.reset}`);
-    process.exit(1);
-  }
-
-  let settings = {};
-  const settingsPath = path.join(raceDir, 'settings.json');
-  if (fs.existsSync(settingsPath)) {
-    try {
-      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-    } catch (e) {
-      console.error(`${c.red}Error: Could not parse settings.json: ${e.message}${c.reset}`);
-      console.error(`${c.dim}  File: ${settingsPath}${c.reset}`);
-      process.exit(1);
-    }
-  }
-  settings = applySettingsOrExit(settings);
-
-  const allFiles = fs.readdirSync(raceDir).filter(f => !f.startsWith('.'));
-  const specFiles = allFiles.filter(f => f.endsWith('.spec.js')).sort();
-  const hasSharedSpecFile = specFiles.length === 1 && specFiles[0] === 'race.spec.js';
-  const hasRacersConfig = settings.racers !== undefined;
-  const hookPattern = /\.(setup|teardown)\.js$/;
-  const candidateRacerJsFiles = allFiles
-    .filter(f => f.endsWith('.js') && !f.endsWith('.spec.js') && !hookPattern.test(f) && f !== 'setup.js' && f !== 'teardown.js')
-    .sort();
-  const sharedSpecConfiguredRacerNames = hasSharedSpecFile && hasRacersConfig
-    ? Object.keys(settings.racers || {})
-    : [];
-  const conflictingSharedSpecRacerJsFiles = hasSharedSpecFile && hasRacersConfig
-    ? candidateRacerJsFiles.filter(f => sharedSpecConfiguredRacerNames.includes(path.basename(f, '.js')))
-    : [];
-  const hasOnlySharedSpec = hasSharedSpecFile && hasRacersConfig && conflictingSharedSpecRacerJsFiles.length === 0;
-
-  if (hasSharedSpecFile && hasRacersConfig && conflictingSharedSpecRacerJsFiles.length > 0) {
-    console.error(
-      `${c.red}Error: Ambiguous race directory: found race.spec.js and racer script(s) matching settings.racers: ${conflictingSharedSpecRacerJsFiles.join(', ')}.${c.reset}`
-    );
-    console.error(
-      `${c.dim}  Remove matching racer scripts to use shared-spec mode, or remove settings.racers to use file-based discovery.${c.reset}`
-    );
-    process.exit(1);
-  }
-
-  let racerNames;
-  let effectiveRacerFiles;
-  let scriptFiles;
-
-  if (hasOnlySharedSpec && hasRacersConfig) {
-    try {
-      racerNames = resolveSharedRacerNames(settings);
-    } catch (e) {
-      if (e instanceof InvalidSettingError) {
-        console.error(`${c.red}Error: ${e.message}${c.reset}`);
-        process.exit(2);
-      }
-      throw e;
-    }
-
-    for (const name of racerNames) {
-      if (Object.prototype.hasOwnProperty.call(settings.racers?.[name] || {}, 'script')) {
-        console.error(`${c.red}Error: shared-spec mode does not support settings.racers.${name}.script; use race.spec.js for all racers${c.reset}`);
-        process.exit(1);
-      }
-    }
-
-    // Keep physical race files deduplicated for asset copy and player links.
-    effectiveRacerFiles = ['race.spec.js'];
-    // Runner still needs one script payload per racer.
-    scriptFiles = racerNames.map(() => 'race.spec.js');
-  } else {
-    const { racerFiles, racerNames: discoveredNames, totalFound, dropped } = discoverRacers(raceDir);
-    if (racerFiles.length < 2) {
-      console.error(`${c.red}Error: Need at least 2 .spec.js (or .js) script files in ${raceDir}, found ${racerFiles.length}${c.reset}`);
-      process.exit(1);
-    }
-    if (totalFound > 5) {
-      console.error(`${c.yellow}Warning: Found ${totalFound} script files, using first five: ${racerFiles.join(', ')}${c.reset}`);
-      console.error(`${c.dim}  Skipped: ${dropped.join(', ')}${c.reset}`);
-    }
-
-    racerNames = discoveredNames;
-
-    // Compute effective racer files (may be overridden by settings.racers[name].script).
-    // Security: restrict to a basename within raceDir; no separators, no parent traversal.
-    effectiveRacerFiles = racerFiles.map((f, i) => {
-      const name = racerNames[i];
-      const script = settings.racers?.[name]?.script;
-      if (!script) return f;
-      const fail = (reason) => {
-        console.error(`${c.red}Error: settings.racers.${name}.script ${reason}${c.reset}`);
-        process.exit(1);
-      };
-      if (typeof script !== 'string' || script.trim() === '') fail('must be a non-empty string');
-      if (path.basename(script) !== script || script.includes('..') || path.isAbsolute(script)) {
-        fail(`must be a filename (no path separators): ${script}`);
-      }
-      const scriptPath = path.join(raceDir, script);
-      let stat;
-      try {
-        stat = fs.lstatSync(scriptPath);
-      } catch {
-        fail(`not found: ${script}`);
-      }
-      // Reject symlinks and directories up front — readFileSync would fail later
-      // with a less specific error, and symlinks could point outside raceDir.
-      if (!stat.isFile()) {
-        fail(`must be a regular file (symlinks and directories are not allowed): ${script}`);
-      }
-      return script;
-    });
-    scriptFiles = effectiveRacerFiles;
-  }
-
-  const scripts = scriptFiles.map(f =>
-    fs.readFileSync(path.join(raceDir, f), 'utf-8')
-  );
-
-  const ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir, racerFiles: effectiveRacerFiles });
-  return { ctx, settings, racerNames };
-}
+// applySettingsOrExit and loadRaceDir live in cli/race-loader.js; bind the
+// CLI flags and context builder here so call sites below stay unchanged.
+const applySettings = (base) => applySettingsOrExit(base, boolFlags, kvFlags);
+const loadRace = (dir) => loadRaceDir(dir, { boolFlags, kvFlags, rootDir: __dirname, buildContext: buildRaceContext });
 
 if (positional.length === 0) {
   console.error(`
@@ -1075,7 +786,7 @@ if (urlMode) {
   raceDir = path.resolve('races', names.join('-vs-'));
   fs.mkdirSync(raceDir, { recursive: true }); // NOSONAR — directory from sanitized racer names
 
-  settings = applySettingsOrExit({});
+  settings = applySettings({});
   racerNames = names;
   ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir });
 } else {
@@ -1094,7 +805,7 @@ if (urlMode) {
     process.exit(0);
   }
 
-  ({ ctx, settings, racerNames } = loadRaceDir(raceDir));
+  ({ ctx, settings, racerNames } = loadRace(raceDir));
 }
 
 
@@ -1113,203 +824,10 @@ const racerScripts = racerNames.map(name => ({
   ...(urlMode ? { setup: null, teardown: null } : discoverRacerSetupTeardown(raceDir, name, settings)),
 }));
 
-/**
- * Run a setup or teardown script.
- * Supports both shell scripts (.sh) and Node.js scripts (.js).
- * Can be a string (script path) or object { command, timeout, waitFor }.
- *
- * @param {string|object} script - Script path or config object
- * @param {string} label - Label for logging ('Setup' or 'Teardown')
- * @param {object} [vars] - Per-racer vars exposed to the script as RACE_VAR_* env vars
- * @returns {Promise<void>}
- */
-async function runScript(script, label, vars) {
-  if (!script) return;
+// runScript lives in cli/task-runner.js; bind raceDir/verbose here so the
+// call sites below keep their original (script, label, vars) shape.
+const runScript = (script, label, vars) => runTaskScript(script, label, vars, { raceDir, verbose });
 
-  const config = typeof script === 'string' ? { command: script } : script;
-  const { command, timeout = 300000, waitFor } = config;
-
-  // Validate command is a non-empty string
-  if (typeof command !== 'string' || !command.trim()) {
-    throw new Error(`${label} script config missing valid 'command' field`);
-  }
-
-  // Validate timeout bounds
-  if (config.timeout !== undefined && (!Number.isFinite(config.timeout) || config.timeout <= 0)) {
-    throw new Error(`${label} timeout must be a positive number`);
-  }
-
-  const scriptPath = path.resolve(raceDir, command);
-  const ext = path.extname(scriptPath);
-
-  // Security: ensure resolved path stays within the race directory
-  const normalizedScript = path.normalize(scriptPath);
-  const normalizedRaceDir = path.normalize(raceDir);
-  if (!normalizedScript.startsWith(normalizedRaceDir + path.sep) && normalizedScript !== normalizedRaceDir) {
-    throw new Error(`${label} script path must be within race directory: ${command}`);
-  }
-
-  // Validate script exists and is a regular file (not a directory or symlink)
-  let stat;
-  try {
-    stat = fs.lstatSync(scriptPath);
-  } catch (e) {
-    if (e.code === 'ENOENT') {
-      console.error(`${c.yellow}Warning: ${label} script not found: ${scriptPath}${c.reset}`);
-      return;
-    }
-    throw e;
-  }
-
-  // lstatSync returns stats for the link itself; isFile() is false for symlinks and directories
-  if (!stat.isFile()) {
-    throw new Error(`${label} script path is not a regular file: ${scriptPath}`);
-  }
-
-  if (ext !== '.sh' && ext !== '.js') {
-    throw new Error(`${label} script has unsupported extension '${ext}' (expected .sh or .js)`);
-  }
-
-  // On Windows, warn if trying to run .sh without bash available
-  if (ext === '.sh' && process.platform === 'win32') {
-    try {
-      execSync('bash --version', { stdio: 'ignore' }); // NOSONAR — bash resolved via PATH is intentional
-    } catch {
-      throw new Error(
-        `${label} script '${command}' requires bash, which was not found. ` +
-        `Install Git Bash or WSL, or use a .js script instead.`
-      );
-    }
-  }
-
-  const progress = startProgress(`Running ${label.toLowerCase()}…`);
-
-  return new Promise((resolve, reject) => {
-    const isShell = ext === '.sh';
-    const args = [scriptPath];
-    const cmd = isShell ? 'bash' : 'node';
-
-    const child = spawn(cmd, args, {
-      cwd: raceDir,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, RACE_DIR: raceDir, ...varsToEnv(vars) },
-    });
-
-    let stderr = '';
-    let timedOut = false;
-    let settled = false;
-    let sigkillTimeoutId = null;
-
-    child.stdout.on('data', d => { if (verbose) process.stdout.write(d); });
-    child.stderr.on('data', d => { stderr += d; if (verbose) process.stderr.write(d); });
-
-    const timeoutId = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGTERM');
-      // Give process 5s to clean up after SIGTERM, then SIGKILL
-      sigkillTimeoutId = setTimeout(() => {
-        if (child.exitCode === null) child.kill('SIGKILL');
-      }, 5000);
-    }, timeout);
-
-    child.on('close', (code, signal) => {
-      clearTimeout(timeoutId);
-      if (sigkillTimeoutId) clearTimeout(sigkillTimeoutId);
-      if (settled) return;
-      settled = true;
-
-      if (timedOut) {
-        progress.done(`${label} timed out after ${timeout}ms`);
-        reject(new Error(`${label} script timed out after ${timeout}ms`));
-        return;
-      }
-
-      // Handle process killed by signal (code is null)
-      if (code === null && signal) {
-        progress.done(`${label} killed by ${signal}`);
-        if (stderr) console.error(`${c.dim}${stderr}${c.reset}`);
-        reject(new Error(`${label} script was killed by ${signal}`));
-        return;
-      }
-
-      if (code === 0) {
-        progress.done(`${label} completed`);
-
-        // If waitFor is specified, poll for the condition
-        if (waitFor) {
-          if (typeof waitFor !== 'object' || Array.isArray(waitFor)) {
-            reject(new Error(`${label} waitFor must be an object with a 'url' field`));
-            return;
-          }
-          if (typeof waitFor.url !== 'string' || !waitFor.url.trim()) {
-            reject(new Error(`${label} waitFor.url must be a non-empty string`));
-            return;
-          }
-          if (waitFor.timeout !== undefined && (!Number.isFinite(waitFor.timeout) || waitFor.timeout <= 0)) {
-            reject(new Error(`${label} waitFor.timeout must be a positive number`));
-            return;
-          }
-          if (waitFor.interval !== undefined && (!Number.isFinite(waitFor.interval) || waitFor.interval <= 0)) {
-            reject(new Error(`${label} waitFor.interval must be a positive number`));
-            return;
-          }
-          const { url, timeout: waitTimeout = 30000, interval = 1000 } = waitFor;
-          if (url) {
-            const waitProgress = startProgress(`Waiting for ${url}…`);
-            const startTime = Date.now();
-            let waitSettled = false;
-
-            const poll = async () => {
-              if (waitSettled) return;
-              const remaining = waitTimeout - (Date.now() - startTime);
-              if (remaining <= 0) {
-                if (waitSettled) return;
-                waitSettled = true;
-                waitProgress.done(`Timeout waiting for ${url}`);
-                reject(new Error(`Timeout waiting for ${url} after ${waitTimeout}ms`));
-                return;
-              }
-
-              try {
-                const res = await fetch(url, {
-                  signal: AbortSignal.timeout(Math.min(remaining, interval * 2)),
-                });
-                if (res.ok) {
-                  if (waitSettled) return;
-                  waitSettled = true;
-                  waitProgress.done(`Service ready at ${url}`);
-                  resolve();
-                  return;
-                }
-              } catch {
-                // Connection failed or timed out, will retry
-              }
-
-              if (!waitSettled) setTimeout(poll, interval);
-            };
-            poll();
-            return;
-          }
-        }
-
-        resolve();
-      } else {
-        progress.done(`${label} failed (exit code ${code})`);
-        if (stderr) console.error(`${c.dim}${stderr}${c.reset}`);
-        reject(new Error(`${label} script exited with code ${code}`));
-      }
-    });
-
-    child.on('error', err => {
-      clearTimeout(timeoutId);
-      if (sigkillTimeoutId) clearTimeout(sigkillTimeoutId);
-      if (settled) return;
-      settled = true;
-      progress.done(`${label} error: ${err.message}`);
-      reject(err);
-    });
-  });
-}
 const totalRuns = settings.runs;
 // Include a short random nonce so rapid successive runs (timestamp collisions,
 // e.g. same second) don't overwrite each other's output.
