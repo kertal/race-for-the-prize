@@ -17,12 +17,15 @@ try {
 }
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
 const { waitForStability } = require('./visual-stability.cjs');
 const { deriveTraceTiming } = require('./trace-calibration.cjs');
 const { flashCue, OverlayController } = require('./overlay.cjs');
 const { createRaceApi } = require('./race-api.cjs');
 const { RESULT_SENTINEL, PROTOCOL_VERSION, formatRaceMessage, formatContextClosed } = require('./runner-protocol.cjs');
+const { getMostRecentVideo, cleanupOldVideos, trimVideoWithFfmpeg } = require('./runner-video.cjs');
+const { setupMetricsCollection, startProfiling, collectProfilingResults } = require('./runner-metrics.cjs');
+const { applyThrottling } = require('./runner-throttling.cjs');
+const { calculateWindowLayout } = require('./runner-layout.cjs');
 
 // Track active browsers/contexts for cleanup on SIGTERM/SIGINT
 let activeBrowsers = [];
@@ -31,12 +34,9 @@ let cleanupInProgress = false;
 
 // --- Named constants (previously magic numbers) ---
 
-const OLD_VIDEO_CLEANUP_MS = 5000;      // Age threshold for deleting stale recordings
-// MEDAL_DISPLAY_MS moved to overlay.cjs
 const POST_RACE_WAIT_MS = 500;          // Pause after race finishes for final video frames
 const SLOWMO_MULTIPLIER = 20;           // Playwright slowMo factor per slowmo unit
 const PAGE_TIMEOUT_MS = 90000;          // Default page action/navigation timeout
-const FFMPEG_TIMEOUT_MS = 120000;       // Timeout for ffmpeg operations
 // Barrier deadline sits above the page timeout so Playwright's own errors fire
 // first; it exists to catch pure-JS hangs those timeouts can't see, which would
 // otherwise deadlock the other racer at a sync point forever.
@@ -51,112 +51,6 @@ async function loadConstants() {
   const { SCREEN: s, VIDEO_DEFAULTS: v } = await import('./cli/colors.js');
   SCREEN = s;
   WINDOW_HEIGHT = v.windowHeight;
-}
-
-// --- Video helpers ---
-
-/** Return the most recently modified .webm filename in a directory, or null. */
-function getMostRecentVideo(dir) {
-  try {
-    if (!fs.existsSync(dir)) return null;
-    const files = fs.readdirSync(dir)
-      .filter(f => f.endsWith('.webm'))
-      .map(f => ({ name: f, mtime: fs.statSync(path.join(dir, f)).mtime.getTime() }))
-      .sort((a, b) => b.mtime - a.mtime);
-    return files.length > 0 ? files[0].name : null;
-  } catch (e) {
-    return null;
-  }
-}
-
-/**
- * Extract recording segments from a full video and concatenate them.
- * Uses pre-computed PTS segments for frame-accurate cutting.
- * Keeps the original as a `_full` copy. Requires ffmpeg.
- */
-function extractSegments(videoPath, segments, browserId) {
-  const dir = path.dirname(videoPath);
-  const ext = path.extname(videoPath);
-  const base = path.basename(videoPath, ext);
-  const fullPath = path.join(dir, `${base}_full${ext}`);
-
-  fs.copyFileSync(videoPath, fullPath);
-
-  if (!segments || segments.length === 0) {
-    return { trimmedPath: videoPath, fullPath };
-  }
-
-  try {
-    if (segments.length === 1) {
-      const seg = segments[0];
-      const trimmedPath = path.join(dir, `${base}_trimmed${ext}`);
-      execFileSync('ffmpeg', [
-        '-y', '-i', videoPath,
-        '-ss', seg.start.toFixed(3), '-t', (seg.end - seg.start).toFixed(3),
-        '-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0',
-        trimmedPath
-      ], { timeout: FFMPEG_TIMEOUT_MS, stdio: 'pipe' });
-      fs.unlinkSync(videoPath);
-      fs.renameSync(trimmedPath, videoPath);
-      return { trimmedPath: videoPath, fullPath };
-    }
-
-    // Multiple segments: extract each then concatenate
-    const segmentFiles = [];
-    const concatListPath = path.join(dir, `${base}_concat.txt`);
-
-    for (let i = 0; i < segments.length; i++) {
-      const seg = segments[i];
-      const segPath = path.join(dir, `${base}_seg${i}${ext}`);
-      segmentFiles.push(segPath);
-      execFileSync('ffmpeg', [
-        '-y', '-i', videoPath,
-        '-ss', seg.start.toFixed(3), '-t', (seg.end - seg.start).toFixed(3),
-        '-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0',
-        segPath
-      ], { timeout: FFMPEG_TIMEOUT_MS, stdio: 'pipe' });
-    }
-
-    fs.writeFileSync(concatListPath, segmentFiles.map(f => `file '${f}'`).join('\n'));
-    const outputPath = path.join(dir, `${base}_final${ext}`);
-    execFileSync('ffmpeg', [
-      '-y', '-f', 'concat', '-safe', '0',
-      '-i', concatListPath, '-c', 'copy', outputPath
-    ], { timeout: FFMPEG_TIMEOUT_MS, stdio: 'pipe' });
-
-    for (const f of segmentFiles) { try { fs.unlinkSync(f); } catch (e) { console.error(`[extractSegments] Cleanup warning: ${e.message}`); } }
-    try { fs.unlinkSync(concatListPath); } catch (e) { console.error(`[extractSegments] Cleanup warning: ${e.message}`); }
-    fs.unlinkSync(videoPath);
-    fs.renameSync(outputPath, videoPath);
-
-    return { trimmedPath: videoPath, fullPath };
-  } catch (error) {
-    console.error(`[${browserId}] Failed to extract segments (ffmpeg may not be installed): ${error.message}`);
-    try {
-      for (const file of fs.readdirSync(dir)) {
-        if (['_seg', '_concat', '_final', '_trimmed'].some(p => file.includes(p))) {
-          try { fs.unlinkSync(path.join(dir, file)); } catch {}
-        }
-      }
-    } catch {}
-    return { trimmedPath: videoPath, fullPath };
-  }
-}
-
-/** Delete .webm files older than 5 seconds in a directory. */
-function cleanupOldVideos(dir) {
-  try {
-    if (!fs.existsSync(dir)) return;
-    const now = Date.now();
-    for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.webm'))) {
-      const filepath = path.join(dir, file);
-      if (now - fs.statSync(filepath).mtime.getTime() > OLD_VIDEO_CLEANUP_MS) {
-        fs.unlinkSync(filepath);
-      }
-    }
-  } catch (e) {
-    console.error(`[cleanupOldVideos] Warning: ${e.message}`);
-  }
 }
 
 // --- Signal handling ---
@@ -198,272 +92,6 @@ if (require.main === module) {
 // --- Sync barrier for parallel mode ---
 
 const { SyncBarrier } = require('./sync-barrier.cjs');
-
-// --- Performance metrics collection via CDP ---
-
-/**
- * Set up CDP session for capturing network and performance metrics.
- * Tracks network transfer sizes, request counts, and prepares for Performance API collection.
- * Supports both total session metrics and measurement-scoped metrics (between raceStart/raceEnd).
- * @param {Page} page - Playwright page
- * @param {string} id - Browser identifier for logging
- * @returns {Object} Metrics collector with methods to snapshot and collect
- */
-async function setupMetricsCollection(page, id) {
-  // Running totals for network (accumulated via events)
-  const networkTotals = {
-    transferSize: 0,
-    requestCount: 0
-  };
-
-  // Snapshot taken at raceStart for computing deltas
-  let startSnapshot = null;
-
-  // Network activity during measurement period
-  let measuredNetwork = { transferSize: 0, requestCount: 0 };
-  let isMeasuring = false;
-  const sectionMeasurements = new Map();
-
-  let client = null;
-
-  try {
-    client = await page.context().newCDPSession(page);
-    await client.send('Network.enable');
-    await client.send('Performance.enable');
-
-    // Track network transfer sizes
-    client.on('Network.loadingFinished', (params) => {
-      const size = params.encodedDataLength || 0;
-      networkTotals.transferSize += size;
-      networkTotals.requestCount++;
-      // Also track during measurement period
-      if (isMeasuring) {
-        measuredNetwork.transferSize += size;
-        measuredNetwork.requestCount++;
-      }
-    });
-
-  } catch (error) {
-    console.error(`[${id}] Warning: metrics collection setup failed: ${error.message}`);
-  }
-
-  /**
-   * Get current CDP performance metrics snapshot.
-   */
-  async function getCdpMetrics() {
-    if (!client) return null;
-    try {
-      const perfMetrics = await client.send('Performance.getMetrics');
-      const metricsMap = {};
-      for (const m of perfMetrics.metrics) {
-        metricsMap[m.name] = m.value;
-      }
-      // CDP Performance.getMetrics returns durations in seconds; convert to ms
-      return {
-        jsHeapUsedSize: metricsMap.JSHeapUsedSize || 0,
-        scriptDuration: (metricsMap.ScriptDuration || 0) * 1000,
-        layoutDuration: (metricsMap.LayoutDuration || 0) * 1000,
-        recalcStyleDuration: (metricsMap.RecalcStyleDuration || 0) * 1000,
-        taskDuration: (metricsMap.TaskDuration || 0) * 1000
-      };
-    } catch {
-      return null;
-    }
-  }
-
-  function cloneNetworkTotals() {
-    return {
-      transferSize: networkTotals.transferSize,
-      requestCount: networkTotals.requestCount,
-    };
-  }
-
-  return {
-    /**
-     * Take a snapshot at measurement start (raceStart).
-     * Call this to begin tracking measurement-scoped metrics.
-     */
-    async startMeasurement() {
-      startSnapshot = await getCdpMetrics();
-      measuredNetwork = { transferSize: 0, requestCount: 0 };
-      isMeasuring = true;
-    },
-
-    /**
-     * End measurement period (raceEnd).
-     */
-    stopMeasurement() {
-      isMeasuring = false;
-    },
-
-    async startSectionMeasurement(name = 'default') {
-      const sectionName = String(name);
-      if (sectionMeasurements.has(sectionName)) {
-        console.warn(`[${id}] Section measurement "${sectionName}" started again before ending; previous measurement will be lost`);
-      }
-      const startCdp = await getCdpMetrics();
-      sectionMeasurements.set(sectionName, {
-        startCdp,
-        endCdp: null,
-        startNetwork: cloneNetworkTotals(),
-        endNetwork: null,
-        endCdpPromise: null,
-      });
-    },
-
-    stopSectionMeasurement(name = 'default') {
-      const sectionName = String(name);
-      const section = sectionMeasurements.get(sectionName);
-      if (!section) return;
-      section.endNetwork = cloneNetworkTotals();
-      section.endCdpPromise = getCdpMetrics()
-        .then(metrics => { section.endCdp = metrics; })
-        .catch(() => { section.endCdp = null; });
-    },
-
-    /**
-     * Collect final metrics at the end of the race.
-     * Returns both total session metrics and measurement-scoped metrics.
-     */
-    async collect() {
-      await Promise.all(
-        [...sectionMeasurements.values()]
-          .map(s => s.endCdpPromise)
-          .filter(Boolean)
-      );
-
-      const result = {
-        total: {
-          networkTransferSize: networkTotals.transferSize,
-          networkRequestCount: networkTotals.requestCount,
-          ttfb: null,
-          fcp: null,
-          lcp: null,
-          cls: null,
-          domContentLoaded: null,
-          domComplete: null,
-          jsHeapUsedSize: null,
-          scriptDuration: null,
-          layoutDuration: null,
-          recalcStyleDuration: null,
-          taskDuration: null
-        },
-        measured: {
-          networkTransferSize: measuredNetwork.transferSize,
-          networkRequestCount: measuredNetwork.requestCount,
-          scriptDuration: null,
-          layoutDuration: null,
-          recalcStyleDuration: null,
-          taskDuration: null
-        },
-        measuredSections: Object.create(null)
-      };
-
-      try {
-        // Get navigation timing + web vitals from the page in a single evaluate
-        const timing = await page.evaluate(() => {
-          const perf = window.performance;
-          if (!perf) return null;
-          const t = perf.timing || {};
-          const nav = perf.getEntriesByType('navigation');
-          const paint = perf.getEntriesByType('paint');
-          const fcpEntry = paint.find(e => e.name === 'first-contentful-paint');
-          const lcpEntries = window.__raceLCPEntries;
-          return {
-            domContentLoaded: t.domContentLoadedEventEnd && t.navigationStart
-              ? t.domContentLoadedEventEnd - t.navigationStart : null,
-            domComplete: t.domComplete && t.navigationStart
-              ? t.domComplete - t.navigationStart : null,
-            ttfb: nav.length > 0 ? nav[0].responseStart : (
-              t.responseStart && t.navigationStart ? t.responseStart - t.navigationStart : null
-            ),
-            fcp: fcpEntry ? fcpEntry.startTime : null,
-            lcp: lcpEntries && lcpEntries.length > 0 ? lcpEntries[lcpEntries.length - 1] : null,
-            cls: typeof window.__raceCLSValue === 'number' ? window.__raceCLSValue : null,
-          };
-        });
-
-        if (timing) {
-          result.total.domContentLoaded = timing.domContentLoaded > 0 ? timing.domContentLoaded : null;
-          result.total.domComplete = timing.domComplete > 0 ? timing.domComplete : null;
-          result.total.ttfb = timing.ttfb > 0 ? timing.ttfb : null;
-          result.total.fcp = timing.fcp > 0 ? timing.fcp : null;
-          result.total.lcp = timing.lcp > 0 ? timing.lcp : null;
-          result.total.cls = timing.cls != null ? timing.cls : null;
-        }
-
-        // Get final CDP metrics
-        const endMetrics = await getCdpMetrics();
-        if (endMetrics) {
-          result.total.jsHeapUsedSize = endMetrics.jsHeapUsedSize || null;
-          result.total.scriptDuration = endMetrics.scriptDuration || null;
-          result.total.layoutDuration = endMetrics.layoutDuration || null;
-          result.total.recalcStyleDuration = endMetrics.recalcStyleDuration || null;
-          result.total.taskDuration = endMetrics.taskDuration || null;
-
-          // Compute deltas for measurement period
-          if (startSnapshot) {
-            const computeDelta = (metric) => {
-              const delta = endMetrics[metric] - startSnapshot[metric];
-              if (delta < 0) console.warn(`[${id}] Negative delta for "${metric}" (${startSnapshot[metric]} → ${endMetrics[metric]}), clamping to 0`);
-              return Math.max(0, delta);
-            };
-            result.measured.scriptDuration = computeDelta('scriptDuration');
-            result.measured.layoutDuration = computeDelta('layoutDuration');
-            result.measured.recalcStyleDuration = computeDelta('recalcStyleDuration');
-            result.measured.taskDuration = computeDelta('taskDuration');
-          }
-        }
-      } catch (error) {
-        console.error(`[${id}] Warning: failed to collect metrics: ${error.message}`);
-      }
-
-      for (const [sectionName, section] of sectionMeasurements.entries()) {
-        const startNetwork = section.startNetwork;
-        const endNetwork = section.endNetwork;
-        const startCdp = section.startCdp;
-        const endCdp = section.endCdp;
-
-        const measuredSection = {
-          networkTransferSize: (startNetwork && endNetwork)
-            ? Math.max(0, endNetwork.transferSize - startNetwork.transferSize)
-            : null,
-          networkRequestCount: (startNetwork && endNetwork)
-            ? Math.max(0, endNetwork.requestCount - startNetwork.requestCount)
-            : null,
-          scriptDuration: null,
-          layoutDuration: null,
-          recalcStyleDuration: null,
-          taskDuration: null,
-        };
-
-        if (startCdp && endCdp) {
-          const computeDelta = (metric) => {
-            const delta = endCdp[metric] - startCdp[metric];
-            return Math.max(0, delta);
-          };
-          measuredSection.scriptDuration = computeDelta('scriptDuration');
-          measuredSection.layoutDuration = computeDelta('layoutDuration');
-          measuredSection.recalcStyleDuration = computeDelta('recalcStyleDuration');
-          measuredSection.taskDuration = computeDelta('taskDuration');
-        }
-
-        result.measuredSections[sectionName] = measuredSection;
-      }
-
-      return result;
-    },
-
-    /**
-     * Detach the CDP session.
-     */
-    async detach() {
-      try {
-        if (client) await client.detach();
-      } catch {}
-    }
-  };
-}
 
 // --- Script execution ---
 
@@ -686,109 +314,6 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   return { segments: api.segments, measurements: api.measurements };
 }
 
-// --- Network & CPU throttling ---
-
-const NETWORK_PRESETS = {
-  'none': null,
-  'slow-3g': { downloadThroughput: 500 * 1024 / 8, uploadThroughput: 500 * 1024 / 8, latency: 400 },
-  'fast-3g': { downloadThroughput: 1500 * 1024 / 8, uploadThroughput: 750 * 1024 / 8, latency: 150 },
-  '4g': { downloadThroughput: 4000 * 1024 / 8, uploadThroughput: 3000 * 1024 / 8, latency: 50 },
-};
-
-async function applyThrottling(page, throttle, id) {
-  if (!throttle) return;
-  try {
-    // CDP session intentionally kept alive — detaching removes throttling.
-    // Session is cleaned up when the browser context closes.
-    const client = await page.context().newCDPSession(page);
-    const net = NETWORK_PRESETS[throttle.network];
-    if (net) {
-      await client.send('Network.enable');
-      await client.send('Network.emulateNetworkConditions', { offline: false, ...net });
-    }
-    if (throttle.cpu > 1) {
-      await client.send('Emulation.setCPUThrottlingRate', { rate: throttle.cpu });
-    }
-  } catch (error) {
-    console.error(`[${id}] Warning: throttling failed: ${error.message}`);
-  }
-}
-
-// --- Window layout calculation for N browsers ---
-
-/**
- * Calculate window position and size for browser at given index.
- * For 2 browsers: side-by-side horizontally
- * For 3 browsers: 3 across
- * For 4 browsers: 2x2 grid
- * For 5 browsers: 3 on top, 2 on bottom
- */
-function calculateWindowLayout(index, total) {
-  const { width: screenWidth, height: screenHeight } = SCREEN;
-
-  if (total <= 2) {
-    // Side by side
-    const width = Math.floor(screenWidth / 2);
-    return { x: index * width, y: 0, width, height: WINDOW_HEIGHT };
-  } else if (total === 3) {
-    // 3 across
-    const width = Math.floor(screenWidth / 3);
-    return { x: index * width, y: 0, width, height: WINDOW_HEIGHT };
-  } else if (total === 4) {
-    // 2x2 grid
-    const width = Math.floor(screenWidth / 2);
-    const height = Math.floor(screenHeight / 2);
-    const row = Math.floor(index / 2);
-    const col = index % 2;
-    return { x: col * width, y: row * height, width, height };
-  } else {
-    // 5 browsers: 3 on top, 2 on bottom (centered)
-    const width = Math.floor(screenWidth / 3);
-    const height = Math.floor(screenHeight / 2);
-    if (index < 3) {
-      // Top row: 3 browsers
-      return { x: index * width, y: 0, width, height };
-    } else {
-      // Bottom row: 2 browsers, centered
-      const bottomOffset = Math.floor(width / 2);
-      return { x: bottomOffset + (index - 3) * width, y: height, width, height };
-    }
-  }
-}
-
-// --- Profiling & trimming helpers ---
-
-async function startProfiling(page, browser, id) {
-  const metricsCollector = await setupMetricsCollection(page, id);
-  await browser.startTracing(page, { screenshots: true, categories: ['devtools.timeline', 'blink.user_timing'] });
-  return metricsCollector;
-}
-
-async function collectProfilingResults(browser, metricsCollector, outputDir, id) {
-  let profileMetrics = null;
-  if (metricsCollector) {
-    profileMetrics = await metricsCollector.collect();
-    await metricsCollector.detach();
-  }
-  const traceBuffer = await browser.stopTracing();
-  const tracePath = path.join(outputDir, `${id}.trace.json`);
-  fs.writeFileSync(tracePath, traceBuffer);
-  console.error(`[${id}] Performance trace saved: ${tracePath}`);
-  return {
-    tracePath,
-    profileMetrics,
-    traceText: traceBuffer.toString('utf8'),
-  };
-}
-
-function trimVideoWithFfmpeg(outputDir, trimSegments, id) {
-  const videoFile = getMostRecentVideo(outputDir);
-  if (!videoFile) return null;
-  const videoPath = path.join(outputDir, videoFile);
-  const res = extractSegments(videoPath, trimSegments, id);
-  return path.basename(res.fullPath);
-}
-
 // --- Single browser recording flow ---
 
 /**
@@ -809,7 +334,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
   fs.mkdirSync(outputDir, { recursive: true });
   cleanupOldVideos(outputDir);
 
-  const layout = calculateWindowLayout(browserIndex, totalBrowsers);
+  const layout = calculateWindowLayout(browserIndex, totalBrowsers, { screen: SCREEN, windowHeight: WINDOW_HEIGHT });
   const windowArgs = isParallel
     ? [`--window-position=${layout.x},${layout.y}`, `--window-size=${layout.width},${layout.height}`]
     : [];
