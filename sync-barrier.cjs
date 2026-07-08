@@ -8,15 +8,23 @@
  */
 
 const POLL_INTERVAL_MS = 100;
+// Deadlock backstop: if a checkpoint hasn't gathered all callers within this
+// window, something is wrong (e.g. racers with mismatched recordingStart/End
+// counts, so one waiter has no partner). Rather than hang the whole runner
+// forever with no way out but Ctrl+C, fail the barrier and let the normal
+// error-teardown path release everyone. Generous so slow-but-legitimate
+// checkpoints (heavy page loads before a sync point) are never tripped.
+const BARRIER_TIMEOUT_MS = 300000;
 
 class SyncBarrier {
-  constructor(count, sharedState = null) {
+  constructor(count, sharedState = null, timeoutMs = BARRIER_TIMEOUT_MS) {
     this.count = count;
     this.waiting = 0;
     this.resolvers = [];
     this.sharedState = sharedState;
     this.released = false;
     this.checkIntervals = [];
+    this.timeoutMs = timeoutMs;
   }
 
   releaseAll() {
@@ -45,10 +53,19 @@ class SyncBarrier {
 
     return new Promise(resolve => {
       this.resolvers.push(resolve);
+      const startedAt = Date.now();
       const check = setInterval(() => {
-        if (this.sharedState?.hasError || this.released) {
+        const timedOut = this.timeoutMs > 0 && (Date.now() - startedAt) >= this.timeoutMs;
+        if (this.sharedState?.hasError || this.released || timedOut) {
           clearInterval(check);
           this.checkIntervals = this.checkIntervals.filter(i => i !== check);
+          if (timedOut && this.sharedState && !this.sharedState.hasError) {
+            // Signal the error so the other waiters and browser scripts unwind
+            // instead of blocking indefinitely at their own checkpoints.
+            this.sharedState.hasError = true;
+            this.sharedState.errorMessage = this.sharedState.errorMessage
+              || `Synchronization checkpoint${label ? ` "${label}"` : ''} timed out after ${this.timeoutMs}ms — racers are likely out of sync (mismatched recording segments?)`;
+          }
           resolve({ aborted: true });
         }
       }, POLL_INTERVAL_MS);

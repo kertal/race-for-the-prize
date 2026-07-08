@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { determineOverallWinner, TIE_THRESHOLD_PERCENT } from '../cli/race-utils.js';
+import { determineOverallWinner } from '../cli/race-utils.js';
 
 describe('determineOverallWinner', () => {
   it('returns null when there are no comparisons', () => {
@@ -7,40 +7,36 @@ describe('determineOverallWinner', () => {
     expect(winner).toBeNull();
   });
 
-  it('returns tie when average diff is below threshold, even with a win leader', () => {
+  it('returns the sole win leader', () => {
     const wins = { a: 2, b: 0 };
-    const comparisons = [
-      { diffPercent: TIE_THRESHOLD_PERCENT - 0.5 },
-      { diffPercent: TIE_THRESHOLD_PERCENT - 0.1 },
-    ];
-    const winner = determineOverallWinner(wins, ['a', 'b'], comparisons);
-    expect(winner).toBe('tie');
+    const comparisons = [{}, {}];
+    expect(determineOverallWinner(wins, ['a', 'b'], comparisons)).toBe('a');
   });
 
-  it('returns leader when average diff is at or above threshold', () => {
-    const wins = { a: 2, b: 0 };
-    const comparisons = [
-      { diffPercent: TIE_THRESHOLD_PERCENT },
-      { diffPercent: TIE_THRESHOLD_PERCENT + 2 },
-    ];
-    const winner = determineOverallWinner(wins, ['a', 'b'], comparisons);
-    expect(winner).toBe('a');
+  it('returns the leader even for a slim single-win margin', () => {
+    // A racer that consistently wins by a small margin still wins overall;
+    // "how close counts as a win" is decided per-comparison, not re-litigated
+    // by an averaged-percentage threshold here.
+    const wins = { a: 1, b: 0 };
+    const comparisons = [{}];
+    expect(determineOverallWinner(wins, ['a', 'b'], comparisons)).toBe('a');
   });
 
-  it('returns tie when wins are equal and threshold does not force tie', () => {
+  it('returns tie when win counts are equal', () => {
     const wins = { a: 1, b: 1 };
-    const comparisons = [
-      { diffPercent: TIE_THRESHOLD_PERCENT + 3 },
-      { diffPercent: TIE_THRESHOLD_PERCENT + 1 },
-    ];
-    const winner = determineOverallWinner(wins, ['a', 'b'], comparisons);
-    expect(winner).toBe('tie');
+    const comparisons = [{}, {}];
+    expect(determineOverallWinner(wins, ['a', 'b'], comparisons)).toBe('tie');
   });
 
-  it('ignores null diffPercent values and still resolves winner from wins', () => {
-    const wins = { a: 0, b: 2 };
-    const comparisons = [{ diffPercent: null }, { diffPercent: undefined }];
-    const winner = determineOverallWinner(wins, ['a', 'b'], comparisons);
-    expect(winner).toBe('b');
+  it('returns null when nobody won any comparison', () => {
+    const wins = { a: 0, b: 0 };
+    const comparisons = [{}, {}];
+    expect(determineOverallWinner(wins, ['a', 'b'], comparisons)).toBeNull();
+  });
+
+  it('resolves a three-way field by highest win count', () => {
+    const wins = { a: 0, b: 3, c: 1 };
+    const comparisons = [{}, {}, {}, {}];
+    expect(determineOverallWinner(wins, ['a', 'b', 'c'], comparisons)).toBe('b');
   });
 });

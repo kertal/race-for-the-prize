@@ -1035,7 +1035,13 @@ const ZERO_START_THRESHOLD = 0.001;
 //  2. Seek silently ignored at readyState=1 (HAVE_METADATA, no buffered data):
 //     The seek is issued before any data is available, so Chrome drops it.
 //     Retry via 'canplay' (readyState ≥ 3) when enough data has loaded.
-//     The 'canplay' handler resets the retry counter so case-1 retries still work.
+//
+// A single shared `seeks` counter caps the TOTAL number of currentTime writes at
+// MAX_SEEK_RETRIES so the constant is a genuine hard ceiling. A dropped case-2
+// seek fires no 'seeked' event, so it never consumes the budget — the counter is
+// still ~0 when 'canplay' arrives, which is what previously motivated resetting
+// it (and that reset, combined with two concurrently-live 'seeked' chains
+// sharing one counter, made the effective maximum ambiguous).
 function seekAllWithVerify(targetStart) {
   const adj = getAdjustedClipTimes();
   const ct = adj || clipTimes;
@@ -1044,22 +1050,18 @@ function seekAllWithVerify(targetStart) {
     if (!v || !clipTimes) return;
     const expected = ct && isValidClipEntry(ct[i]) ? ct[i].start : targetStart;
     if (expected <= ZERO_START_THRESHOLD) return; // nothing to verify at start of video
-    let retries = 0;
-    const handler = () => {
-      if (Math.abs(v.currentTime - expected) > SEEK_SNAP_TOLERANCE && retries++ < MAX_SEEK_RETRIES) {
+    let seeks = 0;
+    const reseek = () => {
+      if (Math.abs(v.currentTime - expected) > SEEK_SNAP_TOLERANCE && seeks < MAX_SEEK_RETRIES) {
+        seeks++;
         v.currentTime = Math.min(expected, isFinite(v.duration) ? v.duration : expected);
-        v.addEventListener('seeked', handler, { once: true });
+        v.addEventListener('seeked', reseek, { once: true });
       }
     };
-    v.addEventListener('seeked', handler, { once: true });
-    // Case 2 fallback: retry when data is available (canplay = readyState ≥ 3).
-    v.addEventListener('canplay', () => {
-      if (Math.abs(v.currentTime - expected) > SEEK_SNAP_TOLERANCE) {
-        retries = 0; // give the seeked retry loop a fresh budget
-        v.currentTime = Math.min(expected, isFinite(v.duration) ? v.duration : expected);
-        v.addEventListener('seeked', handler, { once: true });
-      }
-    }, { once: true });
+    v.addEventListener('seeked', reseek, { once: true });
+    // Case 2 fallback: once data is available (canplay = readyState ≥ 3), make a
+    // fresh attempt if still off — within the same shared budget.
+    v.addEventListener('canplay', reseek, { once: true });
   });
 }
 
@@ -1126,13 +1128,19 @@ function getExportLayout(count) {
   return { canvasW, canvasH, targetW, cellH, labelH: LABEL_H, positions };
 }
 
-function drawExportFrame(ctx, layout, clockTime) {
+function drawExportFrame(ctx, layout, clockTime, visibleIndices) {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, layout.canvasW, layout.canvasH);
-  for (let i = 0; i < raceVideos.length; i++) {
+  // Draw only the visible racers, packed into the layout's slots in order.
+  // Indexing positions by the original racer index would leave gaps (and size
+  // mismatches) once any racer is hidden, so map the j-th visible racer to the
+  // j-th slot while still using the original index for its name/colour.
+  const indices = visibleIndices || raceVideos.map((_, i) => i);
+  for (let j = 0; j < indices.length; j++) {
+    const i = indices[j];
     const v = raceVideos[i];
-    if (!v) continue;
-    const pos = layout.positions[i];
+    const pos = layout.positions[j];
+    if (!v || !pos) continue;
     ctx.fillStyle = racerColors[i] || '#e8e0d0';
     ctx.font = 'bold 16px Georgia, serif';
     ctx.textAlign = 'center';
@@ -1291,7 +1299,13 @@ async function startExport() {
   }
   if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
 
-  const layout = getExportLayout(raceVideos.length);
+  // Respect the racer filter: hidden racers must not be baked into the export.
+  const visibleIndices = raceVideos.map((_, i) => i).filter(i => raceVideos[i] && !hiddenRacers.has(i));
+  if (visibleIndices.length === 0) {
+    alert('No visible racers to export — unhide at least one racer first.');
+    return;
+  }
+  const layout = getExportLayout(visibleIndices.length);
 
   const tmpl = document.getElementById('tmpl-export-overlay');
   const overlay = tmpl.content.cloneNode(true).firstElementChild;
@@ -1388,7 +1402,7 @@ async function startExport() {
     const cur = Math.max(...raceVideos.map(v => v?.currentTime || 0));
     if (exportTimeOffset === null) exportTimeOffset = cur;
     const elapsed = cur - exportTimeOffset;
-    drawExportFrame(ctx, layout, elapsed);
+    drawExportFrame(ctx, layout, elapsed, visibleIndices);
     const progress = totalDur > 0 ? Math.min(1, elapsed / totalDur) : 0;
     progressFill.style.width = (progress * 100).toFixed(1) + '%';
     statusEl.textContent = 'Recording' + speedLabel + '... ' + Math.round(progress * 100) + '%';

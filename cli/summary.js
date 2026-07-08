@@ -103,7 +103,7 @@ function computeOverallWinner(racerNames, comparisons) {
 
   if (sections.length === 1) {
     const wins = computeWins(racerNames, sections);
-    return determineOverallWinner(wins, racerNames, sections, 0);
+    return determineOverallWinner(wins, racerNames, sections);
   }
 
   const totals = racerNames.map((name, i) => {
@@ -133,11 +133,15 @@ function computeComparison(name, vals, racerNames) {
   if (racersWithData.length >= 2) {
     const winIdx = racersWithData[0].index;
     const loseIdx = racersWithData[racersWithData.length - 1].index;
-    comp.winner = racerNames[winIdx];
     comp.diff = vals[loseIdx].duration - vals[winIdx].duration;
     comp.diffPercent = vals[winIdx].duration > 0
       ? (comp.diff / vals[winIdx].duration * 100) : 0;
     comp.rankings = racersWithData.map(r => racerNames[r.index]);
+    // A true dead heat (fastest and slowest measure identically) has no winner.
+    // Without this guard the stable sort would silently award the win to the
+    // lowest-indexed racer. Any real difference — even sub-millisecond — still
+    // resolves to the faster racer.
+    comp.winner = comp.diff > 0 ? racerNames[winIdx] : null;
   }
   return comp;
 }
@@ -152,10 +156,14 @@ export function getPlacementOrder(summary) {
   const { racers, comparisons } = summary;
   if (!comparisons || comparisons.length === 0) return racers.map((_, i) => i);
 
+  // Exclude the synthetic total row: it is just the sum of the sections, so
+  // counting it here would double-weight the summed winner and skew 2nd-vs-3rd
+  // placement away from the per-section evidence.
+  const sectionComparisons = getSectionComparisons(comparisons);
   const avgRank = racers.map((name) => {
     let totalRank = 0;
     let counted = 0;
-    for (const comp of comparisons) {
+    for (const comp of sectionComparisons) {
       if (comp.rankings && comp.rankings.length > 0) {
         const rank = comp.rankings.indexOf(name);
         totalRank += rank !== -1 ? rank : racers.length;
@@ -503,6 +511,9 @@ function buildMedianProfileMetrics(summaries) {
 
 /** Compute median of each measurement across multiple runs. */
 export function buildMedianSummary(summaries, resultsDir) {
+  if (!Array.isArray(summaries) || summaries.length === 0) {
+    throw new Error('buildMedianSummary requires at least one run summary');
+  }
   const racers = summaries[0].racers;
   const allNames = new Set(
     summaries.flatMap(s => getSectionComparisons(s.comparisons).map(c => c.name))
@@ -764,22 +775,23 @@ export function printRecentRaces(raceDir) {
 
     if (!e.summary) {
       write(`  ${num}  ${c.dim}${dateStr}${c.reset}  ${c.dim}(no summary)${c.reset}\n`);
-    } else {
+    } else try {
       const s = e.summary;
-      const racers = s.racers;
+      const racers = Array.isArray(s.racers) ? s.racers : [];
 
       let badge = '';
       if (s.overallWinner === 'tie') badge = `${c.yellow}🤝 Tie${c.reset}`;
       else if (s.overallWinner) {
         const winnerIdx = racers.indexOf(s.overallWinner);
-        const wc = RACER_COLORS[winnerIdx % RACER_COLORS.length];
+        const wc = RACER_COLORS[(winnerIdx >= 0 ? winnerIdx : 0) % RACER_COLORS.length];
         badge = `${wc}🏆 ${s.overallWinner}${c.reset}`;
       }
 
       write(`  ${num}  ${c.dim}${dateStr}${c.reset}  ${badge}\n`);
 
-      for (const comp of sortComparisonsForDisplay(s.comparisons)) {
-        const durations = comp.racers.map((r, j) => r ? `${r.duration.toFixed(3)}s` : '-');
+      for (const comp of sortComparisonsForDisplay(s.comparisons || [])) {
+        const durations = (comp.racers || []).map((r) =>
+          r && typeof r.duration === 'number' ? `${r.duration.toFixed(3)}s` : '-');
         // Assign medals based on ranking
         const medals = racers.map(r => {
           if (!comp.rankings || comp.rankings.length === 0) return '';
@@ -801,6 +813,9 @@ export function printRecentRaces(raceDir) {
       if (s.errors?.length > 0) {
         write(`      ${c.red}⚠ ${s.errors.length} error(s)${c.reset}\n`);
       }
+    } catch (err) {
+      // A malformed/old summary.json must not abort the entire listing.
+      write(`  ${num}  ${c.dim}${dateStr}${c.reset}  ${c.dim}(unreadable summary)${c.reset}\n`);
     }
 
     write(`      ${c.dim}${e.fullPath}${c.reset}\n`);

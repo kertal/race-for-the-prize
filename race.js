@@ -17,6 +17,7 @@
  */
 
 import fs from 'fs';
+import os from 'os';
 import http from 'http';
 import path from 'path';
 import crypto from 'crypto';
@@ -25,7 +26,7 @@ import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c, FORMAT_EXTENSIONS } from './cli/colors.js';
-import { parseArgs, discoverRacers, resolveSharedRacerNames, applyOverrides, applyDefaults, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown, findUnknownFlags, varsToEnv, InvalidSettingError } from './cli/config.js';
+import { parseArgs, discoverRacers, resolveSharedRacerNames, applyOverrides, applyDefaults, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown, findUnknownFlags, findValuelessKvFlags, varsToEnv, InvalidSettingError } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex, findMedianRunIndexPerRacer } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
@@ -65,6 +66,14 @@ export const { RESULT_SENTINEL: RUNNER_RESULT_SENTINEL } =
  * treating the signal as a successful no-op.
  */
 export const abortState = { aborted: false, reason: null };
+
+/**
+ * Accumulates racer error messages reported by the runner subprocess across all
+ * runs. A non-empty list means at least one browser failed, so the CLI exits
+ * non-zero even though partial results were still written — a broken benchmark
+ * must never look green to a CI gate.
+ */
+export const runnerFailures = [];
 
 /** Thrown when the user aborts (SIGINT/SIGTERM) or the operation is otherwise cancelled. */
 export class AbortError extends Error {
@@ -262,16 +271,28 @@ export function spawnRunner(ctx) {
 
   const runnerPath = path.join(rootDir, 'runner.cjs');
 
+  // Pass the config via a temp file rather than argv. The config embeds every
+  // racer's full .spec.js source, which can blow past the OS argv size limit
+  // (E2BIG on Linux, ~32KB on Windows) for large specs. The runner consumes and
+  // deletes the file; we also clean it up if the spawn itself fails.
+  const tmpConfigPath = path.join(os.tmpdir(), `rftp-config-${process.pid}-${crypto.randomBytes(6).toString('hex')}.json`);
+  fs.writeFileSync(tmpConfigPath, JSON.stringify(runnerConfig));
+  const removeTmpConfig = () => { try { fs.unlinkSync(tmpConfigPath); } catch {} };
+
   return new Promise((resolve, reject) => {
     // NOSONAR — spawns runner.cjs subprocess with race config; this is the core
-    // execution mechanism equivalent to running `node runner.cjs <config>`
-    const child = spawn('node', [runnerPath, JSON.stringify(runnerConfig)], {
+    // execution mechanism equivalent to running `node runner.cjs --config-file <path>`
+    const child = spawn('node', [runnerPath, '--config-file', tmpConfigPath], {
       cwd: rootDir,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    let stdout = '';
-    child.stdout.on('data', d => { stdout += d; });
+    // Collect raw Buffers and concat once, so a multi-byte UTF-8 sequence split
+    // across chunk boundaries (e.g. an emoji in a measurement name) is decoded
+    // whole rather than corrupted into replacement chars that break JSON.parse.
+    const stdoutChunks = [];
+    let killTimer = null;
+    child.stdout.on('data', d => { stdoutChunks.push(d); });
     child.stderr.on('data', d => {
       const text = d.toString();
       racerNames.forEach((name, i) => {
@@ -290,6 +311,13 @@ export function spawnRunner(ctx) {
       abortState.aborted = true;
       abortState.reason = sig;
       child.kill('SIGTERM');
+      // Escalate to SIGKILL if the child doesn't exit promptly. Headed Chromium
+      // routinely wedges in browser.close(), and without this the parent would
+      // wait forever on 'close' and the user's Ctrl+C would appear to hang.
+      if (!killTimer) {
+        killTimer = setTimeout(() => { try { child.kill('SIGKILL'); } catch {} }, 5000);
+        killTimer.unref();
+      }
     };
     const onSigint = makeSigHandler('SIGINT');
     const onSigterm = makeSigHandler('SIGTERM');
@@ -299,6 +327,8 @@ export function spawnRunner(ctx) {
     function cleanup() {
       process.removeListener('SIGINT', onSigint);
       process.removeListener('SIGTERM', onSigterm);
+      if (killTimer) { clearTimeout(killTimer); killTimer = null; }
+      removeTmpConfig();
       if (animation.interval) animation.stop();
     }
 
@@ -320,12 +350,24 @@ export function spawnRunner(ctx) {
       // arbitrary stdout noise (Playwright logs, subprocess output) and
       // ensures a signal-cleanup stub from a previous killed run can never
       // be mistaken for a real result.
+      const stdout = Buffer.concat(stdoutChunks).toString('utf8');
       const lines = stdout.split('\n');
       for (let i = lines.length - 1; i >= 0; i--) {
         const line = lines[i];
         if (!line.startsWith(RUNNER_RESULT_SENTINEL)) continue;
         try {
-          return resolve(JSON.parse(line.slice(RUNNER_RESULT_SENTINEL.length)));
+          const parsed = JSON.parse(line.slice(RUNNER_RESULT_SENTINEL.length));
+          // A runner that exited non-zero reported at least one racer error.
+          // Record it so the CLI can surface a non-zero exit code instead of
+          // silently reporting a broken benchmark as success, while still
+          // resolving with whatever partial results we did get.
+          if (code !== 0 || (parsed.errors && parsed.errors.length > 0)) {
+            const msgs = parsed.errors && parsed.errors.length > 0
+              ? parsed.errors
+              : [`runner exited with code ${code}`];
+            runnerFailures.push(...msgs);
+          }
+          return resolve(parsed);
         } catch (e) {
           console.error(`Warning: Malformed runner result line: ${e.message}`);
         }
@@ -652,6 +694,16 @@ if (unknownFlags.length > 0) {
   const labels = unknownFlags.map(n => `--${n}`).join(', ');
   console.error(`${c.red}Error: Unknown flag(s): ${labels}${c.reset}`);
   console.error(`${c.dim}  Run with no arguments to see the list of supported flags.${c.reset}`);
+  process.exit(2);
+}
+
+// Reject value-requiring flags passed without a value (e.g. a bare `--runs`),
+// which would otherwise be silently dropped and run with the default.
+const valuelessFlags = findValuelessKvFlags(boolFlags);
+if (valuelessFlags.length > 0) {
+  const labels = valuelessFlags.map(n => `--${n}`).join(', ');
+  console.error(`${c.red}Error: Flag(s) require a value: ${labels}${c.reset}`);
+  console.error(`${c.dim}  Example: --runs=3 (or --runs 3)${c.reset}`);
   process.exit(2);
 }
 
@@ -1437,6 +1489,12 @@ async function main() {
     const hasRacerSetups = racerScripts.some(r => r.setup);
 
     setupCompleted = true;
+    // Split mode runs each racer alone and sequentially, which is fundamentally
+    // incompatible with --parallel. Warn instead of silently ignoring the flag.
+    if (settings.parallel && (settings.pauseBetweenRuns || hasRacerSetups)) {
+      const reason = hasRacerSetups ? 'per-racer setup scripts are present' : '--pause is set';
+      console.error(`  ${c.yellow}Note: --parallel is ignored because ${reason}; racers will run one at a time.${c.reset}`);
+    }
     if (!settings.pauseBetweenRuns && !hasRacerSetups) {
       // --- Normal mode: both racers run together per run ---
       if (totalRuns === 1) {
@@ -1613,6 +1671,17 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
 }
 
 await main();
+
+// Surface runner-level racer failures as a non-zero exit code. main() only sets
+// the exit code when it throws; a race where every browser errored resolves
+// normally with an (empty) summary, so without this a totally failed benchmark
+// would exit 0 and pass CI.
+if (!process.exitCode && runnerFailures.length > 0) {
+  console.error(`\n${c.red}${c.bold}Race completed with errors:${c.reset}`);
+  for (const msg of runnerFailures) console.error(`  ${c.red}• ${msg}${c.reset}`);
+  process.exitCode = 1;
+}
+
 if (settings.noServe || settings.noRecording) process.exit(process.exitCode || 0);
 
 } // end isMainModule

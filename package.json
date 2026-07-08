@@ -10,14 +10,19 @@
     "race.js",
     "runner.cjs",
     "sync-barrier.cjs",
+    "runner-protocol.cjs",
+    "overlay.cjs",
+    "trace-calibration.cjs",
+    "visual-stability.cjs",
     "cli/",
+    "scripts/postinstall.cjs",
     "races/*/*.spec.js",
     "races/*/settings.json",
     "ReadMe.md",
     "INSTALLATION.md"
   ],
   "scripts": {
-    "postinstall": "playwright install chromium",
+    "postinstall": "node scripts/postinstall.cjs",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.js",
     "race": "node race.js"

@@ -112,7 +112,11 @@ function extractSegments(videoPath, segments, browserId) {
       ], { timeout: FFMPEG_TIMEOUT_MS, stdio: 'pipe' });
     }
 
-    fs.writeFileSync(concatListPath, segmentFiles.map(f => `file '${f}'`).join('\n'));
+    // Quote-safe the concat list: the ffmpeg concat demuxer wraps each path in
+    // single quotes, so a literal ' in a derived path must be written as '\''
+    // (close, escaped quote, reopen) or the input line is silently mangled.
+    const concatEntry = (f) => `file '${f.replace(/'/g, "'\\''")}'`;
+    fs.writeFileSync(concatListPath, segmentFiles.map(concatEntry).join('\n'));
     const outputPath = path.join(dir, `${base}_final${ext}`);
     execFileSync('ffmpeg', [
       '-y', '-f', 'concat', '-safe', '0',
@@ -555,7 +559,13 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
       if (sharedState) {
         const lastMeasurement = measurements[measurements.length - 1];
         const endTime = lastMeasurement ? lastMeasurement.endTime : (Date.now() - recordingStartTime) / 1000;
-        sharedState.finishOrder.push({ id, endTime });
+        // Record one finish entry per racer, not per recording segment. A racer
+        // with several raceRecordingStart/End segments would otherwise appear
+        // multiple times and corrupt the medal-placement index (which assumes
+        // one entry per racer).
+        const existing = sharedState.finishOrder.find(f => f.id === id);
+        if (existing) existing.endTime = endTime;
+        else sharedState.finishOrder.push({ id, endTime });
         if (!noOverlay && !noRecording) {
           // Calculate placement from finish order for the medal display
           const sorted = [...sharedState.finishOrder].sort((a, b) => a.endTime - b.endTime);
@@ -582,7 +592,12 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
 
   const endMeasure = (name = 'default') => {
     const start = activeMeasurements[name];
-    if (start === undefined) return 0;
+    if (start === undefined) {
+      // No matching raceStart — almost always a typo'd measurement name. Warn
+      // loudly rather than silently dropping the timing and reporting no data.
+      console.error(`[${id}] Warning: raceEnd(${JSON.stringify(name)}) called with no matching raceStart — measurement ignored.`);
+      return 0;
+    }
     const end = (Date.now() - recordingStartTime) / 1000;
     const duration = end - start;
     measurements.push({ name, startTime: start, endTime: end, duration });
@@ -1047,11 +1062,37 @@ async function runSequential(browserConfigs, opts = {}) {
 
 // --- Main entry point ---
 
+/**
+ * Emit the sentinel result line and exit with the given code, but only after
+ * stdout has been flushed. process.exit() does not wait for a piped stdout to
+ * drain, so a large result payload can be truncated mid-JSON if we exit on the
+ * next line. The timeout is a safety net in case the write callback never fires.
+ */
+function emitResultAndExit(payload, code) {
+  const line = RESULT_SENTINEL + payload + '\n';
+  const done = () => process.exit(code);
+  const timer = setTimeout(done, 5000);
+  timer.unref();
+  process.stdout.write(line, () => { clearTimeout(timer); done(); });
+}
+
 async function main() {
   // Load shared constants from ESM module
   await loadConstants();
 
-  const configJson = process.argv[2];
+  // Config is passed either inline as argv[2] (legacy / direct invocation) or,
+  // to stay well under the OS argv size limit for large race scripts, via a
+  // temp file: `runner.cjs --config-file <path>`. The file is consumed once.
+  let configJson;
+  if (process.argv[2] === '--config-file') {
+    const configPath = process.argv[3];
+    if (!configPath) { console.error('Error: --config-file requires a path'); process.exit(1); }
+    try { configJson = fs.readFileSync(configPath, 'utf-8'); }
+    catch (e) { console.error('Error: Could not read config file:', e.message); process.exit(1); }
+    finally { try { fs.unlinkSync(configPath); } catch {} }
+  } else {
+    configJson = process.argv[2];
+  }
   if (!configJson) { console.error('Error: Config JSON required'); process.exit(1); }
 
   let config;
@@ -1102,17 +1143,15 @@ async function main() {
     })),
     errors: errors.length > 0 ? errors : undefined
   });
-  console.log(RESULT_SENTINEL + payload);
 
-  process.exit(errors.length > 0 ? 1 : 0);
+  emitResultAndExit(payload, errors.length > 0 ? 1 : 0);
 }
 
 // Allow unit testing of internal functions when required as a module
 if (require.main === module) {
   main().catch(err => {
     console.error('Fatal error:', err);
-    console.log(RESULT_SENTINEL + JSON.stringify({ browsers: [], errors: [err.message] }));
-    process.exit(1);
+    emitResultAndExit(JSON.stringify({ browsers: [], errors: [err.message] }), 1);
   });
 }
 

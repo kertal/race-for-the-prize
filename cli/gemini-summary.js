@@ -101,7 +101,8 @@ export function buildGeminiPrompt(summary) {
       for (const metric of section.comparisons) {
         const vals = (metric.values || []).map((r, i) => typeof r === 'number' && Number.isFinite(r) ? `${racers[i]}: ${formatMetricValue(metric.name, r)}` : null).filter(Boolean);
         if (vals.length === 0) continue;
-        const winStr = metric.winner ? ` [${metric.winner} wins, ${metric.diffPercent?.toFixed(1)}% better]` : '';
+        const pct = Number.isFinite(metric.diffPercent) ? `, ${metric.diffPercent.toFixed(1)}% better` : '';
+        const winStr = metric.winner ? ` [${metric.winner} wins${pct}]` : '';
         lines.push(`  ${metric.name}: ${vals.join(' vs ')}${winStr}`);
         if (metric.description) lines.push(`    → ${metric.description}`);
       }
@@ -190,11 +191,63 @@ export function extractUrls(text) {
 }
 
 /**
- * Returns true if the URL hostname is an explicit localhost/loopback or a
- * literal IPv4 address in RFC-1918 or other local ranges (e.g. 127.0.0.0/8,
- * 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16). This check is purely syntactic
- * and does not perform DNS resolution, so hostnames that resolve to private
- * addresses are not blocked by this function.
+ * Parse a hostname as an IPv4 address the liberal way `inet_aton` (and therefore
+ * browsers/curl) do: 1–4 dot-separated parts, each decimal, hex (0x…) or octal
+ * (0…), with the final part filling the remaining low-order bytes. This is what
+ * makes `2130706433`, `0x7f000001`, `0177.1` and `127.1` all resolve to
+ * 127.0.0.1. Returns the four octets, or null if the host is not a numeric IPv4.
+ */
+function parseIPv4Liberal(host) {
+  const parts = host.split('.');
+  if (parts.length < 1 || parts.length > 4) return null;
+  const nums = [];
+  for (const p of parts) {
+    let n;
+    if (/^0x[0-9a-f]+$/i.test(p)) n = parseInt(p, 16);
+    else if (/^0[0-7]+$/.test(p)) n = parseInt(p, 8);
+    else if (/^(0|[1-9][0-9]*)$/.test(p)) n = parseInt(p, 10);
+    else return null; // contains letters/other → a real hostname, not an IP literal
+    if (!Number.isSafeInteger(n) || n < 0) return null;
+    nums.push(n);
+  }
+  const N = nums.length;
+  const caps = { 1: [0xffffffff], 2: [0xff, 0xffffff], 3: [0xff, 0xff, 0xffff], 4: [0xff, 0xff, 0xff, 0xff] }[N];
+  if (nums.some((n, i) => n > caps[i])) return null;
+  let value;
+  if (N === 1) value = nums[0];
+  else if (N === 2) value = nums[0] * 0x1000000 + nums[1];
+  else if (N === 3) value = nums[0] * 0x1000000 + nums[1] * 0x10000 + nums[2];
+  else value = nums[0] * 0x1000000 + nums[1] * 0x10000 + nums[2] * 0x100 + nums[3];
+  value = value >>> 0;
+  return [(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff];
+}
+
+/** True if the four octets fall in any loopback/private/link-local/reserved range. */
+function isPrivateIPv4(octets) {
+  const [a, b] = octets;
+  return (
+    a === 0 ||                            // 0.0.0.0/8 "this host"
+    a === 127 ||                          // 127.0.0.0/8 loopback
+    a === 10 ||                           // 10.0.0.0/8 private
+    (a === 172 && b >= 16 && b <= 31) ||  // 172.16.0.0/12 private
+    (a === 192 && b === 168) ||           // 192.168.0.0/16 private
+    (a === 169 && b === 254) ||           // 169.254.0.0/16 link-local (cloud metadata)
+    (a === 100 && b >= 64 && b <= 127) || // 100.64.0.0/10 CGNAT
+    (a === 192 && b === 0) ||             // 192.0.0.0/24 IETF protocol assignments
+    (a === 198 && (b === 18 || b === 19)) || // 198.18.0.0/15 benchmarking
+    a >= 224                              // 224.0.0.0/4 multicast + 240.0.0.0/4 reserved
+  );
+}
+
+/**
+ * Returns true if the URL hostname is a localhost/loopback name or resolves
+ * syntactically to a private/link-local/reserved IP literal (IPv4 in any of the
+ * numeric forms a browser accepts, or IPv6 loopback/unspecified/ULA/link-local,
+ * including IPv4-mapped addresses). Fails closed: an unparseable URL is unsafe.
+ *
+ * This check is purely syntactic and does NOT perform DNS resolution, so a
+ * public hostname that later resolves to a private address (DNS rebinding) is
+ * not caught here.
  */
 export function isPrivateUrl(urlString) {
   let host;
@@ -203,21 +256,35 @@ export function isPrivateUrl(urlString) {
   } catch {
     return true; // unparseable — treat as unsafe
   }
-  if (host === 'localhost') return true;
-  // IPv6 loopback
-  if (host === '::1' || host === '[::1]') return true;
-  // Strip IPv6 brackets for numeric checks
+  if (host === 'localhost' || host === '' || host.endsWith('.localhost')) return true;
+
+  // Strip IPv6 brackets. A ':' means an IPv6 literal.
   const plain = host.replace(/^\[|\]$/g, '');
-  const parts = plain.split('.').map(Number);
-  if (parts.length !== 4 || parts.some(isNaN)) return false;
-  const [a, b] = parts;
-  return (
-    a === 127 ||                        // 127.0.0.0/8 loopback
-    a === 10 ||                         // 10.0.0.0/8 private
-    a === 0 ||                          // 0.0.0.0/8
-    (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12 private
-    (a === 192 && b === 168)             // 192.168.0.0/16 private
-  );
+  if (plain.includes(':')) {
+    if (plain === '::1' || plain === '::') return true;            // loopback / unspecified
+    const first = plain.split(':')[0];
+    if (first.startsWith('fc') || first.startsWith('fd')) return true; // fc00::/7 ULA
+    if (/^fe[89ab]/.test(first)) return true;                     // fe80::/10 link-local
+    // IPv4-mapped (::ffff:a.b.c.d). Node normalizes the embedded IPv4 to hex
+    // groups (e.g. ::ffff:127.0.0.1 -> ::ffff:7f00:1), so handle both forms.
+    const mappedDotted = plain.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+    if (mappedDotted) {
+      const octets = parseIPv4Liberal(mappedDotted[1]);
+      if (octets && isPrivateIPv4(octets)) return true;
+    }
+    const mappedHex = plain.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+    if (mappedHex) {
+      const hi = parseInt(mappedHex[1], 16);
+      const lo = parseInt(mappedHex[2], 16);
+      const octets = [(hi >> 8) & 0xff, hi & 0xff, (lo >> 8) & 0xff, lo & 0xff];
+      if (isPrivateIPv4(octets)) return true;
+    }
+    return false; // other IPv6 (treated as global)
+  }
+
+  const octets = parseIPv4Liberal(plain);
+  if (octets) return isPrivateIPv4(octets);
+  return false; // a real hostname
 }
 
 /**

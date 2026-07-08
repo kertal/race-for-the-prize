@@ -2,27 +2,24 @@
  * Shared race utility functions used across summary and profile-analysis modules.
  */
 
-// Performance differences below this percentage are considered too close to declare a winner.
-export const TIE_THRESHOLD_PERCENT = 3;
-
 /**
  * Determine overall winner from win counts.
- * Returns 'tie' when the average performance difference is below TIE_THRESHOLD_PERCENT,
- * 'tie' when win counts are equal, the winner name, or null (no data).
+ *
+ * The verdict is purely win-count based: the racer that wins the most
+ * comparisons wins overall; equal top counts (including nobody winning any
+ * comparison) is a 'tie'. "How close is close enough to count as a win" is
+ * decided per-comparison by the caller (an exact-tie guard for timing sections,
+ * per-metric significance thresholds for profile metrics), so there is no
+ * additional averaged-percentage threshold here — that only double-counted the
+ * same signal and every caller disabled it.
+ *
  * @param {Object} wins - Object mapping racer names to win counts
  * @param {string[]} racerNames - Array of racer names
- * @param {Array} comparisons - Array of comparison objects with diffPercent values
- * @param {number} tieThresholdPercent - Minimum % difference required to declare a winner
- * @returns {string|null} Racer name, 'tie', or null
+ * @param {Array} comparisons - Array of comparison objects
+ * @returns {string|null} Racer name, 'tie', or null (no comparisons)
  */
-export function determineOverallWinner(wins, racerNames, comparisons, tieThresholdPercent = TIE_THRESHOLD_PERCENT) {
+export function determineOverallWinner(wins, racerNames, comparisons) {
   if (comparisons.length === 0) return null;
-
-  const competitiveComps = comparisons.filter(c => c.diffPercent != null);
-  if (competitiveComps.length > 0) {
-    const avgDiffPercent = competitiveComps.reduce((sum, c) => sum + c.diffPercent, 0) / competitiveComps.length;
-    if (avgDiffPercent < tieThresholdPercent) return 'tie';
-  }
 
   const maxWins = Math.max(...racerNames.map(n => wins[n]));
   const winnersWithMax = racerNames.filter(n => wins[n] === maxWins);

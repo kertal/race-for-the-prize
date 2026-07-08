@@ -211,6 +211,36 @@ describe('isPrivateUrl', () => {
     expect(isPrivateUrl('https://8.8.8.8/')).toBe(false);
     expect(isPrivateUrl('https://1.1.1.1/')).toBe(false);
   });
+
+  it('blocks cloud metadata link-local 169.254.169.254', () => {
+    expect(isPrivateUrl('http://169.254.169.254/latest/meta-data/')).toBe(true);
+    expect(isPrivateUrl('http://169.254.0.1/')).toBe(true);
+  });
+
+  it('blocks integer/hex/octal/short-form encodings of loopback', () => {
+    expect(isPrivateUrl('http://2130706433/')).toBe(true);       // decimal 127.0.0.1
+    expect(isPrivateUrl('http://0x7f000001/')).toBe(true);       // hex 127.0.0.1
+    expect(isPrivateUrl('http://0177.0.0.1/')).toBe(true);       // octal first octet
+    expect(isPrivateUrl('http://127.1/')).toBe(true);            // short form
+    expect(isPrivateUrl('http://017700000001/')).toBe(true);     // octal 127.0.0.1
+  });
+
+  it('blocks CGNAT and other reserved ranges', () => {
+    expect(isPrivateUrl('http://100.64.0.1/')).toBe(true);       // 100.64.0.0/10
+    expect(isPrivateUrl('http://198.18.0.1/')).toBe(true);       // benchmarking
+  });
+
+  it('blocks IPv6 ULA and link-local ranges', () => {
+    expect(isPrivateUrl('http://[fd00::1]/')).toBe(true);        // ULA
+    expect(isPrivateUrl('http://[fe80::1]/')).toBe(true);        // link-local
+    expect(isPrivateUrl('http://[::]/')).toBe(true);             // unspecified
+    expect(isPrivateUrl('http://[::ffff:127.0.0.1]/')).toBe(true); // IPv4-mapped loopback
+  });
+
+  it('still allows a genuine public integer-free IP and hostname', () => {
+    expect(isPrivateUrl('https://93.184.216.34/')).toBe(false);
+    expect(isPrivateUrl('https://[2606:2800:220:1:248:1893:25c8:1946]/')).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

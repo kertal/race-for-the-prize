@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { discoverRacers, resolveSharedRacerNames, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown, InvalidSettingError } from '../cli/config.js';
+import { discoverRacers, resolveSharedRacerNames, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown, findValuelessKvFlags, InvalidSettingError } from '../cli/config.js';
 
 let tmpDir;
 
@@ -266,6 +266,18 @@ describe('argument parsing', () => {
     const { boolFlags, positional } = parseArgs(['--unknown', 'somevalue']);
     expect(boolFlags.has('unknown')).toBe(true);
     expect(positional).toEqual(['somevalue']);
+  });
+
+  it('flags value-requiring kv flags passed without a value', () => {
+    // Bare `--runs` at end of argv, or immediately before another flag, lands
+    // in boolFlags and must be reported rather than silently ignored.
+    expect(findValuelessKvFlags(parseArgs(['dir', '--runs']).boolFlags)).toEqual(['runs']);
+    expect(findValuelessKvFlags(parseArgs(['dir', '--runs', '--parallel']).boolFlags)).toEqual(['runs']);
+    // A properly-valued kv flag is not reported.
+    expect(findValuelessKvFlags(parseArgs(['dir', '--runs', '3']).boolFlags)).toEqual([]);
+    expect(findValuelessKvFlags(parseArgs(['dir', '--runs=3']).boolFlags)).toEqual([]);
+    // Boolean flags without values are legitimate, not reported.
+    expect(findValuelessKvFlags(parseArgs(['dir', '--parallel']).boolFlags)).toEqual([]);
   });
 });
 
