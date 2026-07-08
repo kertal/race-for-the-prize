@@ -1325,12 +1325,17 @@ async function startExport() {
 
   const adj = getAdjustedClipTimes();
   const ct = adj || clipTimes;
-  const perVideoEnd = raceVideos.map((v, i) => {
+  // Drive seek/play/progress/completion from the visible racers only, so a
+  // hidden racer can't skew the clock, extend the export, or block completion.
+  // perVideoEnd is indexed by visible position j (parallel to visibleIndices).
+  const perVideoEnd = visibleIndices.map((i) => {
+    const v = raceVideos[i];
     if (!v) return endTime;
     return (activeClip && ct && ct[i]) ? ct[i].end : endTime;
   });
 
-  const seekPromises = raceVideos.map((v, i) => {
+  const seekPromises = visibleIndices.map((i) => {
+    const v = raceVideos[i];
     if (!v) return Promise.resolve();
     return new Promise((resolve) => {
       let target = startTime;
@@ -1352,7 +1357,7 @@ async function startExport() {
     cancelled = true;
     if (recorder && recorder.state !== 'inactive') recorder.stop();
     if (rafId) cancelAnimationFrame(rafId);
-    raceVideos.forEach(v => v?.pause());
+    visibleIndices.forEach(i => raceVideos[i]?.pause());
     overlay.remove();
   });
 
@@ -1393,22 +1398,25 @@ async function startExport() {
 
   recorder.start();
   const exportRate = parseFloat(speedSelect.value) || 1;
-  raceVideos.forEach(v => { if (v) { v.playbackRate = exportRate; v.play(); } });
+  visibleIndices.forEach(i => { const v = raceVideos[i]; if (v) { v.playbackRate = exportRate; v.play(); } });
   const speedLabel = exportRate !== 1 ? ' (' + exportRate + 'x)' : '';
 
   let exportTimeOffset = null;
   function tick() {
     if (cancelled) return;
-    const cur = Math.max(...raceVideos.map(v => v?.currentTime || 0));
+    const cur = Math.max(...visibleIndices.map(i => raceVideos[i]?.currentTime || 0));
     if (exportTimeOffset === null) exportTimeOffset = cur;
     const elapsed = cur - exportTimeOffset;
     drawExportFrame(ctx, layout, elapsed, visibleIndices);
     const progress = totalDur > 0 ? Math.min(1, elapsed / totalDur) : 0;
     progressFill.style.width = (progress * 100).toFixed(1) + '%';
     statusEl.textContent = 'Recording' + speedLabel + '... ' + Math.round(progress * 100) + '%';
-    const allDone = raceVideos.every((v, i) => !v || v.currentTime >= perVideoEnd[i] || v.ended);
+    const allDone = visibleIndices.every((i, j) => {
+      const v = raceVideos[i];
+      return !v || v.currentTime >= perVideoEnd[j] || v.ended;
+    });
     if (allDone) {
-      raceVideos.forEach(v => v?.pause());
+      visibleIndices.forEach(i => raceVideos[i]?.pause());
       if (recorder.state !== 'inactive') recorder.stop();
       return;
     }

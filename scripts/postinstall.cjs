@@ -12,6 +12,7 @@
 'use strict';
 
 const { execFileSync } = require('node:child_process');
+const path = require('node:path');
 
 if (process.env.RFTP_SKIP_BROWSER_INSTALL || process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD) {
   console.log('race-for-the-prize: skipping Chromium download (skip flag set).');
@@ -19,7 +20,12 @@ if (process.env.RFTP_SKIP_BROWSER_INSTALL || process.env.PLAYWRIGHT_SKIP_BROWSER
 }
 
 try {
-  execFileSync('playwright', ['install', 'chromium'], { stdio: 'inherit' });
+  // Invoke Playwright's CLI through the current Node binary rather than the bare
+  // `playwright` name: execFileSync can't run the Windows `.cmd` shim, and using
+  // process.execPath avoids relying on PATH resolution entirely.
+  const pkgRoot = path.dirname(require.resolve('playwright/package.json'));
+  const cli = path.join(pkgRoot, require('playwright/package.json').bin.playwright);
+  execFileSync(process.execPath, [cli, 'install', 'chromium'], { stdio: 'inherit' });
 } catch (err) {
   // Don't hard-fail the install — the user can run `npx playwright install
   // chromium` later. A failed browser download must not block `npm install`

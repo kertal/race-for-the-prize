@@ -93,6 +93,38 @@ describe('SyncBarrier', () => {
     expect(barrier.released).toBe(true);
   });
 
+  it('releases every waiter and flags sharedState when a checkpoint times out', async () => {
+    vi.useFakeTimers();
+    const sharedState = { hasError: false, errorMessage: null };
+    // count=3 but only two callers ever arrive → deadlock without the timeout.
+    const barrier = new SyncBarrier(3, sharedState, 200);
+
+    const p1 = barrier.wait('a');
+    const p2 = barrier.wait('b');
+
+    await vi.advanceTimersByTimeAsync(250);
+
+    expect(await p1).toEqual({ aborted: true });
+    expect(await p2).toEqual({ aborted: true });
+    expect(sharedState.hasError).toBe(true);
+    expect(sharedState.errorMessage).toMatch(/timed out/);
+    // Fully released: no stale bookkeeping a later waiter could trip on.
+    expect(barrier.checkIntervals.length).toBe(0);
+    expect(barrier.resolvers.length).toBe(0);
+    expect(barrier.released).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it('times out even without sharedState (releases the lone waiter)', async () => {
+    vi.useFakeTimers();
+    const barrier = new SyncBarrier(2, null, 200);
+    const p1 = barrier.wait('solo');
+    await vi.advanceTimersByTimeAsync(250);
+    expect(await p1).toEqual({ aborted: true });
+    expect(barrier.released).toBe(true);
+    vi.useRealTimers();
+  });
+
   it('can be reused across multiple rounds', async () => {
     // Three barriers for three checkpoints, as used in parallel mode
     const barriers = {

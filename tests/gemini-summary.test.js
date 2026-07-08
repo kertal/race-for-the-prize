@@ -230,6 +230,12 @@ describe('isPrivateUrl', () => {
     expect(isPrivateUrl('http://198.18.0.1/')).toBe(true);       // benchmarking
   });
 
+  it('blocks trailing-dot (rooted FQDN) loopback bypasses', () => {
+    expect(isPrivateUrl('http://localhost./')).toBe(true);
+    expect(isPrivateUrl('http://127.0.0.1./')).toBe(true);
+    expect(isPrivateUrl('http://169.254.169.254./')).toBe(true);
+  });
+
   it('blocks IPv6 ULA and link-local ranges', () => {
     expect(isPrivateUrl('http://[fd00::1]/')).toBe(true);        // ULA
     expect(isPrivateUrl('http://[fe80::1]/')).toBe(true);        // link-local

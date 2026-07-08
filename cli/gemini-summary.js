@@ -256,6 +256,10 @@ export function isPrivateUrl(urlString) {
   } catch {
     return true; // unparseable — treat as unsafe
   }
+  // A rooted FQDN keeps its trailing dot in URL.hostname (`localhost.`,
+  // `127.0.0.1.`), which DNS treats as equivalent but string checks do not —
+  // strip it so it can't bypass the loopback/private-IP comparisons below.
+  host = host.replace(/\.+$/, '');
   if (host === 'localhost' || host === '' || host.endsWith('.localhost')) return true;
 
   // Strip IPv6 brackets. A ':' means an IPv6 literal.

@@ -6,8 +6,9 @@
  * Determine overall winner from win counts.
  *
  * The verdict is purely win-count based: the racer that wins the most
- * comparisons wins overall; equal top counts (including nobody winning any
- * comparison) is a 'tie'. "How close is close enough to count as a win" is
+ * comparisons wins overall; two or more racers tied at the top win count is a
+ * 'tie'; nobody winning any comparison returns null (no result). "How close is
+ * close enough to count as a win" is
  * decided per-comparison by the caller (an exact-tie guard for timing sections,
  * per-metric significance thresholds for profile metrics), so there is no
  * additional averaged-percentage threshold here — that only double-counted the

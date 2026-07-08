@@ -260,6 +260,17 @@ export function spawnRunner(ctx) {
   if (settings.noRecording) flags.push('no-recording');
   if (settings.ffmpeg) flags.push('ffmpeg');
 
+  // Pass the config via a temp file rather than argv. The config embeds every
+  // racer's full .spec.js source, which can blow past the OS argv size limit
+  // (E2BIG on Linux, ~32KB on Windows) for large specs. The runner consumes and
+  // deletes the file; we also clean it up if the spawn itself fails. Write it
+  // BEFORE starting the animation so a write failure can't leave the spinner
+  // interval running with no cleanup registered (0o600 + 'wx': owner-only,
+  // fail if the randomly-named path somehow already exists).
+  const tmpConfigPath = path.join(os.tmpdir(), `rftp-config-${process.pid}-${crypto.randomBytes(6).toString('hex')}.json`);
+  fs.writeFileSync(tmpConfigPath, JSON.stringify(runnerConfig), { mode: 0o600, flag: 'wx' });
+  const removeTmpConfig = () => { try { fs.unlinkSync(tmpConfigPath); } catch {} };
+
   const animation = new RaceAnimation(racerNames, flags.join(' · '));
   animation.start();
 
@@ -270,14 +281,6 @@ export function spawnRunner(ctx) {
   });
 
   const runnerPath = path.join(rootDir, 'runner.cjs');
-
-  // Pass the config via a temp file rather than argv. The config embeds every
-  // racer's full .spec.js source, which can blow past the OS argv size limit
-  // (E2BIG on Linux, ~32KB on Windows) for large specs. The runner consumes and
-  // deletes the file; we also clean it up if the spawn itself fails.
-  const tmpConfigPath = path.join(os.tmpdir(), `rftp-config-${process.pid}-${crypto.randomBytes(6).toString('hex')}.json`);
-  fs.writeFileSync(tmpConfigPath, JSON.stringify(runnerConfig));
-  const removeTmpConfig = () => { try { fs.unlinkSync(tmpConfigPath); } catch {} };
 
   return new Promise((resolve, reject) => {
     // NOSONAR — spawns runner.cjs subprocess with race config; this is the core
