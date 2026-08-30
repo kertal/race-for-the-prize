@@ -5,7 +5,8 @@
  * The HTML structure lives in player.html (a real HTML template).
  * The CSS lives in player.css (inlined into the exported HTML at build time).
  * Section builders live in player-sections.js.
- * The browser-side player runtime lives in player-runtime.js.
+ * The browser-side player runtime lives in player-runtime/ as concern-scoped
+ * source files, concatenated below in dependency order into one IIFE scope.
  * This module wires everything together via {{placeholder}} replacement.
  */
 
@@ -30,12 +31,34 @@ import {
   buildDebugPanelHtml,
   buildPlayerSectionHtml,
 } from './player-sections.js';
+import calibration from './player-runtime/calibration.cjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const RAW_HTML = fs.readFileSync(path.join(__dirname, 'player.html'), 'utf-8');
-const RUNTIME = fs.readFileSync(path.join(__dirname, 'player-runtime.js'), 'utf-8');
 const CSS = fs.readFileSync(path.join(__dirname, 'player.css'), 'utf-8');
+
+// Browser-side player runtime, split into concern-scoped files that are
+// concatenated in dependency order into the single IIFE scope emitted by
+// buildPlayerScript (runtime semantics identical to the former single file).
+// The .cjs files hold pure logic with a guarded module.exports, so Node can
+// require() them for unit tests while the browser concatenation ignores it.
+const RUNTIME_FILES = [
+  'config.js',         // build-time config injection + DOM bootstrap
+  'playback.js',       // shared state, seeking, metadata, modes, controls
+  'calibration.cjs',   // pure clip-calibration math (Node-testable)
+  'debug-panel.js',    // calibration/debug panel UI
+  'segments.js',       // segment navigation + racer filter UI
+  'main.js',           // startup: initial verified seek + metadata pass
+  'export-layout.cjs', // pure side-by-side export layout math (Node-testable)
+  'export-video.js',   // canvas side-by-side export + ffmpeg.wasm conversion
+  'fullscreen.js',     // fullscreen mode
+  'zip.cjs',           // pure CRC32/ZIP builder (Node-testable)
+  'export-zip.js',     // self-contained HTML/ZIP export flows
+];
+const RUNTIME = RUNTIME_FILES
+  .map(f => fs.readFileSync(path.join(__dirname, 'player-runtime', f), 'utf-8'))
+  .join('\n');
 
 // Extract build-time templates (build-*) from HTML and strip them from the main template
 function extractBuildTemplates(html) {
@@ -88,8 +111,8 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   const placementOrder = getPlacementOrder(summary);
 
   const hasFullVideos = fullVideoFiles?.length > 0;
-  const isValidClip = (c) => c != null && Number.isFinite(c.start) && Number.isFinite(c.end) && c.start <= c.end;
-  const hasClipTimes = clipTimes && clipTimes.some(isValidClip);
+  // Same predicate the browser runtime uses (calibration.cjs isValidClipEntry).
+  const hasClipTimes = clipTimes && clipTimes.some(calibration.isValidClipEntry);
   const hasMergedVideo = !!mergedVideoFile;
 
   let playerSection = '';
