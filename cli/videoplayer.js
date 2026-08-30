@@ -128,6 +128,8 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     const orderedClipTimes = clipTimes ? placementOrder.map(i => clipTimes[i] || null) : null;
     const orderedRacerNames = placementOrder.map(i => racers[i]);
     const orderedRacerColors = placementOrder.map(i => RACER_CSS_COLORS[i % RACER_CSS_COLORS.length]);
+    const orderedTraceFiles = traceFiles ? placementOrder.map(i => traceFiles[i] || null) : null;
+    const orderedHarFiles = harFiles ? placementOrder.map(i => harFiles[i] || null) : null;
 
     scriptTag = buildPlayerScript({
       videoVars: videoIds.map(id => `const ${id} = document.getElementById('${id}');`).join('\n  '),
@@ -141,6 +143,8 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
         : 'null',
       racerNamesJson: JSON.stringify(orderedRacerNames),
       racerColorsJson: JSON.stringify(orderedRacerColors),
+      tracePathsJson: orderedTraceFiles ? JSON.stringify(orderedTraceFiles) : 'null',
+      harPathsJson: orderedHarFiles ? JSON.stringify(orderedHarFiles) : 'null',
       ffmpegDir,
     });
   }

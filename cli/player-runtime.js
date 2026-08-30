@@ -16,6 +16,8 @@ const fullVideoPaths = {{fullVideoPaths}};
 const clipTimes = {{clipTimesJson}};
 const racerNames = {{racerNamesJson}};
 const racerColors = {{racerColorsJson}};
+const tracePaths = {{tracePathsJson}};
+const harPaths = {{harPathsJson}};
 const mergedVideo = document.getElementById('mergedVideo');
 const playerContainer = document.getElementById('playerContainer');
 const mergedContainer = document.getElementById('mergedContainer');
@@ -1584,7 +1586,7 @@ function buildExportHtml(pathOverrides = {}, { slim = false } = {}) {
   if (calBtn) calBtn.remove();
 
   // Remove export buttons (HTML export already done, video export needs ffmpeg assets not in ZIP)
-  doc.querySelectorAll('#exportHtmlBtn, #exportBtn, #exportHtmlOnlyBtn').forEach(el => el.remove());
+  doc.querySelectorAll('#exportHtmlBtn, #exportBtn, #exportHtmlOnlyBtn, #exportAnalysisBtn').forEach(el => el.remove());
 
   // Remove run navigation links (they point to sibling result dirs not included in export)
   doc.querySelectorAll('.run-nav').forEach(el => el.remove());
@@ -1894,5 +1896,186 @@ async function startHtmlOnlyExport() {
 const exportHtmlOnlyBtn = document.getElementById('exportHtmlOnlyBtn');
 if (exportHtmlOnlyBtn) {
   exportHtmlOnlyBtn.addEventListener('click', startHtmlOnlyExport);
+}
+
+// --- Performance data export -------------------------------------------------
+// Bundles everything needed for deeper performance analysis in external tools:
+// per-racer DevTools traces, HAR files, summary.json, a flat metrics.csv, and
+// a README explaining how to load each file.
+
+function csvCell(value) {
+  const s = value == null ? '' : String(value);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+/** Flatten race timings and profile metrics into one CSV table (raw values, one column per racer). */
+function buildMetricsCsv(summaryData) {
+  const racers = summaryData.racers || racerNames || [];
+  const rows = [['scope', 'category', 'metric', ...racers, 'winner', 'diff_percent']];
+  for (const comp of (summaryData.comparisons || [])) {
+    rows.push([
+      'race', 'timing', comp.name + ' (s)',
+      ...racers.map((_, i) => comp.racers && comp.racers[i] ? comp.racers[i].duration : ''),
+      comp.winner || '',
+      comp.diffPercent != null ? comp.diffPercent.toFixed(1) : '',
+    ]);
+  }
+  const profileComps = (summaryData.profileComparison && summaryData.profileComparison.comparisons) || [];
+  for (const comp of profileComps) {
+    rows.push([
+      comp.scope || '', comp.category || '', comp.name,
+      ...racers.map((_, i) => comp.values && comp.values[i] != null ? comp.values[i] : ''),
+      comp.winner || '',
+      comp.diffPercent != null ? comp.diffPercent.toFixed(1) : '',
+    ]);
+  }
+  if (rows.length === 1) return null;
+  return rows.map(r => r.map(csvCell).join(',')).join('\n') + '\n';
+}
+
+function buildAnalysisReadme(bundled) {
+  const lines = [
+    '# Performance Analysis Bundle',
+    '',
+    'Exported from the Race for the Prize player: ' + document.title,
+    '',
+    '## Contents',
+  ];
+  if (bundled.traces) lines.push('- `traces/<racer>.trace.json` — Chrome DevTools performance trace per racer');
+  if (bundled.hars) lines.push('- `har/<racer>.har` — HTTP Archive of network activity per racer');
+  if (bundled.summary) lines.push('- `summary.json` — full race results: timings, raw profile metrics, comparisons');
+  if (bundled.csv) lines.push('- `metrics.csv` — flat metric table, one row per metric, one raw-value column per racer');
+  lines.push(
+    '',
+    '## How to analyze',
+    '- **Traces**: drop a `.trace.json` into https://ui.perfetto.dev, or load it in the',
+    '  Chrome DevTools Performance panel ("Load profile…"). The `race:recording:*` and',
+    '  `race:measure:*` markers bracket the recorded and measured periods.',
+    '- **HAR**: import into the DevTools Network panel or any HAR viewer to inspect',
+    '  individual requests, timings, and headers.',
+    '- **metrics.csv**: open in a spreadsheet. All metrics are "lower is better";',
+    '  `scope` is `measured` (between raceStart/raceEnd) or `total` (whole session).',
+    '- **summary.json**: `profileMetrics` holds raw per-racer values;',
+    '  `profileComparison` holds computed winners, diffs, and rankings.',
+    ''
+  );
+  return lines.join('\n');
+}
+
+async function startAnalysisExport() {
+  const tmpl = document.getElementById('tmpl-export-overlay');
+  const overlay = tmpl.content.cloneNode(true).firstElementChild;
+  overlay.querySelector('.export-canvas').style.display = 'none';
+  overlay.querySelector('h3').textContent = 'Exporting Performance Data';
+  document.body.appendChild(overlay);
+
+  const progressFill = overlay.querySelector('.export-progress-fill');
+  const statusEl = overlay.querySelector('.export-status');
+  const actionsEl = overlay.querySelector('.export-actions');
+
+  const abortCtrl = new AbortController();
+  overlay.querySelector('.export-cancel').addEventListener('click', () => {
+    abortCtrl.abort();
+    overlay.remove();
+  });
+
+  // Per-racer analysis files, in the same (placement) order as racerNames
+  const racerFiles = [];
+  (tracePaths || []).forEach((p, i) => {
+    if (p && !p.startsWith('data:')) {
+      racerFiles.push({ zipPath: 'traces/' + (racerNames[i] || 'racer' + i) + '.trace.json', srcPath: p, kind: 'traces' });
+    }
+  });
+  (harPaths || []).forEach((p, i) => {
+    if (p && !p.startsWith('data:')) {
+      racerFiles.push({ zipPath: 'har/' + (racerNames[i] || 'racer' + i) + '.har', srcPath: p, kind: 'hars' });
+    }
+  });
+
+  const zipBuilder = createZipBuilder();
+  const bundled = { traces: false, hars: false, summary: false, csv: false };
+  const failedFiles = [];
+  const total = racerFiles.length + 1; // +1 for summary.json
+  let fetched = 0;
+
+  statusEl.textContent = 'Fetching summary.json (1/' + total + ')';
+  try {
+    const resp = await fetch('summary.json', { signal: abortCtrl.signal });
+    if (resp.ok) {
+      const text = await resp.text();
+      zipBuilder.addFile('summary.json', new TextEncoder().encode(text));
+      bundled.summary = true;
+      try {
+        const csv = buildMetricsCsv(JSON.parse(text));
+        if (csv) {
+          zipBuilder.addFile('metrics.csv', new TextEncoder().encode(csv));
+          bundled.csv = true;
+        }
+      } catch (e) { /* unparsable summary — raw file is still in the ZIP */ }
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') return;
+  }
+  fetched++;
+  progressFill.style.width = (fetched / total * 90).toFixed(0) + '%';
+
+  for (const file of racerFiles) {
+    if (abortCtrl.signal.aborted) return;
+    fetched++;
+    statusEl.textContent = 'Fetching ' + file.srcPath + ' (' + fetched + '/' + total + ')';
+    progressFill.style.width = (fetched / total * 90).toFixed(0) + '%';
+    try {
+      const resp = await fetch(file.srcPath, { signal: abortCtrl.signal });
+      if (resp.ok) {
+        zipBuilder.addFile(file.zipPath, new Uint8Array(await resp.arrayBuffer()));
+        bundled[file.kind] = true;
+      } else {
+        failedFiles.push(file.srcPath);
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      failedFiles.push(file.srcPath);
+    }
+  }
+
+  if (abortCtrl.signal.aborted) return;
+
+  if (!bundled.traces && !bundled.hars && !bundled.summary) {
+    statusEl.textContent = 'No performance data could be loaded. If this page was opened from disk, serve the results directory over HTTP and retry.';
+    progressFill.style.width = '100%';
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = 'Close';
+    closeBtn.addEventListener('click', () => overlay.remove());
+    actionsEl.replaceChildren(closeBtn);
+    return;
+  }
+
+  statusEl.textContent = 'Creating ZIP...';
+  progressFill.style.width = '95%';
+  zipBuilder.addFile('README.md', new TextEncoder().encode(buildAnalysisReadme(bundled)));
+  const blob = zipBuilder.toBlob();
+  const url = URL.createObjectURL(blob);
+
+  let statusMsg = 'Export complete! (' + (blob.size / (1024 * 1024)).toFixed(1) + ' MB)';
+  if (failedFiles.length > 0) {
+    statusMsg += '\nSkipped ' + failedFiles.length + ' file(s): ' + failedFiles.join(', ');
+  }
+  statusEl.textContent = statusMsg;
+  progressFill.style.width = '100%';
+
+  const dlLink = document.createElement('a');
+  dlLink.href = url;
+  const baseName = document.title.replace(/[^a-zA-Z0-9-]/g, '_').replace(/_+/g, '_').toLowerCase();
+  dlLink.download = (baseName || 'race') + '-performance-data.zip';
+  dlLink.textContent = 'Download ZIP';
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Close';
+  closeBtn.addEventListener('click', () => { URL.revokeObjectURL(url); overlay.remove(); });
+  actionsEl.replaceChildren(dlLink, closeBtn);
+}
+
+const exportAnalysisBtn = document.getElementById('exportAnalysisBtn');
+if (exportAnalysisBtn) {
+  exportAnalysisBtn.addEventListener('click', startAnalysisExport);
 }
 

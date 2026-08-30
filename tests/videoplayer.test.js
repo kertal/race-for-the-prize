@@ -770,7 +770,7 @@ describe('buildPlayerHtml files section', () => {
   });
 
   it('omits trace links when not profiling', () => {
-    expect(abHtml()).not.toContain('.trace.json');
+    expect(abHtml()).not.toContain('(profile)');
   });
 
   it('includes HAR download links when provided', () => {
@@ -781,7 +781,7 @@ describe('buildPlayerHtml files section', () => {
   });
 
   it('omits HAR links when not provided', () => {
-    expect(abHtml()).not.toContain('.har');
+    expect(abHtml()).not.toContain('(HAR)');
   });
 
   it('omits HAR links for racers without HAR files', () => {
@@ -973,6 +973,40 @@ describe('buildPlayerHtml export', () => {
 
   it('export modal canvas has max-height to keep buttons visible', () => {
     expect(defaultHtml).toContain('max-height: 50vh');
+  });
+});
+
+// --- Performance data export ---
+
+describe('buildPlayerHtml performance data export', () => {
+  it('renders Export Performance Data menu item in the share menu', () => {
+    expect(defaultHtml).toContain('id="exportAnalysisBtn"');
+    expect(defaultHtml).toContain('Export Performance Data');
+  });
+
+  it('includes analysis export runtime when videos exist', () => {
+    for (const str of ['startAnalysisExport', 'buildMetricsCsv', 'buildAnalysisReadme', 'metrics.csv', '-performance-data.zip']) {
+      expect(defaultHtml).toContain(str);
+    }
+  });
+
+  it('injects trace and HAR paths in placement order', () => {
+    const html = buildPlayerHtml(huntWinsSummary(), videoFiles, null, null, {
+      traceFiles: ['lauda/lauda.trace.json', 'hunt/hunt.trace.json'],
+      harFiles: ['lauda/lauda.har', null],
+    });
+    // hunt wins, so hunt is placed first
+    expect(html).toContain('const tracePaths = ["hunt/hunt.trace.json","lauda/lauda.trace.json"];');
+    expect(html).toContain('const harPaths = [null,"lauda/lauda.har"];');
+  });
+
+  it('injects null trace/HAR paths when none are provided', () => {
+    expect(defaultHtml).toContain('const tracePaths = null;');
+    expect(defaultHtml).toContain('const harPaths = null;');
+  });
+
+  it('removes the analysis export button from exported HTML', () => {
+    expect(defaultHtml).toContain('#exportHtmlBtn, #exportBtn, #exportHtmlOnlyBtn, #exportAnalysisBtn');
   });
 });
 
