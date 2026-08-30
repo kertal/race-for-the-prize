@@ -284,6 +284,38 @@ export function applyDefaults(settings) {
 export const VALID_NETWORKS = ['none', 'slow-3g', 'fast-3g', '4g'];
 export const VALID_FORMATS = ['webm', 'mov', 'gif'];
 
+/**
+ * Parse a network setting into a validated list of network presets.
+ * Accepts a single preset string, a comma-separated string ("slow-3g,4g"),
+ * or an array of preset strings (settings.json). Each entry must be one of
+ * VALID_NETWORKS; duplicates are rejected because each network condition
+ * becomes a results directory name.
+ *
+ * @param {string|string[]} value
+ * @param {string} source - Label used in error messages (e.g. "--network")
+ * @returns {string[]} validated network presets, at least one
+ * @throws {InvalidSettingError}
+ */
+export function parseNetworkList(value, source = '--network') {
+  const parts = Array.isArray(value)
+    ? value.map(v => String(v).trim())
+    : String(value).split(',').map(v => v.trim());
+  const networks = parts.filter(p => p !== '');
+  if (networks.length === 0) {
+    throw new InvalidSettingError(`${source} requires at least one network preset. Valid values: ${VALID_NETWORKS.join(', ')}`);
+  }
+  for (const network of networks) {
+    if (!VALID_NETWORKS.includes(network)) {
+      throw new InvalidSettingError(`Unknown network preset "${network}". Valid values: ${VALID_NETWORKS.join(', ')}`);
+    }
+  }
+  const dupes = [...new Set(networks.filter((n, i) => networks.indexOf(n) !== i))];
+  if (dupes.length > 0) {
+    throw new InvalidSettingError(`Duplicate network preset(s) in ${source}: ${dupes.join(', ')}`);
+  }
+  return networks;
+}
+
 function parseCliBoolean(value, flagName) {
   if (value === true || value === 1) return true;
   if (value === false || value === 0) return false;
@@ -337,10 +369,8 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   }
   if (kvFlags.gemini !== undefined) s.gemini = parseCliBoolean(kvFlags.gemini, '--gemini');
   if (kvFlags.network !== undefined) {
-    if (!VALID_NETWORKS.includes(kvFlags.network)) {
-      throw new InvalidSettingError(`Unknown network preset "${kvFlags.network}". Valid values: ${VALID_NETWORKS.join(', ')}`);
-    }
-    s.network = kvFlags.network;
+    const networks = parseNetworkList(kvFlags.network);
+    s.network = networks.length === 1 ? networks[0] : networks;
   }
   if (kvFlags.cpu !== undefined) {
     const cpu = Number(kvFlags.cpu);

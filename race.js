@@ -25,7 +25,7 @@ import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c, FORMAT_EXTENSIONS } from './cli/colors.js';
-import { parseArgs, discoverRacers, resolveSharedRacerNames, applyOverrides, applyDefaults, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown, findUnknownFlags, varsToEnv, InvalidSettingError } from './cli/config.js';
+import { parseArgs, discoverRacers, resolveSharedRacerNames, applyOverrides, applyDefaults, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown, findUnknownFlags, varsToEnv, parseNetworkList, InvalidSettingError } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex, findMedianRunIndexPerRacer } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
@@ -47,6 +47,57 @@ export function buildResultsPaths(resultsDir, cwd = process.cwd()) {
   const relResults = path.relative(cwd, resultsDir);
   const relHtml = path.relative(cwd, path.join(resultsDir, 'index.html'));
   return { relResults, relHtml };
+}
+
+/**
+ * Build the top-level index.html for a multi-network race: one card per
+ * network condition linking to that condition's results player.
+ *
+ * @param {string} raceTitle - e.g. "lauda vs hunt"
+ * @param {Array<{network: string, summary: object|null}>} entries
+ * @returns {string} HTML document
+ */
+export function buildNetworkIndexHtml(raceTitle, entries) {
+  const esc = s => String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const rows = entries.map(({ network, summary }) => {
+    const winner = summary?.overallWinner
+      ? `🏆 ${esc(summary.overallWinner)}`
+      : '—';
+    return `      <li><a href="${encodeURIComponent(network)}/index.html">` +
+      `<span class="net">${esc(network)}</span><span class="winner">${winner}</span></a></li>`;
+  }).join('\n');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(raceTitle)} — Network Conditions</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #eee; margin: 0; padding: 40px 20px; }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 1.4em; margin-bottom: 4px; }
+  p.sub { color: #999; margin-top: 0; }
+  ul { list-style: none; padding: 0; }
+  li a { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px;
+         margin: 10px 0; background: #23233b; border-radius: 8px; color: #eee;
+         text-decoration: none; border: 1px solid #33335a; }
+  li a:hover { border-color: #6c6cd8; }
+  .net { font-weight: 600; }
+  .winner { color: #aaa; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>${esc(raceTitle)}</h1>
+  <p class="sub">One race per network condition — pick a condition to view its results.</p>
+  <ul>
+${rows}
+  </ul>
+</div>
+</body>
+</html>
+`;
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -974,6 +1025,7 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--parallel${c.reset}           Run both browsers simultaneously
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--headless${c.reset}           Hide browsers
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--network${c.reset}=${c.green}slow-3g${c.reset}   Network: none, slow-3g, fast-3g, 4g
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--network${c.reset}=${c.green}slow-3g,4g${c.reset} Race each network condition separately
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}4${c.reset}              CPU throttle multiplier (1=none)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--format${c.reset}=${c.green}mov${c.reset}          Output format: webm (default), mov, gif
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--runs${c.reset}=${c.green}3${c.reset}            Run multiple times, report median
@@ -1295,9 +1347,28 @@ async function runScript(script, label, vars) {
   });
 }
 const totalRuns = settings.runs;
+
+// Resolve the network setting into a list of conditions. A single condition
+// behaves exactly as before; multiple conditions (comma-separated --network or
+// an array in settings.json) race each condition separately, with results
+// named after the condition.
+let networkConditions;
+try {
+  networkConditions = parseNetworkList(settings.network ?? 'none', 'network');
+} catch (e) {
+  if (e instanceof InvalidSettingError) {
+    console.error(`${c.red}Error: ${e.message}${c.reset}`);
+    process.exit(2);
+  }
+  throw e;
+}
+const multiNetwork = networkConditions.length > 1;
+
 // Include a short random nonce so rapid successive runs (timestamp collisions,
 // e.g. same second) don't overwrite each other's output.
-const resultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}-${crypto.randomBytes(3).toString('hex')}`);
+const baseResultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}-${crypto.randomBytes(3).toString('hex')}`);
+// In multi-network mode this is reassigned per condition (baseResultsDir/<network>).
+let resultsDir = baseResultsDir;
 
 // --- Main ---
 
@@ -1427,6 +1498,99 @@ function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts
   return { summary, clipTimes };
 }
 
+/**
+ * Run the full race series (all runs, all racers) for the current module-level
+ * settings/ctx/resultsDir. Returns the series' top-level summary: the race
+ * summary for single-run races, or the median summary for multi-run races.
+ */
+async function runRaceSeries() {
+  const hasRacerSetups = racerScripts.some(r => r.setup);
+
+  if (!settings.pauseBetweenRuns && !hasRacerSetups) {
+    // --- Normal mode: both racers run together per run ---
+    if (totalRuns === 1) {
+      const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir);
+      printSummary(summary);
+      generateGeminiCommentary(summary, resultsDir);
+      // Re-write summary.json with gemini commentary included
+      fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(summary, null, 2));
+      bakeNotesIntoHtml(resultsDir, summary.geminiCommentary);
+      fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summary, sideBySidePath ? sideBySideName : null));
+      return summary;
+    }
+
+    fs.mkdirSync(resultsDir, { recursive: true });
+    const summaries = [], sideBySideNames = [], allClipTimes = [];
+
+    for (let i = 0; i < totalRuns; i++) {
+      console.error(`\n  ${c.bold}${c.cyan}── Run ${i + 1} of ${totalRuns} ──${c.reset}`);
+      const runNav = { currentRun: i + 1, totalRuns, pathPrefix: '../' };
+      const { summary, sideBySidePath, sideBySideName, clipTimes: runClipTimes } = await runSingleRace(ctx, path.join(resultsDir, String(i + 1)), runNav, { skipCopyFFmpeg: true, ffmpegPathPrefix: '../' });
+      printSummary(summary);
+      summaries.push(summary);
+      sideBySideNames.push(sideBySidePath ? sideBySideName : null);
+      allClipTimes.push(runClipTimes);
+    }
+
+    updateRunNavColors(summaries);
+    return buildMedianOutput(summaries, sideBySideNames, allClipTimes);
+  } else {
+    // --- Split mode: all runs of each racer in sequence ---
+    // Activated when per-racer setup scripts exist or --pause is set.
+    // Pattern: setupA → A₁, A₂, …, Aₙ → setupB → B₁, B₂, …, Bₙ
+    fs.mkdirSync(resultsDir, { recursive: true });
+    const multiRun = totalRuns > 1;
+
+    // rawResults[racerIdx][runIdx], movedResults[racerIdx][runIdx]
+    const rawResults  = racerNames.map(() => Array(totalRuns).fill(null));
+    const movedResults = racerNames.map(() => Array(totalRuns).fill(null));
+
+    for (let ri = 0; ri < racerNames.length; ri++) {
+      if (ri > 0 && settings.pauseBetweenRuns && !racerScripts[ri].setup) {
+        await waitForEnter(`\n  ${c.bold}${c.yellow}⏸  Paused — press Enter to start ${racerNames[ri]}...${c.reset} `);
+      }
+      // Run per-racer setup right before this racer's runs
+      if (racerScripts[ri].setup) {
+        await runScript(racerScripts[ri].setup, `Setup [${racerScripts[ri].name}]`, racerScripts[ri].vars);
+      }
+      for (let i = 0; i < totalRuns; i++) {
+        if (i > 0 && settings.pauseBetweenRuns) {
+          await waitForEnter(`\n  ${c.bold}${c.yellow}⏸  Paused — press Enter to start ${racerNames[ri]} run ${i + 1}...${c.reset} `);
+        }
+        const label = multiRun ? `${racerNames[ri]}: Run ${i + 1} of ${totalRuns}` : racerNames[ri];
+        console.error(`\n  ${c.bold}${c.cyan}── ${label} ──${c.reset}`);
+        const runDir = multiRun ? path.join(resultsDir, String(i + 1)) : resultsDir;
+        const { rawResult, movedResult } = await runRacerAlone(ri, path.join(runDir, racerNames[ri]));
+        rawResults[ri][i] = rawResult;
+        movedResults[ri][i] = movedResult;
+      }
+    }
+
+    const summaries = [], allClipTimes = [];
+    for (let i = 0; i < totalRuns; i++) {
+      const runDir = multiRun ? path.join(resultsDir, String(i + 1)) : resultsDir;
+      const runNav = multiRun ? { currentRun: i + 1, totalRuns, pathPrefix: '../' } : null;
+      const { summary, clipTimes } = buildRunOutput(
+        runDir,
+        racerNames.map((_, ri) => rawResults[ri][i]),
+        racerNames.map((_, ri) => movedResults[ri][i]),
+        runNav,
+        { skipCopyFFmpeg: multiRun, ffmpegPathPrefix: multiRun ? '../' : './' }
+      );
+      printSummary(summary);
+      summaries.push(summary);
+      allClipTimes.push(clipTimes);
+    }
+
+    if (!multiRun) {
+      fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summaries[0], null));
+      return summaries[0];
+    }
+    updateRunNavColors(summaries);
+    return buildMedianOutput(summaries, summaries.map(() => null), allClipTimes);
+  }
+}
+
 async function main() {
   let setupCompleted = false;
 
@@ -1434,92 +1598,37 @@ async function main() {
     // Run global setup script before races
     await runScript(setupScript, 'Setup');
 
-    const hasRacerSetups = racerScripts.some(r => r.setup);
-
     setupCompleted = true;
-    if (!settings.pauseBetweenRuns && !hasRacerSetups) {
-      // --- Normal mode: both racers run together per run ---
-      if (totalRuns === 1) {
-        const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir);
-        printSummary(summary);
-        generateGeminiCommentary(summary, resultsDir);
-        // Re-write summary.json with gemini commentary included
-        fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(summary, null, 2));
-        bakeNotesIntoHtml(resultsDir, summary.geminiCommentary);
-        fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summary, sideBySidePath ? sideBySideName : null));
-      } else {
-        fs.mkdirSync(resultsDir, { recursive: true });
-        const summaries = [], sideBySideNames = [], allClipTimes = [];
 
-        for (let i = 0; i < totalRuns; i++) {
-          console.error(`\n  ${c.bold}${c.cyan}── Run ${i + 1} of ${totalRuns} ──${c.reset}`);
-          const runNav = { currentRun: i + 1, totalRuns, pathPrefix: '../' };
-          const { summary, sideBySidePath, sideBySideName, clipTimes: runClipTimes } = await runSingleRace(ctx, path.join(resultsDir, String(i + 1)), runNav, { skipCopyFFmpeg: true, ffmpegPathPrefix: '../' });
-          printSummary(summary);
-          summaries.push(summary);
-          sideBySideNames.push(sideBySidePath ? sideBySideName : null);
-          allClipTimes.push(runClipTimes);
-        }
-
-        updateRunNavColors(summaries);
-        buildMedianOutput(summaries, sideBySideNames, allClipTimes);
+    // Race each network condition separately. With a single condition this
+    // loop runs once with resultsDir === baseResultsDir (unchanged behavior).
+    const baseSettings = settings;
+    const baseCtx = ctx;
+    const networkSummaries = [];
+    for (const network of networkConditions) {
+      settings = { ...baseSettings, network };
+      ctx = {
+        ...baseCtx,
+        settings,
+        throttle: { ...baseCtx.throttle, network },
+        runnerConfig: { ...baseCtx.runnerConfig, throttle: { ...baseCtx.runnerConfig.throttle, network } },
+      };
+      if (multiNetwork) {
+        resultsDir = path.join(baseResultsDir, network);
+        console.error(`\n  ${c.bold}${c.magenta}══ Network: ${network} ══${c.reset}`);
       }
-    } else {
-      // --- Split mode: all runs of each racer in sequence ---
-      // Activated when per-racer setup scripts exist or --pause is set.
-      // Pattern: setupA → A₁, A₂, …, Aₙ → setupB → B₁, B₂, …, Bₙ
-      fs.mkdirSync(resultsDir, { recursive: true });
-      const multiRun = totalRuns > 1;
-
-      // rawResults[racerIdx][runIdx], movedResults[racerIdx][runIdx]
-      const rawResults  = racerNames.map(() => Array(totalRuns).fill(null));
-      const movedResults = racerNames.map(() => Array(totalRuns).fill(null));
-
-      for (let ri = 0; ri < racerNames.length; ri++) {
-        if (ri > 0 && settings.pauseBetweenRuns && !racerScripts[ri].setup) {
-          await waitForEnter(`\n  ${c.bold}${c.yellow}⏸  Paused — press Enter to start ${racerNames[ri]}...${c.reset} `);
-        }
-        // Run per-racer setup right before this racer's runs
-        if (racerScripts[ri].setup) {
-          await runScript(racerScripts[ri].setup, `Setup [${racerScripts[ri].name}]`, racerScripts[ri].vars);
-        }
-        for (let i = 0; i < totalRuns; i++) {
-          if (i > 0 && settings.pauseBetweenRuns) {
-            await waitForEnter(`\n  ${c.bold}${c.yellow}⏸  Paused — press Enter to start ${racerNames[ri]} run ${i + 1}...${c.reset} `);
-          }
-          const label = multiRun ? `${racerNames[ri]}: Run ${i + 1} of ${totalRuns}` : racerNames[ri];
-          console.error(`\n  ${c.bold}${c.cyan}── ${label} ──${c.reset}`);
-          const runDir = multiRun ? path.join(resultsDir, String(i + 1)) : resultsDir;
-          const { rawResult, movedResult } = await runRacerAlone(ri, path.join(runDir, racerNames[ri]));
-          rawResults[ri][i] = rawResult;
-          movedResults[ri][i] = movedResult;
-        }
-      }
-
-      const summaries = [], allClipTimes = [];
-      for (let i = 0; i < totalRuns; i++) {
-        const runDir = multiRun ? path.join(resultsDir, String(i + 1)) : resultsDir;
-        const runNav = multiRun ? { currentRun: i + 1, totalRuns, pathPrefix: '../' } : null;
-        const { summary, clipTimes } = buildRunOutput(
-          runDir,
-          racerNames.map((_, ri) => rawResults[ri][i]),
-          racerNames.map((_, ri) => movedResults[ri][i]),
-          runNav,
-          { skipCopyFFmpeg: multiRun, ffmpegPathPrefix: multiRun ? '../' : './' }
-        );
-        printSummary(summary);
-        summaries.push(summary);
-        allClipTimes.push(clipTimes);
-      }
-
-      if (!multiRun) {
-        fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summaries[0], null));
-      } else {
-        updateRunNavColors(summaries);
-        buildMedianOutput(summaries, summaries.map(() => null), allClipTimes);
-      }
+      networkSummaries.push({ network, summary: await runRaceSeries() });
     }
 
+    if (multiNetwork) {
+      resultsDir = baseResultsDir;
+      if (!settings.noRecording) {
+        fs.writeFileSync(
+          path.join(baseResultsDir, 'index.html'),
+          buildNetworkIndexHtml(racerNames.join(' vs '), networkSummaries)
+        );
+      }
+    }
 
     const { relResults, relHtml } = buildResultsPaths(resultsDir);
     console.error(`  ${c.dim}📂 ${relResults}${c.reset}`);
@@ -1610,6 +1719,7 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
   console.error(`\n  ${c.bold}${c.cyan}── Median Results (${totalRuns} runs) ──${c.reset}`);
   printSummary(medianSummary);
   fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMultiRunMarkdown(medianSummary, summaries));
+  return medianSummary;
 }
 
 await main();

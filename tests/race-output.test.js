@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { formatTimestamp, buildResultsPaths, waitForEnter } from '../race.js';
+import { formatTimestamp, buildResultsPaths, buildNetworkIndexHtml, waitForEnter } from '../race.js';
 
 describe('formatTimestamp', () => {
   it('formats date as YYYY-MM-DD_HH-MM-SS', () => {
@@ -34,6 +34,39 @@ describe('buildResultsPaths', () => {
     const { relResults, relHtml } = buildResultsPaths('/project/results', '/project/results');
     expect(relResults).toBe('');
     expect(relHtml).toBe('index.html');
+  });
+});
+
+describe('buildNetworkIndexHtml', () => {
+  it('links each network condition to its results player', () => {
+    const html = buildNetworkIndexHtml('lauda vs hunt', [
+      { network: 'slow-3g', summary: { overallWinner: 'lauda' } },
+      { network: '4g', summary: { overallWinner: 'hunt' } },
+    ]);
+    expect(html).toContain('lauda vs hunt');
+    expect(html).toContain('href="slow-3g/index.html"');
+    expect(html).toContain('href="4g/index.html"');
+    expect(html).toContain('🏆 lauda');
+    expect(html).toContain('🏆 hunt');
+  });
+
+  it('shows a placeholder when a summary has no winner', () => {
+    const html = buildNetworkIndexHtml('a vs b', [
+      { network: 'none', summary: { overallWinner: null } },
+      { network: 'fast-3g', summary: null },
+    ]);
+    expect(html).toContain('href="none/index.html"');
+    expect(html).not.toContain('🏆');
+    expect(html).toContain('—');
+  });
+
+  it('escapes HTML in titles and winner names', () => {
+    const html = buildNetworkIndexHtml('<b>x</b> vs y', [
+      { network: 'none', summary: { overallWinner: 'a<script>' } },
+    ]);
+    expect(html).not.toContain('<b>x</b>');
+    expect(html).toContain('&lt;b&gt;x&lt;/b&gt;');
+    expect(html).not.toContain('a<script>');
   });
 });
 
