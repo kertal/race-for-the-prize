@@ -23,7 +23,9 @@ import { spawn, spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { RaceAnimation, startProgress } from './cli/animation.js';
-import { c, FORMAT_EXTENSIONS } from './cli/colors.js';
+import { c } from './cli/colors.js';
+import { FORMAT_EXTENSIONS } from './cli/media-config.js';
+import { raceVideoFile, fullVideoFile, traceFile, harFile, racerRelative } from './cli/paths.js';
 import { parseArgs, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown, findUnknownFlags } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex, findMedianRunIndexPerRacer } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
@@ -368,12 +370,12 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
         let tracePath = null;
         if (b.tracePath) {
           const sourceTrace = path.join(recordingsDir, b.tracePath);
-          const targetTraceName = `${name}.trace.json`;
+          const targetTraceName = traceFile(name);
           const targetTrace = path.join(racerRunDirs[i], targetTraceName);
           try {
             if (fs.existsSync(sourceTrace)) {
               fs.copyFileSync(sourceTrace, targetTrace);
-              tracePath = path.join(name, targetTraceName);
+              tracePath = racerRelative(name, targetTraceName);
             } else {
               console.error(`${c.dim}Warning: Trace file missing for ${name}: ${sourceTrace}${c.reset}`);
             }
@@ -422,19 +424,19 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
       // virtual trimming via clip times from recordingSegments.
       let videoFiles, fullVideoFiles, altFiles;
       if (ffmpeg) {
-        videoFiles = racerNames.map(name => `${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
-        fullVideoFiles = racerNames.map(name => `${name}/${name}.full${FORMAT_EXTENSIONS.webm}`);
-        altFiles = format !== 'webm' ? racerNames.map(name => `${name}/${name}.race${ext}`) : null;
+        videoFiles = racerNames.map(name => racerRelative(name, raceVideoFile(name)));
+        fullVideoFiles = racerNames.map(name => racerRelative(name, fullVideoFile(name)));
+        altFiles = format !== 'webm' ? racerNames.map(name => racerRelative(name, raceVideoFile(name, ext))) : null;
       } else {
         // Only the full (untrimmed) video exists — use it for both race and full views
-        videoFiles = racerNames.map(name => `${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
+        videoFiles = racerNames.map(name => racerRelative(name, raceVideoFile(name)));
         fullVideoFiles = null; // same file, no separate full video
         altFiles = null;       // no format conversion without ffmpeg
       }
 
-      const traceFiles = racerNames.map(name => `${name}/${name}.trace.json`);
+      const traceFiles = racerNames.map(name => racerRelative(name, traceFile(name)));
       const harFiles = racerNames.map((name, i) => {
-        return results[i]?.harPath ? `${name}/${name}.har` : null;
+        return results[i]?.harPath ? racerRelative(name, harFile(name)) : null;
       });
 
       clipTimes = buildClipTimes(racerNames, (i) => result.browsers?.[i], ffmpeg);
@@ -949,8 +951,8 @@ function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts
 
   const clipTimes = buildClipTimes(racerNames, (ri) => runRawResults[ri].browsers?.[0], ffmpeg);
 
-  const videoFiles = racerNames.map(name => `${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
-  const traceFiles = racerNames.map(name => `${name}/${name}.trace.json`);
+  const videoFiles = racerNames.map(name => racerRelative(name, raceVideoFile(name)));
+  const traceFiles = racerNames.map(name => racerRelative(name, traceFile(name)));
 
   writePlayerAndAssets({
     runDir, summary, settings, videoFiles,
@@ -1112,9 +1114,9 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
     const overallMedianRunDir = String(overallMedianRunIdx + 1);
     const { ffmpeg, format } = settings;
     const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
-    const medianVideoFiles = racerNames.map((name, i) => `${perRacerRunIdx[i] + 1}/${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
-    const medianFullVideoFiles = ffmpeg ? racerNames.map((name, i) => `${perRacerRunIdx[i] + 1}/${name}/${name}.full${FORMAT_EXTENSIONS.webm}`) : null;
-    const medianAltFiles = ffmpeg && format !== 'webm' ? racerNames.map((name, i) => `${perRacerRunIdx[i] + 1}/${name}/${name}.race${ext}`) : null;
+    const medianVideoFiles = racerNames.map((name, i) => `${perRacerRunIdx[i] + 1}/${racerRelative(name, raceVideoFile(name))}`);
+    const medianFullVideoFiles = ffmpeg ? racerNames.map((name, i) => `${perRacerRunIdx[i] + 1}/${racerRelative(name, fullVideoFile(name))}`) : null;
+    const medianAltFiles = ffmpeg && format !== 'webm' ? racerNames.map((name, i) => `${perRacerRunIdx[i] + 1}/${racerRelative(name, raceVideoFile(name, ext))}`) : null;
     const medianMergedFile = sideBySideNames?.[overallMedianRunIdx] ? `${overallMedianRunDir}/${sideBySideNames[overallMedianRunIdx]}` : null;
     // Clip times: each racer takes their own best run's clip entry
     const medianClipTimes = allClipTimes.some(ct => ct != null)

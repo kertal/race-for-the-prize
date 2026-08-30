@@ -10,7 +10,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
-import { CUE_DETECTION } from '../cli/colors.js';
+import { CUE_DETECTION } from '../cli/media-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

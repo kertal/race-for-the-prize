@@ -48,7 +48,7 @@ const BARRIER_TIMEOUT_MS = PAGE_TIMEOUT_MS + 30000;
 let SCREEN, WINDOW_HEIGHT;
 
 async function loadConstants() {
-  const { SCREEN: s, VIDEO_DEFAULTS: v } = await import('./cli/colors.js');
+  const { SCREEN: s, VIDEO_DEFAULTS: v } = await import('./cli/media-config.js');
   SCREEN = s;
   WINDOW_HEIGHT = v.windowHeight;
 }

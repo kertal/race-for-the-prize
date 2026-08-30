@@ -45,7 +45,9 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 - `player-sections.js` — build-time HTML section builders (results table, comparisons, profile tables)
 - `player-runtime.js` — browser-side player runtime (playback sync, trace calibration, export); a real `.js` file injected into the player via `{{placeholder}}` tokens
 - `gemini-summary.js` — optional Gemini CLI integration (post-race commentary, spec generation)
-- `colors.js` — ANSI color codes plus shared video constants (`FORMAT_EXTENSIONS`, `VIDEO_DEFAULTS`, `CUE_DETECTION`)
+- `colors.js` — ANSI color codes (media constants re-exported for compatibility; import them from `media-config.js`)
+- `media-config.js` — shared media/video constants (`FORMAT_EXTENSIONS`, `VIDEO_DEFAULTS`, `SCREEN`, `codecArgs`, `CUE_DETECTION`)
+- `paths.js` — output filename convention builders (`<name>.race<ext>`, `.full<ext>`, `.trace.json`, `.har`)
 
 **Race definitions (`races/`):** Each race is a directory containing 2–5 `.spec.js` files (or a single shared `race.spec.js` plus `settings.racers`) and an optional `settings.json`. The spec files use the injected race API: `page.raceStart(name)`, `page.raceEnd(name)`, `page.raceRecordingStart()`, `page.raceRecordingEnd()`, `page.raceMessage(text)`, `page.raceWaitForVisualStability()`.
 

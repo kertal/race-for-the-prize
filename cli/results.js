@@ -6,7 +6,9 @@ import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
 import { createRequire } from 'module';
-import { c, FORMAT_EXTENSIONS, VIDEO_DEFAULTS, codecArgs } from './colors.js';
+import { c } from './colors.js';
+import { FORMAT_EXTENSIONS, VIDEO_DEFAULTS, codecArgs } from './media-config.js';
+import { raceVideoFile, fullVideoFile, traceFile, harFile } from './paths.js';
 
 /** Move recordings from the runner's temp dir to the results folder. */
 export function moveResults(recordingsBase, racerName, destDir, browserResult) {
@@ -35,27 +37,27 @@ export function moveResults(recordingsBase, racerName, destDir, browserResult) {
     const fullVideo = webms.find(f => f.includes('_full'));
     const mainVideo = webms.find(f => !f.includes('_full')) || webms[0];
     if (mainVideo) {
-      const renamed = `${racerName}.race.webm`;
+      const renamed = raceVideoFile(racerName);
       fs.renameSync(path.join(destDir, mainVideo), path.join(destDir, renamed));
       data.videoPath = path.join(destDir, renamed);
     }
     if (fullVideo) {
-      const renamed = `${racerName}.full.webm`;
+      const renamed = fullVideoFile(racerName);
       fs.renameSync(path.join(destDir, fullVideo), path.join(destDir, renamed));
       data.fullVideoPath = path.join(destDir, renamed);
     }
 
-    const traceFile = files.find(f => f.endsWith('.trace.json'));
-    if (traceFile) {
-      const renamed = `${racerName}.trace.json`;
-      fs.renameSync(path.join(destDir, traceFile), path.join(destDir, renamed));
+    const sourceTrace = files.find(f => f.endsWith('.trace.json'));
+    if (sourceTrace) {
+      const renamed = traceFile(racerName);
+      fs.renameSync(path.join(destDir, sourceTrace), path.join(destDir, renamed));
       data.tracePath = path.join(destDir, renamed);
     }
 
-    const harFile = files.find(f => f.endsWith('.har'));
-    if (harFile) {
-      const renamed = `${racerName}.har`;
-      fs.renameSync(path.join(destDir, harFile), path.join(destDir, renamed));
+    const sourceHar = files.find(f => f.endsWith('.har'));
+    if (sourceHar) {
+      const renamed = harFile(racerName);
+      fs.renameSync(path.join(destDir, sourceHar), path.join(destDir, renamed));
       data.harPath = path.join(destDir, renamed);
     }
 
