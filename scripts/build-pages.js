@@ -9,6 +9,10 @@
  * Usage:
  *   node scripts/build-pages.js [--out=site] [--races=races] [--base-title="Race for the Prize"]
  *
+ * For PR preview builds (deployed under pr-preview/pr-<N>/ on the Pages site),
+ * a banner marking the page as a preview can be added:
+ *   node scripts/build-pages.js --preview-label="PR #86 preview" --preview-url=https://github.com/...
+ *
  * Run races first (headless, no server, no wasm copy keeps output small):
  *   node race.js ./races/<race> --headless --serve=0 --wasm=0
  */
@@ -31,13 +35,15 @@ function escHtml(s) {
 }
 
 function parseArgs(argv) {
-  const args = { out: 'site', races: 'races', title: 'Race for the Prize' };
+  const args = { out: 'site', races: 'races', title: 'Race for the Prize', previewLabel: null, previewUrl: null };
   for (const arg of argv) {
     const m = arg.match(/^--([a-z-]+)=(.*)$/);
     if (!m) continue;
     if (m[1] === 'out') args.out = m[2];
     if (m[1] === 'races') args.races = m[2];
     if (m[1] === 'base-title') args.title = m[2];
+    if (m[1] === 'preview-label') args.previewLabel = m[2];
+    if (m[1] === 'preview-url') args.previewUrl = m[2];
   }
   return args;
 }
@@ -135,9 +141,15 @@ function buildRaceCard(race) {
     </a>`;
 }
 
-function buildIndexHtml(title, races, generatedAt) {
+function buildIndexHtml(title, races, generatedAt, preview) {
   const cards = races.map(buildRaceCard).join('\n');
   const empty = `    <p class="empty">No race results yet. Run a race and rebuild the site.</p>`;
+  // Preview builds live at pr-preview/pr-<N>/ on the Pages site; ../../ is the main deployment.
+  const previewBanner = preview ? `<div class="preview-banner">
+  🔀 <strong>${escHtml(preview.label)}</strong> — not the main deployment
+  ${preview.url ? `· <a href="${escHtml(preview.url)}">View pull request</a>` : ''}
+  · <a href="../../">Main site</a>
+</div>` : '';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -203,12 +215,23 @@ function buildIndexHtml(title, races, generatedAt) {
   .race-verdict strong { color: #d4af37; }
   .race-watch { margin-top: 0.5rem; font-size: 0.8rem; color: #d4af37; }
   .empty { color: #999; text-align: center; padding: 2rem 0; }
+  .preview-banner {
+    width: 100%;
+    text-align: center;
+    background: #3a2a0a;
+    border-bottom: 1px solid #d4af37;
+    color: #e8d9a0;
+    font-size: 0.85rem;
+    padding: 0.5rem 1rem;
+  }
+  .preview-banner a { color: #d4af37; }
   footer { margin-top: auto; width: 100%; text-align: center; color: #666; font-size: 0.75rem; padding: 1rem; }
   footer a { color: #d4af37; }
 </style>
 </head>
 <body>
 <div class="checkered-bar"></div>
+${previewBanner}
 <header>
   <h1>🏆 ${escHtml(title)}</h1>
   <p class="subtitle">Test races — pick a race to watch the head-to-head result</p>
@@ -262,7 +285,8 @@ function main() {
   }
 
   const generatedAt = new Date().toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
-  fs.writeFileSync(path.join(outDir, 'index.html'), buildIndexHtml(args.title, races, generatedAt));
+  const preview = args.previewLabel ? { label: args.previewLabel, url: args.previewUrl } : null;
+  fs.writeFileSync(path.join(outDir, 'index.html'), buildIndexHtml(args.title, races, generatedAt, preview));
   fs.writeFileSync(path.join(outDir, '.nojekyll'), '');
 
   console.log(`\n🏁 Site built: ${races.length} race(s) → ${outDir}`);

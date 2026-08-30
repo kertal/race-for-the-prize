@@ -1,16 +1,25 @@
 name: Deploy test races to GitHub Pages
 
+# The published Pages site is assembled from the `gh-pages` content branch:
+#   /                    ← main deployment (push to main / manual dispatch)
+#   /pr-preview/pr-<N>/  ← per-PR previews (same-repo PRs only)
+# Main deploys replace the root but preserve pr-preview/; PR deploys touch
+# only their own preview folder, keeping the main site intact.
+
 on:
   push:
     branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
+  pull-requests: write
 
-# One Pages deployment at a time; let in-flight deploys finish.
+# Serialize everything that touches gh-pages and the Pages deployment.
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -18,6 +27,11 @@ concurrency:
 jobs:
   race:
     name: Run test races
+    # Skip for closed PRs (cleanup job handles those) and fork PRs (no write token).
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.action != 'closed' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -47,16 +61,19 @@ jobs:
           echo "$failed race(s) failed"
 
       - name: Build Pages site
-        run: node scripts/build-pages.js --out=site
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            node scripts/build-pages.js --out=site \
+              "--preview-label=PR #${{ github.event.number }} preview" \
+              "--preview-url=${{ github.event.pull_request.html_url }}"
+          else
+            node scripts/build-pages.js --out=site
+          fi
 
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
+      - name: Upload site artifact
+        uses: actions/upload-artifact@v4
         with:
-          enablement: true
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
+          name: site
           path: site
 
   deploy:
@@ -67,6 +84,127 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Switch to gh-pages content branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null; then
+            git fetch origin gh-pages
+            git checkout gh-pages
+          else
+            git checkout --orphan gh-pages
+            git rm -rfq . || true
+          fi
+
+      - name: Download site artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: ${{ runner.temp }}/site
+
+      - name: Update site content
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            dest="pr-preview/pr-${{ github.event.number }}"
+            echo "Updating PR preview at $dest (root untouched)"
+            rm -rf "$dest"
+            mkdir -p "$dest"
+            cp -R "${{ runner.temp }}/site/." "$dest/"
+          else
+            echo "Updating main site root (pr-preview/ preserved)"
+            find . -mindepth 1 -maxdepth 1 ! -name .git ! -name pr-preview -exec rm -rf {} +
+            cp -R "${{ runner.temp }}/site/." .
+          fi
+
+      - name: Commit and push site state
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No site changes to commit"
+          else
+            git commit -m "Deploy site for ${{ github.event_name }} (${{ github.sha }})"
+            git push origin gh-pages
+          fi
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
       - name: Deploy
         id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Comment preview link on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- race-pages-preview -->';
+            const previewUrl = '${{ steps.deployment.outputs.page_url }}'
+              + 'pr-preview/pr-${{ github.event.number }}/';
+            const body = [
+              marker,
+              '🏁 **Race preview deployed:** ' + previewUrl,
+              '',
+              'Updated for ${{ github.event.pull_request.head.sha }}. '
+                + 'The preview is rebuilt on every push and removed when the PR closes.',
+            ].join('\n');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+  cleanup-preview:
+    name: Remove PR preview
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Remove preview folder from gh-pages
+        id: rm
+        run: |
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          if ! git ls-remote --exit-code --heads origin gh-pages >/dev/null; then
+            echo "No gh-pages branch — nothing to clean up"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin gh-pages
+          git checkout gh-pages
+          dest="pr-preview/pr-${{ github.event.number }}"
+          if [ -d "$dest" ]; then
+            rm -rf "$dest"
+            git add -A
+            git commit -m "Remove preview for closed PR #${{ github.event.number }}"
+            git push origin gh-pages
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No preview folder at $dest — nothing to clean up"
+          fi
+
+      - name: Upload Pages artifact
+        if: steps.rm.outputs.changed == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Deploy
+        if: steps.rm.outputs.changed == 'true'
         uses: actions/deploy-pages@v4
