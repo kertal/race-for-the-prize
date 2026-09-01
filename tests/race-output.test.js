@@ -60,6 +60,15 @@ describe('buildNetworkIndexHtml', () => {
     expect(html).toContain('—');
   });
 
+  it('renders a tie without the winner trophy', () => {
+    const html = buildNetworkIndexHtml('a vs b', [
+      { network: '4g', summary: { overallWinner: 'tie' } },
+    ]);
+    expect(html).toContain('🤝 Tie');
+    expect(html).not.toContain('🏆');
+    expect(html).not.toContain('🏆 tie');
+  });
+
   it('escapes HTML in titles and winner names', () => {
     const html = buildNetworkIndexHtml('<b>x</b> vs y', [
       { network: 'none', summary: { overallWinner: 'a<script>' } },
