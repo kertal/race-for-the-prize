@@ -41,7 +41,7 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 - `profile-analysis.js` — CDP metric definitions (`PROFILE_METRICS`), comparison, terminal/Markdown rendering
 - `results.js` — moves recordings from temp dirs, video format conversion (WebM→MOV/GIF), ffmpeg.wasm asset copying
 - `sidebyside.js` — FFmpeg side-by-side video composition
-- `videoplayer.js` — assembles the HTML player from `player.html`/`player.css`/`player-runtime.js`
+- `videoplayer.js` — assembles the HTML player from `player.html`/`player.css`/`player-runtime/`
 - `player-sections.js` — build-time HTML section builders (results table, comparisons, profile tables)
 - `player-runtime/` — browser-side player runtime split into concern-scoped files (playback, calibration, debug panel, export, ZIP) concatenated by `videoplayer.js` into one IIFE; the pure `.cjs` cores (calibration, export layout, ZIP/CRC32) are also requirable from Node for tests
 - `gemini-summary.js` — optional Gemini CLI integration (post-race commentary, spec generation)
@@ -54,7 +54,7 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 ## Key Design Details
 
 - `race.js` uses ESM; `runner.cjs` and its satellite modules use CommonJS (Playwright subprocess requirement). Everything both processes must agree on lives in `runner-protocol.cjs`.
-- Parallel mode uses `SyncBarrier` to synchronize browsers at checkpoints (ready, recordingStart, stop). Barriers have a timeout above the page timeout so a pure-JS hang in one racer aborts the race instead of deadlocking it.
+- Parallel mode uses `SyncBarrier` to synchronize browsers at checkpoints (ready, recordingStart, stop). Every barrier carries a generous deadlock backstop (default 300s) so a hung or out-of-sync racer fails the race instead of wedging the runner forever.
 - Timing and video calibration come from the Playwright trace (`trace-calibration.cjs`): the HTML player virtually trims via `traceCalibration`/clip times, and `--ffmpeg` physically trims using trace-derived PTS segments. The colored cue flashes are opt-in (`--cue-markers`) and exist only as ground truth for the ffprobe integration tests — they perturb metrics, so they're off by default.
 - CLI flags override `settings.json` values (CLI takes priority). See `config.js` `applyOverrides()`.
 - Per-racer setup scripts (e.g. `racer-a.setup.sh`) trigger split execution: each racer's setup runs right before that racer's runs, not all upfront. Without per-racer setups, all racers run together per run.

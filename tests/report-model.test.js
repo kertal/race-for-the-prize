@@ -172,6 +172,42 @@ describe('buildBestOfCells', () => {
 describe('rankEntries', () => {
   const fmt = v => `${v}u`;
 
+  it('compares two missing values as equal (comparator contract)', () => {
+    // cmp(a,b) must equal -cmp(b,a); returning 1 for an equal pair makes the
+    // ordering of valueless racers engine-dependent.
+    const { entries, bestValue, maxValue } = rankEntries(
+      ['a', 'b', 'c'],
+      i => ({ val: i === 1 ? 5 : null }),
+      fmt
+    );
+    expect(entries.map(e => e.name)).toEqual(['b', 'a', 'c']);
+    expect(entries.map(e => e.delta)).toEqual([null, null, null]);
+    expect(bestValue).toBe(5);
+    expect(maxValue).toBe(5);
+  });
+
+  it('treats undefined like null instead of producing NaN comparisons', () => {
+    const { entries, maxValue } = rankEntries(
+      ['a', 'b', 'c'],
+      i => ({ val: [undefined, 3, 1][i] }),
+      fmt
+    );
+    expect(entries.map(e => e.name)).toEqual(['c', 'b', 'a']);
+    expect(entries.map(e => e.delta)).toEqual([null, '2u', null]);
+    expect(maxValue).toBe(3);
+  });
+
+  it('returns all-missing entries without deltas or a NaN max', () => {
+    const { entries, bestValue, maxValue } = rankEntries(
+      ['a', 'b'],
+      () => ({ val: null }),
+      fmt
+    );
+    expect(entries.map(e => e.delta)).toEqual([null, null]);
+    expect(bestValue).toBeNull();
+    expect(maxValue).toBe(0);
+  });
+
   it('sorts ascending with nulls last and computes deltas from the best', () => {
     const values = [30, null, 10, 20];
     const { entries, bestValue, maxValue } = rankEntries(

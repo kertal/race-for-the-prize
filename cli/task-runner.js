@@ -45,10 +45,12 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
   const scriptPath = path.resolve(raceDir, command);
   const ext = path.extname(scriptPath);
 
-  // Security: ensure resolved path stays within the race directory
-  const normalizedScript = path.normalize(scriptPath);
-  const normalizedRaceDir = path.normalize(raceDir);
-  if (!normalizedScript.startsWith(normalizedRaceDir + path.sep) && normalizedScript !== normalizedRaceDir) {
+  // Security: ensure resolved path stays within the race directory. Both sides
+  // go through path.resolve so a raceDir written with a trailing separator
+  // ("races/demo/") can't produce a doubled prefix ("races/demo//") and reject
+  // scripts that are in fact inside it.
+  const resolvedRaceDir = path.resolve(raceDir);
+  if (scriptPath !== resolvedRaceDir && !scriptPath.startsWith(resolvedRaceDir + path.sep)) {
     throw new Error(`${label} script path must be within race directory: ${command}`);
   }
 

@@ -120,18 +120,27 @@ function buildAverageDurationRow(values) {
  * non-null value (0 if none) — for bar scaling.
  */
 export function rankEntries(racers, getEntry, formatDelta) {
+  // `== null` deliberately covers undefined as well as null: a missing value
+  // must sort last, not fall through to `undefined - x` (NaN) comparisons.
+  const isMissing = (v) => v == null;
   const entries = racers
     .map((name, i) => ({ name, index: i, ...getEntry(i) }))
     .sort((a, b) => {
-      if (a.val === null) return 1;
-      if (b.val === null) return -1;
+      const aMissing = isMissing(a.val);
+      const bMissing = isMissing(b.val);
+      // Both missing must compare equal — returning a non-zero value for a pair
+      // that is equal breaks the comparator contract and makes the ordering of
+      // valueless racers engine-dependent.
+      if (aMissing && bMissing) return 0;
+      if (aMissing) return 1;
+      if (bMissing) return -1;
       return a.val - b.val;
     });
-  const nonNullVals = entries.filter(e => e.val !== null).map(e => e.val);
-  const maxValue = nonNullVals.length > 0 ? Math.max(...nonNullVals) : 0;
+  const presentVals = entries.filter(e => !isMissing(e.val)).map(e => e.val);
+  const maxValue = presentVals.length > 0 ? Math.max(...presentVals) : 0;
   const bestValue = entries[0]?.val;
   for (const entry of entries) {
-    entry.delta = entry.val !== null && bestValue !== null && entry.val !== bestValue
+    entry.delta = !isMissing(entry.val) && !isMissing(bestValue) && entry.val !== bestValue
       ? formatDelta(entry.val - bestValue)
       : null;
   }

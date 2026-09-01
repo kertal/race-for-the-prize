@@ -47,6 +47,16 @@ describe('runScript path confinement', () => {
       'Teardown script path must be within race directory'
     );
   });
+
+  it('accepts a script inside a raceDir written with a trailing separator', async () => {
+    // A trailing separator must not produce a doubled prefix that rejects
+    // scripts genuinely inside the race directory.
+    const scriptPath = path.join(tmpDir, 'setup.js');
+    fs.writeFileSync(scriptPath, 'process.exit(0);');
+    await expect(
+      runScript('setup.js', 'Setup', undefined, { raceDir: tmpDir + path.sep })
+    ).resolves.toBeUndefined();
+  });
 });
 
 describe('runScript validation', () => {
