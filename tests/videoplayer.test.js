@@ -1230,15 +1230,19 @@ describe('buildPlayerHtml seekAllWithVerify', () => {
     expect(fn).toContain('{ once: true }');
   });
 
-  it('canplay fallback resets retries and re-seeks when currentTime is off', () => {
+  it('canplay fallback re-attempts within a single hard-capped retry budget', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
     const fnStart = html.indexOf('function seekAllWithVerify(');
     const fnEnd = html.indexOf('\nif (clipTimes)', fnStart);
     const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 800);
-    // Must check position is still wrong before re-seeking (uses named constant)
+    // Position check still uses the named tolerance constant.
     expect(fn).toContain('SEEK_SNAP_TOLERANCE');
-    // Must reset retries so the seeked retry loop gets fresh attempts
-    expect(fn).toContain('retries = 0');
+    // Total seeks are capped so MAX_SEEK_RETRIES is a genuine hard ceiling…
+    expect(fn).toContain('MAX_SEEK_RETRIES');
+    // …and canplay reuses the same retry routine rather than resetting a
+    // counter shared by two concurrently-live seeked chains.
+    expect(fn).toContain("addEventListener('canplay', reseek");
+    expect(fn).not.toContain('retries = 0');
   });
 });
 

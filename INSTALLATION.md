@@ -48,6 +48,13 @@ If `npx playwright install chromium` asks you to install system dependencies (co
 npx playwright install-deps chromium
 ```
 
+`npm install` runs a `postinstall` step that downloads Chromium automatically. In CI images, dev containers, or any environment where the browser is already provisioned, skip that download by setting either variable before installing:
+```bash
+RFTP_SKIP_BROWSER_INSTALL=1 npm install          # project-specific opt-out
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install    # Playwright's standard opt-out
+```
+The download is also non-fatal: if it fails (e.g. offline), `npm install` still succeeds and you can run `npx playwright install chromium` later.
+
 ## 3. Install FFmpeg (optional)
 
 FFmpeg is **not required** for normal use. The HTML player handles video trimming and calibration entirely in the browser. FFmpeg is only needed if you want `--ffmpeg` for physical video trimming, `--format=gif` / `--format=mov` conversion, or server-side side-by-side merging.

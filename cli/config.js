@@ -79,6 +79,16 @@ export function findUnknownFlags(boolFlags, kvFlags) {
   return unknown;
 }
 
+/**
+ * Return value-requiring flags (e.g. --runs, --cpu) that were passed without a
+ * value and therefore landed in boolFlags. Left unreported, they are silently
+ * ignored — `--runs` at the end of argv, or `--runs --parallel`, would run once
+ * with no warning even though the user clearly meant to set a count.
+ */
+export function findValuelessKvFlags(boolFlags) {
+  return [...boolFlags].filter(name => KV_FLAG_NAMES.has(name));
+}
+
 export function discoverRacers(raceDir) {
   const allFiles = fs.readdirSync(raceDir).filter(f => !f.startsWith('.'));
   let racerFiles = allFiles.filter(f => f.endsWith('.spec.js')).sort();

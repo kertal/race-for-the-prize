@@ -5,12 +5,13 @@
  * Runs the trim-test race in default (non-ffmpeg) mode and uses ffprobe to
  * analyze the recorded video frames for cue detection accuracy.
  */
-import { describe, it, expect, afterAll, beforeAll } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
 import { CUE_DETECTION } from '../cli/colors.js';
+import { hasChromiumInstalled } from './test-helpers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -82,14 +83,15 @@ function detectCues(videoPath) {
   return { greenFrames, redFrames, totalFrames: lines.length };
 }
 
-describe('trim-accuracy integration', () => {
-  let resultsDir;
+// This suite needs both ffprobe (frame analysis) and a real Chromium (to run
+// the race). When either is missing, skip the whole suite cleanly — throwing in
+// a hook would fail the entire integration run, and other optional-binary suites
+// already establish describe.skip as the convention here.
+const canRun = hasFfprobe() && hasChromiumInstalled(path.resolve(__dirname, '..'));
+const describeMaybe = canRun ? describe : describe.skip;
 
-  beforeAll(() => {
-    if (!hasFfprobe()) {
-      throw new Error('ffprobe is not installed or not on PATH — skipping trim-accuracy tests');
-    }
-  });
+describeMaybe('trim-accuracy integration', () => {
+  let resultsDir;
 
   it('runs trim-test race and produces accurate measurement durations', () => {
     const projectRoot = path.resolve(__dirname, '..');
