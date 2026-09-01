@@ -111,6 +111,18 @@ describe('loadRaceDir script-override security validation', () => {
     fs.writeFileSync(path.join(tmpDir, 'beta.spec.js'), '// beta');
   });
 
+  it('rejects an empty-string script override instead of silently ignoring it', () => {
+    // A supplied but falsy value used to fall through to the discovered file,
+    // bypassing validation entirely.
+    writeSettings({ racers: { alpha: { script: '' } } });
+    expectExit(() => load(), 1, 'must be a non-empty string');
+  });
+
+  it('rejects a non-string falsy script override', () => {
+    writeSettings({ racers: { alpha: { script: false } } });
+    expectExit(() => load(), 1, 'must be a non-empty string');
+  });
+
   it('rejects script overrides containing path separators', () => {
     fs.mkdirSync(path.join(tmpDir, 'sub'));
     fs.writeFileSync(path.join(tmpDir, 'sub', 'x.js'), '// nested');

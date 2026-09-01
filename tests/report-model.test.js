@@ -370,10 +370,10 @@ describe('buildRunComparisonModel', () => {
     expect(m.medianRow).toBeNull();
   });
 
-  it('keeps measurement tables in first-seen order across runs', () => {
-    // Note: measurement names are collected into a Set and the synthetic-total
-    // flag is not carried onto the name wrappers, so ordering here is first-seen
-    // order — matching the historical run-by-run section behavior.
+  it('puts the synthetic total first, then remaining names in first-seen order', () => {
+    // The synthetic-total flag is carried onto the name wrappers, so
+    // sortComparisonsForDisplay can actually apply — matching how the results
+    // table orders its rows. Everything else keeps first-seen (Set) order.
     const summaries = [
       {
         comparisons: [
@@ -385,7 +385,7 @@ describe('buildRunComparisonModel', () => {
       { comparisons: [{ name: 'Render', winner: null, racers: [{ duration: 0.5 }, null] }], profileMetrics: null },
     ];
     const model = buildRunComparisonModel(summaries, { comparisons: [] }, racers, PROFILE_METRICS);
-    expect(model.measurements.map(m => m.name)).toEqual(['Load', 'Race', 'Render']);
+    expect(model.measurements.map(m => m.name)).toEqual(['Race', 'Load', 'Render']);
   });
 
   it('builds profile scopes only for metrics with data, in measured/total order', () => {

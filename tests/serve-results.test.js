@@ -99,6 +99,45 @@ describe('serveResults path traversal protection', () => {
   });
 });
 
+describe('createStaticHandler root normalization', () => {
+  it('serves files when constructed with a relative directory', async () => {
+    // A resolved filePath compared against a raw relative dir rejected every
+    // request with 403.
+    const relDir = path.relative(process.cwd(), tmpDir);
+    const server = http.createServer(createStaticHandler(relDir));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const res = await fetch(server, '/index.html');
+      expect(res.status).toBe(200);
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
+  });
+
+  it('serves files when the directory has a trailing separator', async () => {
+    const server = http.createServer(createStaticHandler(tmpDir + path.sep));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const res = await fetch(server, '/index.html');
+      expect(res.status).toBe(200);
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
+  });
+
+  it('still rejects traversal when constructed with a relative directory', async () => {
+    const relDir = path.relative(process.cwd(), tmpDir);
+    const server = http.createServer(createStaticHandler(relDir));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const res = await fetch(server, '/../../etc/passwd');
+      expect(res.status).toBe(403);
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
+  });
+});
+
 describe('serveResults range request support', () => {
   let server;
   let fileContent;

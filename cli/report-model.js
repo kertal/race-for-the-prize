@@ -200,12 +200,22 @@ export function buildResultsModel(comparisons, racers) {
  * (median: absent from the median summary; average: no racer has data).
  */
 export function buildRunComparisonModel(summaries, medianSummary, racers, profileMetricDefs) {
-  const allNames = new Set(summaries.flatMap(s => s.comparisons.map(c => c.name)));
+  // Keep each name's synthetic-total flag: sortComparisonsForDisplay decides
+  // order from it, so mapping names to bare { name } objects (as this did
+  // before) silently made the sort a no-op and left the total last, in Set
+  // insertion order, instead of first as in the results table.
+  const allComps = new Map();
+  for (const s of summaries) {
+    for (const c of s.comparisons) {
+      if (!allComps.has(c.name)) allComps.set(c.name, { name: c.name, isSyntheticTotal: c.isSyntheticTotal });
+    }
+  }
+  const allNames = new Set(allComps.keys());
   const hasProfileData = summaries.some(s => s.profileMetrics?.some(Boolean));
   const isEmpty = allNames.size === 0 && !hasProfileData;
 
   // --- Measurement tables ---
-  const orderedNames = sortComparisonsForDisplay([...allNames].map(name => ({ name }))).map(c => c.name);
+  const orderedNames = sortComparisonsForDisplay([...allComps.values()]).map(c => c.name);
   const measurements = orderedNames.map(name => {
     const runRows = summaries.map((s, i) => {
       const comp = s.comparisons.find(c => c.name === name);

@@ -46,6 +46,10 @@ const MIME_TYPES = {
  * Exported for testing.
  */
 export function createStaticHandler(dir) {
+  // Resolve the served root once so the confinement check below compares two
+  // absolute paths. Comparing a resolved filePath against a relative or
+  // trailing-separator `dir` rejected every request with 403.
+  const rootDir = path.resolve(dir);
   return (req, res) => {
     let urlPath;
     try {
@@ -55,11 +59,11 @@ export function createStaticHandler(dir) {
       res.end('Bad request');
       return;
     }
-    const filePath = path.resolve(path.join(dir, urlPath));
-    // Reject paths that escape the served directory. `filePath !== dir` allows
-    // the root directory itself to resolve (though in practice req.url='/' is
-    // rewritten to index.html above).
-    if (!filePath.startsWith(dir + path.sep) && filePath !== dir) {
+    const filePath = path.resolve(path.join(rootDir, urlPath));
+    // Reject paths that escape the served directory. `filePath !== rootDir`
+    // allows the root directory itself to resolve (though in practice
+    // req.url='/' is rewritten to index.html above).
+    if (!filePath.startsWith(rootDir + path.sep) && filePath !== rootDir) {
       res.writeHead(403);
       res.end('Forbidden');
       return;
