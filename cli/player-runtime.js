@@ -1797,75 +1797,71 @@ function showExportDownload(ui, blob, filename, failedFiles) {
   ui.actionsEl.replaceChildren(dlLink, closeBtn);
 }
 
-/** Export a ZIP with a self-contained index.html (videos embedded) plus non-video assets. */
-async function startHtmlExport() {
+/**
+ * Shared driver for the two HTML exports. With bundleAssets, non-video files
+ * from the Files section are fetched into a ZIP next to a full index.html;
+ * without it, a single slim self-contained HTML file is produced.
+ */
+async function runHtmlExport(bundleAssets) {
   if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
 
   const ui = createExportProgressOverlay('Exporting HTML');
 
-  // Collect video paths to embed and non-video paths to bundle as separate ZIP entries
+  // Video paths are embedded as data URIs in the exported HTML
   const videoPaths = collectVideoPaths();
-  const otherPaths = new Set();
-  const optionalPaths = new Set(['summary.json']);
-  document.querySelectorAll('.file-links a').forEach(a => {
-    const href = a.getAttribute('href');
-    if (href && !href.startsWith('http') && !href.startsWith('//') && !href.startsWith('data:') && !videoPaths.has(href)) {
-      otherPaths.add(href);
-    }
-  });
-  otherPaths.add('summary.json');
 
-  const state = { fetched: 0, total: videoPaths.size + otherPaths.size, failedFiles: [] };
+  let zipBuilder = null;
+  let assetEntries = [];
+  if (bundleAssets) {
+    // Non-video paths (trace files, summary, etc.) become separate ZIP entries
+    const otherPaths = new Set();
+    const optionalPaths = new Set(['summary.json']);
+    document.querySelectorAll('.file-links a').forEach(a => {
+      const href = a.getAttribute('href');
+      if (href && !href.startsWith('http') && !href.startsWith('//') && !href.startsWith('data:') && !videoPaths.has(href)) {
+        otherPaths.add(href);
+      }
+    });
+    otherPaths.add('summary.json');
+    zipBuilder = createZipBuilder();
+    assetEntries = [...otherPaths].map(p => ({ srcPath: p, zipPath: p, optional: optionalPaths.has(p) }));
+  }
 
-  // Embed videos as data URIs directly in the exported HTML
-  const pathOverrides = await fetchVideoOverrides(videoPaths, ui, state, 80);
+  const state = { fetched: 0, total: videoPaths.size + assetEntries.length, failedFiles: [] };
+  const progressScale = bundleAssets ? 80 : 90;
+
+  const pathOverrides = await fetchVideoOverrides(videoPaths, ui, state, progressScale);
   if (!pathOverrides) return;
 
-  // Bundle non-video assets (trace files, summary, etc.) as separate ZIP entries
-  const zipBuilder = createZipBuilder();
-  const assetEntries = [...otherPaths].map(p => ({ srcPath: p, zipPath: p, optional: optionalPaths.has(p) }));
-  const bundledOk = await fetchExportFiles(assetEntries, ui, state, 80, 'Fetching',
-    async (entry, resp) => { zipBuilder.addFile(entry.zipPath, new Uint8Array(await resp.arrayBuffer())); });
-  if (!bundledOk) return;
+  if (zipBuilder) {
+    const bundledOk = await fetchExportFiles(assetEntries, ui, state, progressScale, 'Fetching',
+      async (entry, resp) => { zipBuilder.addFile(entry.zipPath, new Uint8Array(await resp.arrayBuffer())); });
+    if (!bundledOk) return;
+  }
 
   ui.statusEl.textContent = 'Building HTML...';
-  ui.progressFill.style.width = '90%';
-  const html = buildExportHtml(pathOverrides);
-  zipBuilder.addFile('index.html', new TextEncoder().encode(html));
+  ui.progressFill.style.width = bundleAssets ? '90%' : '95%';
+  const html = buildExportHtml(pathOverrides, { slim: !bundleAssets });
 
-  ui.statusEl.textContent = 'Creating ZIP...';
-  ui.progressFill.style.width = '95%';
-  showExportDownload(ui, zipBuilder.toBlob(), exportFileBase('race-export') + '.zip', state.failedFiles);
+  if (zipBuilder) {
+    zipBuilder.addFile('index.html', new TextEncoder().encode(html));
+    ui.statusEl.textContent = 'Creating ZIP...';
+    ui.progressFill.style.width = '95%';
+    showExportDownload(ui, zipBuilder.toBlob(), exportFileBase('race-export') + '.zip', state.failedFiles);
+  } else {
+    const blob = new Blob([html], { type: 'text/html' });
+    showExportDownload(ui, blob, exportFileBase('race-export') + '.html', state.failedFiles);
+  }
 }
 
 const exportHtmlBtn = document.getElementById('exportHtmlBtn');
 if (exportHtmlBtn) {
-  exportHtmlBtn.addEventListener('click', startHtmlExport);
-}
-
-/** Export a single self-contained HTML file (no ZIP, no extra assets). */
-async function startHtmlOnlyExport() {
-  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
-
-  const ui = createExportProgressOverlay('Exporting HTML');
-
-  // Collect video paths to embed as data URIs
-  const videoPaths = collectVideoPaths();
-  const state = { fetched: 0, total: videoPaths.size, failedFiles: [] };
-
-  const pathOverrides = await fetchVideoOverrides(videoPaths, ui, state, 90);
-  if (!pathOverrides) return;
-
-  ui.statusEl.textContent = 'Building HTML...';
-  ui.progressFill.style.width = '95%';
-  const html = buildExportHtml(pathOverrides, { slim: true });
-  const blob = new Blob([html], { type: 'text/html' });
-  showExportDownload(ui, blob, exportFileBase('race-export') + '.html', state.failedFiles);
+  exportHtmlBtn.addEventListener('click', () => runHtmlExport(true));
 }
 
 const exportHtmlOnlyBtn = document.getElementById('exportHtmlOnlyBtn');
 if (exportHtmlOnlyBtn) {
-  exportHtmlOnlyBtn.addEventListener('click', startHtmlOnlyExport);
+  exportHtmlOnlyBtn.addEventListener('click', () => runHtmlExport(false));
 }
 
 // --- Performance data export -------------------------------------------------
