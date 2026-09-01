@@ -224,7 +224,7 @@ function parseIPv4Liberal(host) {
 
 /** True if the four octets fall in any loopback/private/link-local/reserved range. */
 function isPrivateIPv4(octets) {
-  const [a, b] = octets;
+  const [a, b, c] = octets;
   return (
     a === 0 ||                            // 0.0.0.0/8 "this host"
     a === 127 ||                          // 127.0.0.0/8 loopback
@@ -233,7 +233,7 @@ function isPrivateIPv4(octets) {
     (a === 192 && b === 168) ||           // 192.168.0.0/16 private
     (a === 169 && b === 254) ||           // 169.254.0.0/16 link-local (cloud metadata)
     (a === 100 && b >= 64 && b <= 127) || // 100.64.0.0/10 CGNAT
-    (a === 192 && b === 0) ||             // 192.0.0.0/24 IETF protocol assignments
+    (a === 192 && b === 0 && c === 0) ||  // 192.0.0.0/24 IETF protocol assignments (NOT the whole /16)
     (a === 198 && (b === 18 || b === 19)) || // 198.18.0.0/15 benchmarking
     a >= 224                              // 224.0.0.0/4 multicast + 240.0.0.0/4 reserved
   );
@@ -266,9 +266,13 @@ export function isPrivateUrl(urlString) {
   const plain = host.replace(/^\[|\]$/g, '');
   if (plain.includes(':')) {
     if (plain === '::1' || plain === '::') return true;            // loopback / unspecified
-    const first = plain.split(':')[0];
-    if (first.startsWith('fc') || first.startsWith('fd')) return true; // fc00::/7 ULA
-    if (/^fe[89ab]/.test(first)) return true;                     // fe80::/10 link-local
+    // Compare the first hextet numerically, not by string prefix: hextets omit
+    // leading zeros, so `fc::1` (first hextet 0x00fc) is NOT in fc00::/7 and a
+    // prefix match on "fc" would misclassify it. WHATWG normalization also makes
+    // expanded forms (0:0:0:0:0:0:0:1) collapse before we get here.
+    const firstHextet = parseInt(plain.split(':')[0] || '0', 16);
+    if (firstHextet >= 0xfc00 && firstHextet <= 0xfdff) return true; // fc00::/7 ULA
+    if (firstHextet >= 0xfe80 && firstHextet <= 0xfebf) return true; // fe80::/10 link-local
     // IPv4-mapped (::ffff:a.b.c.d). Node normalizes the embedded IPv4 to hex
     // groups (e.g. ::ffff:127.0.0.1 -> ::ffff:7f00:1), so handle both forms.
     const mappedDotted = plain.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);

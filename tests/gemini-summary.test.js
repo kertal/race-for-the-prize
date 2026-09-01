@@ -205,6 +205,8 @@ describe('isPrivateUrl', () => {
     ['zero-padded expanded loopback', 'http://[0000:0000:0000:0000:0000:0000:0000:0001]/'],
     ['expanded IPv6 ULA', 'http://[fd00:0:0:0:0:0:0:1]/'],
     ['expanded IPv6 link-local', 'http://[fe80:0:0:0:0:0:0:1]/'],
+    ['IETF protocol-assignment 192.0.0.0/24', 'http://192.0.0.1/'],
+    ['IPv6 ULA with non-zero hextets', 'http://[fd12:3456:789a::1]/'],
   ];
   const allowed = [
     ['public hostname', 'https://google.com/'],
@@ -214,6 +216,11 @@ describe('isPrivateUrl', () => {
     ['172.32 (above private range)', 'https://172.32.0.1/'],
     ['genuine public IP', 'https://93.184.216.34/'],
     ['public IPv6', 'https://[2606:2800:220:1:248:1893:25c8:1946]/'],
+    // 192.0.0.0/24 must not over-block the rest of 192.0.0.0/16.
+    ['192.0.1.x (outside the /24)', 'https://192.0.1.1/'],
+    ['192.0.2.x (outside the /24)', 'https://192.0.2.5/'],
+    // First hextet 0x00fc is not in fc00::/7 — must not be misclassified as ULA.
+    ['IPv6 0x00fc first hextet (not ULA)', 'https://[fc::1]/'],
   ];
 
   it.each(blocked)('blocks %s', (_desc, url) => {
