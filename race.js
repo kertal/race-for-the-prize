@@ -1565,12 +1565,6 @@ async function runRaceSeries() {
   // per-racer setup scripts exist or --pause is set; otherwise racers run
   // together per run.
   const needsSplitMode = settings.pauseBetweenRuns || racerScripts.some(r => r.setup);
-  // Split mode runs each racer alone and sequentially, which is fundamentally
-  // incompatible with --parallel. Warn instead of silently ignoring the flag.
-  if (needsSplitMode && settings.parallel) {
-    const reason = racerScripts.some(r => r.setup) ? 'per-racer setup scripts are present' : '--pause is set';
-    console.error(`  ${c.yellow}Note: --parallel is ignored because ${reason}; racers will run one at a time.${c.reset}`);
-  }
   return needsSplitMode ? runSplitModeSeries() : runNormalModeSeries();
 }
 
@@ -1677,6 +1671,14 @@ async function main() {
     await runScript(setupScript, 'Setup');
 
     setupCompleted = true;
+
+    // Split mode runs each racer alone and sequentially, which is fundamentally
+    // incompatible with --parallel. Warn once (not per network condition)
+    // instead of silently ignoring the flag.
+    if (settings.parallel && (settings.pauseBetweenRuns || racerScripts.some(r => r.setup))) {
+      const reason = racerScripts.some(r => r.setup) ? 'per-racer setup scripts are present' : '--pause is set';
+      console.error(`  ${c.yellow}Note: --parallel is ignored because ${reason}; racers will run one at a time.${c.reset}`);
+    }
 
     // Race each network condition separately. With a single condition this
     // loop runs once with resultsDir === baseResultsDir (unchanged behavior).
