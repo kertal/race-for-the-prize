@@ -49,6 +49,8 @@
  * @property {string[]} [errors]
  */
 
+const path = require('path');
+
 // Bump whenever the config or result shape changes incompatibly. The runner
 // rejects a config with a different version, and the parent rejects a result
 // with a different version, so a mismatched race.js/runner.cjs pair fails
@@ -88,6 +90,22 @@ function isSafeRacerId(id) {
   );
 }
 
+/**
+ * Enforcement companion to isSafeRacerId: resolve `segments` against `baseDir`
+ * and verify the result stays inside it. Every path the runner constructs from
+ * protocol data (racer ids, recording filenames) goes through this before any
+ * filesystem access, so a malformed config or filename can never escape the
+ * recordings directory. Returns the resolved absolute path; throws on escape.
+ */
+function confinePath(baseDir, ...segments) {
+  const base = path.resolve(baseDir);
+  const resolved = path.resolve(base, ...segments);
+  if (resolved !== base && !resolved.startsWith(base + path.sep)) {
+    throw new Error(`Path escapes base directory ${base}: ${segments.join('/')}`);
+  }
+  return resolved;
+}
+
 /** Build the stderr line for page.raceMessage(text). */
 function formatRaceMessage(id, elapsedSeconds, text) {
   return `[${id}] ${RACE_MESSAGE_MARKER}[${elapsedSeconds}]:${text}`;
@@ -107,6 +125,7 @@ module.exports = {
   PROTOCOL_VERSION,
   RESULT_SENTINEL,
   isSafeRacerId,
+  confinePath,
   formatRaceMessage,
   createRaceMessageRegex,
   formatContextClosed,

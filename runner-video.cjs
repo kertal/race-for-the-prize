@@ -9,9 +9,15 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { confinePath } = require('./runner-protocol.cjs');
 
 const OLD_VIDEO_CLEANUP_MS = 5000;      // Age threshold for deleting stale recordings
 const FFMPEG_TIMEOUT_MS = 120000;       // Timeout for ffmpeg operations
+
+// ffmpeg is resolved via PATH by default so the CLI works wherever the user
+// installed it; set RACE_FFMPEG to an absolute binary path to pin a specific
+// build in locked-down environments.
+const FFMPEG_BIN = process.env.RACE_FFMPEG ? path.resolve(process.env.RACE_FFMPEG) : 'ffmpeg';
 
 /** Return the most recently modified .webm filename in a directory, or null. */
 function getMostRecentVideo(dir) {
@@ -20,7 +26,7 @@ function getMostRecentVideo(dir) {
     if (!fs.existsSync(dir)) return null;
     const files = fs.readdirSync(dir)
       .filter(f => f.endsWith('.webm'))
-      .map(f => ({ name: f, mtime: fs.statSync(path.join(dir, f)).mtime.getTime() }))
+      .map(f => ({ name: f, mtime: fs.statSync(confinePath(dir, f)).mtime.getTime() }))
       .sort((a, b) => b.mtime - a.mtime);
     return files.length > 0 ? files[0].name : null;
   } catch (e) {
@@ -36,11 +42,14 @@ function getMostRecentVideo(dir) {
 function extractSegments(videoPath, segments, browserId) {
   // Resolve to an absolute path so every derived path stays anchored and can
   // never be parsed as an ffmpeg option (absolute paths cannot start with -).
+  // All derived working files go through confinePath so they provably stay in
+  // the video's own directory.
   videoPath = path.resolve(videoPath);
   const dir = path.dirname(videoPath);
   const ext = path.extname(videoPath);
   const base = path.basename(videoPath, ext);
-  const fullPath = path.join(dir, `${base}_full${ext}`);
+  videoPath = confinePath(dir, `${base}${ext}`);
+  const fullPath = confinePath(dir, `${base}_full${ext}`);
 
   fs.copyFileSync(videoPath, fullPath);
 
@@ -55,8 +64,8 @@ function extractSegments(videoPath, segments, browserId) {
   try {
     if (segments.length === 1) {
       const seg = segments[0];
-      const trimmedPath = path.join(dir, `${base}_trimmed${ext}`);
-      execFileSync('ffmpeg', [
+      const trimmedPath = confinePath(dir, `${base}_trimmed${ext}`);
+      execFileSync(FFMPEG_BIN, [
         '-y', '-i', videoPath,
         '-ss', seg.start.toFixed(3), '-t', (seg.end - seg.start).toFixed(3),
         '-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0',
@@ -69,13 +78,13 @@ function extractSegments(videoPath, segments, browserId) {
 
     // Multiple segments: extract each then concatenate
     const segmentFiles = [];
-    const concatListPath = path.join(dir, `${base}_concat.txt`);
+    const concatListPath = confinePath(dir, `${base}_concat.txt`);
 
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i];
-      const segPath = path.join(dir, `${base}_seg${i}${ext}`);
+      const segPath = confinePath(dir, `${base}_seg${i}${ext}`);
       segmentFiles.push(segPath);
-      execFileSync('ffmpeg', [
+      execFileSync(FFMPEG_BIN, [
         '-y', '-i', videoPath,
         '-ss', seg.start.toFixed(3), '-t', (seg.end - seg.start).toFixed(3),
         '-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0',
@@ -84,8 +93,8 @@ function extractSegments(videoPath, segments, browserId) {
     }
 
     fs.writeFileSync(concatListPath, segmentFiles.map(f => `file '${f}'`).join('\n'));
-    const outputPath = path.join(dir, `${base}_final${ext}`);
-    execFileSync('ffmpeg', [
+    const outputPath = confinePath(dir, `${base}_final${ext}`);
+    execFileSync(FFMPEG_BIN, [
       '-y', '-f', 'concat', '-safe', '0',
       '-i', concatListPath, '-c', 'copy', outputPath
     ], { timeout: FFMPEG_TIMEOUT_MS, stdio: 'pipe' });
@@ -101,7 +110,7 @@ function extractSegments(videoPath, segments, browserId) {
     try {
       for (const file of fs.readdirSync(dir)) {
         if (['_seg', '_concat', '_final', '_trimmed'].some(p => file.includes(p))) {
-          try { fs.unlinkSync(path.join(dir, file)); } catch {}
+          try { fs.unlinkSync(confinePath(dir, file)); } catch {}
         }
       }
     } catch {}
@@ -116,7 +125,7 @@ function cleanupOldVideos(dir) {
     if (!fs.existsSync(dir)) return;
     const now = Date.now();
     for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.webm'))) {
-      const filepath = path.join(dir, file);
+      const filepath = confinePath(dir, file);
       if (now - fs.statSync(filepath).mtime.getTime() > OLD_VIDEO_CLEANUP_MS) {
         fs.unlinkSync(filepath);
       }
@@ -130,7 +139,7 @@ function cleanupOldVideos(dir) {
 function trimVideoWithFfmpeg(outputDir, trimSegments, id) {
   const videoFile = getMostRecentVideo(outputDir);
   if (!videoFile) return null;
-  const videoPath = path.join(outputDir, videoFile);
+  const videoPath = confinePath(outputDir, videoFile);
   const res = extractSegments(videoPath, trimSegments, id);
   return path.basename(res.fullPath);
 }

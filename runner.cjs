@@ -21,7 +21,7 @@ const { waitForStability } = require('./visual-stability.cjs');
 const { deriveTraceTiming } = require('./trace-calibration.cjs');
 const { flashCue, OverlayController } = require('./overlay.cjs');
 const { createRaceApi } = require('./race-api.cjs');
-const { RESULT_SENTINEL, PROTOCOL_VERSION, isSafeRacerId, formatRaceMessage, formatContextClosed } = require('./runner-protocol.cjs');
+const { RESULT_SENTINEL, PROTOCOL_VERSION, isSafeRacerId, confinePath, formatRaceMessage, formatContextClosed } = require('./runner-protocol.cjs');
 const { getMostRecentVideo, cleanupOldVideos, trimVideoWithFfmpeg } = require('./runner-video.cjs');
 const { setupMetricsCollection, startProfiling, collectProfilingResults } = require('./runner-metrics.cjs');
 const { applyThrottling } = require('./runner-throttling.cjs');
@@ -324,7 +324,9 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
   const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, noRecording = false, ffmpeg = false, har = false, cueMarkers = false, recordingsDir = null, ignoreHTTPSErrors = false, viewportHeight: configViewportHeight = null } = opts;
   const { id, headless: headlessRaw } = config;
   const headless = headlessRaw === true;
-  const outputDir = recordingsDir ? path.join(recordingsDir, id) : path.join(__dirname, 'recordings', id);
+  // id is validated at config entry (isSafeRacerId); confinePath re-checks the
+  // constructed path so the racer's output can never land outside the base.
+  const outputDir = confinePath(recordingsDir || path.join(__dirname, 'recordings'), id);
   let browser = null;
   let context = null;
   let page = null;
@@ -567,15 +569,19 @@ async function main() {
     }
   }
   const headless = headlessRaw === true;
-  const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, har, cueMarkers, recordingsDir, ignoreHTTPSErrors, viewportHeight };
+
+  // The recordings dir is chosen by the parent process (or defaults to a dir
+  // next to the runner). Resolve it once to an absolute path so every path the
+  // runner derives from it stays anchored under this directory.
+  const recBase = path.resolve(recordingsDir || path.join(__dirname, 'recordings'));
+  fs.mkdirSync(recBase, { recursive: true });
+
+  const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, har, cueMarkers, recordingsDir: recBase, ignoreHTTPSErrors, viewportHeight };
 
   // Set headless flag on all browser configs (strict boolean — strings must not slip through)
   for (const browser of browsers) {
     browser.headless = headless;
   }
-
-  const recBase = recordingsDir || path.join(__dirname, 'recordings');
-  fs.mkdirSync(recBase, { recursive: true });
 
   let results;
   try {

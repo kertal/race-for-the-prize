@@ -8,6 +8,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { confinePath } = require('./runner-protocol.cjs');
 
 /**
  * Set up CDP session for capturing network and performance metrics.
@@ -288,7 +289,9 @@ async function collectProfilingResults(browser, metricsCollector, outputDir, id)
     await metricsCollector.detach();
   }
   const traceBuffer = await browser.stopTracing();
-  const tracePath = path.join(outputDir, `${id}.trace.json`);
+  // id is validated at config entry (isSafeRacerId); confinePath re-checks the
+  // constructed path so the trace can only ever be written inside outputDir.
+  const tracePath = confinePath(outputDir, `${id}.trace.json`);
   fs.writeFileSync(tracePath, traceBuffer);
   console.error(`[${id}] Performance trace saved: ${tracePath}`);
   return {

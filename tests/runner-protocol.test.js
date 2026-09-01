@@ -8,6 +8,7 @@ const require = createRequire(import.meta.url);
 const {
   PROTOCOL_VERSION,
   isSafeRacerId,
+  confinePath,
   formatRaceMessage,
   createRaceMessageRegex,
   formatContextClosed,
@@ -34,6 +35,26 @@ describe('isSafeRacerId', () => {
     for (const id of ['a/b', 'a\\b', '..', '.', '', '../x', 'a\0b', null, undefined, 42, {}]) {
       expect(isSafeRacerId(id), String(id)).toBe(false);
     }
+  });
+});
+
+describe('confinePath', () => {
+  const base = path.join(path.sep, 'tmp', 'recordings');
+
+  it('resolves segments inside the base directory', () => {
+    expect(confinePath(base, 'lauda', 'lauda.trace.json'))
+      .toBe(path.join(base, 'lauda', 'lauda.trace.json'));
+    expect(confinePath(base)).toBe(base);
+  });
+
+  it('throws when segments escape the base directory', () => {
+    expect(() => confinePath(base, '..', 'escape')).toThrow(/escapes base directory/);
+    expect(() => confinePath(base, 'a', '..', '..', 'b')).toThrow(/escapes base directory/);
+    expect(() => confinePath(base, path.join(path.sep, 'etc', 'passwd'))).toThrow(/escapes base directory/);
+  });
+
+  it('does not treat sibling directories with a shared prefix as inside', () => {
+    expect(() => confinePath(base, `..${path.sep}recordings-evil`)).toThrow(/escapes base directory/);
   });
 });
 
