@@ -24,7 +24,7 @@ function isValidClipEntry(c) {
 }
 
 function hasTraceCalibration(ct) {
-  return !!(ct && ct.traceCalibration && Number.isFinite(ct.traceCalibration.recordingStartTs));
+  return !!(ct?.traceCalibration && Number.isFinite(ct.traceCalibration.recordingStartTs));
 }
 
 function canApplyTraceCalibration(ct) {
@@ -46,8 +46,8 @@ function applyCalibrationToClip(ct, ptsStart, videoDuration) {
 function computeSegmentClipTimes(entries, name) {
   if (!entries) return null;
   return entries.map(ct => {
-    if (!ct || ct._wcStart == null || ct._wcEnd == null) return null;
-    const m = ct.measurements && ct.measurements.find(m => m.name === name);
+    if (ct?._wcStart == null || ct._wcEnd == null) return null;
+    const m = ct.measurements?.find(m => m.name === name);
     if (!m || !Number.isFinite(m.startTraceTs) || !Number.isFinite(m.endTraceTs)) return null;
     const startPts = traceTsToClipPts(ct, m.startTraceTs);
     const endPts = traceTsToClipPts(ct, m.endTraceTs);
@@ -64,7 +64,7 @@ function resolveClipWindow(entries, hidden) {
   if (!entries) return null;
   let minStart = Infinity, maxDuration = 0, found = false;
   for (let i = 0; i < entries.length; i++) {
-    if (hidden && hidden.has(i)) continue;
+    if (hidden?.has(i)) continue;
     if (isValidClipEntry(entries[i])) {
       minStart = Math.min(minStart, entries[i].start);
       maxDuration = Math.max(maxDuration, entries[i].end - entries[i].start);

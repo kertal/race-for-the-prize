@@ -19,6 +19,58 @@ function setPlayState(isPlaying) {
   playBtn.setAttribute('aria-label', isPlaying ? 'Pause' : 'Play');
 }
 
+// Pause every video and reset the transport if playback is active.
+function pausePlayback() {
+  if (!playing) return;
+  videos.forEach(v => v?.pause());
+  playing = false;
+  setPlayState(false);
+}
+
+// Recompute the active clip window from the current calibration/offsets.
+function recalcActiveClip() {
+  activeClip = resolveAdjustedClip();
+  return activeClip;
+}
+
+// Switch the active video set (race ↔ full recording): swap sources, reset
+// listeners/duration, and queue the follow-up seek.
+function loadVideoSet(srcSet, applySrc, seekCallback) {
+  pausePlayback();
+  detachVideoListeners();
+  applySrc();
+  loadedSrcSet = srcSet;
+  videos = raceVideos;
+  primary = videos[0];
+  attachVideoListeners();
+  duration = 0;
+  pendingSeek = seekCallback;
+}
+
+// Set the active segment and its resolved clip times.
+function setActiveSegment(name, clip) {
+  activeSegmentName = name;
+  activeSegmentClipTimes = clip;
+}
+
+// Queue a seek to run once metadata/calibration is ready.
+function setPendingSeek(fn) {
+  pendingSeek = fn;
+}
+
+// Mark the segment-nav dropdown as built (guards against rebuilding).
+function markSegmentNavBuilt() {
+  segmentNavBuilt = true;
+}
+
+// Jump to the start of the whole recording (no active clip window).
+function seekToWholeRecordingStart() {
+  activeClip = null;
+  seekAll(0);
+  scrubber.value = 0;
+  updateTimeDisplay();
+}
+
 let playing = false;
 let duration = 0;
 let activeClip = null;
@@ -115,6 +167,77 @@ function seekAll(t) {
 // sources (e.g. race clip → full recording) re-triggers the scan if needed.
 const _durationForced = new WeakMap();
 
+// Ensure every video has a finite duration, triggering the 1e10 scan when
+// needed. Returns true once all videos report finite durations.
+function ensureFiniteDurations() {
+  for (const v of videos) {
+    if (!v || v.readyState < 1) continue; // readyState 1 = HAVE_METADATA
+    if (!Number.isFinite(v.duration)) {
+      const srcKey = v.currentSrc || v.src || '';
+      if (_durationForced.get(v) !== srcKey) {
+        _durationForced.set(v, srcKey);
+        v.addEventListener('durationchange', onMeta, { once: true });
+        v.currentTime = 1e10; // seek past end → Chrome scans file → durationchange fires
+      }
+      return false; // always wait — do not proceed until durationchange fires
+    }
+  }
+  return true;
+}
+
+// Convert a single clip entry using trace calibration. Returns true if the
+// entry transitioned to converted during this call.
+function convertClipEntry(clipEntry, video) {
+  if (clipEntry._converted) return false;
+  if (clipEntry._wcStart == null) { clipEntry._wcStart = clipEntry.start; clipEntry._wcEnd = clipEntry.end; }
+  if (!canApplyTraceCalibration(clipEntry)) {
+    // No trace calibration metadata — use raw clip times as-is (e.g. URL mode races)
+    clipEntry._converted = true;
+    return true;
+  }
+  // recordingStartTs − firstFrameTs gives the PTS offset (µs) where recording
+  // started relative to the first captured frame; divide to get seconds.
+  const tracePtsStart = (clipEntry.traceCalibration.recordingStartTs - clipEntry.traceCalibration.firstFrameTs) / US_PER_SECOND;
+  if (!Number.isFinite(tracePtsStart) || tracePtsStart < 0) {
+    // Invalid trace timestamps — use raw clip times as-is
+    clipEntry._converted = true;
+    return true;
+  }
+  applyCalibrationToClip(clipEntry, tracePtsStart, video.duration);
+  return !!clipEntry._converted;
+}
+
+// Calibrate all clip entries; returns true if any entry was converted.
+function calibrateClipTimes() {
+  if (!clipTimes) return false;
+  let convertedAny = false;
+  for (let i = 0; i < clipTimes.length; i++) {
+    if (!isValidClipEntry(clipTimes[i]) || !videos[i] || (videos[i].readyState < 1)) continue;
+    if (convertClipEntry(clipTimes[i], videos[i])) convertedAny = true;
+  }
+  return convertedAny;
+}
+
+// After calibration converts clip entries, seek to the calibrated start and
+// consume any pending seek.
+function finalizeCalibration(convertedAny) {
+  if (!videos.every(v => !v || v.readyState >= 1)) return;
+  if (pendingSeek) {
+    const fn = pendingSeek;
+    pendingSeek = null;
+    fn();
+  }
+  // Always seek to calibrated start after calibration converts clip entries,
+  // even if the user already started playing or pendingSeek was consumed earlier.
+  // This ensures the video visibly jumps to the correct frame.
+  if (convertedAny) {
+    pausePlayback();
+    seekAllWithVerify(activeClip ? activeClip.start : 0);
+    scrubber.value = 0;
+    updateTimeDisplay();
+  }
+}
+
 function onMeta() {
   // Block calibration until every video has a finite duration.
   // readyState >= 1 (HAVE_METADATA) means the duration field is populated.
@@ -123,49 +246,10 @@ function onMeta() {
   // another video is still in progress.
   // Note: runs unconditionally (not gated on clipTimes) so full-recording
   // pages also get finite durations before any seek/UI is attempted.
-  for (const v of videos) {
-    if (!v || v.readyState < 1) continue; // readyState 1 = HAVE_METADATA
-    if (!isFinite(v.duration)) {
-      const srcKey = v.currentSrc || v.src || '';
-      if (_durationForced.get(v) !== srcKey) {
-        _durationForced.set(v, srcKey);
-        v.addEventListener('durationchange', onMeta, { once: true });
-        v.currentTime = 1e10; // seek past end → Chrome scans file → durationchange fires
-      }
-      return; // always wait — do not proceed until durationchange fires
-    }
-  }
+  if (!ensureFiniteDurations()) return;
 
-  duration = Math.max(...videos.filter(v => v).map(v => v.duration || 0));
-  let convertedAny = false;
-  if (clipTimes) {
-    for (let i = 0; i < clipTimes.length; i++) {
-      if (!isValidClipEntry(clipTimes[i]) || !videos[i] || (videos[i].readyState < 1)) continue;
-      const clipEntry = clipTimes[i];
-      if (clipEntry._converted) continue;
-      // _converted is always false here (the guard above skips converted entries),
-      // but we capture it before mutating so the convertedAny check below is explicit.
-      const wasConverted = !!clipEntry._converted;
-      if (clipEntry._wcStart == null) { clipEntry._wcStart = clipEntry.start; clipEntry._wcEnd = clipEntry.end; }
-      if (!canApplyTraceCalibration(clipEntry)) {
-        // No trace calibration metadata — use raw clip times as-is (e.g. URL mode races)
-        clipEntry._converted = true;
-        convertedAny = true;
-        continue;
-      }
-      // recordingStartTs − firstFrameTs gives the PTS offset (µs) where recording
-      // started relative to the first captured frame; divide to get seconds.
-      const tracePtsStart = (clipEntry.traceCalibration.recordingStartTs - clipEntry.traceCalibration.firstFrameTs) / US_PER_SECOND;
-      if (!Number.isFinite(tracePtsStart) || tracePtsStart < 0) {
-        // Invalid trace timestamps — use raw clip times as-is
-        clipEntry._converted = true;
-        convertedAny = true;
-        continue;
-      }
-      applyCalibrationToClip(clipEntry, tracePtsStart, videos[i].duration);
-      if (!wasConverted && clipEntry._converted) convertedAny = true;
-    }
-  }
+  duration = Math.max(...videos.filter(Boolean).map(v => v.duration || 0));
+  const convertedAny = calibrateClipTimes();
   // Recompute segment clip times after calibration (they depend on traceTsToClipPts
   // which uses the now-calibrated traceCalibration data on clipTimes entries).
   // Skip for __all__ (uses base clipTimes) and __full__ (intentionally null).
@@ -176,44 +260,38 @@ function onMeta() {
   buildSegmentNav();
   updateTimeDisplay();
   updateDebugStats();
-
-  if (videos.every(v => !v || v.readyState >= 1)) {
-    if (pendingSeek) {
-      const fn = pendingSeek;
-      pendingSeek = null;
-      fn();
-    }
-    // Always seek to calibrated start after calibration converts clip entries,
-    // even if the user already started playing or pendingSeek was consumed earlier.
-    // This ensures the video visibly jumps to the correct frame.
-    if (convertedAny) {
-      if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
-      seekAllWithVerify(activeClip ? activeClip.start : 0);
-      scrubber.value = 0;
-      updateTimeDisplay();
-    }
-  }
-
+  finalizeCalibration(convertedAny);
 }
 
 // --- Playback event handlers ---
 
-function onTimeUpdate() {
-  const adj = getAdjustedClipTimes();
-  const ct = adj || clipTimes;
+// Clamp one video to its clip end and return its elapsed time within the clip.
+function videoClipElapsed(v, vidClip) {
+  if (vidClip && v.currentTime > vidClip.end) {
+    v.currentTime = vidClip.end;
+    v.pause();
+  }
+  const clamped = vidClip ? Math.min(v.currentTime, vidClip.end) : v.currentTime;
+  return vidClip ? (clamped - vidClip.start) : (clamped - clipOffset());
+}
+
+// Largest per-video elapsed time, so playback tracks the slowest racer.
+function maxClipElapsed(ct) {
   let elapsed = 0;
   for (let i = 0; i < videos.length; i++) {
     const v = videos[i];
     if (!v) continue;
     const vidClip = activeClip && ct && isValidClipEntry(ct[i]) ? ct[i] : null;
-    if (vidClip && v.currentTime > vidClip.end) {
-      v.currentTime = vidClip.end;
-      v.pause();
-    }
-    const clamped = vidClip ? Math.min(v.currentTime, vidClip.end) : v.currentTime;
-    const e = vidClip ? (clamped - vidClip.start) : (clamped - clipOffset());
+    const e = videoClipElapsed(v, vidClip);
     if (e > elapsed) elapsed = e;
   }
+  return elapsed;
+}
+
+function onTimeUpdate() {
+  const adj = getAdjustedClipTimes();
+  const ct = adj || clipTimes;
+  const elapsed = maxClipElapsed(ct);
   if (activeClip && elapsed >= clipDuration()) {
     videos.forEach(v => v?.pause());
     seekAll(activeClip.end);
@@ -309,7 +387,7 @@ function setActiveMode(btn) {
 
 function switchMode(targetSrcSet, targetVideos, modeBtn, opts) {
   pendingSeek = null;
-  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
+  pausePlayback();
   detachVideoListeners();
   const srcChanged = loadedSrcSet !== targetSrcSet;
   if (srcChanged && opts.loadSrc) opts.loadSrc();
@@ -338,7 +416,9 @@ function resetSegmentState({ hide = false } = {}) {
   activeSegmentClipTimes = null;
   if (!segmentNav) return;
   segmentNav.value = '__all__';
-  segmentNav.style.display = hide ? 'none' : (segmentNavBuilt ? 'inline-block' : 'none');
+  let segDisplay = 'none';
+  if (!hide) segDisplay = segmentNavBuilt ? 'inline-block' : 'none';
+  segmentNav.style.display = segDisplay;
 }
 
 function switchToRace() {
@@ -351,7 +431,7 @@ function switchToRace() {
       resetSegmentState({ hide: false });
     },
     doSeek() {
-      activeClip = resolveAdjustedClip();
+      recalcActiveClip();
       seekAll(activeClip ? activeClip.start : 0);
       scrubber.value = 0;
       updateTimeDisplay();
@@ -417,7 +497,7 @@ if (modeFull) modeFull.addEventListener('click', switchToFull);
 if (modeMerged) modeMerged.addEventListener('click', switchToMerged);
 if (modeDebug) modeDebug.addEventListener('click', toggleCalibration);
 if (mergedVideo) mergedVideo.addEventListener('loadedmetadata', () => {
-  if (videos.indexOf(mergedVideo) !== -1) {
+  if (videos.includes(mergedVideo)) {
     duration = mergedVideo.duration;
     updateTimeDisplay();
   }
@@ -448,12 +528,12 @@ scrubber.addEventListener('input', () => {
 });
 
 speedSelect.addEventListener('change', () => {
-  const rate = parseFloat(speedSelect.value);
+  const rate = Number.parseFloat(speedSelect.value);
   videos.forEach(v => { if (v) v.playbackRate = rate; });
 });
 
 function stepFrame(delta) {
-  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
+  pausePlayback();
   const minT = clipOffset();
   const maxT = activeClip ? activeClip.end : duration;
   const d = clipDuration();
@@ -469,14 +549,14 @@ document.getElementById('prevFrame').addEventListener('click', () => stepFrame(-
 document.getElementById('nextFrame').addEventListener('click', () => stepFrame(STEP));
 
 function goToStart() {
-  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
+  pausePlayback();
   seekAll(activeClip ? activeClip.start : 0);
   scrubber.value = 0;
   updateTimeDisplay();
 }
 
 function goToEnd() {
-  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
+  pausePlayback();
   seekAll(activeClip ? activeClip.end : duration);
   scrubber.value = 1000;
   updateTimeDisplay();

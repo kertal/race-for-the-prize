@@ -12,7 +12,7 @@ const exportBtn = document.getElementById('exportBtn');
 // Layout math lives in export-layout.cjs (computeExportLayout) so Node
 // unit tests can exercise it; this wrapper supplies the live aspect ratio.
 function getExportLayout(count) {
-  const sample = raceVideos.find(v => v && v.videoWidth);
+  const sample = raceVideos.find(v => v?.videoWidth);
   const aspect = sample ? sample.videoHeight / sample.videoWidth : 9/16;
   return computeExportLayout(count, aspect);
 }
@@ -37,7 +37,7 @@ function drawExportFrame(ctx, layout, clockTime, visibleIndices) {
     try { ctx.drawImage(v, pos.x, pos.y + layout.labelH, layout.targetW, layout.cellH); } catch {}
   }
   // Clock overlay: matches the ffmpeg drawtext style in sidebyside.js
-  const t = clockTime != null ? clockTime : (primary ? (primary.currentTime || 0) : 0);
+  const t = clockTime != null ? clockTime : (primary?.currentTime || 0);
   const h = Math.floor(t / 3600);
   const m = Math.floor((t % 3600) / 60);
   const s = Math.floor(t % 60);
@@ -90,7 +90,8 @@ function loadFFmpeg() {
 
 let convertCounter = 0;
 
-function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, overlay, downloadName, clipRange) {
+function convertWithFFmpeg(blob, format, ui, downloadName, clipRange) {
+  const { statusEl, progressFill, actionsEl, overlay } = ui;
   const runId = ++convertCounter;
   const inFile = 'input_' + runId + '.webm';
   const outFile = 'output_' + runId + '.' + format;
@@ -186,7 +187,7 @@ async function startExport() {
     alert('Export requires a browser that supports Canvas.captureStream and MediaRecorder (Chrome, Firefox, or Edge).');
     return;
   }
-  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
+  pausePlayback();
 
   // Respect the racer filter: hidden racers must not be baked into the export.
   const visibleIndices = raceVideos.map((_, i) => i).filter(i => raceVideos[i] && !hiddenRacers.has(i));
@@ -220,7 +221,7 @@ async function startExport() {
   const perVideoEnd = visibleIndices.map((i) => {
     const v = raceVideos[i];
     if (!v) return endTime;
-    return (activeClip && ct && ct[i]) ? ct[i].end : endTime;
+    return (activeClip && ct?.[i]) ? ct[i].end : endTime;
   });
 
   const seekPromises = visibleIndices.map((i) => {
@@ -228,7 +229,7 @@ async function startExport() {
     if (!v) return Promise.resolve();
     return new Promise((resolve) => {
       let target = startTime;
-      if (activeClip && ct && ct[i]) {
+      if (activeClip && ct?.[i]) {
         const elapsed = startTime - activeClip.start;
         target = ct[i].start + elapsed;
         target = Math.max(ct[i].start, Math.min(ct[i].end, target));
@@ -276,17 +277,17 @@ async function startExport() {
     convertRow.className = 'export-convert-row';
     const gifBtn = document.createElement('button');
     gifBtn.textContent = 'Convert to GIF';
-    gifBtn.addEventListener('click', () => { convertWithFFmpeg(blob, 'gif', statusEl, progressFill, actionsEl, overlay); });
+    gifBtn.addEventListener('click', () => { convertWithFFmpeg(blob, 'gif', { statusEl, progressFill, actionsEl, overlay }); });
     const movBtn = document.createElement('button');
     movBtn.textContent = 'Convert to MOV';
-    movBtn.addEventListener('click', () => { convertWithFFmpeg(blob, 'mov', statusEl, progressFill, actionsEl, overlay); });
+    movBtn.addEventListener('click', () => { convertWithFFmpeg(blob, 'mov', { statusEl, progressFill, actionsEl, overlay }); });
     convertRow.appendChild(gifBtn);
     convertRow.appendChild(movBtn);
     actionsEl.replaceChildren(downloadLink, convertRow, closeBtn);
   };
 
   recorder.start();
-  const exportRate = parseFloat(speedSelect.value) || 1;
+  const exportRate = Number.parseFloat(speedSelect.value) || 1;
   visibleIndices.forEach(i => { const v = raceVideos[i]; if (v) { v.playbackRate = exportRate; v.play(); } });
   const speedLabel = exportRate !== 1 ? ' (' + exportRate + 'x)' : '';
 

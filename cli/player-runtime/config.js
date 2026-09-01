@@ -28,20 +28,20 @@ let resolvedRacePaths = raceVideoPaths ? raceVideoPaths.slice() : raceVideoPaths
 let resolvedFullPaths = fullVideoPaths ? fullVideoPaths.slice() : fullVideoPaths;
 
 const _embeddedBlobUrls = [];
-(async function resolveEmbeddedVideos() {
-  async function toBlobUrl(p) {
-    if (!p || !p.startsWith('data:')) return p;
-    try {
-      const resp = await fetch(p);
-      if (!resp.ok) return p;
-      const url = URL.createObjectURL(await resp.blob());
-      _embeddedBlobUrls.push(url);
-      return url;
-    } catch { return p; }
-  }
-  const hasData = arr => arr && arr.some(p => p && p.startsWith('data:'));
-  const mergedSrc = mergedVideo && mergedVideo.getAttribute('src');
-  const mergedIsData = mergedSrc && mergedSrc.startsWith('data:');
+async function toBlobUrl(p) {
+  if (!p?.startsWith('data:')) return p;
+  try {
+    const resp = await fetch(p);
+    if (!resp.ok) return p;
+    const url = URL.createObjectURL(await resp.blob());
+    _embeddedBlobUrls.push(url);
+    return url;
+  } catch { return p; }
+}
+async function resolveEmbeddedVideos() {
+  const hasData = arr => arr?.some(p => p?.startsWith('data:'));
+  const mergedSrc = mergedVideo?.getAttribute('src');
+  const mergedIsData = mergedSrc?.startsWith('data:');
   if (!hasData(raceVideoPaths) && !hasData(fullVideoPaths) && !mergedIsData) return;
   [resolvedRacePaths, resolvedFullPaths] = await Promise.all([
     raceVideoPaths ? Promise.all(raceVideoPaths.map(toBlobUrl)) : Promise.resolve(raceVideoPaths),
@@ -54,7 +54,8 @@ const _embeddedBlobUrls = [];
     if (resolved && resolved !== v.getAttribute('src')) v.src = resolved;
   });
   if (mergedIsData) mergedVideo.src = await toBlobUrl(mergedSrc);
-})();
+}
+resolveEmbeddedVideos();
 window.addEventListener('pagehide', () => { _embeddedBlobUrls.forEach(u => URL.revokeObjectURL(u)); });
 
 // Convert a Blob to a base64 data URI (used when embedding videos in ZIP export)

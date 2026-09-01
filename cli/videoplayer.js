@@ -10,9 +10,9 @@
  * This module wires everything together via {{placeholder}} replacement.
  */
 
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { getPlacementOrder } from './summary.js';
 import {
   RACER_CSS_COLORS,
@@ -88,7 +88,61 @@ function buildPlayerScript() {
 // Serialize race config for embedding in a <script type="application/json"> block.
 // Escapes '<' so a value can't break out of the </script> context.
 function serializeRaceConfig(config) {
-  return JSON.stringify(config).replaceAll('<', '\\u003c');
+  return JSON.stringify(config).replaceAll('<', String.raw`\u003c`);
+}
+
+function playerMaxWidth(count) {
+  if (count <= 2) return 680;
+  return count === 3 ? 450 : 340;
+}
+
+function playerContainerMaxWidth(count) {
+  return count <= 3 ? 1400 : 1440;
+}
+
+function trophyHtml(isWinner, isTie) {
+  if (!isWinner) return '';
+  return `<span class="trophy">${isTie ? '&#129309;' : '&#127942;'}</span> `;
+}
+
+// Build the player section, debug panel, runtime script tag, and race-config
+// JSON for a race that has videos. Returns the render() slots it produces.
+function buildVideoPlayer(summary, videoFiles, opts) {
+  const { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, placementOrder, ffmpegDir } = opts;
+  const isTie = summary.overallWinner === 'tie';
+  const videoElements = placementOrder.map((origIdx, displayIdx) => {
+    const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
+    const racer = racers[origIdx];
+    const isWinner = isTie || (summary.overallWinner && summary.overallWinner.toLowerCase() === racer.toLowerCase());
+    const vSrc = videoFiles[origIdx].startsWith('data:') ? '' : ` src="${escHtml(videoFiles[origIdx])}"`;
+    return `  <div class="racer">
+    <div class="racer-label" style="color: ${color}">${trophyHtml(isWinner, isTie)}${escHtml(racer)}</div>
+    <video id="v${displayIdx}"${vSrc} preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Race recording for ${escHtml(racer)}" data-racer-name="${escHtml(racer)}"></video>
+  </div>`;
+  }).join('\n');
+
+  const mergedVideoElement = mergedVideoFile ? `
+<div class="merged-container" id="mergedContainer" style="display: none;">
+  <video id="mergedVideo" src="${escHtml(mergedVideoFile)}" preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Side-by-side merged video"></video>
+</div>` : '';
+
+  const videoIds = placementOrder.map((_, i) => `v${i}`);
+  const raceConfigJson = serializeRaceConfig({
+    videoCount: videoIds.length,
+    raceVideoPaths: placementOrder.map(i => videoFiles[i]),
+    fullVideoPaths: fullVideoFiles ? placementOrder.map(i => fullVideoFiles[i]) : null,
+    clipTimes: clipTimes ? placementOrder.map(i => clipTimes[i] || null) : null,
+    racerNames: placementOrder.map(i => racers[i]),
+    racerColors: placementOrder.map(i => RACER_CSS_COLORS[i % RACER_CSS_COLORS.length]),
+    ffmpegDir,
+  });
+
+  return {
+    playerSection: buildPlayerSectionHtml(videoElements, mergedVideoElement),
+    debugPanelOut: hasClipTimes ? buildDebugPanelHtml(racers, placementOrder, clipTimes) : '',
+    scriptTag: buildPlayerScript(),
+    raceConfigJson,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -96,78 +150,25 @@ function serializeRaceConfig(config) {
 // ---------------------------------------------------------------------------
 
 export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, options = {}) {
-  let { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, runNavigation, clipTimes, ffmpegPathPrefix, runSummaries } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, runNavigation, clipTimes, ffmpegPathPrefix, runSummaries } = options;
 
   const ffmpegDir = (ffmpegPathPrefix || './') + 'ffmpeg/';
   const racers = summary.racers;
   const count = racers.length;
 
-  const maxWidth = count <= 2 ? 680 : count === 3 ? 450 : 340;
-  const containerMaxWidth = count <= 2 ? 1400 : count === 3 ? 1400 : 1440;
-
   const title = count === 2
     ? `Race: ${escHtml(racers[0])} vs ${escHtml(racers[1])}`
     : `Race: ${racers.map(escHtml).join(' vs ')}`;
 
-  const winnerBanner = '';
-
   const hasVideos = videoFiles && videoFiles.length > 0;
   const placementOrder = getPlacementOrder(summary);
-
-  const hasFullVideos = fullVideoFiles?.length > 0;
   // Same predicate the browser runtime uses (calibration.cjs isValidClipEntry).
-  const hasClipTimes = clipTimes && clipTimes.some(calibration.isValidClipEntry);
+  const hasClipTimes = clipTimes?.some(calibration.isValidClipEntry);
   const hasMergedVideo = !!mergedVideoFile;
 
-  let playerSection = '';
-  let scriptTag = '';
-  let raceConfigJson = '';
-  let debugPanelOut = '';
-
-  if (hasVideos) {
-    const isTie = summary.overallWinner === 'tie';
-    const videoElements = placementOrder.map((origIdx, displayIdx) => {
-      const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
-      const racer = racers[origIdx];
-      const isWinner = isTie
-        ? true
-        : summary.overallWinner && summary.overallWinner.toLowerCase() === racer.toLowerCase();
-      const trophyHtml = isWinner
-        ? `<span class="trophy">${isTie ? '&#129309;' : '&#127942;'}</span> `
-        : '';
-      const vSrc = videoFiles[origIdx].startsWith('data:') ? '' : ` src="${escHtml(videoFiles[origIdx])}"`;
-      return `  <div class="racer">
-    <div class="racer-label" style="color: ${color}">${trophyHtml}${escHtml(racer)}</div>
-    <video id="v${displayIdx}"${vSrc} preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Race recording for ${escHtml(racer)}" data-racer-name="${escHtml(racer)}"></video>
-  </div>`;
-    }).join('\n');
-
-    const mergedVideoElement = mergedVideoFile ? `
-<div class="merged-container" id="mergedContainer" style="display: none;">
-  <video id="mergedVideo" src="${escHtml(mergedVideoFile)}" preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Side-by-side merged video"></video>
-</div>` : '';
-
-    debugPanelOut = hasClipTimes ? buildDebugPanelHtml(racers, placementOrder, clipTimes) : '';
-    playerSection = buildPlayerSectionHtml(videoElements, mergedVideoElement);
-
-    const videoIds = placementOrder.map((_, i) => `v${i}`);
-    const orderedVideoFiles = placementOrder.map(i => videoFiles[i]);
-    const orderedFullVideoFiles = fullVideoFiles ? placementOrder.map(i => fullVideoFiles[i]) : null;
-    const orderedClipTimes = clipTimes ? placementOrder.map(i => clipTimes[i] || null) : null;
-    const orderedRacerNames = placementOrder.map(i => racers[i]);
-    const orderedRacerColors = placementOrder.map(i => RACER_CSS_COLORS[i % RACER_CSS_COLORS.length]);
-
-    scriptTag = buildPlayerScript();
-    raceConfigJson = serializeRaceConfig({
-      videoCount: videoIds.length,
-      raceVideoPaths: orderedVideoFiles,
-      fullVideoPaths: orderedFullVideoFiles || null,
-      clipTimes: orderedClipTimes || null,
-      racerNames: orderedRacerNames,
-      racerColors: orderedRacerColors,
-      ffmpegDir,
-    });
-  }
+  const { playerSection = '', scriptTag = '', raceConfigJson = '', debugPanelOut = '' } = hasVideos
+    ? buildVideoPlayer(summary, videoFiles, { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, placementOrder, ffmpegDir })
+    : {};
 
   const mergedBtn = hasMergedVideo ? '<button class="mode-btn" id="modeMerged" title="Side-by-side merged video">Merged</button>' : '';
   const modeToggle = hasMergedVideo ? `
@@ -175,12 +176,13 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     ${mergedBtn}
   </div>` : '';
 
-  const layoutCss = `.player-container { max-width: ${containerMaxWidth}px; }\n  .racer { max-width: ${maxWidth}px; }`;
+  const profileComparison = summary.profileComparison || {};
+  const layoutCss = `.player-container { max-width: ${playerContainerMaxWidth(count)}px; }\n  .racer { max-width: ${playerMaxWidth(count)}px; }`;
   return render(TEMPLATE, {
     title,
     styles: buildStyles(layoutCss),
     runNav: buildRunNavHtml(runNavigation, racers, runSummaries),
-    winnerBanner,
+    winnerBanner: '',
     videoSourceNote: '',
     raceInfo: buildRaceInfoHtml(summary),
     machineInfo: buildMachineInfoHtml(summary.machineInfo),
@@ -191,11 +193,11 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     results: buildResultsHtml(summary.comparisons || [], racers),
     runComparison: buildRunComparisonHtml(runSummaries || null, summary, racers),
     profileSummary: buildProfileSummaryHtml({
-      ...(summary.profileComparison || {}),
+      ...profileComparison,
       sectionComparisons: summary.comparisons || [],
     }, racers),
     profile: buildProfileHtml({
-      ...(summary.profileComparison || {}),
+      ...profileComparison,
       sectionComparisons: summary.comparisons || [],
       rawProfileMetrics: summary.profileMetrics || [],
     }, racers),

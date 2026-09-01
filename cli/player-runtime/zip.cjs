@@ -19,7 +19,7 @@ for (let i = 0; i < 256; i++) {
 
 function crc32(data) {
   let crc = 0xFFFFFFFF;
-  for (let i = 0; i < data.length; i++) crc = _crc32Table[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8);
+  for (const byte of data) crc = _crc32Table[(crc ^ byte) & 0xFF] ^ (crc >>> 8);
   return (crc ^ 0xFFFFFFFF) >>> 0;
 }
 

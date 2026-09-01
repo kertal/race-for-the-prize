@@ -47,7 +47,7 @@ function seekAllWithVerify(targetStart) {
     const reseek = () => {
       if (Math.abs(v.currentTime - expected) > SEEK_SNAP_TOLERANCE && seeks < MAX_SEEK_RETRIES) {
         seeks++;
-        v.currentTime = Math.min(expected, isFinite(v.duration) ? v.duration : expected);
+        v.currentTime = Math.min(expected, Number.isFinite(v.duration) ? v.duration : expected);
         v.addEventListener('seeked', reseek, { once: true });
       }
     };
@@ -60,12 +60,12 @@ function seekAllWithVerify(targetStart) {
 
 if (clipTimes) {
   const initSeek = () => {
-    activeClip = resolveAdjustedClip();
+    recalcActiveClip();
     seekAllWithVerify(activeClip ? activeClip.start : 0);
     scrubber.value = 0;
     updateTimeDisplay();
   };
-  pendingSeek = initSeek;
+  setPendingSeek(initSeek);
   if (raceVideos.every(v => !v || v.readyState >= 1)) {
     // If metadata loaded before listeners attached, run one onMeta() pass
     // explicitly so clip conversions/calibration are applied on first paint.

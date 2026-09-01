@@ -462,6 +462,23 @@ describe('buildPlayerHtml', () => {
     expect(html).toContain('Results');
   });
 
+  it('inline runtime script contains no premature </script> that would truncate it', () => {
+    // A literal </script> anywhere in the runtime source (even in a comment)
+    // ends the inline <script> early, breaking the whole player.
+    const html = withOptions({
+      clipTimes: [
+        { start: 1, end: 3, measurements: [{ name: 'Load', startTime: 1, endTime: 2 }] },
+        { start: 1, end: 3, measurements: [] },
+      ],
+    });
+    const open = html.indexOf('<script>\n(function() {');
+    const close = html.indexOf('})();\n</script>', open);
+    expect(open).toBeGreaterThan(-1);
+    expect(close).toBeGreaterThan(open);
+    const body = html.slice(open + '<script>'.length, close);
+    expect(body).not.toContain('</script');
+  });
+
   it('shows median page with videos', () => {
     const html = buildPlayerHtml(makeSummary(), ['2/lauda/lauda.race.webm', '2/hunt/hunt.race.webm'], null, null, {
       runNavigation: { currentRun: 'median', totalRuns: 3, pathPrefix: '' },
@@ -1182,12 +1199,12 @@ describe('buildPlayerHtml seekAllWithVerify', () => {
     expect(onMetaFn).toContain('activeSegmentClipTimes = getSegmentClipTimes(activeSegmentName)');
   });
 
-  it('onMeta convertedAny branch uses seekAllWithVerify', () => {
+  it('finalizeCalibration convertedAny branch uses seekAllWithVerify', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
-    const onMetaStart = html.indexOf('function onMeta(');
-    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
-    const onMetaFn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
-    expect(onMetaFn).toContain('seekAllWithVerify(');
+    const fnStart = html.indexOf('function finalizeCalibration(');
+    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 1500);
+    expect(fn).toContain('seekAllWithVerify(');
   });
 
   it('attaches canplay fallback listener in seekAllWithVerify', () => {
@@ -1224,39 +1241,39 @@ describe('buildPlayerHtml onMeta _durationForced (Chrome WebM Infinity duration)
     expect(html).toContain('WeakMap');
   });
 
-  it('onMeta triggers 1e10 seek when duration is non-finite', () => {
+  it('ensureFiniteDurations triggers 1e10 seek when duration is non-finite', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
-    const onMetaStart = html.indexOf('function onMeta(');
-    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
-    const fn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
+    const fnStart = html.indexOf('function ensureFiniteDurations(');
+    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 1500);
     expect(fn).toContain('1e10');
     expect(fn).toContain('durationchange');
   });
 
-  it('onMeta always returns early while any video has non-finite duration', () => {
+  it('ensureFiniteDurations always returns early while any video has non-finite duration', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
-    const onMetaStart = html.indexOf('function onMeta(');
-    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
-    const fn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
-    // The return; must be unconditional — i.e. it appears after the closing brace
+    const fnStart = html.indexOf('function ensureFiniteDurations(');
+    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 1500);
+    // The return must be unconditional — i.e. it appears after the closing brace
     // of the if (!_durationForced.has(v)) { ... } block, not inside it.
     // Search for the actual assignment (not a comment mention) to find the right position.
     const seek1e10Idx = fn.indexOf('currentTime = 1e10');
     expect(seek1e10Idx).toBeGreaterThan(-1);
     // Find the closing brace of the has-guard block (after the 1e10 assignment)
     const closingBraceIdx = fn.indexOf('}', seek1e10Idx);
-    const returnIdx = fn.indexOf('return;', closingBraceIdx);
+    const returnIdx = fn.indexOf('return false;', closingBraceIdx);
     expect(returnIdx).toBeGreaterThan(closingBraceIdx);
-    // Only whitespace/comments between the closing brace and return;
+    // Only whitespace/comments between the closing brace and return false;
     const between = fn.slice(closingBraceIdx + 1, returnIdx).replace(/\/\/[^\n]*/g, '').trim();
     expect(between).toBe('');
   });
 
-  it('onMeta only triggers 1e10 seek once per src (WeakMap guard)', () => {
+  it('ensureFiniteDurations only triggers 1e10 seek once per src (WeakMap guard)', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
-    const onMetaStart = html.indexOf('function onMeta(');
-    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
-    const fn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
+    const fnStart = html.indexOf('function ensureFiniteDurations(');
+    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 1500);
     // WeakMap API: set() inside the guard, get() !== srcKey as the condition
     expect(fn).toContain('_durationForced.set(v');
     const getGuardIdx = fn.indexOf('_durationForced.get(v)');

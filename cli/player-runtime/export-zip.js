@@ -8,7 +8,8 @@
 
 // Rewrite the cloned #race-config JSON block with calibrated clip times and
 // (when embedding) data-URI video paths. Escaping must match videoplayer.js
-// serializeRaceConfig (the canonical form) so exports stay </script>-safe.
+// serializeRaceConfig (the canonical form) so the exported page can't break
+// out of the script/JSON context.
 function bakeRaceConfig(doc, pathOverrides, hasOverrides) {
   const configScript = doc.querySelector('#race-config');
   if (!configScript) return;
@@ -40,133 +41,204 @@ function bakeRaceConfig(doc, pathOverrides, hasOverrides) {
     if (Array.isArray(cfg.raceVideoPaths)) cfg.raceVideoPaths = cfg.raceVideoPaths.map(mapPath);
     if (Array.isArray(cfg.fullVideoPaths)) cfg.fullVideoPaths = cfg.fullVideoPaths.map(mapPath);
   }
-  configScript.textContent = JSON.stringify(cfg).replaceAll('<', '\\u003c');
+  configScript.textContent = JSON.stringify(cfg).replaceAll('<', String.raw`\u003c`);
 }
 
-function buildExportHtml(pathOverrides = {}, { slim = false } = {}) {
-  const doc = document.documentElement.cloneNode(true);
+function removeEl(doc, selector) {
+  const el = doc.querySelector(selector);
+  if (el) el.remove();
+}
 
-  // Defensive cleanup: if runtime state duplicated racer cards, keep one set.
+// Drop a duplicated set of racer cards if runtime state cloned them.
+function dedupeRacerCards(doc) {
   const racerCards = Array.from(doc.querySelectorAll('#playerContainer .racer'));
   const expectedRacers = Array.isArray(raceVideoPaths) ? raceVideoPaths.filter(Boolean).length : 0;
   if (expectedRacers > 0 && racerCards.length > expectedRacers) {
     racerCards.slice(expectedRacers).forEach((el) => el.remove());
   }
+}
 
-  // Remove debug/calibration panel and button
-  const dp = doc.querySelector('#debugPanel');
-  if (dp) dp.remove();
-  const calBtn = doc.querySelector('#modeDebug');
-  if (calBtn) calBtn.remove();
-
-  // Remove export buttons (HTML export already done, video export needs ffmpeg assets not in ZIP)
+// Remove interactive chrome that has no meaning in an exported file.
+function stripExportChrome(doc) {
+  removeEl(doc, '#debugPanel');
+  removeEl(doc, '#modeDebug');
   doc.querySelectorAll('#exportHtmlBtn, #exportBtn, #exportHtmlOnlyBtn').forEach(el => el.remove());
-
-  // Remove run navigation links (they point to sibling result dirs not included in export)
   doc.querySelectorAll('.run-nav').forEach(el => el.remove());
-
-  // Remove any active export overlays
   doc.querySelectorAll('.export-overlay').forEach(el => el.remove());
+}
 
-  // Bake current notes into the exported HTML so they appear without localStorage
+// Bake current notes into the HTML so they survive without localStorage.
+function bakeNotes(doc) {
   const notesEl = doc.querySelector('#notesTextarea');
-  if (notesEl && notesTextarea) {
-    notesEl.textContent = notesTextarea.value;
-  }
+  if (notesEl && notesTextarea) notesEl.textContent = notesTextarea.value;
+}
 
-  // Remove file links pointing to embedded videos (they're in the HTML, not as separate files)
-  if (Object.keys(pathOverrides).length > 0) {
-    doc.querySelectorAll('.file-links a').forEach(a => {
-      const href = a.getAttribute('href');
-      if (href && pathOverrides[href]) {
-        const li = a.closest('li');
-        if (li) li.remove(); else a.remove();
-      }
-    });
-  }
+// Remove file links that point at videos now embedded in the HTML.
+function removeEmbeddedFileLinks(doc, pathOverrides) {
+  doc.querySelectorAll('.file-links a').forEach(a => {
+    const href = a.getAttribute('href');
+    if (href && pathOverrides[href]) {
+      const li = a.closest('li');
+      if (li) li.remove(); else a.remove();
+    }
+  });
+}
 
-  // In slim mode, strip non-essential sections for a minimal self-contained page
-  if (slim) {
-    doc.querySelectorAll('.file-links').forEach(el => {
-      const section = el.closest('details.section') || el.closest('.section');
-      if (section) section.remove(); else el.remove();
-    });
-    // Remove settings panel (segment nav, mode toggle, calibration)
-    const sp = doc.querySelector('#settingsPanel');
-    if (sp) sp.remove();
-    const stBtn = doc.querySelector('#settingsToggle');
-    if (stBtn) stBtn.remove();
-    // Remove share menu and toggle
-    const shBtn = doc.querySelector('#shareToggle');
-    if (shBtn) { const group = shBtn.closest('.header-icon-group'); if (group) group.remove(); else shBtn.remove(); }
-  }
+// Strip non-essential sections for a minimal single-file export.
+function stripSlimSections(doc) {
+  doc.querySelectorAll('.file-links').forEach(el => {
+    const section = el.closest('details.section') || el.closest('.section');
+    if (section) section.remove(); else el.remove();
+  });
+  removeEl(doc, '#settingsPanel');
+  removeEl(doc, '#settingsToggle');
+  const shBtn = doc.querySelector('#shareToggle');
+  if (shBtn) { const group = shBtn.closest('.header-icon-group'); if (group) group.remove(); else shBtn.remove(); }
+}
 
-  // Clear dynamically-built UI so the script rebuilds it cleanly on load
-  // (cloneNode captures live DOM state; without clearing, buttons are doubled)
+// Clear dynamically-built UI so the script rebuilds it cleanly on load.
+function clearDynamicUi(doc, slim) {
   const racerFilter = doc.querySelector('#racerFilter');
   if (racerFilter) { racerFilter.innerHTML = ''; racerFilter.style.display = 'none'; }
   if (!slim) {
     const segNav = doc.querySelector('#segmentNav');
     if (segNav) { segNav.innerHTML = ''; segNav.style.display = 'none'; }
   }
+}
 
-  // Embed video paths: set data URIs directly on <video> src attributes so videos
-  // play immediately without JavaScript, and patch the JS config so resolveEmbeddedVideos
-  // can still upgrade them to seekable Blob URLs at runtime.
-  const hasOverrides = Object.keys(pathOverrides).length > 0;
-  if (hasOverrides) {
-    // Race video elements: raceVideoPaths[i] maps to <video id="v{i}">
-    raceVideoPaths.forEach((p, i) => {
-      if (!p || !pathOverrides[p]) return;
-      const vid = doc.querySelector('#v' + i);
-      if (vid) vid.setAttribute('src', pathOverrides[p]);
-    });
-    // Merged video element
-    const mv = doc.querySelector('#mergedVideo');
-    if (mv) {
-      const mvSrc = mv.getAttribute('src');
-      if (mvSrc && pathOverrides[mvSrc]) mv.setAttribute('src', pathOverrides[mvSrc]);
-    }
+// Point <video> src attributes at embedded data URIs so playback needs no JS.
+function applyVideoOverrides(doc, pathOverrides) {
+  raceVideoPaths.forEach((p, i) => {
+    if (!p || !pathOverrides[p]) return;
+    const vid = doc.querySelector('#v' + i);
+    if (vid) vid.setAttribute('src', pathOverrides[p]);
+  });
+  const mv = doc.querySelector('#mergedVideo');
+  if (mv) {
+    const mvSrc = mv.getAttribute('src');
+    if (mvSrc && pathOverrides[mvSrc]) mv.setAttribute('src', pathOverrides[mvSrc]);
   }
+}
 
-  // Bake adjusted clip times and video path overrides into the #race-config
-  // JSON block so the exported page loads with calibrated clips and (when
-  // embedding) data-URI sources that resolveEmbeddedVideos upgrades to Blob URLs.
+function buildExportHtml(pathOverrides = {}, { slim = false } = {}) {
+  const doc = document.documentElement.cloneNode(true);
+  const hasOverrides = Object.keys(pathOverrides).length > 0;
+
+  dedupeRacerCards(doc);
+  stripExportChrome(doc);
+  bakeNotes(doc);
+  if (hasOverrides) removeEmbeddedFileLinks(doc, pathOverrides);
+  if (slim) stripSlimSections(doc);
+  clearDynamicUi(doc, slim);
+  // Embed videos as data URIs on the elements and in #race-config so
+  // resolveEmbeddedVideos can upgrade them to seekable Blob URLs at runtime.
+  if (hasOverrides) applyVideoOverrides(doc, pathOverrides);
   bakeRaceConfig(doc, pathOverrides, hasOverrides);
 
   return '<!DOCTYPE html>\n' + doc.outerHTML;
 }
 
-async function startHtmlExport() {
-  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
-
+// Create the export progress overlay and its abort controller.
+function setupExportOverlay(titleText) {
   const tmpl = document.getElementById('tmpl-export-overlay');
   const overlay = tmpl.content.cloneNode(true).firstElementChild;
-  const canvas = overlay.querySelector('.export-canvas');
-  canvas.style.display = 'none';
-  const titleEl = overlay.querySelector('h3');
-  titleEl.textContent = 'Exporting HTML';
+  overlay.querySelector('.export-canvas').style.display = 'none';
+  overlay.querySelector('h3').textContent = titleText;
   document.body.appendChild(overlay);
-
-  const progressFill = overlay.querySelector('.export-progress-fill');
-  const statusEl = overlay.querySelector('.export-status');
-  const actionsEl = overlay.querySelector('.export-actions');
-
   const abortCtrl = new AbortController();
-  overlay.querySelector('.export-cancel').addEventListener('click', () => {
-    abortCtrl.abort();
-    overlay.remove();
-  });
+  overlay.querySelector('.export-cancel').addEventListener('click', () => { abortCtrl.abort(); overlay.remove(); });
+  return {
+    overlay,
+    abortCtrl,
+    progressFill: overlay.querySelector('.export-progress-fill'),
+    statusEl: overlay.querySelector('.export-status'),
+    actionsEl: overlay.querySelector('.export-actions'),
+  };
+}
 
-  // Collect video paths to embed and non-video paths to bundle as separate ZIP entries
+// Collect non-embedded (http/relative) video paths from config and the merged element.
+function collectEmbeddableVideoPaths() {
   const videoPaths = new Set();
-  raceVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) videoPaths.add(p); });
-  if (fullVideoPaths) fullVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) videoPaths.add(p); });
-  if (mergedVideo) {
-    const mp = mergedVideo.getAttribute('src');
-    if (mp && !mp.startsWith('data:')) videoPaths.add(mp);
-  }
+  const add = p => { if (p && !p.startsWith('data:')) videoPaths.add(p); };
+  raceVideoPaths.forEach(add);
+  if (fullVideoPaths) fullVideoPaths.forEach(add);
+  if (mergedVideo) add(mergedVideo.getAttribute('src'));
+  return videoPaths;
+}
 
+// Fetch each video and store a data URI in pathOverrides. Returns the running
+// fetched count, or null if the export was aborted.
+async function embedVideos(videoPaths, ctx) {
+  const { pathOverrides, failedFiles, ui, total, maxProgress } = ctx;
+  let fetched = ctx.fetched;
+  for (const vPath of videoPaths) {
+    if (ui.abortCtrl.signal.aborted) return null;
+    fetched++;
+    ui.statusEl.textContent = 'Embedding ' + vPath + ' (' + fetched + '/' + total + ')';
+    ui.progressFill.style.width = (fetched / total * maxProgress).toFixed(0) + '%';
+    try {
+      const resp = await fetch(vPath, { signal: ui.abortCtrl.signal });
+      if (resp.ok) pathOverrides[vPath] = await blobToDataUri(await resp.blob());
+      else failedFiles.push(vPath);
+    } catch (e) {
+      if (e.name === 'AbortError') return null;
+      failedFiles.push(vPath);
+    }
+  }
+  return fetched;
+}
+
+// Fetch non-video assets and add them as separate ZIP entries. Returns null if aborted.
+async function bundleOtherFiles(otherPaths, zipBuilder, ctx) {
+  const { failedFiles, optionalPaths, ui, total } = ctx;
+  let fetched = ctx.fetched;
+  for (const filePath of otherPaths) {
+    if (ui.abortCtrl.signal.aborted) return null;
+    fetched++;
+    ui.statusEl.textContent = 'Fetching ' + filePath + ' (' + fetched + '/' + total + ')';
+    ui.progressFill.style.width = (fetched / total * 80).toFixed(0) + '%';
+    try {
+      const resp = await fetch(filePath, { signal: ui.abortCtrl.signal });
+      if (resp.ok) zipBuilder.addFile(filePath, new Uint8Array(await resp.arrayBuffer()));
+      else if (!optionalPaths.has(filePath)) failedFiles.push(filePath);
+    } catch (e) {
+      if (e.name === 'AbortError') return null;
+      if (!optionalPaths.has(filePath)) failedFiles.push(filePath);
+    }
+  }
+  return fetched;
+}
+
+// Slugify the document title into a safe download filename base.
+function exportBaseName() {
+  return document.title.replace(/[^a-zA-Z0-9-]/g, '_').replace(/_+/g, '_').toLowerCase() || 'race-export';
+}
+
+// Finish the overlay with a completion message and a download button.
+function offerDownload(ui, blob, filename, label, failedFiles) {
+  const url = URL.createObjectURL(blob);
+  let statusMsg = 'Export complete! (' + (blob.size / (1024 * 1024)).toFixed(1) + ' MB)';
+  if (failedFiles.length > 0) {
+    statusMsg += '\nSkipped ' + failedFiles.length + ' file(s): ' + failedFiles.join(', ');
+  }
+  ui.statusEl.textContent = statusMsg;
+  ui.progressFill.style.width = '100%';
+  const dlLink = document.createElement('a');
+  dlLink.href = url;
+  dlLink.download = filename;
+  dlLink.textContent = label;
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Close';
+  closeBtn.addEventListener('click', () => { URL.revokeObjectURL(url); ui.overlay.remove(); });
+  ui.actionsEl.replaceChildren(dlLink, closeBtn);
+}
+
+async function startHtmlExport() {
+  pausePlayback();
+  const ui = setupExportOverlay('Exporting HTML');
+
+  // Embed videos in the HTML; bundle other assets (traces, summary) as ZIP entries.
+  const videoPaths = collectEmbeddableVideoPaths();
   const otherPaths = new Set();
   const optionalPaths = new Set(['summary.json']);
   document.querySelectorAll('.file-links a').forEach(a => {
@@ -179,76 +251,21 @@ async function startHtmlExport() {
 
   const total = videoPaths.size + otherPaths.size;
   const failedFiles = [];
-  let fetched = 0;
-
-  // Embed videos as data URIs directly in the exported HTML
   const pathOverrides = {};
-  for (const vPath of videoPaths) {
-    if (abortCtrl.signal.aborted) return;
-    fetched++;
-    statusEl.textContent = 'Embedding ' + vPath + ' (' + fetched + '/' + total + ')';
-    progressFill.style.width = (fetched / total * 80).toFixed(0) + '%';
-    try {
-      const resp = await fetch(vPath, { signal: abortCtrl.signal });
-      if (resp.ok) {
-        pathOverrides[vPath] = await blobToDataUri(await resp.blob());
-      } else {
-        failedFiles.push(vPath);
-      }
-    } catch (e) {
-      if (e.name === 'AbortError') return;
-      failedFiles.push(vPath);
-    }
-  }
+  const afterVideos = await embedVideos(videoPaths, { pathOverrides, failedFiles, ui, total, maxProgress: 80, fetched: 0 });
+  if (afterVideos === null) return;
 
-  // Bundle non-video assets (trace files, summary, etc.) as separate ZIP entries
   const zipBuilder = createZipBuilder();
-  for (const filePath of otherPaths) {
-    if (abortCtrl.signal.aborted) return;
-    fetched++;
-    statusEl.textContent = 'Fetching ' + filePath + ' (' + fetched + '/' + total + ')';
-    progressFill.style.width = (fetched / total * 80).toFixed(0) + '%';
-    try {
-      const resp = await fetch(filePath, { signal: abortCtrl.signal });
-      if (resp.ok) {
-        zipBuilder.addFile(filePath, new Uint8Array(await resp.arrayBuffer()));
-      } else {
-        if (!optionalPaths.has(filePath)) failedFiles.push(filePath);
-      }
-    } catch (e) {
-      if (e.name === 'AbortError') return;
-      if (!optionalPaths.has(filePath)) failedFiles.push(filePath);
-    }
-  }
+  const afterOthers = await bundleOtherFiles(otherPaths, zipBuilder, { failedFiles, optionalPaths, ui, total, fetched: afterVideos });
+  if (afterOthers === null) return;
 
-  if (abortCtrl.signal.aborted) return;
+  ui.statusEl.textContent = 'Building HTML...';
+  ui.progressFill.style.width = '90%';
+  zipBuilder.addFile('index.html', new TextEncoder().encode(buildExportHtml(pathOverrides)));
 
-  statusEl.textContent = 'Building HTML...';
-  progressFill.style.width = '90%';
-  const html = buildExportHtml(pathOverrides);
-  zipBuilder.addFile('index.html', new TextEncoder().encode(html));
-
-  statusEl.textContent = 'Creating ZIP...';
-  progressFill.style.width = '95%';
-  const blob = zipBuilder.toBlob();
-  const url = URL.createObjectURL(blob);
-
-  let statusMsg = 'Export complete! (' + (blob.size / (1024 * 1024)).toFixed(1) + ' MB)';
-  if (failedFiles.length > 0) {
-    statusMsg += '\nSkipped ' + failedFiles.length + ' file(s): ' + failedFiles.join(', ');
-  }
-  statusEl.textContent = statusMsg;
-  progressFill.style.width = '100%';
-
-  const dlLink = document.createElement('a');
-  dlLink.href = url;
-  const zipName = document.title.replace(/[^a-zA-Z0-9-]/g, '_').replace(/_+/g, '_').toLowerCase();
-  dlLink.download = (zipName || 'race-export') + '.zip';
-  dlLink.textContent = 'Download ZIP';
-  const closeBtn = document.createElement('button');
-  closeBtn.textContent = 'Close';
-  closeBtn.addEventListener('click', () => { URL.revokeObjectURL(url); overlay.remove(); });
-  actionsEl.replaceChildren(dlLink, closeBtn);
+  ui.statusEl.textContent = 'Creating ZIP...';
+  ui.progressFill.style.width = '95%';
+  offerDownload(ui, zipBuilder.toBlob(), exportBaseName() + '.zip', 'Download ZIP', failedFiles);
 }
 
 const exportHtmlBtn = document.getElementById('exportHtmlBtn');
@@ -258,82 +275,19 @@ if (exportHtmlBtn) {
 
 /** Export a single self-contained HTML file (no ZIP, no extra assets). */
 async function startHtmlOnlyExport() {
-  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
+  pausePlayback();
+  const ui = setupExportOverlay('Exporting HTML');
 
-  const tmpl = document.getElementById('tmpl-export-overlay');
-  const overlay = tmpl.content.cloneNode(true).firstElementChild;
-  const canvas = overlay.querySelector('.export-canvas');
-  canvas.style.display = 'none';
-  const titleEl = overlay.querySelector('h3');
-  titleEl.textContent = 'Exporting HTML';
-  document.body.appendChild(overlay);
-
-  const progressFill = overlay.querySelector('.export-progress-fill');
-  const statusEl = overlay.querySelector('.export-status');
-  const actionsEl = overlay.querySelector('.export-actions');
-
-  const abortCtrl = new AbortController();
-  overlay.querySelector('.export-cancel').addEventListener('click', () => {
-    abortCtrl.abort();
-    overlay.remove();
-  });
-
-  // Collect video paths to embed as data URIs
-  const videoPaths = new Set();
-  raceVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) videoPaths.add(p); });
-  if (fullVideoPaths) fullVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) videoPaths.add(p); });
-  if (mergedVideo) {
-    const mp = mergedVideo.getAttribute('src');
-    if (mp && !mp.startsWith('data:')) videoPaths.add(mp);
-  }
-
-  const total = videoPaths.size;
+  const videoPaths = collectEmbeddableVideoPaths();
   const failedFiles = [];
-  let fetched = 0;
-
   const pathOverrides = {};
-  for (const vPath of videoPaths) {
-    if (abortCtrl.signal.aborted) return;
-    fetched++;
-    statusEl.textContent = 'Embedding ' + vPath + ' (' + fetched + '/' + total + ')';
-    progressFill.style.width = (fetched / total * 90).toFixed(0) + '%';
-    try {
-      const resp = await fetch(vPath, { signal: abortCtrl.signal });
-      if (resp.ok) {
-        pathOverrides[vPath] = await blobToDataUri(await resp.blob());
-      } else {
-        failedFiles.push(vPath);
-      }
-    } catch (e) {
-      if (e.name === 'AbortError') return;
-      failedFiles.push(vPath);
-    }
-  }
+  const afterVideos = await embedVideos(videoPaths, { pathOverrides, failedFiles, ui, total: videoPaths.size, maxProgress: 90, fetched: 0 });
+  if (afterVideos === null) return;
 
-  if (abortCtrl.signal.aborted) return;
-
-  statusEl.textContent = 'Building HTML...';
-  progressFill.style.width = '95%';
-  const html = buildExportHtml(pathOverrides, { slim: true });
-  const blob = new Blob([html], { type: 'text/html' });
-  const url = URL.createObjectURL(blob);
-
-  let statusMsg = 'Export complete! (' + (blob.size / (1024 * 1024)).toFixed(1) + ' MB)';
-  if (failedFiles.length > 0) {
-    statusMsg += '\nSkipped ' + failedFiles.length + ' file(s): ' + failedFiles.join(', ');
-  }
-  statusEl.textContent = statusMsg;
-  progressFill.style.width = '100%';
-
-  const dlLink = document.createElement('a');
-  dlLink.href = url;
-  const baseName = document.title.replace(/[^a-zA-Z0-9-]/g, '_').replace(/_+/g, '_').toLowerCase();
-  dlLink.download = (baseName || 'race-export') + '.html';
-  dlLink.textContent = 'Download HTML';
-  const closeBtn = document.createElement('button');
-  closeBtn.textContent = 'Close';
-  closeBtn.addEventListener('click', () => { URL.revokeObjectURL(url); overlay.remove(); });
-  actionsEl.replaceChildren(dlLink, closeBtn);
+  ui.statusEl.textContent = 'Building HTML...';
+  ui.progressFill.style.width = '95%';
+  const blob = new Blob([buildExportHtml(pathOverrides, { slim: true })], { type: 'text/html' });
+  offerDownload(ui, blob, exportBaseName() + '.html', 'Download HTML', failedFiles);
 }
 
 const exportHtmlOnlyBtn = document.getElementById('exportHtmlOnlyBtn');

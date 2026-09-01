@@ -5,38 +5,66 @@
  * the racer visibility filter (3+ racers).
  */
 
-function buildSegmentNav() {
-  if (segmentNavBuilt || !clipTimes) return;
-  if (!segmentNav) return;
-  if (!clipTimes.every(ct => !ct || ct._wcStart != null)) return;
+// Distinct measurement names across all clips, in first-seen order.
+function collectSegmentNames() {
   const seen = new Set();
   const names = [];
   for (const ct of clipTimes) {
-    if (!ct || !ct.measurements) continue;
+    if (!ct?.measurements) continue;
     for (const m of ct.measurements) {
       if (m.name && !seen.has(m.name)) { seen.add(m.name); names.push(m.name); }
     }
   }
-  if (names.length < 1) return;
-  segmentNavBuilt = true;
-  segmentNav.innerHTML = '';
+  return names;
+}
 
-  // Switch to race-clip videos if we were in whole-recording (full) mode
-  function ensureRaceMode(callback) {
-    if (fullVideoPaths && loadedSrcSet === 'full') {
-      if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
-      detachVideoListeners();
-      raceVideos.forEach((v, i) => { v.src = resolvedRacePaths[i]; });
-      loadedSrcSet = 'race';
-      videos = raceVideos;
-      primary = videos[0];
-      attachVideoListeners();
-      duration = 0;
-      pendingSeek = callback;
-    } else {
-      callback();
-    }
+// Switch back to race-clip videos if currently in whole-recording (full) mode.
+function ensureRaceMode(callback) {
+  if (fullVideoPaths && loadedSrcSet === 'full') {
+    loadVideoSet('race', () => { raceVideos.forEach((v, i) => { v.src = resolvedRacePaths[i]; }); }, callback);
+  } else {
+    callback();
   }
+}
+
+// Seek to the start of the active race clip after (re)entering race mode.
+function seekToActiveClipStart() {
+  recalcActiveClip();
+  seekAll(activeClip ? activeClip.start : 0);
+  scrubber.value = 0;
+  updateTimeDisplay();
+}
+
+function selectFullRecording() {
+  setActiveSegment('__full__', null);
+  const doSeek = seekToWholeRecordingStart;
+  if (fullVideoPaths && loadedSrcSet !== 'full') {
+    loadVideoSet('full', () => { raceVideos.forEach((v, i) => { v.src = resolvedFullPaths[i]; }); }, doSeek);
+  } else {
+    doSeek();
+  }
+}
+
+function onSegmentChange(val) {
+  if (val === '__full__') {
+    selectFullRecording();
+  } else if (val === '__all__') {
+    setActiveSegment(null, null);
+    ensureRaceMode(seekToActiveClipStart);
+  } else {
+    setActiveSegment(val, getSegmentClipTimes(val));
+    ensureRaceMode(seekToActiveClipStart);
+  }
+}
+
+function buildSegmentNav() {
+  if (segmentNavBuilt || !clipTimes) return;
+  if (!segmentNav) return;
+  if (!clipTimes.every(ct => !ct || ct._wcStart != null)) return;
+  const names = collectSegmentNames();
+  if (names.length < 1) return;
+  markSegmentNavBuilt();
+  segmentNav.innerHTML = '';
 
   // Build dropdown options
   const fullOpt = document.createElement('option');
@@ -59,45 +87,7 @@ function buildSegmentNav() {
     }
   }
 
-  segmentNav.addEventListener('change', () => {
-    const val = segmentNav.value;
-    if (val === '__full__') {
-      activeSegmentName = '__full__';
-      activeSegmentClipTimes = null;
-      const doSeek = () => { activeClip = null; seekAll(0); scrubber.value = 0; updateTimeDisplay(); };
-      if (fullVideoPaths && loadedSrcSet !== 'full') {
-        if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
-        detachVideoListeners();
-        raceVideos.forEach((v, i) => { v.src = resolvedFullPaths[i]; });
-        loadedSrcSet = 'full';
-        videos = raceVideos;
-        primary = videos[0];
-        attachVideoListeners();
-        duration = 0;
-        pendingSeek = doSeek;
-      } else {
-        doSeek();
-      }
-    } else if (val === '__all__') {
-      activeSegmentName = null;
-      activeSegmentClipTimes = null;
-      ensureRaceMode(() => {
-        activeClip = resolveAdjustedClip();
-        seekAll(activeClip ? activeClip.start : 0);
-        scrubber.value = 0;
-        updateTimeDisplay();
-      });
-    } else {
-      activeSegmentName = val;
-      activeSegmentClipTimes = getSegmentClipTimes(val);
-      ensureRaceMode(() => {
-        activeClip = resolveAdjustedClip();
-        seekAll(activeClip ? activeClip.start : 0);
-        scrubber.value = 0;
-        updateTimeDisplay();
-      });
-    }
-  });
+  segmentNav.addEventListener('change', () => onSegmentChange(segmentNav.value));
 
   segmentNav.style.display = 'inline-block';
   if (modeDebug) modeDebug.style.display = '';
@@ -119,7 +109,7 @@ function buildRacerFilter() {
   filterEl.addEventListener('click', (e) => {
     const btn = e.target.closest('.racer-filter-btn');
     if (!btn) return;
-    const idx = parseInt(btn.dataset.idx, 10);
+    const idx = Number.parseInt(btn.dataset.idx, 10);
     const isHidden = hiddenRacers.has(idx);
     const visibleCount = raceVideos.length - hiddenRacers.size;
     if (!isHidden && visibleCount <= 2) return;
@@ -132,7 +122,7 @@ function buildRacerFilter() {
       btn.classList.remove('active');
       if (racerDivs[idx]) racerDivs[idx].style.display = 'none';
     }
-    activeClip = resolveAdjustedClip();
+    recalcActiveClip();
     seekAll(activeClip ? activeClip.start : 0);
     scrubber.value = 0;
     updateTimeDisplay();
