@@ -112,7 +112,8 @@ describeMaybe('clip-alignment integration', () => {
     // We can test the logic by evaluating equivalent code with the embedded clipTimes.
     const result = await page.evaluate(() => {
       // Re-implement resolveClip with the page's clipTimes
-      const clipTimes = JSON.parse(document.querySelector('script').textContent.match(/const clipTimes = (\[.*?\]);/)?.[1] || 'null');
+      const cfgEl = document.getElementById('race-config');
+      const clipTimes = cfgEl ? JSON.parse(cfgEl.textContent).clipTimes : null;
       if (!clipTimes) return null;
 
       let minStart = Infinity, maxDuration = 0;
@@ -140,7 +141,8 @@ describeMaybe('clip-alignment integration', () => {
 
     // Test the seekAll alignment logic directly
     const result = await page.evaluate(() => {
-      const clipTimes = JSON.parse(document.querySelector('script').textContent.match(/const clipTimes = (\[.*?\]);/)?.[1] || 'null');
+      const cfgEl = document.getElementById('race-config');
+      const clipTimes = cfgEl ? JSON.parse(cfgEl.textContent).clipTimes : null;
       if (!clipTimes) return null;
 
       let minStart = Infinity, maxDuration = 0;
@@ -186,7 +188,8 @@ describeMaybe('clip-alignment integration', () => {
 
     // Demonstrate that the old approach (clamping to own range without elapsed mapping) is wrong
     const result = await page.evaluate(() => {
-      const clipTimes = JSON.parse(document.querySelector('script').textContent.match(/const clipTimes = (\[.*?\]);/)?.[1] || 'null');
+      const cfgEl = document.getElementById('race-config');
+      const clipTimes = cfgEl ? JSON.parse(cfgEl.textContent).clipTimes : null;
       if (!clipTimes) return null;
 
       const minStart = Math.min(...clipTimes.map(ct => ct.start));
@@ -227,7 +230,8 @@ describeMaybe('clip-alignment integration', () => {
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
     const result = await page.evaluate(() => {
-      const clipTimes = JSON.parse(document.querySelector('script').textContent.match(/const clipTimes = (\[.*?\]);/)?.[1] || 'null');
+      const cfgEl = document.getElementById('race-config');
+      const clipTimes = cfgEl ? JSON.parse(cfgEl.textContent).clipTimes : null;
       if (!clipTimes) return null;
 
       let minStart = Infinity, maxDuration = 0;

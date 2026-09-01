@@ -120,9 +120,9 @@ describeWithFfprobe('late-start calibration integration', () => {
     if (setupError) skip(setupError.message);
 
     const html = fs.readFileSync(path.join(resultsDir, 'index.html'), 'utf-8');
-    const ctMatch = html.match(/const clipTimes = (\[.*?\]);/);
-    expect(ctMatch).not.toBeNull();
-    const clipTimes = JSON.parse(ctMatch[1]);
+    const cfgMatch = html.match(/<script id="race-config" type="application\/json">([\s\S]*?)<\/script>/);
+    expect(cfgMatch).not.toBeNull();
+    const clipTimes = JSON.parse(cfgMatch[1]).clipTimes;
 
     for (let i = 0; i < RACERS.length; i++) {
       const ct = clipTimes[i];
@@ -145,9 +145,9 @@ describeWithFfprobe('late-start calibration integration', () => {
     if (setupError) skip(setupError.message);
 
     const html = fs.readFileSync(path.join(resultsDir, 'index.html'), 'utf-8');
-    const ctMatch = html.match(/const clipTimes = (\[.*?\]);/);
-    expect(ctMatch).not.toBeNull();
-    const clipTimes = JSON.parse(ctMatch[1]);
+    const cfgMatch = html.match(/<script id="race-config" type="application\/json">([\s\S]*?)<\/script>/);
+    expect(cfgMatch).not.toBeNull();
+    const clipTimes = JSON.parse(cfgMatch[1]).clipTimes;
 
     for (let i = 0; i < RACERS.length; i++) {
       const ct = clipTimes[i];

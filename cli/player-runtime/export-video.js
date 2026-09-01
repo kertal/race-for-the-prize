@@ -72,12 +72,12 @@ function loadFFmpeg() {
   if (location.protocol === 'file:') {
     return Promise.reject(new Error('Conversion requires HTTP(S) — serve this file via a local server (e.g. npx serve)'));
   }
-  return import('{{ffmpegDir}}index.js')
+  return import(ffmpegDir + 'index.js')
     .then(mod => {
       const ff = new mod.FFmpeg();
       return Promise.all([
-        toBlobURL('{{ffmpegDir}}ffmpeg-core.js', 'text/javascript'),
-        toBlobURL('{{ffmpegDir}}ffmpeg-core.wasm', 'application/wasm'),
+        toBlobURL(ffmpegDir + 'ffmpeg-core.js', 'text/javascript'),
+        toBlobURL(ffmpegDir + 'ffmpeg-core.wasm', 'application/wasm'),
       ]).then(urls => {
         const revoke = () => urls.forEach(u => URL.revokeObjectURL(u));
         return ff.load({ coreURL: urls[0], wasmURL: urls[1] }).then(revoke, err => { revoke(); throw err; });

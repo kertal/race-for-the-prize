@@ -6,6 +6,43 @@
  * bundling non-video assets.
  */
 
+// Rewrite the cloned #race-config JSON block with calibrated clip times and
+// (when embedding) data-URI video paths. Escaping must match videoplayer.js
+// serializeRaceConfig (the canonical form) so exports stay </script>-safe.
+function bakeRaceConfig(doc, pathOverrides, hasOverrides) {
+  const configScript = doc.querySelector('#race-config');
+  if (!configScript) return;
+  let cfg = null;
+  try { cfg = JSON.parse(configScript.textContent); } catch { cfg = null; }
+  if (!cfg) return;
+
+  const adj = getAdjustedClipTimes();
+  if (adj && clipTimes) {
+    cfg.clipTimes = adj.map((ct, i) => {
+      if (!ct) return null;
+      const orig = clipTimes[i] || {};
+      return {
+        start: ct.start,
+        end: ct.end,
+        _converted: true,
+        calibratedStart: ct.start,
+        calibratedEnd: ct.end,
+        _wcStart: orig._wcStart != null ? orig._wcStart : ct.start,
+        _wcEnd: orig._wcEnd != null ? orig._wcEnd : ct.end,
+        wallClockDuration: orig.wallClockDuration || 0,
+        recordingOffset: orig.recordingOffset || 0,
+        measurements: orig.measurements || [],
+      };
+    });
+  }
+  if (hasOverrides) {
+    const mapPath = p => (p && pathOverrides[p]) ? pathOverrides[p] : p;
+    if (Array.isArray(cfg.raceVideoPaths)) cfg.raceVideoPaths = cfg.raceVideoPaths.map(mapPath);
+    if (Array.isArray(cfg.fullVideoPaths)) cfg.fullVideoPaths = cfg.fullVideoPaths.map(mapPath);
+  }
+  configScript.textContent = JSON.stringify(cfg).replaceAll('<', '\\u003c');
+}
+
 function buildExportHtml(pathOverrides = {}, { slim = false } = {}) {
   const doc = document.documentElement.cloneNode(true);
 
@@ -92,41 +129,10 @@ function buildExportHtml(pathOverrides = {}, { slim = false } = {}) {
     }
   }
 
-  // Bake adjusted clip times into the script; also apply path overrides for video embedding
-  const scripts = doc.querySelectorAll('script');
-  for (const script of scripts) {
-    let text = script.textContent;
-    if (!text.includes('const clipTimes =')) continue;
-    const adj = getAdjustedClipTimes();
-    if (adj && clipTimes) {
-      const baked = adj.map((ct, i) => {
-        if (!ct) return null;
-        const orig = clipTimes[i] || {};
-        return {
-          start: ct.start,
-          end: ct.end,
-          _converted: true,
-          calibratedStart: ct.start,
-          calibratedEnd: ct.end,
-          _wcStart: orig._wcStart != null ? orig._wcStart : ct.start,
-          _wcEnd: orig._wcEnd != null ? orig._wcEnd : ct.end,
-          wallClockDuration: orig.wallClockDuration || 0,
-          recordingOffset: orig.recordingOffset || 0,
-          measurements: orig.measurements || [],
-        };
-      });
-      text = text.replace(
-        /const clipTimes = [\s\S]+?;\n/,
-        'const clipTimes = ' + JSON.stringify(baked) + ';\n'
-      );
-    }
-    if (hasOverrides) {
-      for (const [oldPath, dataUri] of Object.entries(pathOverrides)) {
-        text = text.replaceAll(JSON.stringify(oldPath), JSON.stringify(dataUri));
-      }
-    }
-    script.textContent = text;
-  }
+  // Bake adjusted clip times and video path overrides into the #race-config
+  // JSON block so the exported page loads with calibrated clips and (when
+  // embedding) data-URI sources that resolveEmbeddedVideos upgrades to Blob URLs.
+  bakeRaceConfig(doc, pathOverrides, hasOverrides);
 
   return '<!DOCTYPE html>\n' + doc.outerHTML;
 }

@@ -1,23 +1,24 @@
 /* eslint-env browser */
 /**
- * config.js — Build-time config injection and DOM bootstrap.
+ * config.js — Config load and DOM bootstrap.
  *
  * Part of the browser-side player runtime. The files in this directory are
- * concatenated (in dependency order, by videoplayer.js) into a single IIFE
- * and injected into the generated HTML via {{placeholder}} replacement.
- * They run in the browser, NOT in Node.js. The {{…}} tokens are replaced
- * with JSON-serialized config before the HTML is written to disk.
+ * concatenated (in dependency order, by videoplayer.js) into a single IIFE.
+ * They run in the browser, NOT in Node.js. Config is read at runtime from the
+ * <script id="race-config" type="application/json"> block embedded in the HTML.
  */
 
 
-// --- Config injected at build time ---
-{{videoVars}}
-const raceVideos = {{videoArray}};
-const raceVideoPaths = {{raceVideoPaths}};
-const fullVideoPaths = {{fullVideoPaths}};
-const clipTimes = {{clipTimesJson}};
-const racerNames = {{racerNamesJson}};
-const racerColors = {{racerColorsJson}};
+// --- Config read from the embedded #race-config JSON block ---
+const _raceConfigEl = document.getElementById('race-config');
+const raceConfig = JSON.parse(_raceConfigEl?.textContent || '{}');
+const raceVideoPaths = raceConfig.raceVideoPaths;
+const fullVideoPaths = raceConfig.fullVideoPaths;
+const clipTimes = raceConfig.clipTimes;
+const racerNames = raceConfig.racerNames;
+const racerColors = raceConfig.racerColors;
+const ffmpegDir = raceConfig.ffmpegDir;
+const raceVideos = Array.from({ length: raceConfig.videoCount }, (_, i) => document.getElementById('v' + i));
 const mergedVideo = document.getElementById('mergedVideo');
 const playerContainer = document.getElementById('playerContainer');
 const mergedContainer = document.getElementById('mergedContainer');

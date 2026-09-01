@@ -81,10 +81,14 @@ function buildStyles(layoutCss) {
   return '<style>\n' + CSS + '  ' + layoutCss + '\n</style>';
 }
 
-function buildPlayerScript(config) {
-  return '<script>\n(function() {\n' +
-    render(RUNTIME, config) +
-    '\n})();\n</script>';
+function buildPlayerScript() {
+  return '<script>\n(function() {\n' + RUNTIME + '\n})();\n</script>';
+}
+
+// Serialize race config for embedding in a <script type="application/json"> block.
+// Escapes '<' so a value can't break out of the </script> context.
+function serializeRaceConfig(config) {
+  return JSON.stringify(config).replaceAll('<', '\\u003c');
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +121,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
 
   let playerSection = '';
   let scriptTag = '';
+  let raceConfigJson = '';
   let debugPanelOut = '';
 
   if (hasVideos) {
@@ -152,18 +157,14 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     const orderedRacerNames = placementOrder.map(i => racers[i]);
     const orderedRacerColors = placementOrder.map(i => RACER_CSS_COLORS[i % RACER_CSS_COLORS.length]);
 
-    scriptTag = buildPlayerScript({
-      videoVars: videoIds.map(id => `const ${id} = document.getElementById('${id}');`).join('\n  '),
-      videoArray: `[${videoIds.join(', ')}]`,
-      raceVideoPaths: JSON.stringify(orderedVideoFiles),
-      fullVideoPaths: orderedFullVideoFiles
-        ? JSON.stringify(orderedFullVideoFiles)
-        : 'null',
-      clipTimesJson: orderedClipTimes
-        ? JSON.stringify(orderedClipTimes)
-        : 'null',
-      racerNamesJson: JSON.stringify(orderedRacerNames),
-      racerColorsJson: JSON.stringify(orderedRacerColors),
+    scriptTag = buildPlayerScript();
+    raceConfigJson = serializeRaceConfig({
+      videoCount: videoIds.length,
+      raceVideoPaths: orderedVideoFiles,
+      fullVideoPaths: orderedFullVideoFiles || null,
+      clipTimes: orderedClipTimes || null,
+      racerNames: orderedRacerNames,
+      racerColors: orderedRacerColors,
       ffmpegDir,
     });
   }
@@ -206,5 +207,6 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
       : '',
     notesOpen: summary.geminiCommentary ? 'open' : '',
     scriptTag,
+    raceConfigJson,
   });
 }

@@ -78,14 +78,20 @@ function updateDebugStats() {
     events.push({ label: 'recordingStartTime (t=0)', wc: 0, ptsVal: toPts(0) });
     events.push({ label: 'raceRecordingStart()', wc: wcStart, ptsVal: ct.start });
     const measurements = ct.measurements || [];
-    for (let m = 0; m < measurements.length; m++) {
-      const meas = measurements[m];
-      const startPts = Number.isFinite(meas.startTraceTs)
-        ? traceTsToClipPts(ct, meas.startTraceTs)
-        : (meas.startTime != null ? toPts(meas.startTime) : null);
-      const endPts = Number.isFinite(meas.endTraceTs)
-        ? traceTsToClipPts(ct, meas.endTraceTs)
-        : (meas.endTime != null ? toPts(meas.endTime) : null);
+    for (const element of measurements) {
+      const meas = element;
+      let startPts;
+      if (Number.isFinite(meas.startTraceTs)) {
+        startPts = traceTsToClipPts(ct, meas.startTraceTs);
+      } else {
+        startPts = meas.startTime != null ? toPts(meas.startTime) : null;
+      }
+      let endPts;
+      if (Number.isFinite(meas.endTraceTs)) {
+        endPts = traceTsToClipPts(ct, meas.endTraceTs);
+      } else {
+        endPts = meas.endTime != null ? toPts(meas.endTime) : null;
+      }
       if (meas.startTime != null || Number.isFinite(meas.startTraceTs)) {
         events.push({ label: 'raceStart("' + (meas.name || '') + '")', wc: meas.startTime, ptsVal: startPts });
       }
