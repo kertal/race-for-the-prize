@@ -170,82 +170,50 @@ describe('extractUrls', () => {
 // ---------------------------------------------------------------------------
 
 describe('isPrivateUrl', () => {
-  it('identifies localhost as private', () => {
-    expect(isPrivateUrl('https://localhost/admin')).toBe(true);
+  const blocked = [
+    ['localhost', 'https://localhost/admin'],
+    ['127.x loopback', 'https://127.0.0.1:8080/'],
+    ['127.x loopback (other octets)', 'https://127.1.2.3/'],
+    ['10.x private', 'https://10.0.0.1/'],
+    ['10.x private (broadcast)', 'https://10.255.255.255/'],
+    ['192.168.x private', 'https://192.168.1.1/'],
+    ['172.16 private', 'https://172.16.0.1/'],
+    ['172.31 private', 'https://172.31.255.255/'],
+    ['IPv6 loopback', 'https://[::1]/'],
+    ['unparseable URL (fail closed)', 'not-a-url'],
+    ['cloud metadata link-local', 'http://169.254.169.254/latest/meta-data/'],
+    ['link-local (other)', 'http://169.254.0.1/'],
+    ['decimal-encoded loopback', 'http://2130706433/'],
+    ['hex-encoded loopback', 'http://0x7f000001/'],
+    ['octal first octet', 'http://0177.0.0.1/'],
+    ['short-form loopback', 'http://127.1/'],
+    ['octal-encoded loopback', 'http://017700000001/'],
+    ['CGNAT 100.64/10', 'http://100.64.0.1/'],
+    ['benchmarking 198.18/15', 'http://198.18.0.1/'],
+    ['trailing-dot localhost', 'http://localhost./'],
+    ['trailing-dot loopback', 'http://127.0.0.1./'],
+    ['trailing-dot metadata', 'http://169.254.169.254./'],
+    ['IPv6 ULA', 'http://[fd00::1]/'],
+    ['IPv6 link-local', 'http://[fe80::1]/'],
+    ['IPv6 unspecified', 'http://[::]/'],
+    ['IPv4-mapped loopback', 'http://[::ffff:127.0.0.1]/'],
+  ];
+  const allowed = [
+    ['public hostname', 'https://google.com/'],
+    ['public IP 8.8.8.8', 'https://8.8.8.8/'],
+    ['public IP 1.1.1.1', 'https://1.1.1.1/'],
+    ['172.15 (below private range)', 'https://172.15.0.1/'],
+    ['172.32 (above private range)', 'https://172.32.0.1/'],
+    ['genuine public IP', 'https://93.184.216.34/'],
+    ['public IPv6', 'https://[2606:2800:220:1:248:1893:25c8:1946]/'],
+  ];
+
+  it.each(blocked)('blocks %s', (_desc, url) => {
+    expect(isPrivateUrl(url)).toBe(true);
   });
 
-  it('identifies 127.x.x.x loopback as private', () => {
-    expect(isPrivateUrl('https://127.0.0.1:8080/')).toBe(true);
-    expect(isPrivateUrl('https://127.1.2.3/')).toBe(true);
-  });
-
-  it('identifies 10.x.x.x as private', () => {
-    expect(isPrivateUrl('https://10.0.0.1/')).toBe(true);
-    expect(isPrivateUrl('https://10.255.255.255/')).toBe(true);
-  });
-
-  it('identifies 192.168.x.x as private', () => {
-    expect(isPrivateUrl('https://192.168.1.1/')).toBe(true);
-  });
-
-  it('identifies 172.16-31.x.x as private', () => {
-    expect(isPrivateUrl('https://172.16.0.1/')).toBe(true);
-    expect(isPrivateUrl('https://172.31.255.255/')).toBe(true);
-  });
-
-  it('does not flag 172.15 or 172.32 as private', () => {
-    expect(isPrivateUrl('https://172.15.0.1/')).toBe(false);
-    expect(isPrivateUrl('https://172.32.0.1/')).toBe(false);
-  });
-
-  it('identifies IPv6 loopback as private', () => {
-    expect(isPrivateUrl('https://[::1]/')).toBe(true);
-  });
-
-  it('treats unparseable URLs as private', () => {
-    expect(isPrivateUrl('not-a-url')).toBe(true);
-  });
-
-  it('allows public IPs', () => {
-    expect(isPrivateUrl('https://google.com/')).toBe(false);
-    expect(isPrivateUrl('https://8.8.8.8/')).toBe(false);
-    expect(isPrivateUrl('https://1.1.1.1/')).toBe(false);
-  });
-
-  it('blocks cloud metadata link-local 169.254.169.254', () => {
-    expect(isPrivateUrl('http://169.254.169.254/latest/meta-data/')).toBe(true);
-    expect(isPrivateUrl('http://169.254.0.1/')).toBe(true);
-  });
-
-  it('blocks integer/hex/octal/short-form encodings of loopback', () => {
-    expect(isPrivateUrl('http://2130706433/')).toBe(true);       // decimal 127.0.0.1
-    expect(isPrivateUrl('http://0x7f000001/')).toBe(true);       // hex 127.0.0.1
-    expect(isPrivateUrl('http://0177.0.0.1/')).toBe(true);       // octal first octet
-    expect(isPrivateUrl('http://127.1/')).toBe(true);            // short form
-    expect(isPrivateUrl('http://017700000001/')).toBe(true);     // octal 127.0.0.1
-  });
-
-  it('blocks CGNAT and other reserved ranges', () => {
-    expect(isPrivateUrl('http://100.64.0.1/')).toBe(true);       // 100.64.0.0/10
-    expect(isPrivateUrl('http://198.18.0.1/')).toBe(true);       // benchmarking
-  });
-
-  it('blocks trailing-dot (rooted FQDN) loopback bypasses', () => {
-    expect(isPrivateUrl('http://localhost./')).toBe(true);
-    expect(isPrivateUrl('http://127.0.0.1./')).toBe(true);
-    expect(isPrivateUrl('http://169.254.169.254./')).toBe(true);
-  });
-
-  it('blocks IPv6 ULA and link-local ranges', () => {
-    expect(isPrivateUrl('http://[fd00::1]/')).toBe(true);        // ULA
-    expect(isPrivateUrl('http://[fe80::1]/')).toBe(true);        // link-local
-    expect(isPrivateUrl('http://[::]/')).toBe(true);             // unspecified
-    expect(isPrivateUrl('http://[::ffff:127.0.0.1]/')).toBe(true); // IPv4-mapped loopback
-  });
-
-  it('still allows a genuine public integer-free IP and hostname', () => {
-    expect(isPrivateUrl('https://93.184.216.34/')).toBe(false);
-    expect(isPrivateUrl('https://[2606:2800:220:1:248:1893:25c8:1946]/')).toBe(false);
+  it.each(allowed)('allows %s', (_desc, url) => {
+    expect(isPrivateUrl(url)).toBe(false);
   });
 });
 
