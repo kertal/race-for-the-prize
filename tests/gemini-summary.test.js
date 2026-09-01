@@ -197,6 +197,14 @@ describe('isPrivateUrl', () => {
     ['IPv6 link-local', 'http://[fe80::1]/'],
     ['IPv6 unspecified', 'http://[::]/'],
     ['IPv4-mapped loopback', 'http://[::ffff:127.0.0.1]/'],
+    // Fully-expanded / zero-padded IPv6 forms: the WHATWG URL parser normalizes
+    // these to their compressed form before the checks run, so they must not
+    // slip through as "public". Regression guard for the compressed-only checks.
+    ['expanded IPv6 loopback', 'http://[0:0:0:0:0:0:0:1]/'],
+    ['expanded IPv6 unspecified', 'http://[0:0:0:0:0:0:0:0]/'],
+    ['zero-padded expanded loopback', 'http://[0000:0000:0000:0000:0000:0000:0000:0001]/'],
+    ['expanded IPv6 ULA', 'http://[fd00:0:0:0:0:0:0:1]/'],
+    ['expanded IPv6 link-local', 'http://[fe80:0:0:0:0:0:0:1]/'],
   ];
   const allowed = [
     ['public hostname', 'https://google.com/'],
