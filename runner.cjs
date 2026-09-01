@@ -116,7 +116,7 @@ function extractSegments(videoPath, segments, browserId) {
     // single quotes, so a literal ' in a derived path must be written as '\''
     // (close, escaped quote, reopen) or the input line is silently mangled.
     const concatEntry = (f) => `file '${f.replace(/'/g, "'\\''")}'`;
-    fs.writeFileSync(concatListPath, segmentFiles.map(concatEntry).join('\n'));
+    fs.writeFileSync(concatListPath, segmentFiles.map(concatEntry).join('\n')); // NOSONAR — concatListPath is an internal temp path (recording dir + fixed name), not user input
     const outputPath = path.join(dir, `${base}_final${ext}`);
     execFileSync('ffmpeg', [
       '-y', '-f', 'concat', '-safe', '0',

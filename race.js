@@ -336,9 +336,8 @@ export function spawnRunner(ctx) {
   const runnerPath = path.join(rootDir, 'runner.cjs');
 
   return new Promise((resolve, reject) => {
-    // NOSONAR — spawns runner.cjs subprocess with race config; this is the core
-    // execution mechanism equivalent to running `node runner.cjs --config-file <path>`
-    const child = spawn('node', [runnerPath, '--config-file', tmpConfigPath], {
+    // Launch the runner subprocess: `node runner.cjs --config-file <path>`.
+    const child = spawn('node', [runnerPath, '--config-file', tmpConfigPath], { // NOSONAR — node resolved via PATH is intentional; args are an array (no shell)
       cwd: rootDir,
       stdio: ['ignore', 'pipe', 'pipe'],
     });

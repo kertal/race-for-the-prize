@@ -138,7 +138,7 @@ export function copyFFmpegFiles(destDir) {
 /** True if an `ffmpeg` binary is callable on PATH. */
 function ffmpegAvailable() {
   try {
-    execFileSync('ffmpeg', ['-version'], { stdio: 'pipe' });
+    execFileSync('ffmpeg', ['-version'], { stdio: 'pipe' }); // NOSONAR — ffmpeg resolved via PATH is intentional (optional user-installed system dep); args are an array (no shell)
     return true;
   } catch {
     return false;
