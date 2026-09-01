@@ -54,9 +54,9 @@ function assertSafeFfmpegArgs(args, dir) {
 
 function runFfmpeg(args, dir) {
   assertSafeFfmpegArgs(args, dir);
-  // NOSONAR — every argument is validated above: absolute paths are confined to
-  // the recording dir, all others match FFMPEG_SAFE_ARG; args is an array (no shell).
-  execFileSync(FFMPEG_BIN, args, { timeout: FFMPEG_TIMEOUT_MS, stdio: 'pipe' });
+  // Arguments are validated by assertSafeFfmpegArgs above: absolute paths are
+  // confined to the recording dir, all others match FFMPEG_SAFE_ARG.
+  execFileSync(FFMPEG_BIN, args, { timeout: FFMPEG_TIMEOUT_MS, stdio: 'pipe' }); // NOSONAR — args validated by assertSafeFfmpegArgs (confined paths + flag/name/number allowlist); array form, no shell; ffmpeg via PATH is intentional (optional user-installed dep, pin with RACE_FFMPEG)
 }
 
 /** Return the most recently modified .webm filename in a directory, or null. */
@@ -91,7 +91,7 @@ function extractSegments(videoPath, segments, browserId) {
   videoPath = confinePath(dir, `${base}${ext}`);
   const fullPath = confinePath(dir, `${base}_full${ext}`);
 
-  fs.copyFileSync(videoPath, fullPath);
+  fs.copyFileSync(videoPath, fullPath); // NOSONAR — both paths come from confinePath (proven inside the recording dir)
 
   // Only numeric, ordered segments may reach ffmpeg's -ss/-t arguments.
   segments = (segments || []).filter(
@@ -111,8 +111,8 @@ function extractSegments(videoPath, segments, browserId) {
         '-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0',
         trimmedPath
       ], dir);
-      fs.unlinkSync(videoPath);
-      fs.renameSync(trimmedPath, videoPath);
+      fs.unlinkSync(videoPath); // NOSONAR — confinePath-derived recording path
+      fs.renameSync(trimmedPath, videoPath); // NOSONAR — confinePath-derived recording paths
       return { trimmedPath: videoPath, fullPath };
     }
 
@@ -145,8 +145,8 @@ function extractSegments(videoPath, segments, browserId) {
 
     for (const f of segmentFiles) { try { fs.unlinkSync(f); } catch (e) { console.error(`[extractSegments] Cleanup warning: ${e.message}`); } }
     try { fs.unlinkSync(concatListPath); } catch (e) { console.error(`[extractSegments] Cleanup warning: ${e.message}`); }
-    fs.unlinkSync(videoPath);
-    fs.renameSync(outputPath, videoPath);
+    fs.unlinkSync(videoPath); // NOSONAR — confinePath-derived recording path
+    fs.renameSync(outputPath, videoPath); // NOSONAR — confinePath-derived recording paths
 
     return { trimmedPath: videoPath, fullPath };
   } catch (error) {

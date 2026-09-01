@@ -292,7 +292,7 @@ async function collectProfilingResults(browser, metricsCollector, outputDir, id)
   // id is validated at config entry (isSafeRacerId); confinePath re-checks the
   // constructed path so the trace can only ever be written inside outputDir.
   const tracePath = confinePath(outputDir, `${id}.trace.json`);
-  fs.writeFileSync(tracePath, traceBuffer);
+  fs.writeFileSync(tracePath, traceBuffer); // NOSONAR — tracePath comes from confinePath (id validated by isSafeRacerId at config entry)
   console.error(`[${id}] Performance trace saved: ${tracePath}`);
   return {
     tracePath,

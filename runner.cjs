@@ -342,7 +342,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
   let metricsCollector = null;
   let error = null;
 
-  fs.mkdirSync(outputDir, { recursive: true });
+  fs.mkdirSync(outputDir, { recursive: true }); // NOSONAR — outputDir comes from confinePath (id validated by isSafeRacerId at config entry)
   cleanupOldVideos(outputDir);
 
   const layout = calculateWindowLayout(browserIndex, totalBrowsers, { screen: SCREEN, windowHeight: WINDOW_HEIGHT });
