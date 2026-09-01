@@ -37,8 +37,11 @@ export function sortByValue(racers, getValue) {
   return racers
     .map((name, i) => ({ name, index: i, ...getValue(i) }))
     .sort((a, b) => {
-      if (a.val === null) return 1;
-      if (b.val === null) return -1;
+      const aNull = a.val === null;
+      const bNull = b.val === null;
+      if (aNull && bNull) return 0;
+      if (aNull) return 1;
+      if (bNull) return -1;
       return a.val - b.val;
     });
 }
