@@ -86,7 +86,9 @@ class SyncBarrier {
         if (this.sharedState?.hasError || this.released) {
           clearInterval(check);
           this.checkIntervals = this.checkIntervals.filter(i => i !== check);
-          settle({ aborted: true });
+          // Report timedOut here too: if this barrier's own timeout caused the
+          // abort, the polling path must not strip the flag from the result.
+          settle(this.timedOut ? { aborted: true, timedOut: true } : { aborted: true });
         }
       }, POLL_INTERVAL_MS);
       this.checkIntervals.push(check);

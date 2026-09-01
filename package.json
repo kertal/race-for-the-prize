@@ -11,6 +11,7 @@
     "*.cjs",
     "cli/",
     "races/*/*.spec.js",
+    "races/*/*.html",
     "races/*/settings.json",
     "ReadMe.md",
     "INSTALLATION.md"

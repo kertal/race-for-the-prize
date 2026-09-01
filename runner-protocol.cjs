@@ -69,6 +69,25 @@ function escapeRegExp(text) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/**
+ * A racer id is used as a directory and file name inside the recordings dir
+ * (`<recordingsDir>/<id>/<id>.trace.json`, …), so it must be a plain basename.
+ * The runner rejects a config whose ids fail this check, keeping every path
+ * the runner constructs confined to the recordings directory even when
+ * runner.cjs is invoked directly with a hand-built config.
+ */
+function isSafeRacerId(id) {
+  return (
+    typeof id === 'string' &&
+    id.length > 0 &&
+    id !== '.' &&
+    id !== '..' &&
+    !id.includes('/') &&
+    !id.includes('\\') &&
+    !id.includes('\0')
+  );
+}
+
 /** Build the stderr line for page.raceMessage(text). */
 function formatRaceMessage(id, elapsedSeconds, text) {
   return `[${id}] ${RACE_MESSAGE_MARKER}[${elapsedSeconds}]:${text}`;
@@ -87,6 +106,7 @@ function formatContextClosed(id) {
 module.exports = {
   PROTOCOL_VERSION,
   RESULT_SENTINEL,
+  isSafeRacerId,
   formatRaceMessage,
   createRaceMessageRegex,
   formatContextClosed,

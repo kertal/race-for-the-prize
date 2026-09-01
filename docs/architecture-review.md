@@ -2,6 +2,8 @@
 
 Full-codebase architecture review covering the orchestrator (`race.js`), the Playwright runner subsystem (`runner.cjs` + satellite `.cjs` modules), the `cli/` presentation layer, and the test/packaging shape.
 
+> **Status.** This document describes the codebase **as of the commit it was reviewed at** (`6887065`); the sections below are kept as the point-in-time findings. The follow-up commits on this same branch have since addressed: **P0** (packaging `files` list — including, later, the `races/*/*.html` example fixtures), **P1/P6** (server, race loader, task runner, and the player runtime extracted into tested modules), **P2/P3** (`runner-protocol.cjs` now versioned and owning both stderr line formats), **P4** (`SyncBarrier` timeout), **P5** (shared report model + `cli/paths.js`), **P7** (`race-api.cjs` under real tests), and most of **P8** (temp-dir `try/finally`, gitignored `test-results/`, consolidated docs, media constants out of `colors.js`). Still open: the flag-registry consolidation in `config.js`, per-racer `warnings[]` in the result payload, and hoisting `main()`'s remaining topology/median logic.
+
 ## Overall verdict
 
 The core ideas are sound — a clean parent/child process split, a deliberate stdout result protocol, pure-function CLI modules, and a real integration suite that exercises ffmpeg and Chromium for the things unit tests can't reach. But the codebase has two god-files (`race.js` at 1,618 lines, `runner.cjs` at 1,119) whose most logic-dense code is structurally untestable, an implicit and unversioned wire contract spread across three files, and presentation logic triplicated across terminal/Markdown/HTML output. There is also one ship-blocking packaging bug.
@@ -73,7 +75,7 @@ The same comparison/ranking/median/delta algorithms exist three times: `summary.
 
 **High value (correctness & safety)**
 4. Give `SyncBarrier.wait()` a deadline that sets `sharedState.hasError`, and add an overall child-process deadline in `spawnRunner`. Make barrier reuse cycle-aware (or allocate per cycle).
-5. Make `runner-protocol.cjs` the actual protocol: move the `__raceMessage__` grammar and `Context closed` marker there as shared helpers, add a `PROTOCOL_VERSION` stamped into config and result, and define the config/result shapes once (JSDoc typedef + tiny normalizer) consumed by `buildRaceContext`, `runner.cjs`, `buildClipTimes`, and `results.js`.
+5. Make `runner-protocol.cjs` the actual protocol: move the `__raceMessage__` grammar and `Context closed` marker there as shared helpers, add a `PROTOCOL_VERSION` stamped into config and result, and define the config/result shapes once (JSDoc typedef + tiny normalizer) consumed by `buildRaceContext`, `runner.cjs`, `buildClipTimes`, and `results.js`. On mixed versions: parent and runner ship in the same npm package and are never upgraded independently, so a version mismatch only ever means a broken or partially-cached install — strict rejection with a clear "same install" error *is* the compatibility plan, and adjacent-version negotiation is deliberately out of scope until the runner is ever distributed separately.
 6. Remove `flashCue` from the measurement hot path — put cues behind an explicit flag used only by integration tests (or retire them for trace `ptsSegments` assertions), and fix the stale CLAUDE.md description.
 7. Extract the injected race API from `runner.cjs` into an exported `race-api.cjs` so `tests/race-api.test.js` tests the real thing; drop the duplicate `__startMeasure` injection surface.
 

@@ -21,7 +21,7 @@ const { waitForStability } = require('./visual-stability.cjs');
 const { deriveTraceTiming } = require('./trace-calibration.cjs');
 const { flashCue, OverlayController } = require('./overlay.cjs');
 const { createRaceApi } = require('./race-api.cjs');
-const { RESULT_SENTINEL, PROTOCOL_VERSION, formatRaceMessage, formatContextClosed } = require('./runner-protocol.cjs');
+const { RESULT_SENTINEL, PROTOCOL_VERSION, isSafeRacerId, formatRaceMessage, formatContextClosed } = require('./runner-protocol.cjs');
 const { getMostRecentVideo, cleanupOldVideos, trimVideoWithFfmpeg } = require('./runner-video.cjs');
 const { setupMetricsCollection, startProfiling, collectProfilingResults } = require('./runner-metrics.cjs');
 const { applyThrottling } = require('./runner-throttling.cjs');
@@ -553,6 +553,19 @@ async function main() {
   }
 
   const { browsers, executionMode, throttle, headless: headlessRaw, slowmo, noOverlay, noRecording, ffmpeg, har, cueMarkers, recordingsDir, ignoreHTTPSErrors, viewportHeight } = config;
+
+  // Racer ids become directory/file names under the recordings dir, so reject
+  // anything that isn't a plain basename before any path is built from them.
+  if (!Array.isArray(browsers) || browsers.length === 0) {
+    console.error('Error: Config must include a non-empty browsers array');
+    process.exit(1);
+  }
+  for (const b of browsers) {
+    if (!isSafeRacerId(b?.id)) {
+      console.error(`Error: Unsafe racer id ${JSON.stringify(b?.id)} — ids must be plain names without path separators`);
+      process.exit(1);
+    }
+  }
   const headless = headlessRaw === true;
   const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, har, cueMarkers, recordingsDir, ignoreHTTPSErrors, viewportHeight };
 

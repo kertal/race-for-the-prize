@@ -43,7 +43,7 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 - `sidebyside.js` — FFmpeg side-by-side video composition
 - `videoplayer.js` — assembles the HTML player from `player.html`/`player.css`/`player-runtime.js`
 - `player-sections.js` — build-time HTML section builders (results table, comparisons, profile tables)
-- `player-runtime.js` — browser-side player runtime (playback sync, trace calibration, export); a real `.js` file injected into the player via `{{placeholder}}` tokens
+- `player-runtime/` — browser-side player runtime split into concern-scoped files (playback, calibration, debug panel, export, ZIP) concatenated by `videoplayer.js` into one IIFE; the pure `.cjs` cores (calibration, export layout, ZIP/CRC32) are also requirable from Node for tests
 - `gemini-summary.js` — optional Gemini CLI integration (post-race commentary, spec generation)
 - `colors.js` — ANSI color codes (media constants re-exported for compatibility; import them from `media-config.js`)
 - `media-config.js` — shared media/video constants (`FORMAT_EXTENSIONS`, `VIDEO_DEFAULTS`, `SCREEN`, `codecArgs`, `CUE_DETECTION`)

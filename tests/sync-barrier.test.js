@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // SyncBarrier is CJS — use createRequire to load it in ESM test context
 import { createRequire } from 'module';
@@ -94,8 +94,12 @@ describe('SyncBarrier', () => {
   });
 
   describe('timeout', () => {
+    // Restore real timers even when an assertion fails mid-test, so a failure
+    // here can never leak fake timers into later tests.
+    beforeEach(() => { vi.useFakeTimers(); });
+    afterEach(() => { vi.useRealTimers(); });
+
     it('releases a hung waiter with timedOut after timeoutMs', async () => {
-      vi.useFakeTimers();
       const sharedState = { hasError: false, errorMessage: null };
       const barrier = new SyncBarrier(2, sharedState, { timeoutMs: 1000 });
 
@@ -107,11 +111,9 @@ describe('SyncBarrier', () => {
       expect(result).toEqual({ aborted: true, timedOut: true });
       expect(sharedState.hasError).toBe(true);
       expect(sharedState.errorMessage).toContain('timed out');
-      vi.useRealTimers();
     });
 
     it('does not time out when all racers arrive in time', async () => {
-      vi.useFakeTimers();
       const barrier = new SyncBarrier(2, null, { timeoutMs: 1000 });
 
       const p1 = barrier.wait('a');
@@ -124,11 +126,9 @@ describe('SyncBarrier', () => {
       // Advancing past the deadline after release must not flip state
       await vi.advanceTimersByTimeAsync(2000);
       expect(barrier.timedOut).toBe(false);
-      vi.useRealTimers();
     });
 
     it('late waiters after a timeout see the timedOut abort', async () => {
-      vi.useFakeTimers();
       const barrier = new SyncBarrier(2, { hasError: false }, { timeoutMs: 1000 });
 
       const p1 = barrier.wait('a');
@@ -137,11 +137,9 @@ describe('SyncBarrier', () => {
 
       const late = await barrier.wait('late');
       expect(late).toEqual({ aborted: true, timedOut: true });
-      vi.useRealTimers();
     });
 
     it('no timeout is armed when timeoutMs is 0 (default)', async () => {
-      vi.useFakeTimers();
       const barrier = new SyncBarrier(2);
 
       const p1 = barrier.wait('a');
@@ -152,7 +150,23 @@ describe('SyncBarrier', () => {
       barrier.wait('b');
       const result = await p1;
       expect(result).toEqual({ aborted: false });
-      vi.useRealTimers();
+    });
+
+    it('polling-path aborts caused by this barrier timing out still carry timedOut', async () => {
+      // A waiter that is already polling when the barrier's own timeout fires
+      // must not have the timedOut flag stripped by the poll settle path.
+      const sharedState = { hasError: false, errorMessage: null };
+      const barrier = new SyncBarrier(3, sharedState, { timeoutMs: 1000 });
+
+      const p1 = barrier.wait('a');
+      const p2 = barrier.wait('b');
+      await vi.advanceTimersByTimeAsync(1200);
+
+      const results = await Promise.all([p1, p2]);
+      expect(results).toEqual([
+        { aborted: true, timedOut: true },
+        { aborted: true, timedOut: true },
+      ]);
     });
   });
 

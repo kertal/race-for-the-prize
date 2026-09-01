@@ -16,6 +16,7 @@ const FFMPEG_TIMEOUT_MS = 120000;       // Timeout for ffmpeg operations
 /** Return the most recently modified .webm filename in a directory, or null. */
 function getMostRecentVideo(dir) {
   try {
+    dir = path.resolve(dir);
     if (!fs.existsSync(dir)) return null;
     const files = fs.readdirSync(dir)
       .filter(f => f.endsWith('.webm'))
@@ -33,6 +34,9 @@ function getMostRecentVideo(dir) {
  * Keeps the original as a `_full` copy. Requires ffmpeg.
  */
 function extractSegments(videoPath, segments, browserId) {
+  // Resolve to an absolute path so every derived path stays anchored and can
+  // never be parsed as an ffmpeg option (absolute paths cannot start with -).
+  videoPath = path.resolve(videoPath);
   const dir = path.dirname(videoPath);
   const ext = path.extname(videoPath);
   const base = path.basename(videoPath, ext);
@@ -40,7 +44,11 @@ function extractSegments(videoPath, segments, browserId) {
 
   fs.copyFileSync(videoPath, fullPath);
 
-  if (!segments || segments.length === 0) {
+  // Only numeric, ordered segments may reach ffmpeg's -ss/-t arguments.
+  segments = (segments || []).filter(
+    s => Number.isFinite(s?.start) && Number.isFinite(s?.end) && s.end > s.start
+  );
+  if (segments.length === 0) {
     return { trimmedPath: videoPath, fullPath };
   }
 
@@ -104,6 +112,7 @@ function extractSegments(videoPath, segments, browserId) {
 /** Delete .webm files older than 5 seconds in a directory. */
 function cleanupOldVideos(dir) {
   try {
+    dir = path.resolve(dir);
     if (!fs.existsSync(dir)) return;
     const now = Date.now();
     for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.webm'))) {
