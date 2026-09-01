@@ -2012,9 +2012,12 @@ async function startAnalysisExport() {
           bundled.csv = true;
         }
       } catch (e) { /* unparsable summary — raw file is still in the ZIP */ }
+    } else {
+      failedFiles.push('summary.json');
     }
   } catch (e) {
     if (e.name === 'AbortError') return;
+    failedFiles.push('summary.json');
   }
   fetched++;
   progressFill.style.width = (fetched / total * 90).toFixed(0) + '%';
