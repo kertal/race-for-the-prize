@@ -1738,30 +1738,43 @@ function collectVideoPaths() {
 }
 
 /**
- * Fetch each video and convert it to a data URI for embedding, advancing the
- * shared progress state up to progressScale percent. Returns a path→dataURI
- * map, or null when the export was cancelled.
+ * Shared fetch loop for export bundling: walks entries ({srcPath, optional?, ...}),
+ * updates the overlay progress up to progressScale percent, and hands each OK
+ * response to onFile. Failed non-optional entries are recorded in
+ * state.failedFiles. Returns false when the export was cancelled.
+ */
+async function fetchExportFiles(entries, ui, state, progressScale, verb, onFile) {
+  for (const entry of entries) {
+    if (ui.abortCtrl.signal.aborted) return false;
+    state.fetched++;
+    ui.statusEl.textContent = verb + ' ' + entry.srcPath + ' (' + state.fetched + '/' + state.total + ')';
+    ui.progressFill.style.width = (state.fetched / state.total * progressScale).toFixed(0) + '%';
+    try {
+      const resp = await fetch(entry.srcPath, { signal: ui.abortCtrl.signal });
+      if (resp.ok) {
+        await onFile(entry, resp);
+      } else if (!entry.optional) {
+        state.failedFiles.push(entry.srcPath);
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') return false;
+      if (!entry.optional) state.failedFiles.push(entry.srcPath);
+    }
+  }
+  return true;
+}
+
+/**
+ * Fetch each video and convert it to a data URI for embedding. Returns a
+ * path→dataURI map, or null when the export was cancelled.
  */
 async function fetchVideoOverrides(videoPaths, ui, state, progressScale) {
   const pathOverrides = {};
-  for (const vPath of videoPaths) {
-    if (ui.abortCtrl.signal.aborted) return null;
-    state.fetched++;
-    ui.statusEl.textContent = 'Embedding ' + vPath + ' (' + state.fetched + '/' + state.total + ')';
-    ui.progressFill.style.width = (state.fetched / state.total * progressScale).toFixed(0) + '%';
-    try {
-      const resp = await fetch(vPath, { signal: ui.abortCtrl.signal });
-      if (resp.ok) {
-        pathOverrides[vPath] = await blobToDataUri(await resp.blob());
-      } else {
-        state.failedFiles.push(vPath);
-      }
-    } catch (e) {
-      if (e.name === 'AbortError') return null;
-      state.failedFiles.push(vPath);
-    }
-  }
-  return pathOverrides;
+  const ok = await fetchExportFiles(
+    [...videoPaths].map(p => ({ srcPath: p })), ui, state, progressScale, 'Embedding',
+    async (entry, resp) => { pathOverrides[entry.srcPath] = await blobToDataUri(await resp.blob()); }
+  );
+  return ok ? pathOverrides : null;
 }
 
 /** Replace the overlay actions with a download link for the finished blob plus a Close button. */
@@ -1810,25 +1823,10 @@ async function startHtmlExport() {
 
   // Bundle non-video assets (trace files, summary, etc.) as separate ZIP entries
   const zipBuilder = createZipBuilder();
-  for (const filePath of otherPaths) {
-    if (ui.abortCtrl.signal.aborted) return;
-    state.fetched++;
-    ui.statusEl.textContent = 'Fetching ' + filePath + ' (' + state.fetched + '/' + state.total + ')';
-    ui.progressFill.style.width = (state.fetched / state.total * 80).toFixed(0) + '%';
-    try {
-      const resp = await fetch(filePath, { signal: ui.abortCtrl.signal });
-      if (resp.ok) {
-        zipBuilder.addFile(filePath, new Uint8Array(await resp.arrayBuffer()));
-      } else {
-        if (!optionalPaths.has(filePath)) state.failedFiles.push(filePath);
-      }
-    } catch (e) {
-      if (e.name === 'AbortError') return;
-      if (!optionalPaths.has(filePath)) state.failedFiles.push(filePath);
-    }
-  }
-
-  if (ui.abortCtrl.signal.aborted) return;
+  const assetEntries = [...otherPaths].map(p => ({ srcPath: p, zipPath: p, optional: optionalPaths.has(p) }));
+  const bundledOk = await fetchExportFiles(assetEntries, ui, state, 80, 'Fetching',
+    async (entry, resp) => { zipBuilder.addFile(entry.zipPath, new Uint8Array(await resp.arrayBuffer())); });
+  if (!bundledOk) return;
 
   ui.statusEl.textContent = 'Building HTML...';
   ui.progressFill.style.width = '90%';
@@ -1942,16 +1940,13 @@ async function startAnalysisExport() {
 
   // Per-racer analysis files, in the same (placement) order as racerNames
   const racerFiles = [];
-  (tracePaths || []).forEach((p, i) => {
+  const addRacerFiles = (paths, dir, ext, kind) => (paths || []).forEach((p, i) => {
     if (p && !p.startsWith('data:')) {
-      racerFiles.push({ zipPath: 'traces/' + (racerNames[i] || 'racer' + i) + '.trace.json', srcPath: p, kind: 'traces' });
+      racerFiles.push({ zipPath: dir + '/' + (racerNames[i] || 'racer' + i) + ext, srcPath: p, kind });
     }
   });
-  (harPaths || []).forEach((p, i) => {
-    if (p && !p.startsWith('data:')) {
-      racerFiles.push({ zipPath: 'har/' + (racerNames[i] || 'racer' + i) + '.har', srcPath: p, kind: 'hars' });
-    }
-  });
+  addRacerFiles(tracePaths, 'traces', '.trace.json', 'traces');
+  addRacerFiles(harPaths, 'har', '.har', 'hars');
 
   const zipBuilder = createZipBuilder();
   const bundled = { traces: false, hars: false, summary: false, csv: false };
@@ -1981,26 +1976,12 @@ async function startAnalysisExport() {
   state.fetched++;
   ui.progressFill.style.width = (state.fetched / state.total * 90).toFixed(0) + '%';
 
-  for (const file of racerFiles) {
-    if (ui.abortCtrl.signal.aborted) return;
-    state.fetched++;
-    ui.statusEl.textContent = 'Fetching ' + file.srcPath + ' (' + state.fetched + '/' + state.total + ')';
-    ui.progressFill.style.width = (state.fetched / state.total * 90).toFixed(0) + '%';
-    try {
-      const resp = await fetch(file.srcPath, { signal: ui.abortCtrl.signal });
-      if (resp.ok) {
-        zipBuilder.addFile(file.zipPath, new Uint8Array(await resp.arrayBuffer()));
-        bundled[file.kind] = true;
-      } else {
-        state.failedFiles.push(file.srcPath);
-      }
-    } catch (e) {
-      if (e.name === 'AbortError') return;
-      state.failedFiles.push(file.srcPath);
-    }
-  }
-
-  if (ui.abortCtrl.signal.aborted) return;
+  const racerFilesOk = await fetchExportFiles(racerFiles, ui, state, 90, 'Fetching',
+    async (entry, resp) => {
+      zipBuilder.addFile(entry.zipPath, new Uint8Array(await resp.arrayBuffer()));
+      bundled[entry.kind] = true;
+    });
+  if (!racerFilesOk) return;
 
   if (!bundled.traces && !bundled.hars && !bundled.summary) {
     ui.statusEl.textContent = 'No performance data could be loaded. If this page was opened from disk, serve the results directory over HTTP and retry.';
