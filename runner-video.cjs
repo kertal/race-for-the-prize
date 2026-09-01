@@ -41,7 +41,10 @@ function assertSafeFfmpegArgs(args, dir) {
       throw new Error(`Refusing to run ffmpeg: argument is not a non-empty string (${String(arg)})`);
     }
     if (path.isAbsolute(arg)) {
-      if (arg !== root && !arg.startsWith(root + path.sep)) {
+      // Resolve before comparing: a prefix test on the raw string accepts
+      // `${root}/../outside.webm`, which starts with root but escapes it.
+      const resolvedArg = path.resolve(arg);
+      if (resolvedArg !== root && !resolvedArg.startsWith(root + path.sep)) {
         throw new Error(`Refusing to run ffmpeg: path argument escapes ${root}: ${arg}`);
       }
       continue;

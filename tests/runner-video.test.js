@@ -20,6 +20,17 @@ describe('assertSafeFfmpegArgs', () => {
     expect(() => assertSafeFfmpegArgs(['-i', `${dir}-evil/x.webm`], dir)).toThrow(/escapes/);
   });
 
+  it('rejects an absolute argument that traverses back out of the root', () => {
+    // A raw string-prefix test accepts this: it starts with root but resolves
+    // outside it.
+    expect(() => assertSafeFfmpegArgs(['-i', `${dir}/../outside.webm`], dir)).toThrow(/escapes/);
+    expect(() => assertSafeFfmpegArgs(['-i', `${dir}/sub/../../outside.webm`], dir)).toThrow(/escapes/);
+  });
+
+  it('accepts an absolute argument that traverses but stays inside the root', () => {
+    expect(() => assertSafeFfmpegArgs(['-i', `${dir}/sub/../in.webm`], dir)).not.toThrow();
+  });
+
   it('rejects a non-path argument that could be read as an option', () => {
     // A relative value with a separator is neither a confined path nor a
     // plain flag/name/number.

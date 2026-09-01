@@ -138,6 +138,68 @@ describe('createStaticHandler root normalization', () => {
   });
 });
 
+describe('createStaticHandler symlink and root containment', () => {
+  it('does not serve a symlink inside the tree that targets a file outside it', async () => {
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'serve-outside-'));
+    const secret = path.join(outsideDir, 'secret.txt');
+    fs.writeFileSync(secret, 'TOP SECRET');
+    const link = path.join(tmpDir, 'link.txt');
+    try {
+      fs.symlinkSync(secret, link);
+    } catch {
+      return; // platform without symlink permission — nothing to assert
+    }
+    const server = http.createServer(createStaticHandler(tmpDir));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const res = await fetch(server, '/link.txt');
+      expect(res.status).toBe(403);
+      expect(res.body).not.toContain('TOP SECRET');
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+      fs.rmSync(link, { force: true });
+    }
+  });
+
+  it('still serves a symlink that stays inside the served tree', async () => {
+    const target = path.join(tmpDir, 'real.html');
+    fs.writeFileSync(target, '<h1>inside</h1>');
+    const link = path.join(tmpDir, 'alias.html');
+    try {
+      fs.symlinkSync(target, link);
+    } catch {
+      return;
+    }
+    const server = http.createServer(createStaticHandler(tmpDir));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const res = await fetch(server, '/alias.html');
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('inside');
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+      fs.rmSync(link, { force: true });
+    }
+  });
+
+  it('serves a file when the served root is the filesystem root', async () => {
+    // `rootDir + path.sep` would be '//' here, rejecting every valid child.
+    const marker = path.join(tmpDir, 'root-served.txt');
+    fs.writeFileSync(marker, 'served from /');
+    const server = http.createServer(createStaticHandler(path.parse(tmpDir).root));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const rel = path.relative(path.parse(tmpDir).root, marker).split(path.sep).join('/');
+      const res = await fetch(server, `/${rel}`);
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('served from /');
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
+  });
+});
+
 describe('serveResults range request support', () => {
   let server;
   let fileContent;

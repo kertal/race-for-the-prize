@@ -35,9 +35,26 @@ const MIME_TYPES = {
 };
 
 /**
+ * Is `target` the directory `root` itself, or something beneath it?
+ *
+ * Uses path.relative rather than a `root + path.sep` prefix test: that prefix
+ * becomes '//' when the served root is the filesystem root, which would reject
+ * every valid child.
+ */
+function isInside(root, target) {
+  if (target === root) return true;
+  const rel = path.relative(root, target);
+  // '' is the root itself; '..'-prefixed is above it; absolute means the two
+  // share no common root (different drives on Windows).
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
+/**
  * Create an HTTP request handler that serves static files from `dir`.
  *
- * Security: rejects any path that resolves outside `dir` (path traversal).
+ * Security: rejects any path that resolves outside `dir` (path traversal),
+ * both lexically and — after resolving symlinks — by real path, so a link
+ * inside the served tree cannot expose a file outside it.
  * Range requests: advertises `Accept-Ranges: bytes` and responds with
  * `206 Partial Content` so browsers can seek within media files (WebM, MP4).
  * COOP/COEP headers are required for `SharedArrayBuffer` isolation used by
@@ -46,10 +63,15 @@ const MIME_TYPES = {
  * Exported for testing.
  */
 export function createStaticHandler(dir) {
-  // Resolve the served root once so the confinement check below compares two
-  // absolute paths. Comparing a resolved filePath against a relative or
+  // Resolve the served root once so the confinement checks compare absolute
+  // paths. Comparing a resolved filePath against a relative or
   // trailing-separator `dir` rejected every request with 403.
   const rootDir = path.resolve(dir);
+  // The root's own symlinks resolved once (e.g. /tmp -> /private/tmp on macOS),
+  // so a realpath'd request path can be compared against it.
+  let realRoot;
+  try { realRoot = fs.realpathSync(rootDir); } catch { realRoot = rootDir; }
+
   return (req, res) => {
     let urlPath;
     try {
@@ -60,10 +82,8 @@ export function createStaticHandler(dir) {
       return;
     }
     const filePath = path.resolve(path.join(rootDir, urlPath));
-    // Reject paths that escape the served directory. `filePath !== rootDir`
-    // allows the root directory itself to resolve (though in practice
-    // req.url='/' is rewritten to index.html above).
-    if (!filePath.startsWith(rootDir + path.sep) && filePath !== rootDir) {
+    // Reject paths that escape the served directory lexically ('../' traversal).
+    if (!isInside(rootDir, filePath)) {
       res.writeHead(403);
       res.end('Forbidden');
       return;
@@ -77,42 +97,62 @@ export function createStaticHandler(dir) {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
     };
-    fs.stat(filePath, (statErr, stat) => {
-      if (statErr || !stat.isFile()) {
+
+    const serveFile = (resolvedPath) => {
+      fs.stat(resolvedPath, (statErr, stat) => {
+        if (statErr || !stat.isFile()) {
+          res.writeHead(404);
+          res.end('Not found');
+          return;
+        }
+        const total = stat.size;
+        const rangeHeader = req.headers['range'];
+
+        const pipeStream = (stream) => {
+          stream.on('error', () => { if (!res.writableEnded) res.end(); });
+          stream.pipe(res);
+        };
+
+        if (rangeHeader) {
+          const m = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
+          if (!m) { res.writeHead(416); res.end(); return; }
+          let start, end;
+          if (!m[1] && !m[2]) {
+            // bytes=- with no numbers is invalid
+            res.writeHead(416); res.end(); return;
+          } else if (!m[1]) {
+            // Suffix range: bytes=-N → last N bytes
+            start = Math.max(0, total - parseInt(m[2], 10));
+            end = total - 1;
+          } else {
+            start = parseInt(m[1], 10);
+            end = m[2] ? Math.min(parseInt(m[2], 10), total - 1) : total - 1;
+          }
+          if (start > end || start >= total) { res.writeHead(416); res.end(); return; }
+          res.writeHead(206, { ...baseHeaders, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${total}` });
+          pipeStream(fs.createReadStream(resolvedPath, { start, end }));
+        } else {
+          res.writeHead(200, { ...baseHeaders, 'Content-Length': total });
+          pipeStream(fs.createReadStream(resolvedPath));
+        }
+      });
+    };
+
+    // Resolve symlinks before serving: a link *inside* the tree that points
+    // outside it passes the lexical check above, so containment is re-verified
+    // against the real path.
+    fs.realpath(filePath, (realErr, realPath) => {
+      if (realErr) {
         res.writeHead(404);
         res.end('Not found');
         return;
       }
-      const total = stat.size;
-      const rangeHeader = req.headers['range'];
-
-      const pipeStream = (stream) => {
-        stream.on('error', () => { if (!res.writableEnded) res.end(); });
-        stream.pipe(res);
-      };
-
-      if (rangeHeader) {
-        const m = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
-        if (!m) { res.writeHead(416); res.end(); return; }
-        let start, end;
-        if (!m[1] && !m[2]) {
-          // bytes=- with no numbers is invalid
-          res.writeHead(416); res.end(); return;
-        } else if (!m[1]) {
-          // Suffix range: bytes=-N → last N bytes
-          start = Math.max(0, total - parseInt(m[2], 10));
-          end = total - 1;
-        } else {
-          start = parseInt(m[1], 10);
-          end = m[2] ? Math.min(parseInt(m[2], 10), total - 1) : total - 1;
-        }
-        if (start > end || start >= total) { res.writeHead(416); res.end(); return; }
-        res.writeHead(206, { ...baseHeaders, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${total}` });
-        pipeStream(fs.createReadStream(filePath, { start, end }));
-      } else {
-        res.writeHead(200, { ...baseHeaders, 'Content-Length': total });
-        pipeStream(fs.createReadStream(filePath));
+      if (!isInside(realRoot, realPath)) {
+        res.writeHead(403);
+        res.end('Forbidden');
+        return;
       }
+      serveFile(realPath);
     });
   };
 }
