@@ -1694,28 +1694,39 @@ function buildExportHtml(pathOverrides = {}, { slim = false } = {}) {
   return '<!DOCTYPE html>\n' + doc.outerHTML;
 }
 
-async function startHtmlExport() {
-  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
-
+/**
+ * Create the shared export progress overlay used by the file exports:
+ * hides the preview canvas, sets the title, and wires the Cancel button
+ * to an AbortController.
+ */
+function createExportProgressOverlay(title) {
   const tmpl = document.getElementById('tmpl-export-overlay');
   const overlay = tmpl.content.cloneNode(true).firstElementChild;
-  const canvas = overlay.querySelector('.export-canvas');
-  canvas.style.display = 'none';
-  const titleEl = overlay.querySelector('h3');
-  titleEl.textContent = 'Exporting HTML';
+  overlay.querySelector('.export-canvas').style.display = 'none';
+  overlay.querySelector('h3').textContent = title;
   document.body.appendChild(overlay);
-
-  const progressFill = overlay.querySelector('.export-progress-fill');
-  const statusEl = overlay.querySelector('.export-status');
-  const actionsEl = overlay.querySelector('.export-actions');
-
   const abortCtrl = new AbortController();
   overlay.querySelector('.export-cancel').addEventListener('click', () => {
     abortCtrl.abort();
     overlay.remove();
   });
+  return {
+    overlay,
+    abortCtrl,
+    progressFill: overlay.querySelector('.export-progress-fill'),
+    statusEl: overlay.querySelector('.export-status'),
+    actionsEl: overlay.querySelector('.export-actions'),
+  };
+}
 
-  // Collect video paths to embed and non-video paths to bundle as separate ZIP entries
+/** Sanitize the document title into a download filename base. */
+function exportFileBase(fallback) {
+  const base = document.title.replace(/[^a-zA-Z0-9-]/g, '_').replace(/_+/g, '_').toLowerCase();
+  return base || fallback;
+}
+
+/** Collect the non-data: video paths currently referenced by the player (race, full, merged). */
+function collectVideoPaths() {
   const videoPaths = new Set();
   raceVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) videoPaths.add(p); });
   if (fullVideoPaths) fullVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) videoPaths.add(p); });
@@ -1723,7 +1734,64 @@ async function startHtmlExport() {
     const mp = mergedVideo.getAttribute('src');
     if (mp && !mp.startsWith('data:')) videoPaths.add(mp);
   }
+  return videoPaths;
+}
 
+/**
+ * Fetch each video and convert it to a data URI for embedding, advancing the
+ * shared progress state up to progressScale percent. Returns a path→dataURI
+ * map, or null when the export was cancelled.
+ */
+async function fetchVideoOverrides(videoPaths, ui, state, progressScale) {
+  const pathOverrides = {};
+  for (const vPath of videoPaths) {
+    if (ui.abortCtrl.signal.aborted) return null;
+    state.fetched++;
+    ui.statusEl.textContent = 'Embedding ' + vPath + ' (' + state.fetched + '/' + state.total + ')';
+    ui.progressFill.style.width = (state.fetched / state.total * progressScale).toFixed(0) + '%';
+    try {
+      const resp = await fetch(vPath, { signal: ui.abortCtrl.signal });
+      if (resp.ok) {
+        pathOverrides[vPath] = await blobToDataUri(await resp.blob());
+      } else {
+        state.failedFiles.push(vPath);
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') return null;
+      state.failedFiles.push(vPath);
+    }
+  }
+  return pathOverrides;
+}
+
+/** Replace the overlay actions with a download link for the finished blob plus a Close button. */
+function showExportDownload(ui, blob, filename, failedFiles) {
+  const url = URL.createObjectURL(blob);
+  let statusMsg = 'Export complete! (' + (blob.size / (1024 * 1024)).toFixed(1) + ' MB)';
+  if (failedFiles.length > 0) {
+    statusMsg += '\nSkipped ' + failedFiles.length + ' file(s): ' + failedFiles.join(', ');
+  }
+  ui.statusEl.textContent = statusMsg;
+  ui.progressFill.style.width = '100%';
+
+  const dlLink = document.createElement('a');
+  dlLink.href = url;
+  dlLink.download = filename;
+  dlLink.textContent = filename.endsWith('.html') ? 'Download HTML' : 'Download ZIP';
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Close';
+  closeBtn.addEventListener('click', () => { URL.revokeObjectURL(url); ui.overlay.remove(); });
+  ui.actionsEl.replaceChildren(dlLink, closeBtn);
+}
+
+/** Export a ZIP with a self-contained index.html (videos embedded) plus non-video assets. */
+async function startHtmlExport() {
+  if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
+
+  const ui = createExportProgressOverlay('Exporting HTML');
+
+  // Collect video paths to embed and non-video paths to bundle as separate ZIP entries
+  const videoPaths = collectVideoPaths();
   const otherPaths = new Set();
   const optionalPaths = new Set(['summary.json']);
   document.querySelectorAll('.file-links a').forEach(a => {
@@ -1734,78 +1802,42 @@ async function startHtmlExport() {
   });
   otherPaths.add('summary.json');
 
-  const total = videoPaths.size + otherPaths.size;
-  const failedFiles = [];
-  let fetched = 0;
+  const state = { fetched: 0, total: videoPaths.size + otherPaths.size, failedFiles: [] };
 
   // Embed videos as data URIs directly in the exported HTML
-  const pathOverrides = {};
-  for (const vPath of videoPaths) {
-    if (abortCtrl.signal.aborted) return;
-    fetched++;
-    statusEl.textContent = 'Embedding ' + vPath + ' (' + fetched + '/' + total + ')';
-    progressFill.style.width = (fetched / total * 80).toFixed(0) + '%';
-    try {
-      const resp = await fetch(vPath, { signal: abortCtrl.signal });
-      if (resp.ok) {
-        pathOverrides[vPath] = await blobToDataUri(await resp.blob());
-      } else {
-        failedFiles.push(vPath);
-      }
-    } catch (e) {
-      if (e.name === 'AbortError') return;
-      failedFiles.push(vPath);
-    }
-  }
+  const pathOverrides = await fetchVideoOverrides(videoPaths, ui, state, 80);
+  if (!pathOverrides) return;
 
   // Bundle non-video assets (trace files, summary, etc.) as separate ZIP entries
   const zipBuilder = createZipBuilder();
   for (const filePath of otherPaths) {
-    if (abortCtrl.signal.aborted) return;
-    fetched++;
-    statusEl.textContent = 'Fetching ' + filePath + ' (' + fetched + '/' + total + ')';
-    progressFill.style.width = (fetched / total * 80).toFixed(0) + '%';
+    if (ui.abortCtrl.signal.aborted) return;
+    state.fetched++;
+    ui.statusEl.textContent = 'Fetching ' + filePath + ' (' + state.fetched + '/' + state.total + ')';
+    ui.progressFill.style.width = (state.fetched / state.total * 80).toFixed(0) + '%';
     try {
-      const resp = await fetch(filePath, { signal: abortCtrl.signal });
+      const resp = await fetch(filePath, { signal: ui.abortCtrl.signal });
       if (resp.ok) {
         zipBuilder.addFile(filePath, new Uint8Array(await resp.arrayBuffer()));
       } else {
-        if (!optionalPaths.has(filePath)) failedFiles.push(filePath);
+        if (!optionalPaths.has(filePath)) state.failedFiles.push(filePath);
       }
     } catch (e) {
       if (e.name === 'AbortError') return;
-      if (!optionalPaths.has(filePath)) failedFiles.push(filePath);
+      if (!optionalPaths.has(filePath)) state.failedFiles.push(filePath);
     }
   }
 
-  if (abortCtrl.signal.aborted) return;
+  if (ui.abortCtrl.signal.aborted) return;
 
-  statusEl.textContent = 'Building HTML...';
-  progressFill.style.width = '90%';
+  ui.statusEl.textContent = 'Building HTML...';
+  ui.progressFill.style.width = '90%';
   const html = buildExportHtml(pathOverrides);
   zipBuilder.addFile('index.html', new TextEncoder().encode(html));
 
-  statusEl.textContent = 'Creating ZIP...';
-  progressFill.style.width = '95%';
-  const blob = zipBuilder.toBlob();
-  const url = URL.createObjectURL(blob);
-
-  let statusMsg = 'Export complete! (' + (blob.size / (1024 * 1024)).toFixed(1) + ' MB)';
-  if (failedFiles.length > 0) {
-    statusMsg += '\nSkipped ' + failedFiles.length + ' file(s): ' + failedFiles.join(', ');
-  }
-  statusEl.textContent = statusMsg;
-  progressFill.style.width = '100%';
-
-  const dlLink = document.createElement('a');
-  dlLink.href = url;
-  const zipName = document.title.replace(/[^a-zA-Z0-9-]/g, '_').replace(/_+/g, '_').toLowerCase();
-  dlLink.download = (zipName || 'race-export') + '.zip';
-  dlLink.textContent = 'Download ZIP';
-  const closeBtn = document.createElement('button');
-  closeBtn.textContent = 'Close';
-  closeBtn.addEventListener('click', () => { URL.revokeObjectURL(url); overlay.remove(); });
-  actionsEl.replaceChildren(dlLink, closeBtn);
+  ui.statusEl.textContent = 'Creating ZIP...';
+  ui.progressFill.style.width = '95%';
+  showExportDownload(ui, zipBuilder.toBlob(), exportFileBase('race-export') + '.zip', state.failedFiles);
 }
 
 const exportHtmlBtn = document.getElementById('exportHtmlBtn');
@@ -1817,80 +1849,20 @@ if (exportHtmlBtn) {
 async function startHtmlOnlyExport() {
   if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
 
-  const tmpl = document.getElementById('tmpl-export-overlay');
-  const overlay = tmpl.content.cloneNode(true).firstElementChild;
-  const canvas = overlay.querySelector('.export-canvas');
-  canvas.style.display = 'none';
-  const titleEl = overlay.querySelector('h3');
-  titleEl.textContent = 'Exporting HTML';
-  document.body.appendChild(overlay);
-
-  const progressFill = overlay.querySelector('.export-progress-fill');
-  const statusEl = overlay.querySelector('.export-status');
-  const actionsEl = overlay.querySelector('.export-actions');
-
-  const abortCtrl = new AbortController();
-  overlay.querySelector('.export-cancel').addEventListener('click', () => {
-    abortCtrl.abort();
-    overlay.remove();
-  });
+  const ui = createExportProgressOverlay('Exporting HTML');
 
   // Collect video paths to embed as data URIs
-  const videoPaths = new Set();
-  raceVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) videoPaths.add(p); });
-  if (fullVideoPaths) fullVideoPaths.forEach(p => { if (p && !p.startsWith('data:')) videoPaths.add(p); });
-  if (mergedVideo) {
-    const mp = mergedVideo.getAttribute('src');
-    if (mp && !mp.startsWith('data:')) videoPaths.add(mp);
-  }
+  const videoPaths = collectVideoPaths();
+  const state = { fetched: 0, total: videoPaths.size, failedFiles: [] };
 
-  const total = videoPaths.size;
-  const failedFiles = [];
-  let fetched = 0;
+  const pathOverrides = await fetchVideoOverrides(videoPaths, ui, state, 90);
+  if (!pathOverrides) return;
 
-  const pathOverrides = {};
-  for (const vPath of videoPaths) {
-    if (abortCtrl.signal.aborted) return;
-    fetched++;
-    statusEl.textContent = 'Embedding ' + vPath + ' (' + fetched + '/' + total + ')';
-    progressFill.style.width = (fetched / total * 90).toFixed(0) + '%';
-    try {
-      const resp = await fetch(vPath, { signal: abortCtrl.signal });
-      if (resp.ok) {
-        pathOverrides[vPath] = await blobToDataUri(await resp.blob());
-      } else {
-        failedFiles.push(vPath);
-      }
-    } catch (e) {
-      if (e.name === 'AbortError') return;
-      failedFiles.push(vPath);
-    }
-  }
-
-  if (abortCtrl.signal.aborted) return;
-
-  statusEl.textContent = 'Building HTML...';
-  progressFill.style.width = '95%';
+  ui.statusEl.textContent = 'Building HTML...';
+  ui.progressFill.style.width = '95%';
   const html = buildExportHtml(pathOverrides, { slim: true });
   const blob = new Blob([html], { type: 'text/html' });
-  const url = URL.createObjectURL(blob);
-
-  let statusMsg = 'Export complete! (' + (blob.size / (1024 * 1024)).toFixed(1) + ' MB)';
-  if (failedFiles.length > 0) {
-    statusMsg += '\nSkipped ' + failedFiles.length + ' file(s): ' + failedFiles.join(', ');
-  }
-  statusEl.textContent = statusMsg;
-  progressFill.style.width = '100%';
-
-  const dlLink = document.createElement('a');
-  dlLink.href = url;
-  const baseName = document.title.replace(/[^a-zA-Z0-9-]/g, '_').replace(/_+/g, '_').toLowerCase();
-  dlLink.download = (baseName || 'race-export') + '.html';
-  dlLink.textContent = 'Download HTML';
-  const closeBtn = document.createElement('button');
-  closeBtn.textContent = 'Close';
-  closeBtn.addEventListener('click', () => { URL.revokeObjectURL(url); overlay.remove(); });
-  actionsEl.replaceChildren(dlLink, closeBtn);
+  showExportDownload(ui, blob, exportFileBase('race-export') + '.html', state.failedFiles);
 }
 
 const exportHtmlOnlyBtn = document.getElementById('exportHtmlOnlyBtn');
@@ -1903,6 +1875,7 @@ if (exportHtmlOnlyBtn) {
 // per-racer DevTools traces, HAR files, summary.json, a flat metrics.csv, and
 // a README explaining how to load each file.
 
+/** Quote a CSV cell when it contains a comma, quote, or newline. */
 function csvCell(value) {
   const s = value == null ? '' : String(value);
   return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
@@ -1933,6 +1906,7 @@ function buildMetricsCsv(summaryData) {
   return rows.map(r => r.map(csvCell).join(',')).join('\n') + '\n';
 }
 
+/** Describe the bundle contents and how to load each file into external analysis tools. */
 function buildAnalysisReadme(bundled) {
   const lines = [
     '# Performance Analysis Bundle',
@@ -1962,22 +1936,9 @@ function buildAnalysisReadme(bundled) {
   return lines.join('\n');
 }
 
+/** Export a performance-analysis ZIP: DevTools traces, HARs, summary.json, metrics.csv, and a README. */
 async function startAnalysisExport() {
-  const tmpl = document.getElementById('tmpl-export-overlay');
-  const overlay = tmpl.content.cloneNode(true).firstElementChild;
-  overlay.querySelector('.export-canvas').style.display = 'none';
-  overlay.querySelector('h3').textContent = 'Exporting Performance Data';
-  document.body.appendChild(overlay);
-
-  const progressFill = overlay.querySelector('.export-progress-fill');
-  const statusEl = overlay.querySelector('.export-status');
-  const actionsEl = overlay.querySelector('.export-actions');
-
-  const abortCtrl = new AbortController();
-  overlay.querySelector('.export-cancel').addEventListener('click', () => {
-    abortCtrl.abort();
-    overlay.remove();
-  });
+  const ui = createExportProgressOverlay('Exporting Performance Data');
 
   // Per-racer analysis files, in the same (placement) order as racerNames
   const racerFiles = [];
@@ -1994,13 +1955,11 @@ async function startAnalysisExport() {
 
   const zipBuilder = createZipBuilder();
   const bundled = { traces: false, hars: false, summary: false, csv: false };
-  const failedFiles = [];
-  const total = racerFiles.length + 1; // +1 for summary.json
-  let fetched = 0;
+  const state = { fetched: 0, total: racerFiles.length + 1, failedFiles: [] }; // +1 for summary.json
 
-  statusEl.textContent = 'Fetching summary.json (1/' + total + ')';
+  ui.statusEl.textContent = 'Fetching summary.json (1/' + state.total + ')';
   try {
-    const resp = await fetch('summary.json', { signal: abortCtrl.signal });
+    const resp = await fetch('summary.json', { signal: ui.abortCtrl.signal });
     if (resp.ok) {
       const text = await resp.text();
       zipBuilder.addFile('summary.json', new TextEncoder().encode(text));
@@ -2013,68 +1972,50 @@ async function startAnalysisExport() {
         }
       } catch (e) { /* unparsable summary — raw file is still in the ZIP */ }
     } else {
-      failedFiles.push('summary.json');
+      state.failedFiles.push('summary.json');
     }
   } catch (e) {
     if (e.name === 'AbortError') return;
-    failedFiles.push('summary.json');
+    state.failedFiles.push('summary.json');
   }
-  fetched++;
-  progressFill.style.width = (fetched / total * 90).toFixed(0) + '%';
+  state.fetched++;
+  ui.progressFill.style.width = (state.fetched / state.total * 90).toFixed(0) + '%';
 
   for (const file of racerFiles) {
-    if (abortCtrl.signal.aborted) return;
-    fetched++;
-    statusEl.textContent = 'Fetching ' + file.srcPath + ' (' + fetched + '/' + total + ')';
-    progressFill.style.width = (fetched / total * 90).toFixed(0) + '%';
+    if (ui.abortCtrl.signal.aborted) return;
+    state.fetched++;
+    ui.statusEl.textContent = 'Fetching ' + file.srcPath + ' (' + state.fetched + '/' + state.total + ')';
+    ui.progressFill.style.width = (state.fetched / state.total * 90).toFixed(0) + '%';
     try {
-      const resp = await fetch(file.srcPath, { signal: abortCtrl.signal });
+      const resp = await fetch(file.srcPath, { signal: ui.abortCtrl.signal });
       if (resp.ok) {
         zipBuilder.addFile(file.zipPath, new Uint8Array(await resp.arrayBuffer()));
         bundled[file.kind] = true;
       } else {
-        failedFiles.push(file.srcPath);
+        state.failedFiles.push(file.srcPath);
       }
     } catch (e) {
       if (e.name === 'AbortError') return;
-      failedFiles.push(file.srcPath);
+      state.failedFiles.push(file.srcPath);
     }
   }
 
-  if (abortCtrl.signal.aborted) return;
+  if (ui.abortCtrl.signal.aborted) return;
 
   if (!bundled.traces && !bundled.hars && !bundled.summary) {
-    statusEl.textContent = 'No performance data could be loaded. If this page was opened from disk, serve the results directory over HTTP and retry.';
-    progressFill.style.width = '100%';
+    ui.statusEl.textContent = 'No performance data could be loaded. If this page was opened from disk, serve the results directory over HTTP and retry.';
+    ui.progressFill.style.width = '100%';
     const closeBtn = document.createElement('button');
     closeBtn.textContent = 'Close';
-    closeBtn.addEventListener('click', () => overlay.remove());
-    actionsEl.replaceChildren(closeBtn);
+    closeBtn.addEventListener('click', () => ui.overlay.remove());
+    ui.actionsEl.replaceChildren(closeBtn);
     return;
   }
 
-  statusEl.textContent = 'Creating ZIP...';
-  progressFill.style.width = '95%';
+  ui.statusEl.textContent = 'Creating ZIP...';
+  ui.progressFill.style.width = '95%';
   zipBuilder.addFile('README.md', new TextEncoder().encode(buildAnalysisReadme(bundled)));
-  const blob = zipBuilder.toBlob();
-  const url = URL.createObjectURL(blob);
-
-  let statusMsg = 'Export complete! (' + (blob.size / (1024 * 1024)).toFixed(1) + ' MB)';
-  if (failedFiles.length > 0) {
-    statusMsg += '\nSkipped ' + failedFiles.length + ' file(s): ' + failedFiles.join(', ');
-  }
-  statusEl.textContent = statusMsg;
-  progressFill.style.width = '100%';
-
-  const dlLink = document.createElement('a');
-  dlLink.href = url;
-  const baseName = document.title.replace(/[^a-zA-Z0-9-]/g, '_').replace(/_+/g, '_').toLowerCase();
-  dlLink.download = (baseName || 'race') + '-performance-data.zip';
-  dlLink.textContent = 'Download ZIP';
-  const closeBtn = document.createElement('button');
-  closeBtn.textContent = 'Close';
-  closeBtn.addEventListener('click', () => { URL.revokeObjectURL(url); overlay.remove(); });
-  actionsEl.replaceChildren(dlLink, closeBtn);
+  showExportDownload(ui, zipBuilder.toBlob(), exportFileBase('race') + '-performance-data.zip', state.failedFiles);
 }
 
 const exportAnalysisBtn = document.getElementById('exportAnalysisBtn');
