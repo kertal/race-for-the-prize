@@ -28,7 +28,13 @@ const ZERO_START_THRESHOLD = 0.001;
 //  2. Seek silently ignored at readyState=1 (HAVE_METADATA, no buffered data):
 //     The seek is issued before any data is available, so Chrome drops it.
 //     Retry via 'canplay' (readyState ≥ 3) when enough data has loaded.
-//     The 'canplay' handler resets the retry counter so case-1 retries still work.
+//
+// A single shared `seeks` counter caps the TOTAL number of currentTime writes at
+// MAX_SEEK_RETRIES so the constant is a genuine hard ceiling. A dropped case-2
+// seek fires no 'seeked' event, so it never consumes the budget — the counter is
+// still ~0 when 'canplay' arrives, which is what previously motivated resetting
+// it (and that reset, combined with two concurrently-live 'seeked' chains
+// sharing one counter, made the effective maximum ambiguous).
 function seekAllWithVerify(targetStart) {
   const adj = getAdjustedClipTimes();
   const ct = adj || clipTimes;
@@ -37,22 +43,18 @@ function seekAllWithVerify(targetStart) {
     if (!v || !clipTimes) return;
     const expected = ct && isValidClipEntry(ct[i]) ? ct[i].start : targetStart;
     if (expected <= ZERO_START_THRESHOLD) return; // nothing to verify at start of video
-    let retries = 0;
-    const handler = () => {
-      if (Math.abs(v.currentTime - expected) > SEEK_SNAP_TOLERANCE && retries++ < MAX_SEEK_RETRIES) {
+    let seeks = 0;
+    const reseek = () => {
+      if (Math.abs(v.currentTime - expected) > SEEK_SNAP_TOLERANCE && seeks < MAX_SEEK_RETRIES) {
+        seeks++;
         v.currentTime = Math.min(expected, isFinite(v.duration) ? v.duration : expected);
-        v.addEventListener('seeked', handler, { once: true });
+        v.addEventListener('seeked', reseek, { once: true });
       }
     };
-    v.addEventListener('seeked', handler, { once: true });
-    // Case 2 fallback: retry when data is available (canplay = readyState ≥ 3).
-    v.addEventListener('canplay', () => {
-      if (Math.abs(v.currentTime - expected) > SEEK_SNAP_TOLERANCE) {
-        retries = 0; // give the seeked retry loop a fresh budget
-        v.currentTime = Math.min(expected, isFinite(v.duration) ? v.duration : expected);
-        v.addEventListener('seeked', handler, { once: true });
-      }
-    }, { once: true });
+    v.addEventListener('seeked', reseek, { once: true });
+    // Case 2 fallback: once data is available (canplay = readyState ≥ 3), make a
+    // fresh attempt if still off — within the same shared budget.
+    v.addEventListener('canplay', reseek, { once: true });
   });
 }
 

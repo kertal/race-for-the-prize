@@ -183,7 +183,13 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
       markRecordingEnd: () => markTrace(`${traceMarkPrefix}recording:end`),
       onRecordingStop: async ({ endTime }) => {
         if (sharedState) {
-          sharedState.finishOrder.push({ id, endTime });
+          // Record one finish entry per racer, not per recording segment. A racer
+          // with several raceRecordingStart/End segments would otherwise appear
+          // multiple times and corrupt the medal-placement index (which assumes
+          // one entry per racer).
+          const existing = sharedState.finishOrder.find(f => f.id === id);
+          if (existing) existing.endTime = endTime;
+          else sharedState.finishOrder.push({ id, endTime });
           if (!noOverlay && !noRecording) {
             // Calculate placement from finish order for the medal display
             const sorted = [...sharedState.finishOrder].sort((a, b) => a.endTime - b.endTime);
@@ -203,6 +209,9 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
       onMeasureEnd: (name) => {
         queueTraceMark(`${traceMarkPrefix}measure:end:${encodeMeasureName(name)}`);
         overlayCtrl.onMeasureEnd();
+      },
+      onUnmatchedMeasureEnd: (name) => {
+        console.error(`[${id}] Warning: raceEnd(${JSON.stringify(name)}) called with no matching raceStart — measurement ignored.`);
       },
       onFirstRaceStart: metricsCollector
         ? () => metricsCollector.startMeasurement()
@@ -535,11 +544,37 @@ async function runSequential(browserConfigs, opts = {}) {
 
 // --- Main entry point ---
 
+/**
+ * Emit the sentinel result line and exit with the given code, but only after
+ * stdout has been flushed. process.exit() does not wait for a piped stdout to
+ * drain, so a large result payload can be truncated mid-JSON if we exit on the
+ * next line. The timeout is a safety net in case the write callback never fires.
+ */
+function emitResultAndExit(payload, code) {
+  const line = RESULT_SENTINEL + payload + '\n';
+  const done = () => process.exit(code);
+  const timer = setTimeout(done, 5000);
+  timer.unref();
+  process.stdout.write(line, () => { clearTimeout(timer); done(); });
+}
+
 async function main() {
   // Load shared constants from ESM module
   await loadConstants();
 
-  const configJson = process.argv[2];
+  // Config is passed either inline as argv[2] (legacy / direct invocation) or,
+  // to stay well under the OS argv size limit for large race scripts, via a
+  // temp file: `runner.cjs --config-file <path>`. The file is consumed once.
+  let configJson;
+  if (process.argv[2] === '--config-file') {
+    const configPath = process.argv[3];
+    if (!configPath) { console.error('Error: --config-file requires a path'); process.exit(1); }
+    try { configJson = fs.readFileSync(configPath, 'utf-8'); }
+    catch (e) { console.error('Error: Could not read config file:', e.message); process.exit(1); }
+    finally { try { fs.unlinkSync(configPath); } catch {} }
+  } else {
+    configJson = process.argv[2];
+  }
   if (!configJson) { console.error('Error: Config JSON required'); process.exit(1); }
 
   let config;
@@ -616,17 +651,15 @@ async function main() {
     })),
     errors: errors.length > 0 ? errors : undefined
   });
-  console.log(RESULT_SENTINEL + payload);
 
-  process.exit(errors.length > 0 ? 1 : 0);
+  emitResultAndExit(payload, errors.length > 0 ? 1 : 0);
 }
 
 // Allow unit testing of internal functions when required as a module
 if (require.main === module) {
   main().catch(err => {
     console.error('Fatal error:', err);
-    console.log(RESULT_SENTINEL + JSON.stringify({ protocolVersion: PROTOCOL_VERSION, browsers: [], errors: [err.message] }));
-    process.exit(1);
+    emitResultAndExit(JSON.stringify({ protocolVersion: PROTOCOL_VERSION, browsers: [], errors: [err.message] }), 1);
   });
 }
 

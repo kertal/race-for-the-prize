@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 // SyncBarrier is CJS — use createRequire to load it in ESM test context
 import { createRequire } from 'module';
@@ -49,16 +49,18 @@ describe('SyncBarrier', () => {
     vi.useFakeTimers();
     const sharedState = { hasError: false };
     const barrier = new SyncBarrier(3, sharedState);
+    try {
+      const p1 = barrier.wait('a');
 
-    const p1 = barrier.wait('a');
+      // Trigger error after a poll cycle
+      sharedState.hasError = true;
+      await vi.advanceTimersByTimeAsync(150);
 
-    // Trigger error after a poll cycle
-    sharedState.hasError = true;
-    await vi.advanceTimersByTimeAsync(150);
-
-    const result = await p1;
-    expect(result).toEqual({ aborted: true });
-    vi.useRealTimers();
+      const result = await p1;
+      expect(result).toEqual({ aborted: true });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('cleans up intervals on successful release', async () => {
@@ -93,81 +95,59 @@ describe('SyncBarrier', () => {
     expect(barrier.released).toBe(true);
   });
 
-  describe('timeout', () => {
-    // Restore real timers even when an assertion fails mid-test, so a failure
-    // here can never leak fake timers into later tests.
-    beforeEach(() => { vi.useFakeTimers(); });
-    afterEach(() => { vi.useRealTimers(); });
-
-    it('releases a hung waiter with timedOut after timeoutMs', async () => {
-      const sharedState = { hasError: false, errorMessage: null };
-      const barrier = new SyncBarrier(2, sharedState, { timeoutMs: 1000 });
-
-      const p1 = barrier.wait('recordingStart');
-      // The second racer never arrives (e.g. a pure-JS hang)
-      await vi.advanceTimersByTimeAsync(1100);
-
-      const result = await p1;
-      expect(result).toEqual({ aborted: true, timedOut: true });
-      expect(sharedState.hasError).toBe(true);
-      expect(sharedState.errorMessage).toContain('timed out');
-    });
-
-    it('does not time out when all racers arrive in time', async () => {
-      const barrier = new SyncBarrier(2, null, { timeoutMs: 1000 });
+  it('releases every waiter and flags sharedState when a checkpoint times out', async () => {
+    vi.useFakeTimers();
+    const sharedState = { hasError: false, errorMessage: null };
+    try {
+      // count=3 but only two callers ever arrive → deadlock without the timeout.
+      const barrier = new SyncBarrier(3, sharedState, 200);
 
       const p1 = barrier.wait('a');
-      await vi.advanceTimersByTimeAsync(500);
       const p2 = barrier.wait('b');
 
-      const results = await Promise.all([p1, p2]);
-      expect(results).toEqual([{ aborted: false }, { aborted: false }]);
+      await vi.advanceTimersByTimeAsync(250);
 
-      // Advancing past the deadline after release must not flip state
-      await vi.advanceTimersByTimeAsync(2000);
-      expect(barrier.timedOut).toBe(false);
-    });
+      expect(await p1).toEqual({ aborted: true });
+      expect(await p2).toEqual({ aborted: true });
+      expect(sharedState.hasError).toBe(true);
+      expect(sharedState.errorMessage).toMatch(/timed out/);
+      // Fully released: no stale bookkeeping a later waiter could trip on.
+      expect(barrier.checkIntervals.length).toBe(0);
+      expect(barrier.resolvers.length).toBe(0);
+      expect(barrier.released).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
-    it('late waiters after a timeout see the timedOut abort', async () => {
-      const barrier = new SyncBarrier(2, { hasError: false }, { timeoutMs: 1000 });
+  it('times out even without sharedState (releases the lone waiter)', async () => {
+    vi.useFakeTimers();
+    try {
+      const barrier = new SyncBarrier(2, null, 200);
+      const p1 = barrier.wait('solo');
+      await vi.advanceTimersByTimeAsync(250);
+      expect(await p1).toEqual({ aborted: true });
+      expect(barrier.released).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
-      const p1 = barrier.wait('a');
-      await vi.advanceTimersByTimeAsync(1100);
-      await p1;
-
-      const late = await barrier.wait('late');
-      expect(late).toEqual({ aborted: true, timedOut: true });
-    });
-
-    it('no timeout is armed when timeoutMs is 0 (default)', async () => {
-      const barrier = new SyncBarrier(2);
+  it('never times out when timeoutMs is 0 (backstop explicitly disabled)', async () => {
+    vi.useFakeTimers();
+    try {
+      const barrier = new SyncBarrier(2, { hasError: false }, 0);
 
       const p1 = barrier.wait('a');
       await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
-      expect(barrier.timedOut).toBe(false);
       expect(barrier.released).toBe(false);
 
+      // Still functional: the partner arriving late releases normally.
       barrier.wait('b');
-      const result = await p1;
-      expect(result).toEqual({ aborted: false });
-    });
-
-    it('polling-path aborts caused by this barrier timing out still carry timedOut', async () => {
-      // A waiter that is already polling when the barrier's own timeout fires
-      // must not have the timedOut flag stripped by the poll settle path.
-      const sharedState = { hasError: false, errorMessage: null };
-      const barrier = new SyncBarrier(3, sharedState, { timeoutMs: 1000 });
-
-      const p1 = barrier.wait('a');
-      const p2 = barrier.wait('b');
-      await vi.advanceTimersByTimeAsync(1200);
-
-      const results = await Promise.all([p1, p2]);
-      expect(results).toEqual([
-        { aborted: true, timedOut: true },
-        { aborted: true, timedOut: true },
-      ]);
-    });
+      expect(await p1).toEqual({ aborted: false });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('can be reused across multiple rounds', async () => {

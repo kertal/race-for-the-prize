@@ -17,6 +17,7 @@
  */
 
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import { spawn, spawnSync } from 'child_process';
@@ -26,7 +27,7 @@ import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c } from './cli/colors.js';
 import { FORMAT_EXTENSIONS } from './cli/media-config.js';
 import { raceVideoFile, fullVideoFile, traceFile, harFile, racerRelative } from './cli/paths.js';
-import { parseArgs, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown, findUnknownFlags } from './cli/config.js';
+import { parseArgs, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown, findUnknownFlags, findValuelessKvFlags, parseNetworkList, InvalidSettingError } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex, findMedianRunIndexPerRacer } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
@@ -45,6 +46,59 @@ export { buildResultsPaths, createStaticHandler, serveResults };
 export function formatTimestamp(date) {
   const pad = n => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
+}
+
+/**
+ * Build the top-level index.html for a multi-network race: one card per
+ * network condition linking to that condition's results player.
+ *
+ * @param {string} raceTitle - e.g. "lauda vs hunt"
+ * @param {Array<{network: string, summary: object|null}>} entries
+ * @returns {string} HTML document
+ */
+export function buildNetworkIndexHtml(raceTitle, entries) {
+  const esc = s => String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const rows = entries.map(({ network, summary }) => {
+    // 'tie' is a sentinel, not a racer name — render it like the other reports do.
+    const overallWinner = summary?.overallWinner;
+    let winner = '—';
+    if (overallWinner === 'tie') winner = '🤝 Tie';
+    else if (overallWinner) winner = `🏆 ${esc(overallWinner)}`;
+    return `      <li><a href="${encodeURIComponent(network)}/index.html">` +
+      `<span class="net">${esc(network)}</span><span class="winner">${winner}</span></a></li>`;
+  }).join('\n');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(raceTitle)} — Network Conditions</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #eee; margin: 0; padding: 40px 20px; }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 1.4em; margin-bottom: 4px; }
+  p.sub { color: #999; margin-top: 0; }
+  ul { list-style: none; padding: 0; }
+  li a { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px;
+         margin: 10px 0; background: #23233b; border-radius: 8px; color: #eee;
+         text-decoration: none; border: 1px solid #33335a; }
+  li a:hover { border-color: #6c6cd8; }
+  .net { font-weight: 600; }
+  .winner { color: #aaa; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>${esc(raceTitle)}</h1>
+  <p class="sub">One race per network condition — pick a condition to view its results.</p>
+  <ul>
+${rows}
+  </ul>
+</div>
+</body>
+</html>
+`;
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -68,6 +122,14 @@ const {
  * treating the signal as a successful no-op.
  */
 export const abortState = { aborted: false, reason: null };
+
+/**
+ * Accumulates racer error messages reported by the runner subprocess across all
+ * runs. A non-empty list means at least one browser failed, so the CLI exits
+ * non-zero even though partial results were still written — a broken benchmark
+ * must never look green to a CI gate.
+ */
+export const runnerFailures = [];
 
 /** Thrown when the user aborts (SIGINT/SIGTERM) or the operation is otherwise cancelled. */
 export class AbortError extends Error {
@@ -254,6 +316,17 @@ export function spawnRunner(ctx) {
   if (settings.noRecording) flags.push('no-recording');
   if (settings.ffmpeg) flags.push('ffmpeg');
 
+  // Pass the config via a temp file rather than argv. The config embeds every
+  // racer's full .spec.js source, which can blow past the OS argv size limit
+  // (E2BIG on Linux, ~32KB on Windows) for large specs. The runner consumes and
+  // deletes the file; we also clean it up if the spawn itself fails. Write it
+  // BEFORE starting the animation so a write failure can't leave the spinner
+  // interval running with no cleanup registered (0o600 + 'wx': owner-only,
+  // fail if the randomly-named path somehow already exists).
+  const tmpConfigPath = path.join(os.tmpdir(), `rftp-config-${process.pid}-${crypto.randomBytes(6).toString('hex')}.json`);
+  fs.writeFileSync(tmpConfigPath, JSON.stringify(runnerConfig), { mode: 0o600, flag: 'wx' });
+  const removeTmpConfig = () => { try { fs.unlinkSync(tmpConfigPath); } catch {} };
+
   const animation = new RaceAnimation(racerNames, flags.join(' · '));
   animation.start();
 
@@ -264,15 +337,18 @@ export function spawnRunner(ctx) {
   const runnerPath = path.join(rootDir, 'runner.cjs');
 
   return new Promise((resolve, reject) => {
-    // NOSONAR — spawns runner.cjs subprocess with race config; this is the core
-    // execution mechanism equivalent to running `node runner.cjs <config>`
-    const child = spawn('node', [runnerPath, JSON.stringify(runnerConfig)], {
+    // Launch the runner subprocess: `node runner.cjs --config-file <path>`.
+    const child = spawn('node', [runnerPath, '--config-file', tmpConfigPath], { // NOSONAR — node resolved via PATH is intentional; args are an array (no shell)
       cwd: rootDir,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    let stdout = '';
-    child.stdout.on('data', d => { stdout += d; });
+    // Collect raw Buffers and concat once, so a multi-byte UTF-8 sequence split
+    // across chunk boundaries (e.g. an emoji in a measurement name) is decoded
+    // whole rather than corrupted into replacement chars that break JSON.parse.
+    const stdoutChunks = [];
+    let killTimer = null;
+    child.stdout.on('data', d => { stdoutChunks.push(d); });
     child.stderr.on('data', d => {
       const text = d.toString();
       racerNames.forEach((name, i) => {
@@ -291,6 +367,13 @@ export function spawnRunner(ctx) {
       abortState.aborted = true;
       abortState.reason = sig;
       child.kill('SIGTERM');
+      // Escalate to SIGKILL if the child doesn't exit promptly. Headed Chromium
+      // routinely wedges in browser.close(), and without this the parent would
+      // wait forever on 'close' and the user's Ctrl+C would appear to hang.
+      if (!killTimer) {
+        killTimer = setTimeout(() => { try { child.kill('SIGKILL'); } catch {} }, 5000);
+        killTimer.unref();
+      }
     };
     const onSigint = makeSigHandler('SIGINT');
     const onSigterm = makeSigHandler('SIGTERM');
@@ -300,6 +383,8 @@ export function spawnRunner(ctx) {
     function cleanup() {
       process.removeListener('SIGINT', onSigint);
       process.removeListener('SIGTERM', onSigterm);
+      if (killTimer) { clearTimeout(killTimer); killTimer = null; }
+      removeTmpConfig();
       if (animation.interval) animation.stop();
     }
 
@@ -321,19 +406,30 @@ export function spawnRunner(ctx) {
       // arbitrary stdout noise (Playwright logs, subprocess output) and
       // ensures a signal-cleanup stub from a previous killed run can never
       // be mistaken for a real result.
+      const stdout = Buffer.concat(stdoutChunks).toString('utf8');
       const lines = stdout.split('\n');
       for (let i = lines.length - 1; i >= 0; i--) {
         const line = lines[i];
         if (!line.startsWith(RUNNER_RESULT_SENTINEL)) continue;
         try {
-          const result = JSON.parse(line.slice(RUNNER_RESULT_SENTINEL.length));
-          if (result.protocolVersion !== RUNNER_PROTOCOL_VERSION) {
+          const parsed = JSON.parse(line.slice(RUNNER_RESULT_SENTINEL.length));
+          if (parsed.protocolVersion !== RUNNER_PROTOCOL_VERSION) {
             return reject(new Error(
               `Runner protocol mismatch: race.js expects v${RUNNER_PROTOCOL_VERSION} but runner.cjs ` +
-              `sent v${result.protocolVersion ?? 'unversioned'}. race.js and runner.cjs must come from the same install.`
+              `sent v${parsed.protocolVersion ?? 'unversioned'}. race.js and runner.cjs must come from the same install.`
             ));
           }
-          return resolve(result);
+          // A runner that exited non-zero reported at least one racer error.
+          // Record it so the CLI can surface a non-zero exit code instead of
+          // silently reporting a broken benchmark as success, while still
+          // resolving with whatever partial results we did get.
+          if (code !== 0 || (parsed.errors && parsed.errors.length > 0)) {
+            const msgs = parsed.errors && parsed.errors.length > 0
+              ? parsed.errors
+              : [`runner exited with code ${code}`];
+            runnerFailures.push(...msgs);
+          }
+          return resolve(parsed);
         } catch (e) {
           console.error(`Warning: Malformed runner result line: ${e.message}`);
         }
@@ -516,6 +612,16 @@ if (unknownFlags.length > 0) {
   const labels = unknownFlags.map(n => `--${n}`).join(', ');
   console.error(`${c.red}Error: Unknown flag(s): ${labels}${c.reset}`);
   console.error(`${c.dim}  Run with no arguments to see the list of supported flags.${c.reset}`);
+  process.exit(2);
+}
+
+// Reject value-requiring flags passed without a value (e.g. a bare `--runs`),
+// which would otherwise be silently dropped and run with the default.
+const valuelessFlags = findValuelessKvFlags(boolFlags);
+if (valuelessFlags.length > 0) {
+  const labels = valuelessFlags.map(n => `--${n}`).join(', ');
+  console.error(`${c.red}Error: Flag(s) require a value: ${labels}${c.reset}`);
+  console.error(`${c.dim}  Example: --runs=3 (or --runs 3)${c.reset}`);
   process.exit(2);
 }
 
@@ -702,6 +808,7 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--parallel${c.reset}           Run both browsers simultaneously
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--headless${c.reset}           Hide browsers
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--network${c.reset}=${c.green}slow-3g${c.reset}   Network: none, slow-3g, fast-3g, 4g
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--network${c.reset}=${c.green}slow-3g,4g${c.reset} Race each network condition separately
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}4${c.reset}              CPU throttle multiplier (1=none)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--format${c.reset}=${c.green}mov${c.reset}          Output format: webm (default), mov, gif
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--runs${c.reset}=${c.green}3${c.reset}            Run multiple times, report median
@@ -831,9 +938,28 @@ const racerScripts = racerNames.map(name => ({
 const runScript = (script, label, vars) => runTaskScript(script, label, vars, { raceDir, verbose });
 
 const totalRuns = settings.runs;
+
+// Resolve the network setting into a list of conditions. A single condition
+// behaves exactly as before; multiple conditions (comma-separated --network or
+// an array in settings.json) race each condition separately, with results
+// named after the condition.
+let networkConditions;
+try {
+  networkConditions = parseNetworkList(settings.network ?? 'none', 'network');
+} catch (e) {
+  if (e instanceof InvalidSettingError) {
+    console.error(`${c.red}Error: ${e.message}${c.reset}`);
+    process.exit(2);
+  }
+  throw e;
+}
+const multiNetwork = networkConditions.length > 1;
+
 // Include a short random nonce so rapid successive runs (timestamp collisions,
 // e.g. same second) don't overwrite each other's output.
-const resultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}-${crypto.randomBytes(3).toString('hex')}`);
+const baseResultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}-${crypto.randomBytes(3).toString('hex')}`);
+// In multi-network mode this is reassigned per condition (baseResultsDir/<network>).
+let resultsDir = baseResultsDir;
 
 // --- Main ---
 
@@ -966,6 +1092,114 @@ function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts
   return { summary, clipTimes };
 }
 
+/**
+ * Run the full race series (all runs, all racers) for the current module-level
+ * settings/ctx/resultsDir. Returns the series' top-level summary: the race
+ * summary for single-run races, or the median summary for multi-run races.
+ */
+async function runRaceSeries() {
+  // Split mode (all runs of one racer before the next) is required when
+  // per-racer setup scripts exist or --pause is set; otherwise racers run
+  // together per run.
+  const needsSplitMode = settings.pauseBetweenRuns || racerScripts.some(r => r.setup);
+  return needsSplitMode ? runSplitModeSeries() : runNormalModeSeries();
+}
+
+/** Normal mode: all racers run together, once per run. */
+async function runNormalModeSeries() {
+  if (totalRuns === 1) {
+    const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir);
+    printSummary(summary);
+    generateGeminiCommentary(summary, resultsDir);
+    // Re-write summary.json with gemini commentary included
+    fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(summary, null, 2));
+    bakeNotesIntoHtml(resultsDir, summary.geminiCommentary);
+    fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summary, sideBySidePath ? sideBySideName : null));
+    return summary;
+  }
+
+  fs.mkdirSync(resultsDir, { recursive: true });
+  const summaries = [], sideBySideNames = [], allClipTimes = [];
+
+  for (let i = 0; i < totalRuns; i++) {
+    console.error(`\n  ${c.bold}${c.cyan}── Run ${i + 1} of ${totalRuns} ──${c.reset}`);
+    const runNav = { currentRun: i + 1, totalRuns, pathPrefix: '../' };
+    const { summary, sideBySidePath, sideBySideName, clipTimes: runClipTimes } = await runSingleRace(ctx, path.join(resultsDir, String(i + 1)), runNav, { skipCopyFFmpeg: true, ffmpegPathPrefix: '../' });
+    printSummary(summary);
+    summaries.push(summary);
+    sideBySideNames.push(sideBySidePath ? sideBySideName : null);
+    allClipTimes.push(runClipTimes);
+  }
+
+  updateRunNavColors(summaries);
+  return buildMedianOutput(summaries, sideBySideNames, allClipTimes);
+}
+
+/**
+ * Run every run of one racer in sequence, preceded by its setup script and any
+ * pauses. Fills rawResults[runIdx] / movedResults[runIdx] for that racer.
+ */
+async function runRacerRuns(ri, multiRun, rawResults, movedResults) {
+  if (ri > 0 && settings.pauseBetweenRuns && !racerScripts[ri].setup) {
+    await waitForEnter(`\n  ${c.bold}${c.yellow}⏸  Paused — press Enter to start ${racerNames[ri]}...${c.reset} `);
+  }
+  // Run per-racer setup right before this racer's runs
+  if (racerScripts[ri].setup) {
+    await runScript(racerScripts[ri].setup, `Setup [${racerScripts[ri].name}]`, racerScripts[ri].vars);
+  }
+  for (let i = 0; i < totalRuns; i++) {
+    if (i > 0 && settings.pauseBetweenRuns) {
+      await waitForEnter(`\n  ${c.bold}${c.yellow}⏸  Paused — press Enter to start ${racerNames[ri]} run ${i + 1}...${c.reset} `);
+    }
+    const label = multiRun ? `${racerNames[ri]}: Run ${i + 1} of ${totalRuns}` : racerNames[ri];
+    console.error(`\n  ${c.bold}${c.cyan}── ${label} ──${c.reset}`);
+    const runDir = multiRun ? path.join(resultsDir, String(i + 1)) : resultsDir;
+    const { rawResult, movedResult } = await runRacerAlone(ri, path.join(runDir, racerNames[ri]));
+    rawResults[i] = rawResult;
+    movedResults[i] = movedResult;
+  }
+}
+
+/**
+ * Split mode: all runs of each racer in sequence.
+ * Pattern: setupA → A₁, A₂, …, Aₙ → setupB → B₁, B₂, …, Bₙ
+ */
+async function runSplitModeSeries() {
+  fs.mkdirSync(resultsDir, { recursive: true });
+  const multiRun = totalRuns > 1;
+
+  // rawResults[racerIdx][runIdx], movedResults[racerIdx][runIdx]
+  const rawResults  = racerNames.map(() => Array(totalRuns).fill(null));
+  const movedResults = racerNames.map(() => Array(totalRuns).fill(null));
+
+  for (let ri = 0; ri < racerNames.length; ri++) {
+    await runRacerRuns(ri, multiRun, rawResults[ri], movedResults[ri]);
+  }
+
+  const summaries = [], allClipTimes = [];
+  for (let i = 0; i < totalRuns; i++) {
+    const runDir = multiRun ? path.join(resultsDir, String(i + 1)) : resultsDir;
+    const runNav = multiRun ? { currentRun: i + 1, totalRuns, pathPrefix: '../' } : null;
+    const { summary, clipTimes } = buildRunOutput(
+      runDir,
+      racerNames.map((_, ri) => rawResults[ri][i]),
+      racerNames.map((_, ri) => movedResults[ri][i]),
+      runNav,
+      { skipCopyFFmpeg: multiRun, ffmpegPathPrefix: multiRun ? '../' : './' }
+    );
+    printSummary(summary);
+    summaries.push(summary);
+    allClipTimes.push(clipTimes);
+  }
+
+  if (!multiRun) {
+    fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summaries[0], null));
+    return summaries[0];
+  }
+  updateRunNavColors(summaries);
+  return buildMedianOutput(summaries, summaries.map(() => null), allClipTimes);
+}
+
 async function main() {
   let setupCompleted = false;
 
@@ -973,92 +1207,45 @@ async function main() {
     // Run global setup script before races
     await runScript(setupScript, 'Setup');
 
-    const hasRacerSetups = racerScripts.some(r => r.setup);
-
     setupCompleted = true;
-    if (!settings.pauseBetweenRuns && !hasRacerSetups) {
-      // --- Normal mode: both racers run together per run ---
-      if (totalRuns === 1) {
-        const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir);
-        printSummary(summary);
-        generateGeminiCommentary(summary, resultsDir);
-        // Re-write summary.json with gemini commentary included
-        fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(summary, null, 2));
-        bakeNotesIntoHtml(resultsDir, summary.geminiCommentary);
-        fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summary, sideBySidePath ? sideBySideName : null));
-      } else {
-        fs.mkdirSync(resultsDir, { recursive: true });
-        const summaries = [], sideBySideNames = [], allClipTimes = [];
 
-        for (let i = 0; i < totalRuns; i++) {
-          console.error(`\n  ${c.bold}${c.cyan}── Run ${i + 1} of ${totalRuns} ──${c.reset}`);
-          const runNav = { currentRun: i + 1, totalRuns, pathPrefix: '../' };
-          const { summary, sideBySidePath, sideBySideName, clipTimes: runClipTimes } = await runSingleRace(ctx, path.join(resultsDir, String(i + 1)), runNav, { skipCopyFFmpeg: true, ffmpegPathPrefix: '../' });
-          printSummary(summary);
-          summaries.push(summary);
-          sideBySideNames.push(sideBySidePath ? sideBySideName : null);
-          allClipTimes.push(runClipTimes);
-        }
-
-        updateRunNavColors(summaries);
-        buildMedianOutput(summaries, sideBySideNames, allClipTimes);
-      }
-    } else {
-      // --- Split mode: all runs of each racer in sequence ---
-      // Activated when per-racer setup scripts exist or --pause is set.
-      // Pattern: setupA → A₁, A₂, …, Aₙ → setupB → B₁, B₂, …, Bₙ
-      fs.mkdirSync(resultsDir, { recursive: true });
-      const multiRun = totalRuns > 1;
-
-      // rawResults[racerIdx][runIdx], movedResults[racerIdx][runIdx]
-      const rawResults  = racerNames.map(() => Array(totalRuns).fill(null));
-      const movedResults = racerNames.map(() => Array(totalRuns).fill(null));
-
-      for (let ri = 0; ri < racerNames.length; ri++) {
-        if (ri > 0 && settings.pauseBetweenRuns && !racerScripts[ri].setup) {
-          await waitForEnter(`\n  ${c.bold}${c.yellow}⏸  Paused — press Enter to start ${racerNames[ri]}...${c.reset} `);
-        }
-        // Run per-racer setup right before this racer's runs
-        if (racerScripts[ri].setup) {
-          await runScript(racerScripts[ri].setup, `Setup [${racerScripts[ri].name}]`, racerScripts[ri].vars);
-        }
-        for (let i = 0; i < totalRuns; i++) {
-          if (i > 0 && settings.pauseBetweenRuns) {
-            await waitForEnter(`\n  ${c.bold}${c.yellow}⏸  Paused — press Enter to start ${racerNames[ri]} run ${i + 1}...${c.reset} `);
-          }
-          const label = multiRun ? `${racerNames[ri]}: Run ${i + 1} of ${totalRuns}` : racerNames[ri];
-          console.error(`\n  ${c.bold}${c.cyan}── ${label} ──${c.reset}`);
-          const runDir = multiRun ? path.join(resultsDir, String(i + 1)) : resultsDir;
-          const { rawResult, movedResult } = await runRacerAlone(ri, path.join(runDir, racerNames[ri]));
-          rawResults[ri][i] = rawResult;
-          movedResults[ri][i] = movedResult;
-        }
-      }
-
-      const summaries = [], allClipTimes = [];
-      for (let i = 0; i < totalRuns; i++) {
-        const runDir = multiRun ? path.join(resultsDir, String(i + 1)) : resultsDir;
-        const runNav = multiRun ? { currentRun: i + 1, totalRuns, pathPrefix: '../' } : null;
-        const { summary, clipTimes } = buildRunOutput(
-          runDir,
-          racerNames.map((_, ri) => rawResults[ri][i]),
-          racerNames.map((_, ri) => movedResults[ri][i]),
-          runNav,
-          { skipCopyFFmpeg: multiRun, ffmpegPathPrefix: multiRun ? '../' : './' }
-        );
-        printSummary(summary);
-        summaries.push(summary);
-        allClipTimes.push(clipTimes);
-      }
-
-      if (!multiRun) {
-        fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summaries[0], null));
-      } else {
-        updateRunNavColors(summaries);
-        buildMedianOutput(summaries, summaries.map(() => null), allClipTimes);
-      }
+    // Split mode runs each racer alone and sequentially, which is fundamentally
+    // incompatible with --parallel. Warn once (not per network condition)
+    // instead of silently ignoring the flag.
+    if (settings.parallel && (settings.pauseBetweenRuns || racerScripts.some(r => r.setup))) {
+      const reason = racerScripts.some(r => r.setup) ? 'per-racer setup scripts are present' : '--pause is set';
+      console.error(`  ${c.yellow}Note: --parallel is ignored because ${reason}; racers will run one at a time.${c.reset}`);
     }
 
+    // Race each network condition separately. With a single condition this
+    // loop runs once with resultsDir === baseResultsDir (unchanged behavior).
+    const baseSettings = settings;
+    const baseCtx = ctx;
+    const networkSummaries = [];
+    for (const network of networkConditions) {
+      settings = { ...baseSettings, network };
+      ctx = {
+        ...baseCtx,
+        settings,
+        throttle: { ...baseCtx.throttle, network },
+        runnerConfig: { ...baseCtx.runnerConfig, throttle: { ...baseCtx.runnerConfig.throttle, network } },
+      };
+      if (multiNetwork) {
+        resultsDir = path.join(baseResultsDir, network);
+        console.error(`\n  ${c.bold}${c.magenta}══ Network: ${network} ══${c.reset}`);
+      }
+      networkSummaries.push({ network, summary: await runRaceSeries() });
+    }
+
+    if (multiNetwork) {
+      resultsDir = baseResultsDir;
+      if (!settings.noRecording) {
+        fs.writeFileSync(
+          path.join(baseResultsDir, 'index.html'),
+          buildNetworkIndexHtml(racerNames.join(' vs '), networkSummaries)
+        );
+      }
+    }
 
     const { relResults, relHtml } = buildResultsPaths(resultsDir);
     console.error(`  ${c.dim}📂 ${relResults}${c.reset}`);
@@ -1149,9 +1336,21 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
   console.error(`\n  ${c.bold}${c.cyan}── Median Results (${totalRuns} runs) ──${c.reset}`);
   printSummary(medianSummary);
   fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMultiRunMarkdown(medianSummary, summaries));
+  return medianSummary;
 }
 
 await main();
+
+// Surface runner-level racer failures as a non-zero exit code. main() only sets
+// the exit code when it throws; a race where every browser errored resolves
+// normally with an (empty) summary, so without this a totally failed benchmark
+// would exit 0 and pass CI.
+if (!process.exitCode && runnerFailures.length > 0) {
+  console.error(`\n${c.red}${c.bold}Race completed with errors:${c.reset}`);
+  for (const msg of runnerFailures) console.error(`  ${c.red}• ${msg}${c.reset}`);
+  process.exitCode = 1;
+}
+
 if (settings.noServe || settings.noRecording) process.exit(process.exitCode || 0);
 
 } // end isMainModule

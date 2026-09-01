@@ -282,6 +282,7 @@ node race.js <dir> --headless             # Lights out — no visible browsers
 node race.js <dir> --network=slow-3g      # Wet track conditions
 node race.js <dir> --network=fast-3g      # Damp track
 node race.js <dir> --network=4g           # Dry track
+node race.js <dir> --network=slow-3g,4g   # Full season — race each condition separately
 node race.js <dir> --cpu=4                # Ballast penalty (CPU throttle)
 node race.js <dir> --format=mov           # Broadcast-ready replay format (requires --ffmpeg)
 node race.js <dir> --format=gif           # Quick highlight reel (requires --ffmpeg)
@@ -378,7 +379,7 @@ The terminal delivers the verdict in style:
 | Field | CLI flag | Values (booleans accept `true`/`false`, `1`/`0`, `yes`/`no`) | Default |
 |---|---|---|---|
 | `parallel` | `--parallel` | `true` / `false` | `false` |
-| `network` | `--network=<preset>` | `none`, `slow-3g`, `fast-3g`, `4g` | `none` |
+| `network` | `--network=<preset>[,<preset>…]` | `none`, `slow-3g`, `fast-3g`, `4g` — a comma-separated list (or JSON array) races each condition separately, with results in a subdirectory named after the condition | `none` |
 | `cpuThrottle` | `--cpu=<n>` | `1` (none) to any multiplier | `1` |
 | `headless` | `--headless` | `true` / `false` | `false` |
 | `runs` | `--runs=<n>` | integer ≥ 1 (median of N runs) | `1` |

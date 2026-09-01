@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
 import { buildPlayerHtml } from '../cli/videoplayer.js';
+import { hasChromiumInstalled } from './test-helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -63,7 +64,13 @@ async function launchPlaywright() {
   return pw.chromium.launch({ headless: true });
 }
 
-describe('clip-alignment integration', () => {
+// Skip the whole suite when no Chromium is available rather than letting the
+// individual tests early-return (which reports them green while asserting
+// nothing). When Chromium IS present the tests must run for real.
+const canRun = hasChromiumInstalled(path.resolve(__dirname, '..'));
+const describeMaybe = canRun ? describe : describe.skip;
+
+describeMaybe('clip-alignment integration', () => {
   beforeAll(async () => {
     // Generate the HTML
     const html = buildPlayerHtml(summary, videoFiles, null, null, { clipTimes });
@@ -98,7 +105,7 @@ describe('clip-alignment integration', () => {
   });
 
   it('resolveClip returns elapsed-time range (minStart + maxDuration)', async () => {
-    if (!page) return;
+    if (!page) throw new Error('Playwright browser failed to launch');
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
     // The player script defines resolveClip in the IIFE scope.
@@ -128,7 +135,7 @@ describe('clip-alignment integration', () => {
   });
 
   it('seekAll produces consistent elapsed times across racers', async () => {
-    if (!page) return;
+    if (!page) throw new Error('Playwright browser failed to launch');
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
     // Test the seekAll alignment logic directly
@@ -174,7 +181,7 @@ describe('clip-alignment integration', () => {
   });
 
   it('old seekAll logic (clamp-to-range) would produce misaligned times', async () => {
-    if (!page) return;
+    if (!page) throw new Error('Playwright browser failed to launch');
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
     // Demonstrate that the old approach (clamping to own range without elapsed mapping) is wrong
@@ -216,7 +223,7 @@ describe('clip-alignment integration', () => {
   });
 
   it('scrubber at 100% maps all videos to their clip ends', async () => {
-    if (!page) return;
+    if (!page) throw new Error('Playwright browser failed to launch');
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
     const result = await page.evaluate(() => {

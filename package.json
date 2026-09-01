@@ -10,6 +10,7 @@
     "race.js",
     "*.cjs",
     "cli/",
+    "scripts/postinstall.cjs",
     "races/*/*.spec.js",
     "races/*/*.html",
     "races/*/settings.json",
@@ -17,7 +18,7 @@
     "INSTALLATION.md"
   ],
   "scripts": {
-    "postinstall": "playwright install chromium",
+    "postinstall": "node scripts/postinstall.cjs",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.js",
     "race": "node race.js"

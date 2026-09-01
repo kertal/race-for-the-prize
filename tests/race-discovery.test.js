@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { discoverRacers, resolveSharedRacerNames, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown, InvalidSettingError } from '../cli/config.js';
+import { discoverRacers, resolveSharedRacerNames, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown, findValuelessKvFlags, parseNetworkList, InvalidSettingError } from '../cli/config.js';
 
 let tmpDir;
 
@@ -267,6 +267,18 @@ describe('argument parsing', () => {
     expect(boolFlags.has('unknown')).toBe(true);
     expect(positional).toEqual(['somevalue']);
   });
+
+  it('flags value-requiring kv flags passed without a value', () => {
+    // Bare `--runs` at end of argv, or immediately before another flag, lands
+    // in boolFlags and must be reported rather than silently ignored.
+    expect(findValuelessKvFlags(parseArgs(['dir', '--runs']).boolFlags)).toEqual(['runs']);
+    expect(findValuelessKvFlags(parseArgs(['dir', '--runs', '--parallel']).boolFlags)).toEqual(['runs']);
+    // A properly-valued kv flag is not reported.
+    expect(findValuelessKvFlags(parseArgs(['dir', '--runs', '3']).boolFlags)).toEqual([]);
+    expect(findValuelessKvFlags(parseArgs(['dir', '--runs=3']).boolFlags)).toEqual([]);
+    // Boolean flags without values are legitimate, not reported.
+    expect(findValuelessKvFlags(parseArgs(['dir', '--parallel']).boolFlags)).toEqual([]);
+  });
 });
 
 describe('settings override', () => {
@@ -288,6 +300,33 @@ describe('settings override', () => {
   it('CLI --network overrides settings.json network', () => {
     const s = applyOverrides({ network: 'none' }, new Set(), { network: 'slow-3g' });
     expect(s.network).toBe('slow-3g');
+  });
+
+  it('CLI --network with comma-separated list produces an array', () => {
+    const s = applyOverrides({}, new Set(), { network: 'slow-3g,4g' });
+    expect(s.network).toEqual(['slow-3g', '4g']);
+  });
+
+  it('CLI --network trims whitespace around list entries', () => {
+    const s = applyOverrides({}, new Set(), { network: ' slow-3g , fast-3g ' });
+    expect(s.network).toEqual(['slow-3g', 'fast-3g']);
+  });
+
+  it('CLI --network list with a single entry stays a string', () => {
+    const s = applyOverrides({}, new Set(), { network: 'fast-3g,' });
+    expect(s.network).toBe('fast-3g');
+  });
+
+  it('throws on unknown preset inside --network list', () => {
+    const attempt = () => applyOverrides({}, new Set(), { network: 'slow-3g,fiber' });
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/Unknown network preset.*fiber/);
+  });
+
+  it('throws on duplicate presets in --network list', () => {
+    const attempt = () => applyOverrides({}, new Set(), { network: '4g,slow-3g,4g' });
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/Duplicate network preset.*4g/);
   });
 
   it('CLI --cpu overrides settings.json cpuThrottle', () => {
@@ -761,5 +800,38 @@ describe('per-racer setup/teardown discovery', () => {
     const { setup, teardown } = discoverRacerSetupTeardown(tmpDir, 'lauda');
     expect(setup).toBe(null);
     expect(teardown).toBe(null);
+  });
+});
+
+describe('parseNetworkList', () => {
+  it('parses a single preset string', () => {
+    expect(parseNetworkList('slow-3g')).toEqual(['slow-3g']);
+  });
+
+  it('parses a comma-separated string', () => {
+    expect(parseNetworkList('none,slow-3g,4g')).toEqual(['none', 'slow-3g', '4g']);
+  });
+
+  it('parses an array (settings.json form)', () => {
+    expect(parseNetworkList(['fast-3g', '4g'])).toEqual(['fast-3g', '4g']);
+  });
+
+  it('trims whitespace in array entries', () => {
+    expect(parseNetworkList([' fast-3g ', '4g'])).toEqual(['fast-3g', '4g']);
+  });
+
+  it('throws when no presets remain after filtering empties', () => {
+    expect(() => parseNetworkList('')).toThrow(InvalidSettingError);
+    expect(() => parseNetworkList(' , ')).toThrow(/at least one network preset/);
+    expect(() => parseNetworkList([])).toThrow(InvalidSettingError);
+  });
+
+  it('throws on unknown presets', () => {
+    expect(() => parseNetworkList('5g')).toThrow(/Unknown network preset "5g"/);
+    expect(() => parseNetworkList(['slow-3g', '5g'])).toThrow(/Unknown network preset "5g"/);
+  });
+
+  it('throws on duplicates and names the source', () => {
+    expect(() => parseNetworkList('4g,4g', 'network')).toThrow(/Duplicate network preset\(s\) in network: 4g/);
   });
 });

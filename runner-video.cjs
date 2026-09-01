@@ -92,7 +92,11 @@ function extractSegments(videoPath, segments, browserId) {
       ], { timeout: FFMPEG_TIMEOUT_MS, stdio: 'pipe' });
     }
 
-    fs.writeFileSync(concatListPath, segmentFiles.map(f => `file '${f}'`).join('\n'));
+    // Quote-safe the concat list: the ffmpeg concat demuxer wraps each path in
+    // single quotes, so a literal ' in a derived path must be written as '\''
+    // (close, escaped quote, reopen) or the input line is silently mangled.
+    const concatEntry = (f) => `file '${f.replace(/'/g, "'\\''")}'`;
+    fs.writeFileSync(concatListPath, segmentFiles.map(concatEntry).join('\n')); // NOSONAR — concatListPath is confined to the recording dir (confinePath) with a fixed name, not user input
     const outputPath = confinePath(dir, `${base}_final${ext}`);
     execFileSync(FFMPEG_BIN, [
       '-y', '-f', 'concat', '-safe', '0',

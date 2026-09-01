@@ -179,10 +179,10 @@ export function buildProfileComparison(racerNames, profileData) {
     }
   }
 
-  // Determine overall winners
-  // Use 0 here because per-metric significance thresholds are already applied above.
-  const measuredOverallWinner = determineOverallWinner(measuredWins, racerNames, measuredComparisons, 0);
-  const totalOverallWinner = determineOverallWinner(totalWins, racerNames, totalComparisons, 0);
+  // Determine overall winners. Per-metric significance thresholds are already
+  // applied above, so this is a straight win-count tally.
+  const measuredOverallWinner = determineOverallWinner(measuredWins, racerNames, measuredComparisons);
+  const totalOverallWinner = determineOverallWinner(totalWins, racerNames, totalComparisons);
 
   return {
     measured: {

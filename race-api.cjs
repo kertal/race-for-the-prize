@@ -35,6 +35,8 @@
  *   time in seconds (last measurement end, or now).
  * @param {(name: string) => Promise<void>} [options.hooks.onMeasureStart]
  * @param {(name: string) => void} [options.hooks.onMeasureEnd]
+ * @param {(name: string) => void} [options.hooks.onUnmatchedMeasureEnd] raceEnd
+ *   was called with a name that has no open raceStart (usually a typo).
  * @param {() => Promise<void>} [options.hooks.onFirstRaceStart] Once, on the first
  *   raceStart before any measurement exists (CDP metrics measurement start).
  * @param {(name: string) => Promise<void>} [options.hooks.onSectionStart]
@@ -50,6 +52,7 @@ function createRaceApi({ recordingStartTime = Date.now(), now = Date.now, hooks 
     onRecordingStop,
     onMeasureStart,
     onMeasureEnd,
+    onUnmatchedMeasureEnd,
     onFirstRaceStart,
     onSectionStart,
     onSectionEnd,
@@ -98,7 +101,12 @@ function createRaceApi({ recordingStartTime = Date.now(), now = Date.now, hooks 
 
   const endMeasure = (name = 'default') => {
     const start = activeMeasurements[name];
-    if (start === undefined) return 0;
+    if (start === undefined) {
+      // No matching raceStart — almost always a typo'd measurement name. Report
+      // it rather than silently dropping the timing and showing no data.
+      if (onUnmatchedMeasureEnd) onUnmatchedMeasureEnd(name);
+      return 0;
+    }
     const end = elapsed();
     const duration = end - start;
     measurements.push({ name, startTime: start, endTime: end, duration });

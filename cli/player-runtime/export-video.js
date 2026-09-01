@@ -17,13 +17,19 @@ function getExportLayout(count) {
   return computeExportLayout(count, aspect);
 }
 
-function drawExportFrame(ctx, layout, clockTime) {
+function drawExportFrame(ctx, layout, clockTime, visibleIndices) {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, layout.canvasW, layout.canvasH);
-  for (let i = 0; i < raceVideos.length; i++) {
+  // Draw only the visible racers, packed into the layout's slots in order.
+  // Indexing positions by the original racer index would leave gaps (and size
+  // mismatches) once any racer is hidden, so map the j-th visible racer to the
+  // j-th slot while still using the original index for its name/colour.
+  const indices = visibleIndices || raceVideos.map((_, i) => i);
+  for (let j = 0; j < indices.length; j++) {
+    const i = indices[j];
     const v = raceVideos[i];
-    if (!v) continue;
-    const pos = layout.positions[i];
+    const pos = layout.positions[j];
+    if (!v || !pos) continue;
     ctx.fillStyle = racerColors[i] || '#e8e0d0';
     ctx.font = 'bold 16px Georgia, serif';
     ctx.textAlign = 'center';
@@ -182,7 +188,13 @@ async function startExport() {
   }
   if (playing) { videos.forEach(v => v?.pause()); playing = false; setPlayState(false); }
 
-  const layout = getExportLayout(raceVideos.length);
+  // Respect the racer filter: hidden racers must not be baked into the export.
+  const visibleIndices = raceVideos.map((_, i) => i).filter(i => raceVideos[i] && !hiddenRacers.has(i));
+  if (visibleIndices.length === 0) {
+    alert('No visible racers to export — unhide at least one racer first.');
+    return;
+  }
+  const layout = getExportLayout(visibleIndices.length);
 
   const tmpl = document.getElementById('tmpl-export-overlay');
   const overlay = tmpl.content.cloneNode(true).firstElementChild;
@@ -202,12 +214,17 @@ async function startExport() {
 
   const adj = getAdjustedClipTimes();
   const ct = adj || clipTimes;
-  const perVideoEnd = raceVideos.map((v, i) => {
+  // Drive seek/play/progress/completion from the visible racers only, so a
+  // hidden racer can't skew the clock, extend the export, or block completion.
+  // perVideoEnd is indexed by visible position j (parallel to visibleIndices).
+  const perVideoEnd = visibleIndices.map((i) => {
+    const v = raceVideos[i];
     if (!v) return endTime;
     return (activeClip && ct && ct[i]) ? ct[i].end : endTime;
   });
 
-  const seekPromises = raceVideos.map((v, i) => {
+  const seekPromises = visibleIndices.map((i) => {
+    const v = raceVideos[i];
     if (!v) return Promise.resolve();
     return new Promise((resolve) => {
       let target = startTime;
@@ -229,7 +246,7 @@ async function startExport() {
     cancelled = true;
     if (recorder && recorder.state !== 'inactive') recorder.stop();
     if (rafId) cancelAnimationFrame(rafId);
-    raceVideos.forEach(v => v?.pause());
+    visibleIndices.forEach(i => raceVideos[i]?.pause());
     overlay.remove();
   });
 
@@ -270,22 +287,25 @@ async function startExport() {
 
   recorder.start();
   const exportRate = parseFloat(speedSelect.value) || 1;
-  raceVideos.forEach(v => { if (v) { v.playbackRate = exportRate; v.play(); } });
+  visibleIndices.forEach(i => { const v = raceVideos[i]; if (v) { v.playbackRate = exportRate; v.play(); } });
   const speedLabel = exportRate !== 1 ? ' (' + exportRate + 'x)' : '';
 
   let exportTimeOffset = null;
   function tick() {
     if (cancelled) return;
-    const cur = Math.max(...raceVideos.map(v => v?.currentTime || 0));
+    const cur = Math.max(...visibleIndices.map(i => raceVideos[i]?.currentTime || 0));
     if (exportTimeOffset === null) exportTimeOffset = cur;
     const elapsed = cur - exportTimeOffset;
-    drawExportFrame(ctx, layout, elapsed);
+    drawExportFrame(ctx, layout, elapsed, visibleIndices);
     const progress = totalDur > 0 ? Math.min(1, elapsed / totalDur) : 0;
     progressFill.style.width = (progress * 100).toFixed(1) + '%';
     statusEl.textContent = 'Recording' + speedLabel + '... ' + Math.round(progress * 100) + '%';
-    const allDone = raceVideos.every((v, i) => !v || v.currentTime >= perVideoEnd[i] || v.ended);
+    const allDone = visibleIndices.every((i, j) => {
+      const v = raceVideos[i];
+      return !v || v.currentTime >= perVideoEnd[j] || v.ended;
+    });
     if (allDone) {
-      raceVideos.forEach(v => v?.pause());
+      visibleIndices.forEach(i => raceVideos[i]?.pause());
       if (recorder.state !== 'inactive') recorder.stop();
       return;
     }
