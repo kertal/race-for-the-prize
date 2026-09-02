@@ -54,7 +54,8 @@ const RUNTIME_FILES = [
   'export-video.js',   // canvas side-by-side export + ffmpeg.wasm conversion
   'fullscreen.js',     // fullscreen mode
   'zip.cjs',           // pure CRC32/ZIP builder (Node-testable)
-  'export-zip.js',     // self-contained HTML/ZIP export flows
+  'metrics-csv.cjs',   // pure metrics.csv builder (Node-testable)
+  'export-zip.js',     // self-contained HTML/ZIP export flows + performance data export
 ];
 const RUNTIME = RUNTIME_FILES
   .map(f => fs.readFileSync(path.join(__dirname, 'player-runtime', f), 'utf-8'))

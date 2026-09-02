@@ -305,39 +305,8 @@ if (exportHtmlOnlyBtn) {
 
 // --- Performance data export -------------------------------------------------
 // Bundles everything needed for deeper performance analysis in external tools:
-// per-racer DevTools traces, HAR files, summary.json, a flat metrics.csv, and
-// a README explaining how to load each file.
-
-// Quote a CSV cell when it contains a comma, quote, or newline.
-function csvCell(value) {
-  const s = value == null ? '' : String(value);
-  return /[",\n]/.test(s) ? '"' + s.replaceAll('"', '""') + '"' : s;
-}
-
-// Flatten race timings and profile metrics into one CSV table (raw values, one column per racer).
-function buildMetricsCsv(summaryData) {
-  const racers = summaryData.racers || racerNames || [];
-  const rows = [['scope', 'category', 'metric', ...racers, 'winner', 'diff_percent']];
-  for (const comp of (summaryData.comparisons || [])) {
-    rows.push([
-      'race', 'timing', comp.name + ' (s)',
-      ...racers.map((_, i) => comp.racers && comp.racers[i] ? comp.racers[i].duration : ''),
-      comp.winner || '',
-      comp.diffPercent != null ? comp.diffPercent.toFixed(1) : '',
-    ]);
-  }
-  const profileComps = summaryData.profileComparison?.comparisons || [];
-  for (const comp of profileComps) {
-    rows.push([
-      comp.scope || '', comp.category || '', comp.name,
-      ...racers.map((_, i) => comp.values && comp.values[i] != null ? comp.values[i] : ''),
-      comp.winner || '',
-      comp.diffPercent != null ? comp.diffPercent.toFixed(1) : '',
-    ]);
-  }
-  if (rows.length === 1) return null;
-  return rows.map(r => r.map(csvCell).join(',')).join('\n') + '\n';
-}
+// per-racer DevTools traces, HAR files, summary.json, a flat metrics.csv
+// (built by metrics-csv.cjs), and a README explaining how to load each file.
 
 // Describe the bundle contents and how to load each file into external analysis tools.
 function buildAnalysisReadme(bundled) {
@@ -400,7 +369,7 @@ async function startAnalysisExport() {
       zipBuilder.addFile('summary.json', new TextEncoder().encode(text));
       bundled.summary = true;
       try {
-        const csv = buildMetricsCsv(JSON.parse(text));
+        const csv = buildMetricsCsv(JSON.parse(text), racerNames);
         if (csv) {
           zipBuilder.addFile('metrics.csv', new TextEncoder().encode(csv));
           bundled.csv = true;
