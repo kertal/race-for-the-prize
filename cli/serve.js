@@ -11,6 +11,7 @@ import http from 'http';
 import path from 'path';
 import { spawn } from 'child_process';
 import { c } from './colors.js';
+import { isPathInside } from './paths.js';
 
 /**
  * Build the paths for results output display.
@@ -33,21 +34,6 @@ const MIME_TYPES = {
   '.wasm': 'application/wasm',
   '.json': 'application/json',
 };
-
-/**
- * Is `target` the directory `root` itself, or something beneath it?
- *
- * Uses path.relative rather than a `root + path.sep` prefix test: that prefix
- * becomes '//' when the served root is the filesystem root, which would reject
- * every valid child.
- */
-function isInside(root, target) {
-  if (target === root) return true;
-  const rel = path.relative(root, target);
-  // '' is the root itself; '..'-prefixed is above it; absolute means the two
-  // share no common root (different drives on Windows).
-  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
-}
 
 /**
  * Create an HTTP request handler that serves static files from `dir`.
@@ -83,7 +69,7 @@ export function createStaticHandler(dir) {
     }
     const filePath = path.resolve(path.join(rootDir, urlPath));
     // Reject paths that escape the served directory lexically ('../' traversal).
-    if (!isInside(rootDir, filePath)) {
+    if (!isPathInside(rootDir, filePath)) {
       res.writeHead(403);
       res.end('Forbidden');
       return;
@@ -99,7 +85,7 @@ export function createStaticHandler(dir) {
     };
 
     const serveFile = (resolvedPath) => {
-      fs.stat(resolvedPath, (statErr, stat) => { // NOSONAR — resolvedPath passed isInside() both lexically and after realpath
+      fs.stat(resolvedPath, (statErr, stat) => { // NOSONAR — resolvedPath passed isPathInside() both lexically and after realpath
         if (statErr || !stat.isFile()) {
           res.writeHead(404);
           res.end('Not found');
@@ -141,13 +127,13 @@ export function createStaticHandler(dir) {
     // Resolve symlinks before serving: a link *inside* the tree that points
     // outside it passes the lexical check above, so containment is re-verified
     // against the real path.
-    fs.realpath(filePath, (realErr, realPath) => { // NOSONAR — filePath already passed the lexical isInside() check; its real path is re-checked below before any read
+    fs.realpath(filePath, (realErr, realPath) => { // NOSONAR — filePath already passed the lexical isPathInside() check; its real path is re-checked below before any read
       if (realErr) {
         res.writeHead(404);
         res.end('Not found');
         return;
       }
-      if (!isInside(realRoot, realPath)) {
+      if (!isPathInside(realRoot, realPath)) {
         res.writeHead(403);
         res.end('Forbidden');
         return;

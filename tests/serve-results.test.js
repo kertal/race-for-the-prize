@@ -138,6 +138,36 @@ describe('createStaticHandler root normalization', () => {
   });
 });
 
+describe('createStaticHandler dotted in-tree names', () => {
+  it("serves an in-tree file whose name starts with '..'", async () => {
+    // A bare startsWith('..') traversal test also matches legitimate names
+    // like '..hidden', which 403'd valid files.
+    const dotted = path.join(tmpDir, '..hidden');
+    fs.mkdirSync(dotted, { recursive: true });
+    fs.writeFileSync(path.join(dotted, 'note.txt'), 'dotted but inside');
+    const server = http.createServer(createStaticHandler(tmpDir));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const res = await fetch(server, '/..hidden/note.txt');
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('dotted but inside');
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
+  });
+
+  it('still rejects real parent traversal', async () => {
+    const server = http.createServer(createStaticHandler(tmpDir));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const res = await fetch(server, '/../secret.txt');
+      expect(res.status).toBe(403);
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
+  });
+});
+
 describe('createStaticHandler symlink and root containment', () => {
   it('does not serve a symlink inside the tree that targets a file outside it', async () => {
     const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'serve-outside-'));
