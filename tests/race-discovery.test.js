@@ -887,7 +887,12 @@ describe('parseCpuList', () => {
   });
 
   it('throws on duplicates and names the source', () => {
-    expect(() => parseCpuList('4,4', 'cpu')).toThrow(/Duplicate CPU throttle rate\(s\) in cpu: 4/);
+    expect(() => parseCpuList('4,4', 'cpuThrottle')).toThrow(/Duplicate CPU throttle rate\(s\) in cpuThrottle: 4/);
+  });
+
+  it('names the source in the out-of-range error', () => {
+    expect(() => parseCpuList('0', 'cpuThrottle')).toThrow(/cpuThrottle must be a number >= 1/);
+    expect(() => parseCpuList('', 'cpuThrottle')).toThrow(/cpuThrottle requires at least one CPU throttle rate/);
   });
 });
 

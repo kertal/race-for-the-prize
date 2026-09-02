@@ -946,11 +946,13 @@ const totalRuns = settings.runs;
 // A single condition behaves exactly as before; multiple values
 // (comma-separated --network/--cpu or arrays in settings.json) race every
 // combination separately, with results named after the condition.
+// CLI values were already validated in applyOverrides, so anything invalid
+// here came from settings.json — the error labels name those keys.
 let raceConditions;
 try {
   raceConditions = buildRaceConditions(
     parseNetworkList(settings.network ?? 'none', 'network'),
-    parseCpuList(settings.cpuThrottle ?? 1, 'cpu')
+    parseCpuList(settings.cpuThrottle ?? 1, 'cpuThrottle')
   );
 } catch (e) {
   if (e instanceof InvalidSettingError) {
