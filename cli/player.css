@@ -157,7 +157,14 @@ h1 {
   color: #e8e0d0;
   padding-bottom: 1rem;
 }
-.trophy { font-size: 1.1rem; }
+/* Zero-height inline-block: the emoji renders centered on the text but adds
+   nothing to the line box, keeping winner and non-winner labels identical. */
+.trophy {
+  display: inline-block;
+  font-size: 1.1rem;
+  line-height: 0;
+  vertical-align: middle;
+}
 .video-source-note {
   text-align: center;
   font-size: 0.8rem;
@@ -278,6 +285,9 @@ h1 {
 .racer-label {
   font-family: Georgia, serif;
   font-size: 1.1rem;
+  /* Explicit line-height keeps every label the same height, so the winner's
+     trophy can never push its video down relative to the other racers. */
+  line-height: 1.4;
   text-transform: uppercase;
   letter-spacing: 0.1em;
   padding: 0.5rem 0;
