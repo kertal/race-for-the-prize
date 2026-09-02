@@ -173,6 +173,25 @@ describe('player.css design tokens', () => {
     expect(literals).toEqual([]);
   });
 
+  it('keeps raw palette tokens out of the component layer', () => {
+    // Components must read semantic roles (--text-muted), never the palette
+    // (--color-grey-200) — otherwise a skin that remaps the roles misses them.
+    const paletteUses = componentCss
+      .split('\n')
+      .filter(line => /var\(\s*--color-/.test(line));
+    expect(paletteUses).toEqual([]);
+  });
+
+  it('declares no palette token that nothing consumes', () => {
+    const declared = [...rootBlock.matchAll(/^\s*(--color-[a-z0-9-]+):/gm)].map(m => m[1]);
+    expect(declared.length).toBeGreaterThan(0);
+    const orphans = declared.filter(token => {
+      const uses = css.match(new RegExp(`var\\(\\s*${token}\\b`, 'g'));
+      return !uses;
+    });
+    expect(orphans).toEqual([]);
+  });
+
   it('every built-in skin only redefines tokens that exist in the base stylesheet', () => {
     for (const name of listSkins()) {
       const skinCss = resolveSkin(name).css;

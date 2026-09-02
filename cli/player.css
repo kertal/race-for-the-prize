@@ -35,7 +35,6 @@
   --color-parchment: #e8e0d0;
   --color-white: #fff;
   --color-grey-100: #ccc;
-  --color-grey-200: #bbb;
   --color-grey-300: #999;
   --color-grey-400: #888;
   --color-grey-500: #777;
@@ -72,9 +71,10 @@
   --tool-surface: #2a2218;
   --tool-contrast: var(--color-ink-900);
 
-  /* Per-racer accent. Set inline as `style="--racer-color: #e74c3c"`; every
-     racer-tinted element falls back to a neutral when it is absent. */
-  --racer-color: initial;
+  /* Per-racer accent: deliberately NOT declared here. It is set inline as
+     `style="--racer-color: #e74c3c"` on the element that needs it; while it is
+     unset every `var(--racer-color, <neutral>)` below resolves to its neutral
+     fallback. Declaring it at :root would only mask that. */
 
   /* --- Typography ------------------------------------------------------- */
   --font-ui: ui-monospace, 'Courier New', monospace;
@@ -295,13 +295,14 @@ h1 {
   padding: 0.3rem 0.8rem;
   font-size: var(--font-size-base);
 }
-/* A run whose winner is known is tinted with that racer's colour. */
-.run-nav-btn.has-winner {
-  border-color: var(--racer-color, var(--border));
-  color: var(--text-bright);
-}
+/* A run whose winner is known is tinted with that racer's colour. This rule
+   has the same specificity as .run-nav-btn.active above and comes later, so it
+   wins on border-color — which is what we want. The brighter label must NOT
+   leak into the active state, though: that one sits on the accent fill and
+   needs its inverted text to stay legible. */
+.run-nav-btn.has-winner { border-color: var(--racer-color, var(--border)); }
+.run-nav-btn.has-winner:not(.active) { color: var(--text-bright); }
 .run-nav-btn.active { cursor: default; }
-.run-nav-btn.active.has-winner { border-color: var(--racer-color, var(--accent)); }
 
 /* --- Header -------------------------------------------------------------- */
 .header-bar {
@@ -899,7 +900,7 @@ video {
 .debug-timing-val {
   min-width: 70px;
   text-align: right;
-  color: var(--color-grey-200);
+  color: var(--text-muted);
 }
 .debug-timing-empty { color: var(--text-faint); }
 
