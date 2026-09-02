@@ -199,90 +199,87 @@ export function buildResultsModel(comparisons, racers) {
  * Each runRow is { label, cells }; medianRow/averageRow are { cells } or null
  * (median: absent from the median summary; average: no racer has data).
  */
+// Mean of the non-null values, or null when there are none.
+function averageOf(vals) {
+  const present = vals.filter(v => v != null);
+  return present.length > 0 ? present.reduce((a, b) => a + b, 0) / present.length : null;
+}
+
+// Per-run / median / average rows for one measurement (comparison) name.
+function buildMeasurementModel(name, summaries, medianSummary, racers) {
+  const runRows = summaries.map((s, i) => {
+    const comp = s.comparisons.find(c => c.name === name);
+    return {
+      label: String(i + 1),
+      cells: comp
+        ? buildComparisonCells(comp, racers)
+        : racers.map(() => buildDurationCell(null, null, false)),
+    };
+  });
+
+  const medComp = medianSummary.comparisons.find(c => c.name === name);
+  const medianRow = medComp ? { cells: buildComparisonCells(medComp, racers) } : null;
+
+  const avgDurations = racers.map((_, j) =>
+    averageOf(summaries.map(s => s.comparisons.find(c => c.name === name)?.racers[j]?.duration ?? null)));
+
+  return { name, runRows, medianRow, averageRow: buildAverageDurationRow(avgDurations) };
+}
+
+// Per-run / median / average rows for one profile metric within a scope.
+function buildProfileMetricModel(metric, scopeName, metricName, summaries, medianSummary, racers) {
+  const format = (v) => metric.format(v);
+  const valueAt = (s, j) => s.profileMetrics?.[j]?.[scopeName]?.[metricName] ?? null;
+
+  const runRows = summaries.map((s, i) => ({
+    label: String(i + 1),
+    cells: buildBestOfCells(racers.map((_, j) => valueAt(s, j)), format),
+  }));
+
+  const medVals = racers.map((_, j) => valueAt(medianSummary, j));
+  const medianRow = medVals.some(v => v != null) ? { cells: buildBestOfCells(medVals, format) } : null;
+
+  const avgVals = racers.map((_, j) => averageOf(summaries.map(s => valueAt(s, j))));
+  const averageRow = avgVals.some(v => v != null) ? { cells: buildBestOfCells(avgVals, format) } : null;
+
+  return { name: metric.name, runRows, medianRow, averageRow };
+}
+
+// Profile metric tables grouped by scope (race vs. total recording).
+function buildProfileScopes(summaries, medianSummary, racers, profileMetricDefs) {
+  const metricsWithData = [];
+  for (const [key, metric] of Object.entries(profileMetricDefs)) {
+    const [scope, metricName] = key.split('.');
+    const hasData = summaries.some(s => racers.some((_, j) => s.profileMetrics?.[j]?.[scope]?.[metricName] != null));
+    if (hasData) metricsWithData.push({ metric, scope, metricName });
+  }
+
+  const scopes = [
+    { scope: 'measured', title: 'Race' },
+    { scope: 'total', title: 'Total Recording (Including Pre and Post race)' },
+  ];
+  const profileScopes = [];
+  for (const { scope: scopeName, title } of scopes) {
+    const scopeMetrics = metricsWithData.filter(m => m.scope === scopeName);
+    if (scopeMetrics.length === 0) continue;
+    const metrics = scopeMetrics.map(({ metric, metricName }) =>
+      buildProfileMetricModel(metric, scopeName, metricName, summaries, medianSummary, racers));
+    profileScopes.push({ scope: scopeName, title, metrics });
+  }
+  return profileScopes;
+}
+
 export function buildRunComparisonModel(summaries, medianSummary, racers, profileMetricDefs) {
   const allNames = new Set(summaries.flatMap(s => s.comparisons.map(c => c.name)));
   const hasProfileData = summaries.some(s => s.profileMetrics?.some(Boolean));
   const isEmpty = allNames.size === 0 && !hasProfileData;
 
-  // --- Measurement tables ---
   const orderedNames = sortComparisonsForDisplay([...allNames].map(name => ({ name }))).map(c => c.name);
-  const measurements = orderedNames.map(name => {
-    const runRows = summaries.map((s, i) => {
-      const comp = s.comparisons.find(c => c.name === name);
-      return {
-        label: String(i + 1),
-        cells: comp
-          ? buildComparisonCells(comp, racers)
-          : racers.map(() => buildDurationCell(null, null, false)),
-      };
-    });
+  const measurements = orderedNames.map(name => buildMeasurementModel(name, summaries, medianSummary, racers));
 
-    const medComp = medianSummary.comparisons.find(c => c.name === name);
-    const medianRow = medComp ? { cells: buildComparisonCells(medComp, racers) } : null;
-
-    const avgDurations = racers.map((_, j) => {
-      const vals = summaries
-        .map(s => s.comparisons.find(c => c.name === name)?.racers[j]?.duration)
-        .filter(d => d != null);
-      return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-    });
-    const averageRow = buildAverageDurationRow(avgDurations);
-
-    return { name, runRows, medianRow, averageRow };
-  });
-
-  // --- Profile metric tables ---
-  const profileScopes = [];
-  if (hasProfileData) {
-    const metricsWithData = [];
-    for (const [key, metric] of Object.entries(profileMetricDefs)) {
-      const [scope, metricName] = key.split('.');
-      const hasData = summaries.some(s =>
-        racers.some((_, j) => s.profileMetrics?.[j]?.[scope]?.[metricName] != null)
-      );
-      if (hasData) metricsWithData.push({ metric, scope, metricName });
-    }
-
-    const scopes = [
-      { scope: 'measured', title: 'Race' },
-      { scope: 'total', title: 'Total Recording (Including Pre and Post race)' },
-    ];
-    for (const { scope: scopeName, title } of scopes) {
-      const scopeMetrics = metricsWithData.filter(m => m.scope === scopeName);
-      if (scopeMetrics.length === 0) continue;
-
-      const metrics = scopeMetrics.map(({ metric, metricName }) => {
-        const format = (v) => metric.format(v);
-
-        const runRows = summaries.map((s, i) => ({
-          label: String(i + 1),
-          cells: buildBestOfCells(
-            racers.map((_, j) => s.profileMetrics?.[j]?.[scopeName]?.[metricName] ?? null),
-            format
-          ),
-        }));
-
-        const medVals = racers.map((_, j) => medianSummary.profileMetrics?.[j]?.[scopeName]?.[metricName] ?? null);
-        const medianRow = medVals.some(v => v != null)
-          ? { cells: buildBestOfCells(medVals, format) }
-          : null;
-
-        const avgVals = racers.map((_, j) => {
-          const vals = summaries
-            .map(s => s.profileMetrics?.[j]?.[scopeName]?.[metricName] ?? null)
-            .filter(v => v != null);
-          return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-        });
-        const averageRow = avgVals.some(v => v != null)
-          ? { cells: buildBestOfCells(avgVals, format) }
-          : null;
-
-        return { name: metric.name, runRows, medianRow, averageRow };
-      });
-
-      profileScopes.push({ scope: scopeName, title, metrics });
-    }
-  }
+  const profileScopes = hasProfileData
+    ? buildProfileScopes(summaries, medianSummary, racers, profileMetricDefs)
+    : [];
 
   return { isEmpty, measurements, profileScopes };
 }

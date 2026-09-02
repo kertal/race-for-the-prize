@@ -35,6 +35,85 @@ const MIME_TYPES = {
 };
 
 /**
+ * Resolve a request URL to an absolute path inside `dir`.
+ * Returns { filePath } on success, or { status, message } to reject
+ * (400 for a malformed URL, 403 for a path-traversal attempt).
+ */
+function resolveServedPath(dir, url) {
+  let urlPath;
+  try {
+    urlPath = decodeURIComponent(url === '/' ? '/index.html' : url.split('?')[0]);
+  } catch {
+    return { status: 400, message: 'Bad request' };
+  }
+  const filePath = path.resolve(path.join(dir, urlPath));
+  // `filePath !== dir` allows the root itself to resolve; anything else must
+  // live under `dir` + separator or it's escaping the served directory.
+  if (!filePath.startsWith(dir + path.sep) && filePath !== dir) {
+    return { status: 403, message: 'Forbidden' };
+  }
+  return { filePath };
+}
+
+// COOP/COEP are required for SharedArrayBuffer isolation (FFmpeg.wasm).
+function buildBaseHeaders(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  return {
+    'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
+    'Accept-Ranges': 'bytes',
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Cross-Origin-Embedder-Policy': 'require-corp',
+  };
+}
+
+/**
+ * Parse an HTTP `Range` header against a known total size.
+ * Returns { start, end } for a satisfiable range, or null if unsatisfiable
+ * (the caller should respond 416).
+ */
+function parseByteRange(rangeHeader, total) {
+  const m = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
+  if (!m || (!m[1] && !m[2])) return null;
+  let start;
+  let end;
+  if (m[1]) {
+    start = Number.parseInt(m[1], 10);
+    end = m[2] ? Math.min(Number.parseInt(m[2], 10), total - 1) : total - 1;
+  } else {
+    // Suffix range: bytes=-N → last N bytes
+    start = Math.max(0, total - Number.parseInt(m[2], 10));
+    end = total - 1;
+  }
+  if (start > end || start >= total) return null;
+  return { start, end };
+}
+
+function pipeToResponse(res, stream) {
+  stream.on('error', () => { if (!res.writableEnded) res.end(); });
+  stream.pipe(res);
+}
+
+// Send a file as either a full 200 response or a 206 partial (range) response.
+function sendFile(req, res, filePath, stat) {
+  const total = stat.size;
+  const baseHeaders = buildBaseHeaders(filePath);
+  const rangeHeader = req.headers['range'];
+  if (!rangeHeader) {
+    res.writeHead(200, { ...baseHeaders, 'Content-Length': total });
+    pipeToResponse(res, fs.createReadStream(filePath));
+    return;
+  }
+  const range = parseByteRange(rangeHeader, total);
+  if (!range) { res.writeHead(416); res.end(); return; }
+  res.writeHead(206, {
+    ...baseHeaders,
+    'Content-Length': range.end - range.start + 1,
+    'Content-Range': `bytes ${range.start}-${range.end}/${total}`,
+  });
+  pipeToResponse(res, fs.createReadStream(filePath, { start: range.start, end: range.end }));
+}
+
+/**
  * Create an HTTP request handler that serves static files from `dir`.
  *
  * Security: rejects any path that resolves outside `dir` (path traversal).
@@ -47,68 +126,20 @@ const MIME_TYPES = {
  */
 export function createStaticHandler(dir) {
   return (req, res) => {
-    let urlPath;
-    try {
-      urlPath = decodeURIComponent(req.url === '/' ? '/index.html' : req.url.split('?')[0]);
-    } catch {
-      res.writeHead(400);
-      res.end('Bad request');
+    const resolved = resolveServedPath(dir, req.url);
+    if (resolved.status) {
+      res.writeHead(resolved.status);
+      res.end(resolved.message);
       return;
     }
-    const filePath = path.resolve(path.join(dir, urlPath));
-    // Reject paths that escape the served directory. `filePath !== dir` allows
-    // the root directory itself to resolve (though in practice req.url='/' is
-    // rewritten to index.html above).
-    if (!filePath.startsWith(dir + path.sep) && filePath !== dir) {
-      res.writeHead(403);
-      res.end('Forbidden');
-      return;
-    }
-    const ext = path.extname(filePath).toLowerCase();
-    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-    const baseHeaders = {
-      'Content-Type': contentType,
-      'Accept-Ranges': 'bytes',
-      // Required for SharedArrayBuffer isolation (FFmpeg.wasm uses COOP/COEP).
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-    };
+    const { filePath } = resolved;
     fs.stat(filePath, (statErr, stat) => {
       if (statErr || !stat.isFile()) {
         res.writeHead(404);
         res.end('Not found');
         return;
       }
-      const total = stat.size;
-      const rangeHeader = req.headers['range'];
-
-      const pipeStream = (stream) => {
-        stream.on('error', () => { if (!res.writableEnded) res.end(); });
-        stream.pipe(res);
-      };
-
-      if (rangeHeader) {
-        const m = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
-        if (!m) { res.writeHead(416); res.end(); return; }
-        let start, end;
-        if (!m[1] && !m[2]) {
-          // bytes=- with no numbers is invalid
-          res.writeHead(416); res.end(); return;
-        } else if (!m[1]) {
-          // Suffix range: bytes=-N → last N bytes
-          start = Math.max(0, total - parseInt(m[2], 10));
-          end = total - 1;
-        } else {
-          start = parseInt(m[1], 10);
-          end = m[2] ? Math.min(parseInt(m[2], 10), total - 1) : total - 1;
-        }
-        if (start > end || start >= total) { res.writeHead(416); res.end(); return; }
-        res.writeHead(206, { ...baseHeaders, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${total}` });
-        pipeStream(fs.createReadStream(filePath, { start, end }));
-      } else {
-        res.writeHead(200, { ...baseHeaders, 'Content-Length': total });
-        pipeStream(fs.createReadStream(filePath));
-      }
+      sendFile(req, res, filePath, stat);
     });
   };
 }
