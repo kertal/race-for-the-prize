@@ -334,14 +334,9 @@ describe('settings override', () => {
     expect(s.cpuThrottle).toBe(4);
   });
 
-  it('CLI --cpu accepts a comma-separated list', () => {
-    const s = applyOverrides({ cpuThrottle: 1 }, new Set(), { cpu: '1,4' });
-    expect(s.cpuThrottle).toEqual([1, 4]);
-  });
-
-  it('CLI --cpu list replaces a settings.json array', () => {
-    const s = applyOverrides({ cpuThrottle: [2, 6] }, new Set(), { cpu: '1,4' });
-    expect(s.cpuThrottle).toEqual([1, 4]);
+  it('CLI --cpu list produces an array, replacing any settings.json value', () => {
+    expect(applyOverrides({ cpuThrottle: 1 }, new Set(), { cpu: '1,4' }).cpuThrottle).toEqual([1, 4]);
+    expect(applyOverrides({ cpuThrottle: [2, 6] }, new Set(), { cpu: '1,4' }).cpuThrottle).toEqual([1, 4]);
   });
 
   it('throws on duplicate rates in --cpu list', () => {

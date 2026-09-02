@@ -38,63 +38,51 @@ describe('buildResultsPaths', () => {
 });
 
 describe('buildConditionIndexHtml', () => {
+  /** Render an index page and assert on the strings it must (and must not) contain. */
+  const expectIndex = (raceTitle, entries, { has = [], hasNot = [] }) => {
+    const html = buildConditionIndexHtml(raceTitle, entries);
+    for (const needle of has) expect(html).toContain(needle);
+    for (const needle of hasNot) expect(html).not.toContain(needle);
+  };
+
   it('links each condition to its results player', () => {
-    const html = buildConditionIndexHtml('lauda vs hunt', [
+    expectIndex('lauda vs hunt', [
       { label: 'slow-3g', title: 'Network: slow-3g', summary: { overallWinner: 'lauda' } },
       { label: '4g', title: 'Network: 4g', summary: { overallWinner: 'hunt' } },
-    ]);
-    expect(html).toContain('lauda vs hunt');
-    expect(html).toContain('href="slow-3g/index.html"');
-    expect(html).toContain('href="4g/index.html"');
-    expect(html).toContain('🏆 lauda');
-    expect(html).toContain('🏆 hunt');
+    ], { has: ['lauda vs hunt', 'href="slow-3g/index.html"', 'href="4g/index.html"', '🏆 lauda', '🏆 hunt'] });
   });
 
   it('links CPU-only conditions by their label', () => {
-    const html = buildConditionIndexHtml('a vs b', [
+    expectIndex('a vs b', [
       { label: 'cpu1x', title: 'CPU: 1x', summary: { overallWinner: 'a' } },
       { label: 'cpu4x', title: 'CPU: 4x', summary: { overallWinner: 'b' } },
-    ]);
-    expect(html).toContain('href="cpu1x/index.html"');
-    expect(html).toContain('href="cpu4x/index.html"');
-    expect(html).toContain('CPU: 4x');
+    ], { has: ['href="cpu1x/index.html"', 'href="cpu4x/index.html"', 'CPU: 4x'] });
   });
 
   it('falls back to the label when no title is given', () => {
-    const html = buildConditionIndexHtml('a vs b', [
-      { label: 'slow-3g-cpu4x', summary: null },
-    ]);
-    expect(html).toContain('href="slow-3g-cpu4x/index.html"');
-    expect(html).toContain('>slow-3g-cpu4x<');
+    expectIndex('a vs b', [{ label: 'slow-3g-cpu4x', summary: null }], {
+      has: ['href="slow-3g-cpu4x/index.html"', '>slow-3g-cpu4x<'],
+    });
   });
 
   it('shows a placeholder when a summary has no winner', () => {
-    const html = buildConditionIndexHtml('a vs b', [
+    expectIndex('a vs b', [
       { label: 'none', summary: { overallWinner: null } },
       { label: 'fast-3g', summary: null },
-    ]);
-    expect(html).toContain('href="none/index.html"');
-    expect(html).not.toContain('🏆');
-    expect(html).toContain('—');
+    ], { has: ['href="none/index.html"', '—'], hasNot: ['🏆'] });
   });
 
   it('renders a tie without the winner trophy', () => {
-    const html = buildConditionIndexHtml('a vs b', [
-      { label: '4g', summary: { overallWinner: 'tie' } },
-    ]);
-    expect(html).toContain('🤝 Tie');
-    expect(html).not.toContain('🏆');
-    expect(html).not.toContain('🏆 tie');
+    expectIndex('a vs b', [{ label: '4g', summary: { overallWinner: 'tie' } }], {
+      has: ['🤝 Tie'],
+      hasNot: ['🏆'],
+    });
   });
 
   it('escapes HTML in titles and winner names', () => {
-    const html = buildConditionIndexHtml('<b>x</b> vs y', [
+    expectIndex('<b>x</b> vs y', [
       { label: 'none', title: '<i>net</i>', summary: { overallWinner: 'a<script>' } },
-    ]);
-    expect(html).not.toContain('<b>x</b>');
-    expect(html).toContain('&lt;b&gt;x&lt;/b&gt;');
-    expect(html).not.toContain('<i>net</i>');
-    expect(html).not.toContain('a<script>');
+    ], { has: ['&lt;b&gt;x&lt;/b&gt;'], hasNot: ['<b>x</b>', '<i>net</i>', 'a<script>'] });
   });
 });
 
