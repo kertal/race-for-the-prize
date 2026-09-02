@@ -67,7 +67,9 @@ function getMostRecentVideo(dir) {
   try {
     dir = path.resolve(dir);
     if (!fs.existsSync(dir)) return null;
-    const files = fs.readdirSync(dir) // NOSONAR — dir is the racer's own recording directory from confinePath (id validated by isSafeRacerId at config entry)
+    // dir is the racer's own recording directory, built by the runner with
+    // confinePath from an id already validated by isSafeRacerId.
+    const files = fs.readdirSync(dir)
       .filter(f => f.endsWith('.webm'))
       .map(f => ({ name: f, mtime: fs.statSync(confinePath(dir, f)).mtime.getTime() }))
       .sort((a, b) => b.mtime - a.mtime);
@@ -147,7 +149,7 @@ function extractSegments(videoPath, segments, browserId) {
     ], dir);
 
     for (const f of segmentFiles) { try { fs.unlinkSync(f); } catch (e) { console.error(`[extractSegments] Cleanup warning: ${e.message}`); } }
-    try { fs.unlinkSync(concatListPath); } catch (e) { console.error(`[extractSegments] Cleanup warning: ${e.message}`); } // NOSONAR — confinePath-derived working file in the recording dir
+    try { fs.unlinkSync(concatListPath); } catch (e) { console.error(`[extractSegments] Cleanup warning: ${e.message}`); }
     fs.unlinkSync(videoPath); // NOSONAR — confinePath-derived recording path
     fs.renameSync(outputPath, videoPath); // NOSONAR — confinePath-derived recording paths
 
