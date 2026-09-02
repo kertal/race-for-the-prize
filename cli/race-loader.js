@@ -53,7 +53,7 @@ export function loadRaceDir(raceDir, { boolFlags, kvFlags, rootDir, buildContext
   const settingsPath = path.join(raceDir, 'settings.json');
   if (fs.existsSync(settingsPath)) {
     try {
-      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); // NOSONAR — raceDir is the directory the invoking user named on the CLI; the filename is a literal
     } catch (e) {
       console.error(`${c.red}Error: Could not parse settings.json: ${e.message}${c.reset}`);
       console.error(`${c.dim}  File: ${settingsPath}${c.reset}`);
@@ -161,11 +161,10 @@ export function loadRaceDir(raceDir, { boolFlags, kvFlags, rootDir, buildContext
     scriptFiles = effectiveRacerFiles;
   }
 
-  const scripts = scriptFiles.map(f =>
-    // NOSONAR — f is either a filename discovered by readdir inside raceDir or a
-    // settings override already validated as a basename (see the checks above).
-    fs.readFileSync(path.join(raceDir, f), 'utf-8')
-  );
+  // `f` is either a filename discovered by readdir inside raceDir or a settings
+  // override already validated as a basename (see the checks above), so the join
+  // cannot leave the race directory the user named on the CLI.
+  const scripts = scriptFiles.map(f => fs.readFileSync(path.join(raceDir, f), 'utf-8')); // NOSONAR
 
   const ctx = buildContext({ racerNames, scripts, settings, rootDir, raceDir, racerFiles: effectiveRacerFiles });
   return { ctx, settings, racerNames };
