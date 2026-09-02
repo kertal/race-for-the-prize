@@ -12,6 +12,7 @@
 
 import { c, RACER_COLORS } from './colors.js';
 import { determineOverallWinner } from './race-utils.js';
+import { rankEntries } from './report-model.js';
 
 /**
  * Performance metric definitions.
@@ -246,18 +247,14 @@ function printProfileSection(title, section, racers, w, write) {
     write(`  ${c.bold}${categoryLabels[category] || category}${c.reset}\n`);
 
     for (const comp of comps) {
-      const maxVal = Math.max(...comp.values.filter(v => v !== null));
       const metricDef = PROFILE_METRICS[comp.key];
 
-      // Sort racers by value ascending (best first), nulls last
-      const sorted = racers
-        .map((name, i) => ({ name, index: i, val: comp.values[i], formatted: comp.formatted[i] }))
-        .sort((a, b) => {
-          if (a.val === null) return 1;
-          if (b.val === null) return -1;
-          return a.val - b.val;
-        });
-      const bestVal = sorted[0].val;
+      // Rank racers by value ascending (best first), nulls last
+      const { entries: sorted, maxValue } = rankEntries(
+        racers,
+        i => ({ val: comp.values[i], formatted: comp.formatted[i] }),
+        metricDef.format
+      );
 
       write(`  ${c.dim}${comp.name}${c.reset}\n`);
       for (const entry of sorted) {
@@ -266,17 +263,13 @@ function printProfileSection(title, section, racers, w, write) {
         const medal = isWinner ? ' 🏆' : '';
 
         const barWidth = 20;
-        const filled = entry.val !== null && maxVal > 0
-          ? Math.round((entry.val / maxVal) * barWidth)
+        const filled = entry.val !== null && maxValue > 0
+          ? Math.round((entry.val / maxValue) * barWidth)
           : 0;
         const bar = '▓'.repeat(filled) + '░'.repeat(barWidth - filled);
 
         // Show delta from best for non-best racers
-        let delta = '';
-        if (entry.val !== null && bestVal !== null && entry.val !== bestVal) {
-          const deltaVal = entry.val - bestVal;
-          delta = ` ${c.dim}(+${metricDef.format(deltaVal)})${c.reset}`;
-        }
+        const delta = entry.delta != null ? ` ${c.dim}(+${entry.delta})${c.reset}` : '';
 
         write(`    ${color}${c.bold}${entry.name.padEnd(labelWidth)}${c.reset} ${color}${bar}${c.reset}  ${entry.formatted}${delta}${medal}\n`);
       }

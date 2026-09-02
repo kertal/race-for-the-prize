@@ -38,6 +38,12 @@ const withSummary = (overrides) => buildPlayerHtml(makeSummary(overrides), video
 const withOptions = (opts, summary) => buildPlayerHtml(summary || makeSummary(), videoFiles, null, null, opts);
 const defaultHtml = withSummary();
 const noVideosHtml = buildPlayerHtml(makeSummary(), []);
+
+// Extract and parse the embedded #race-config JSON block from generated HTML.
+const getRaceConfig = (html) => {
+  const m = html.match(/<script id="race-config" type="application\/json">([\s\S]*?)<\/script>/);
+  return m && m[1] ? JSON.parse(m[1]) : null;
+};
 const loadRenderComparisons = [
   { name: 'Load', racers: [{ duration: 1.1 }, { duration: 1.4 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
   { name: 'Render', racers: [{ duration: 0.9 }, { duration: 1.2 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
@@ -244,7 +250,7 @@ describe('buildPlayerHtml', () => {
       expect(html).toContain(`src="${name}/${name}.race.webm"`);
       expect(html).toContain(`>${name}<`);
     }
-    expect(html).toContain('const raceVideos = [v0, v1, v2]');
+    expect(getRaceConfig(html).videoCount).toBe(3);
   });
 
   it('supports 4 racers', () => {
@@ -252,7 +258,7 @@ describe('buildPlayerHtml', () => {
     const videos = ['a/a.race.webm', 'b/b.race.webm', 'c/c.race.webm', 'd/d.race.webm'];
     const html = buildPlayerHtml(summary, videos);
     for (let i = 0; i < 4; i++) expect(html).toContain(`id="v${i}"`);
-    expect(html).toContain('const raceVideos = [v0, v1, v2, v3]');
+    expect(getRaceConfig(html).videoCount).toBe(4);
   });
 
   it('supports 5 racers with download links', () => {
@@ -263,7 +269,7 @@ describe('buildPlayerHtml', () => {
     expect(html).toContain('id="v4"');
     expect(html).toContain('r1 (.gif)');
     expect(html).toContain('r5 (.gif)');
-    expect(html).toContain('const raceVideos = [v0, v1, v2, v3, v4]');
+    expect(getRaceConfig(html).videoCount).toBe(5);
   });
 
   it('assigns correct colors to racer labels', () => {
@@ -456,6 +462,23 @@ describe('buildPlayerHtml', () => {
     expect(html).toContain('Results');
   });
 
+  it('inline runtime script contains no premature </script> that would truncate it', () => {
+    // A literal </script> anywhere in the runtime source (even in a comment)
+    // ends the inline <script> early, breaking the whole player.
+    const html = withOptions({
+      clipTimes: [
+        { start: 1, end: 3, measurements: [{ name: 'Load', startTime: 1, endTime: 2 }] },
+        { start: 1, end: 3, measurements: [] },
+      ],
+    });
+    const open = html.indexOf('<script>\n(function() {');
+    const close = html.indexOf('})();\n</script>', open);
+    expect(open).toBeGreaterThan(-1);
+    expect(close).toBeGreaterThan(open);
+    const body = html.slice(open + '<script>'.length, close);
+    expect(body).not.toContain('</script');
+  });
+
   it('shows median page with videos', () => {
     const html = buildPlayerHtml(makeSummary(), ['2/lauda/lauda.race.webm', '2/hunt/hunt.race.webm'], null, null, {
       runNavigation: { currentRun: 'median', totalRuns: 3, pathPrefix: '' },
@@ -618,21 +641,22 @@ describe('buildPlayerHtml clipTimes', () => {
     expect(html).not.toContain('id="modeFull"');
   });
 
-  it('embeds clipTimes data in player script', () => {
+  it('embeds clipTimes data in race config', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
-    expect(html).toContain('const clipTimes =');
-    expect(html).toContain('"start":');
-    expect(html).toContain('"end":');
+    const cfg = getRaceConfig(html);
+    expect(cfg.clipTimes).toBeTruthy();
+    expect(cfg.clipTimes[0]).toHaveProperty('start');
+    expect(cfg.clipTimes[0]).toHaveProperty('end');
   });
 
   it('sets clipTimes to null when not provided', () => {
-    expect(defaultHtml).toContain('const clipTimes = null');
+    expect(getRaceConfig(defaultHtml).clipTimes).toBe(null);
   });
 
   it('handles clipTimes with null entries', () => {
     const html = withClips([{ start: 1, end: 2 }, null]);
     expect(html).not.toContain('id="modeFull"');
-    expect(html).toContain('const clipTimes =');
+    expect(getRaceConfig(html).clipTimes).toBeTruthy();
   });
 
   it('hides Full button when all clipTimes entries are null', () => {
@@ -649,9 +673,8 @@ describe('buildPlayerHtml clipTimes', () => {
 
   it('orders clipTimes by placement (winner first)', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 0.5, end: 2.5 }], { summary: huntWinsSummary() });
-    const clipMatch = html.match(/const clipTimes = (\[.*?\]);/);
-    expect(clipMatch).toBeTruthy();
-    const parsed = JSON.parse(clipMatch[1]);
+    const parsed = getRaceConfig(html).clipTimes;
+    expect(parsed).toBeTruthy();
     expect(parsed[0].start).toBe(0.5); // hunt's clip first (winner)
     expect(parsed[1].start).toBe(1); // lauda's clip second
   });
@@ -666,11 +689,8 @@ describe('buildPlayerHtml clipTimes', () => {
       { start: 1.2, end: 2.8, recordingOffset: 0.15, wallClockDuration: 4.8 },
     ];
     const html = withClips(clips);
-    expect(html).toContain('"recordingOffset"');
-    expect(html).toContain('"wallClockDuration"');
-    const clipMatch = html.match(/const clipTimes = (\[.*?\]);/);
-    expect(clipMatch).toBeTruthy();
-    const parsed = JSON.parse(clipMatch[1]);
+    const parsed = getRaceConfig(html).clipTimes;
+    expect(parsed).toBeTruthy();
     expect(parsed[0].recordingOffset).toBe(0.12);
     expect(parsed[0].wallClockDuration).toBe(5.0);
     expect(parsed[1].recordingOffset).toBe(0.15);
@@ -893,9 +913,8 @@ describe('buildPlayerHtml timing events', () => {
   });
 
   it('embeds measurements in clipTimes JSON', () => {
-    const clipMatch = timingHtml.match(/const clipTimes = (\[.*?\]);/);
-    expect(clipMatch).toBeTruthy();
-    const parsed = JSON.parse(clipMatch[1]);
+    const parsed = getRaceConfig(timingHtml).clipTimes;
+    expect(parsed).toBeTruthy();
     // clipTimes are reordered by placement; winner (lauda) is first
     expect(parsed[0].measurements).toBeDefined();
     expect(parsed[0].measurements.length).toBeGreaterThan(0);
@@ -983,11 +1002,12 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
     expect(defaultHtml).toContain('convertWithFFmpeg');
   });
 
-  it('includes loadFFmpeg function with local paths', () => {
+  it('includes loadFFmpeg function using the configured ffmpeg dir', () => {
     expect(defaultHtml).toContain('loadFFmpeg');
-    expect(defaultHtml).toContain("import('./ffmpeg/index.js')");
-    expect(defaultHtml).toContain('./ffmpeg/ffmpeg-core.js');
-    expect(defaultHtml).toContain('./ffmpeg/ffmpeg-core.wasm');
+    expect(defaultHtml).toContain("import(ffmpegDir + 'index.js')");
+    expect(defaultHtml).toContain("ffmpegDir + 'ffmpeg-core.js'");
+    expect(defaultHtml).toContain("ffmpegDir + 'ffmpeg-core.wasm'");
+    expect(getRaceConfig(defaultHtml).ffmpegDir).toBe('./ffmpeg/');
   });
 
   it('includes file:// protocol check with helpful error message', () => {
@@ -1179,12 +1199,12 @@ describe('buildPlayerHtml seekAllWithVerify', () => {
     expect(onMetaFn).toContain('activeSegmentClipTimes = getSegmentClipTimes(activeSegmentName)');
   });
 
-  it('onMeta convertedAny branch uses seekAllWithVerify', () => {
+  it('finalizeCalibration convertedAny branch uses seekAllWithVerify', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
-    const onMetaStart = html.indexOf('function onMeta(');
-    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
-    const onMetaFn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
-    expect(onMetaFn).toContain('seekAllWithVerify(');
+    const fnStart = html.indexOf('function finalizeCalibration(');
+    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 1500);
+    expect(fn).toContain('seekAllWithVerify(');
   });
 
   it('attaches canplay fallback listener in seekAllWithVerify', () => {
@@ -1221,39 +1241,39 @@ describe('buildPlayerHtml onMeta _durationForced (Chrome WebM Infinity duration)
     expect(html).toContain('WeakMap');
   });
 
-  it('onMeta triggers 1e10 seek when duration is non-finite', () => {
+  it('ensureFiniteDurations triggers 1e10 seek when duration is non-finite', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
-    const onMetaStart = html.indexOf('function onMeta(');
-    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
-    const fn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
+    const fnStart = html.indexOf('function ensureFiniteDurations(');
+    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 1500);
     expect(fn).toContain('1e10');
     expect(fn).toContain('durationchange');
   });
 
-  it('onMeta always returns early while any video has non-finite duration', () => {
+  it('ensureFiniteDurations always returns early while any video has non-finite duration', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
-    const onMetaStart = html.indexOf('function onMeta(');
-    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
-    const fn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
-    // The return; must be unconditional — i.e. it appears after the closing brace
+    const fnStart = html.indexOf('function ensureFiniteDurations(');
+    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 1500);
+    // The return must be unconditional — i.e. it appears after the closing brace
     // of the if (!_durationForced.has(v)) { ... } block, not inside it.
     // Search for the actual assignment (not a comment mention) to find the right position.
     const seek1e10Idx = fn.indexOf('currentTime = 1e10');
     expect(seek1e10Idx).toBeGreaterThan(-1);
     // Find the closing brace of the has-guard block (after the 1e10 assignment)
     const closingBraceIdx = fn.indexOf('}', seek1e10Idx);
-    const returnIdx = fn.indexOf('return;', closingBraceIdx);
+    const returnIdx = fn.indexOf('return false;', closingBraceIdx);
     expect(returnIdx).toBeGreaterThan(closingBraceIdx);
-    // Only whitespace/comments between the closing brace and return;
+    // Only whitespace/comments between the closing brace and return false;
     const between = fn.slice(closingBraceIdx + 1, returnIdx).replace(/\/\/[^\n]*/g, '').trim();
     expect(between).toBe('');
   });
 
-  it('onMeta only triggers 1e10 seek once per src (WeakMap guard)', () => {
+  it('ensureFiniteDurations only triggers 1e10 seek once per src (WeakMap guard)', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
-    const onMetaStart = html.indexOf('function onMeta(');
-    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
-    const fn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
+    const fnStart = html.indexOf('function ensureFiniteDurations(');
+    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 1500);
     // WeakMap API: set() inside the guard, get() !== srcKey as the condition
     expect(fn).toContain('_durationForced.set(v');
     const getGuardIdx = fn.indexOf('_durationForced.get(v)');

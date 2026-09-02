@@ -8,15 +8,11 @@
   },
   "files": [
     "race.js",
-    "runner.cjs",
-    "sync-barrier.cjs",
-    "runner-protocol.cjs",
-    "overlay.cjs",
-    "trace-calibration.cjs",
-    "visual-stability.cjs",
+    "*.cjs",
     "cli/",
     "scripts/postinstall.cjs",
     "races/*/*.spec.js",
+    "races/*/*.html",
     "races/*/settings.json",
     "ReadMe.md",
     "INSTALLATION.md"
