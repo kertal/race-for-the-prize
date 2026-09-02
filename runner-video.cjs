@@ -19,6 +19,49 @@ const FFMPEG_TIMEOUT_MS = 120000;       // Timeout for ffmpeg operations
 // build in locked-down environments.
 const FFMPEG_BIN = process.env.RACE_FFMPEG ? path.resolve(process.env.RACE_FFMPEG) : 'ffmpeg';
 
+// Non-path ffmpeg arguments: flags, codec/format names, and numbers. Anything
+// outside this shape (a stray '-'-prefixed value, a relative path, an empty
+// string) would be a bug in a caller, not a legitimate argument.
+const FFMPEG_SAFE_ARG = /^-?[A-Za-z0-9][A-Za-z0-9_.:=-]*$/;
+
+/**
+ * Run ffmpeg with arguments proven inert before the process is spawned:
+ * every absolute argument must resolve inside `dir` (so it can address only
+ * this racer's own recording files), and every other argument must be a plain
+ * flag/name/number. A path can therefore never be read as an option, and an
+ * injected value can never reach the OS — it throws here instead.
+ *
+ * Centralising the spawn also keeps the three trim/concat call sites from each
+ * repeating the argument contract.
+ */
+function assertSafeFfmpegArgs(args, dir) {
+  const root = path.resolve(dir);
+  for (const arg of args) {
+    if (typeof arg !== 'string' || arg === '') {
+      throw new Error(`Refusing to run ffmpeg: argument is not a non-empty string (${String(arg)})`);
+    }
+    if (path.isAbsolute(arg)) {
+      // Resolve before comparing: a prefix test on the raw string accepts
+      // `${root}/../outside.webm`, which starts with root but escapes it.
+      const resolvedArg = path.resolve(arg);
+      if (resolvedArg !== root && !resolvedArg.startsWith(root + path.sep)) {
+        throw new Error(`Refusing to run ffmpeg: path argument escapes ${root}: ${arg}`);
+      }
+      continue;
+    }
+    if (!FFMPEG_SAFE_ARG.test(arg)) {
+      throw new Error(`Refusing to run ffmpeg: unexpected argument ${JSON.stringify(arg)}`);
+    }
+  }
+}
+
+function runFfmpeg(args, dir) {
+  assertSafeFfmpegArgs(args, dir);
+  // Arguments are validated by assertSafeFfmpegArgs above: absolute paths are
+  // confined to the recording dir, all others match FFMPEG_SAFE_ARG.
+  execFileSync(FFMPEG_BIN, args, { timeout: FFMPEG_TIMEOUT_MS, stdio: 'pipe' }); // NOSONAR — args validated by assertSafeFfmpegArgs (confined paths + flag/name/number allowlist); array form, no shell; ffmpeg via PATH is intentional (optional user-installed dep, pin with RACE_FFMPEG)
+}
+
 /** Return the most recently modified .webm filename in a directory, or null. */
 function getMostRecentVideo(dir) {
   try {
@@ -51,7 +94,7 @@ function extractSegments(videoPath, segments, browserId) {
   videoPath = confinePath(dir, `${base}${ext}`);
   const fullPath = confinePath(dir, `${base}_full${ext}`);
 
-  fs.copyFileSync(videoPath, fullPath);
+  fs.copyFileSync(videoPath, fullPath); // NOSONAR — both paths come from confinePath (proven inside the recording dir)
 
   // Only numeric, ordered segments may reach ffmpeg's -ss/-t arguments.
   segments = (segments || []).filter(
@@ -65,14 +108,14 @@ function extractSegments(videoPath, segments, browserId) {
     if (segments.length === 1) {
       const seg = segments[0];
       const trimmedPath = confinePath(dir, `${base}_trimmed${ext}`);
-      execFileSync(FFMPEG_BIN, [
+      runFfmpeg([
         '-y', '-i', videoPath,
         '-ss', seg.start.toFixed(3), '-t', (seg.end - seg.start).toFixed(3),
         '-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0',
         trimmedPath
-      ], { timeout: FFMPEG_TIMEOUT_MS, stdio: 'pipe' });
-      fs.unlinkSync(videoPath);
-      fs.renameSync(trimmedPath, videoPath);
+      ], dir);
+      fs.unlinkSync(videoPath); // NOSONAR — confinePath-derived recording path
+      fs.renameSync(trimmedPath, videoPath); // NOSONAR — confinePath-derived recording paths
       return { trimmedPath: videoPath, fullPath };
     }
 
@@ -84,12 +127,12 @@ function extractSegments(videoPath, segments, browserId) {
       const seg = segments[i];
       const segPath = confinePath(dir, `${base}_seg${i}${ext}`);
       segmentFiles.push(segPath);
-      execFileSync(FFMPEG_BIN, [
+      runFfmpeg([
         '-y', '-i', videoPath,
         '-ss', seg.start.toFixed(3), '-t', (seg.end - seg.start).toFixed(3),
         '-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0',
         segPath
-      ], { timeout: FFMPEG_TIMEOUT_MS, stdio: 'pipe' });
+      ], dir);
     }
 
     // Quote-safe the concat list: the ffmpeg concat demuxer wraps each path in
@@ -98,15 +141,15 @@ function extractSegments(videoPath, segments, browserId) {
     const concatEntry = (f) => `file '${f.replace(/'/g, "'\\''")}'`;
     fs.writeFileSync(concatListPath, segmentFiles.map(concatEntry).join('\n')); // NOSONAR — concatListPath is confined to the recording dir (confinePath) with a fixed name, not user input
     const outputPath = confinePath(dir, `${base}_final${ext}`);
-    execFileSync(FFMPEG_BIN, [
+    runFfmpeg([
       '-y', '-f', 'concat', '-safe', '0',
       '-i', concatListPath, '-c', 'copy', outputPath
-    ], { timeout: FFMPEG_TIMEOUT_MS, stdio: 'pipe' });
+    ], dir);
 
     for (const f of segmentFiles) { try { fs.unlinkSync(f); } catch (e) { console.error(`[extractSegments] Cleanup warning: ${e.message}`); } }
     try { fs.unlinkSync(concatListPath); } catch (e) { console.error(`[extractSegments] Cleanup warning: ${e.message}`); }
-    fs.unlinkSync(videoPath);
-    fs.renameSync(outputPath, videoPath);
+    fs.unlinkSync(videoPath); // NOSONAR — confinePath-derived recording path
+    fs.renameSync(outputPath, videoPath); // NOSONAR — confinePath-derived recording paths
 
     return { trimmedPath: videoPath, fullPath };
   } catch (error) {
@@ -148,4 +191,4 @@ function trimVideoWithFfmpeg(outputDir, trimSegments, id) {
   return path.basename(res.fullPath);
 }
 
-module.exports = { getMostRecentVideo, extractSegments, cleanupOldVideos, trimVideoWithFfmpeg };
+module.exports = { getMostRecentVideo, extractSegments, cleanupOldVideos, trimVideoWithFfmpeg, runFfmpeg, assertSafeFfmpegArgs };

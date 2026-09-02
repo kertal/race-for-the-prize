@@ -11,6 +11,7 @@ import http from 'http';
 import path from 'path';
 import { spawn } from 'child_process';
 import { c } from './colors.js';
+import { isPathInside } from './paths.js';
 
 /**
  * Build the paths for results output display.
@@ -47,9 +48,8 @@ function resolveServedPath(dir, url) {
     return { status: 400, message: 'Bad request' };
   }
   const filePath = path.resolve(path.join(dir, urlPath));
-  // `filePath !== dir` allows the root itself to resolve; anything else must
-  // live under `dir` + separator or it's escaping the served directory.
-  if (!filePath.startsWith(dir + path.sep) && filePath !== dir) {
+  // Reject paths that escape the served directory lexically ('../' traversal).
+  if (!isPathInside(dir, filePath)) {
     return { status: 403, message: 'Forbidden' };
   }
   return { filePath };
@@ -116,7 +116,9 @@ function sendFile(req, res, filePath, stat) {
 /**
  * Create an HTTP request handler that serves static files from `dir`.
  *
- * Security: rejects any path that resolves outside `dir` (path traversal).
+ * Security: rejects any path that resolves outside `dir` (path traversal),
+ * both lexically and — after resolving symlinks — by real path, so a link
+ * inside the served tree cannot expose a file outside it.
  * Range requests: advertises `Accept-Ranges: bytes` and responds with
  * `206 Partial Content` so browsers can seek within media files (WebM, MP4).
  * COOP/COEP headers are required for `SharedArrayBuffer` isolation used by
@@ -125,21 +127,45 @@ function sendFile(req, res, filePath, stat) {
  * Exported for testing.
  */
 export function createStaticHandler(dir) {
+  // Resolve the served root once so the confinement checks compare absolute
+  // paths. Comparing a resolved filePath against a relative or
+  // trailing-separator `dir` rejected every request with 403.
+  const rootDir = path.resolve(dir);
+  // The root's own symlinks resolved once (e.g. /tmp -> /private/tmp on macOS),
+  // so a realpath'd request path can be compared against it.
+  let realRoot;
+  try { realRoot = fs.realpathSync(rootDir); } catch { realRoot = rootDir; } // NOSONAR — rootDir is the caller-supplied results dir, not request data
+
   return (req, res) => {
-    const resolved = resolveServedPath(dir, req.url);
+    const resolved = resolveServedPath(rootDir, req.url);
     if (resolved.status) {
       res.writeHead(resolved.status);
       res.end(resolved.message);
       return;
     }
     const { filePath } = resolved;
-    fs.stat(filePath, (statErr, stat) => {
-      if (statErr || !stat.isFile()) {
+    // Resolve symlinks before serving: a link *inside* the tree that points
+    // outside it passes the lexical check above, so containment is re-verified
+    // against the real path.
+    fs.realpath(filePath, (realErr, realPath) => { // NOSONAR — filePath already passed the lexical check in resolveServedPath; its real path is re-checked below before any read
+      if (realErr) {
         res.writeHead(404);
         res.end('Not found');
         return;
       }
-      sendFile(req, res, filePath, stat);
+      if (!isPathInside(realRoot, realPath)) {
+        res.writeHead(403);
+        res.end('Forbidden');
+        return;
+      }
+      fs.stat(realPath, (statErr, stat) => { // NOSONAR — realPath re-checked against realRoot above
+        if (statErr || !stat.isFile()) {
+          res.writeHead(404);
+          res.end('Not found');
+          return;
+        }
+        sendFile(req, res, realPath, stat);
+      });
     });
   };
 }

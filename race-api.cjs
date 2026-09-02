@@ -61,7 +61,11 @@ function createRaceApi({ recordingStartTime = Date.now(), now = Date.now, hooks 
 
   const segments = [];
   const measurements = [];
-  const activeMeasurements = {};
+  // Null-prototype: measurement names come from user race scripts, so a plain
+  // object would resolve raceEnd('constructor') / raceEnd('toString') through
+  // the prototype chain, skip the unmatched-name guard, and record a NaN
+  // measurement. Matches runner-metrics.cjs's measuredSections.
+  const activeMeasurements = Object.create(null);
   let currentSegmentStart = null;
   let raceStartTime = null;
   let hasExplicitRecording = false;

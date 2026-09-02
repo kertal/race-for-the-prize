@@ -234,8 +234,17 @@ async function startExport() {
         target = ct[i].start + elapsed;
         target = Math.max(ct[i].start, Math.min(ct[i].end, target));
       }
-      v.currentTime = Math.min(target, v.duration || target);
+      const targetTime = Math.min(target, v.duration || target);
+      // Chrome fires no 'seeked' event when currentTime is assigned the value
+      // it already holds — common when exporting from the start of a clip.
+      // Without this guard the promise never settles and the export sits at
+      // "Preparing…" forever.
+      if (Math.abs(v.currentTime - targetTime) < SEEK_SNAP_TOLERANCE) {
+        resolve();
+        return;
+      }
       v.onseeked = () => { v.onseeked = null; resolve(); };
+      v.currentTime = targetTime;
     });
   });
 

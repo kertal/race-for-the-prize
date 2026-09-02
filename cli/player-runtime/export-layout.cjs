@@ -24,10 +24,20 @@ function computeExportLayout(count, aspect) {
   } else {
     cols = 3; rows = 2;
     for (let i = 0; i < 3; i++) positions.push({ x: i * targetW, y: 0 });
-    const bottomOffset = Math.floor(targetW / 2);
-    for (let i = 0; i < count - 3; i++) positions.push({ x: bottomOffset + i * targetW, y: slotH });
+    // Centre the bottom row against its own cell count. A fixed half-cell
+    // indent only centres a 2-cell bottom row (count === 5); at count >= 6 it
+    // pushes the row past the canvas and clips the last racer.
+    const bottomCount = count - 3;
+    const bottomOffset = Math.floor(((3 - Math.min(bottomCount, 3)) * targetW) / 2);
+    for (let i = 0; i < bottomCount; i++) positions.push({ x: bottomOffset + i * targetW, y: slotH });
   }
-  const canvasW = (count >= 5 ? 3 : cols) * targetW;
+  // Size the canvas from the widest row so no row can overflow it. Identical to
+  // the previous formula for the 2–5 racers the CLI allows.
+  let widestRow;
+  if (count <= 3) widestRow = cols;
+  else if (count === 4) widestRow = cols;
+  else widestRow = Math.max(3, count - 3);
+  const canvasW = widestRow * targetW;
   const rawH = rows * slotH;
   // libx264 (MOV) requires even dimensions; bump odd height by 1
   const canvasH = rawH + (rawH % 2);

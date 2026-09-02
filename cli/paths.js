@@ -8,6 +8,7 @@
  * building player-relative URLs (race.js).
  */
 
+import path from 'path';
 import { FORMAT_EXTENSIONS } from './media-config.js';
 
 /** Trimmed race video filename, e.g. `lauda.race.webm`. */
@@ -33,4 +34,23 @@ export function harFile(name) {
 /** Racer-relative path (forward slashes — used in player HTML), e.g. `lauda/lauda.race.webm`. */
 export function racerRelative(name, file) {
   return `${name}/${file}`;
+}
+
+/**
+ * Is `target` the directory `root` itself, or something beneath it?
+ *
+ * Shared by the static file server and the setup/teardown task runner so both
+ * confine paths the same way. Uses path.relative rather than a
+ * `root + path.sep` prefix test, which becomes '//' for a filesystem-root
+ * `root` and would reject every valid child. The '..' checks are anchored to a
+ * whole segment so an in-tree name that merely starts with dots (e.g.
+ * '..hidden') is not mistaken for traversal.
+ */
+export function isPathInside(root, target) {
+  const resolvedRoot = path.resolve(root);
+  const resolvedTarget = path.resolve(target);
+  if (resolvedTarget === resolvedRoot) return true;
+  const rel = path.relative(resolvedRoot, resolvedTarget);
+  if (rel === '' || rel === '..') return false;
+  return !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
 }

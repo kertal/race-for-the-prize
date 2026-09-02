@@ -215,6 +215,18 @@ describe('computeExportLayout', () => {
     expect(l.canvasH).toBe(390); // 360 + 30, already even
   });
 
+  it('never lets a row overflow the canvas (bottom row centred by its own count)', () => {
+    // The CLI caps racers at 5, but the layout must stay self-consistent: a
+    // fixed half-cell indent pushed a 3-cell bottom row past the canvas.
+    for (const count of [2, 3, 4, 5, 6]) {
+      const l = computeExportLayout(count, ASPECT);
+      for (const pos of l.positions) {
+        expect(pos.x).toBeGreaterThanOrEqual(0);
+        expect(pos.x + l.targetW, `count=${count} overflows canvasW`).toBeLessThanOrEqual(l.canvasW);
+      }
+    }
+  });
+
   it('lays out 3 videos in a single row', () => {
     const l = computeExportLayout(3, ASPECT);
     expect(l.targetW).toBe(640);

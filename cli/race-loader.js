@@ -132,7 +132,10 @@ export function loadRaceDir(raceDir, { boolFlags, kvFlags, rootDir, buildContext
     effectiveRacerFiles = racerFiles.map((f, i) => {
       const name = racerNames[i];
       const script = settings.racers?.[name]?.script;
-      if (!script) return f;
+      // Only an absent setting falls back to the discovered file: a supplied
+      // but falsy value ("" / false / 0) must reach the validation below
+      // instead of being silently ignored.
+      if (script === undefined) return f;
       const fail = (reason) => {
         console.error(`${c.red}Error: settings.racers.${name}.script ${reason}${c.reset}`);
         process.exit(1);
@@ -144,7 +147,7 @@ export function loadRaceDir(raceDir, { boolFlags, kvFlags, rootDir, buildContext
       const scriptPath = path.join(raceDir, script);
       let stat;
       try {
-        stat = fs.lstatSync(scriptPath);
+        stat = fs.lstatSync(scriptPath); // NOSONAR — `script` is validated just above: basename only, no '..', not absolute, so scriptPath cannot leave raceDir
       } catch {
         fail(`not found: ${script}`);
       }
@@ -159,6 +162,8 @@ export function loadRaceDir(raceDir, { boolFlags, kvFlags, rootDir, buildContext
   }
 
   const scripts = scriptFiles.map(f =>
+    // NOSONAR — f is either a filename discovered by readdir inside raceDir or a
+    // settings override already validated as a basename (see the checks above).
     fs.readFileSync(path.join(raceDir, f), 'utf-8')
   );
 

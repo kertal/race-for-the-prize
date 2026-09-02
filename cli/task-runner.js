@@ -9,6 +9,7 @@
 import fs from 'fs';
 import path from 'path';
 import { spawn, execSync } from 'child_process';
+import { isPathInside } from './paths.js';
 import { c } from './colors.js';
 import { startProgress } from './animation.js';
 import { varsToEnv } from './config.js';
@@ -45,12 +46,11 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
   const scriptPath = path.resolve(raceDir, command);
   const ext = path.extname(scriptPath);
 
-  // Security: ensure resolved path stays within the race directory. Both sides
-  // go through path.resolve so a raceDir written with a trailing separator
-  // ("races/demo/") can't produce a doubled prefix ("races/demo//") and reject
-  // scripts that are in fact inside it.
-  const resolvedRaceDir = path.resolve(raceDir);
-  if (scriptPath !== resolvedRaceDir && !scriptPath.startsWith(resolvedRaceDir + path.sep)) {
+  // Security: ensure the resolved path stays within the race directory. Shared
+  // with the static server so both confine the same way — notably a raceDir
+  // with a trailing separator, or the filesystem root, still accepts its own
+  // children.
+  if (!isPathInside(raceDir, scriptPath)) {
     throw new Error(`${label} script path must be within race directory: ${command}`);
   }
 

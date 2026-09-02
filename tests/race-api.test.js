@@ -62,6 +62,35 @@ describe('page.race* API (race-api.cjs)', () => {
       expect(duration).toBe(0);
     });
 
+    it('treats inherited Object keys as unmatched instead of recording NaN', () => {
+      // activeMeasurements must not resolve names like 'constructor' through
+      // the prototype chain: the guard would not fire and endMeasure would push
+      // a measurement whose times are all NaN.
+      const unmatched = [];
+      const { api, page } = createTestApi({
+        hooks: { onUnmatchedMeasureEnd: (name) => unmatched.push(name) },
+      });
+
+      for (const name of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+        expect(page.raceEnd(name), name).toBe(0);
+      }
+
+      expect(unmatched).toEqual(['constructor', 'toString', '__proto__', 'hasOwnProperty']);
+      expect(api.measurements).toEqual([]);
+    });
+
+    it('still measures normally for names that shadow Object keys', async () => {
+      const now = vi.fn().mockReturnValue(1000);
+      const { api, page } = createTestApi({ recordingStartTime: 1000, now });
+
+      await page.raceStart('constructor');
+      now.mockReturnValue(3000);
+      expect(page.raceEnd('constructor')).toBe(2);
+      expect(api.measurements).toEqual([
+        { name: 'constructor', startTime: 0, endTime: 2, duration: 2 },
+      ]);
+    });
+
     it('measurement times are relative to recordingStartTime', async () => {
       const now = vi.fn().mockReturnValue(5000);
       const { api, page } = createTestApi({ recordingStartTime: 1000, now });

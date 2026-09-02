@@ -399,7 +399,16 @@ function switchMode(targetSrcSet, targetVideos, modeBtn, opts) {
   setActiveMode(modeBtn);
   if (srcChanged) {
     duration = 0;
-    pendingSeek = opts.doSeek;
+    // Merged mode switches to a video whose source never changed (it passes a
+    // null srcSet and has no loadSrc), so 'loadedmetadata' may already have
+    // fired and will not fire again — a deferred seek would never run, leaving
+    // duration at 0 and the scrubber/end controls on an invalid range.
+    if (!opts.loadSrc && primary && primary.readyState >= 1) {
+      onMeta();
+      opts.doSeek();
+    } else {
+      pendingSeek = opts.doSeek;
+    }
   } else {
     onMeta();
     opts.doSeek();

@@ -161,9 +161,29 @@ describe('runScript execution', () => {
 
   it('rejects when the waitFor URL never becomes ready', async () => {
     fs.writeFileSync(path.join(tmpDir, 'ok.js'), 'process.exit(0);');
-    // Port 9 (discard) on localhost is almost certainly closed; connection refused
+    // Serve a deterministic non-2xx rather than assuming a port is closed:
+    // port 9 (discard) is open on some systems, which made this flaky.
+    const server = http.createServer((_req, res) => { res.writeHead(503); res.end(); });
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address();
+    try {
+      await expect(
+        run({ command: 'ok.js', waitFor: { url: `http://127.0.0.1:${port}/`, timeout: 400, interval: 50 } })
+      ).rejects.toThrow(new RegExp(`Timeout waiting for http://127\\.0\\.0\\.1:${port}/ after 400ms`));
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
+  }, 15000);
+
+  it('accepts a script inside a raceDir given as the filesystem root', async () => {
+    // A `resolvedRaceDir + path.sep` prefix becomes '//' for a root raceDir and
+    // rejected every child; isPathInside handles it.
+    const marker = path.join(tmpDir, 'root-scoped.js');
+    fs.writeFileSync(marker, 'process.exit(0);');
+    const rootDir = path.parse(tmpDir).root;
+    const relFromRoot = path.relative(rootDir, marker);
     await expect(
-      run({ command: 'ok.js', waitFor: { url: 'http://127.0.0.1:9/', timeout: 400, interval: 50 } })
-    ).rejects.toThrow(/Timeout waiting for http:\/\/127\.0\.0\.1:9\/ after 400ms/);
+      runScript(relFromRoot, 'Setup', undefined, { raceDir: rootDir })
+    ).resolves.toBeUndefined();
   }, 15000);
 });
