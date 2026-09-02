@@ -266,12 +266,12 @@ describe('buildPlayerHtml', () => {
     expect(html).toContain('const raceVideos = [v0, v1, v2, v3, v4]');
   });
 
-  it('assigns correct colors to racer labels', () => {
+  it('assigns correct colors to racer labels via the --racer-color token', () => {
     const summary = makeSummary({ racers: ['red', 'blue', 'green'], comparisons: [], overallWinner: null });
     const html = buildPlayerHtml(summary, ['r/r.webm', 'b/b.webm', 'g/g.webm']);
-    expect(html).toContain('style="color: #e74c3c"');
-    expect(html).toContain('style="color: #3498db"');
-    expect(html).toContain('style="color: #27ae60"');
+    expect(html).toContain('style="--racer-color: #e74c3c"');
+    expect(html).toContain('style="--racer-color: #3498db"');
+    expect(html).toContain('style="--racer-color: #27ae60"');
   });
 
   it('displays time and step counters', () => {
@@ -444,8 +444,8 @@ describe('buildPlayerHtml', () => {
 
   it('shows winner video first with original colors preserved', () => {
     const html = buildPlayerHtml(huntWinsSummary(), videoFiles);
-    const huntLabelMatch = html.match(/color: (#[0-9a-f]+)">hunt/);
-    expect(huntLabelMatch[1]).toBe('#3498db');
+    const huntCard = html.match(/--racer-color: (#[0-9a-f]+)">\s*<div class="racer-label">(?:(?!<\/div>).)*hunt/s);
+    expect(huntCard[1]).toBe('#3498db');
   });
 
   it('omits script tag when no videos provided', () => {
@@ -573,26 +573,27 @@ describe('buildRunNavHtml winner colors', () => {
   const racers = ['lauda', 'hunt'];
   const makeRunSummaries = (winners) => winners.map(w => ({ overallWinner: w }));
 
-  it('colors run buttons with winner border and white text', () => {
+  it('tints run buttons with the winner colour token', () => {
     const nav = { currentRun: 'median', totalRuns: 2, pathPrefix: '' };
     const html = buildRunNavHtml(nav, racers, makeRunSummaries(['lauda', 'hunt']));
-    expect(html).toContain(`border-color:${RACER_CSS_COLORS[0]}`);
-    expect(html).toContain(`border-color:${RACER_CSS_COLORS[1]}`);
-    expect(html).toContain('color:#fff');
+    expect(html).toContain(`--racer-color:${RACER_CSS_COLORS[0]}`);
+    expect(html).toContain(`--racer-color:${RACER_CSS_COLORS[1]}`);
+    // .has-winner is what tells the stylesheet to use the token
+    expect(html.match(/has-winner/g)).toHaveLength(2);
   });
 
-  it('uses black text for the active run button', () => {
+  it('marks the active run button so the stylesheet can invert it', () => {
     const nav = { currentRun: 1, totalRuns: 2, pathPrefix: '../' };
     const html = buildRunNavHtml(nav, racers, makeRunSummaries(['lauda', 'hunt']));
-    expect(html).toMatch(/color:#1a1a1a.*Run 1/);
-    expect(html).toMatch(/color:#fff.*Run 2/);
+    expect(html).toMatch(/class="run-nav-btn active has-winner"[^>]*>Run 1</);
+    expect(html).toMatch(/class="run-nav-btn has-winner"[^>]*>Run 2</);
   });
 
   it('does not add style for ties', () => {
     const nav = { currentRun: 'median', totalRuns: 2, pathPrefix: '' };
     const html = buildRunNavHtml(nav, racers, makeRunSummaries(['tie', 'lauda']));
     expect(html).toMatch(/<a(?![^>]*style)[^>]*>Run 1<\/a>/);  // no style attr on tie
-    expect(html).toContain(`border-color:${RACER_CSS_COLORS[0]}`);  // lauda wins run 2
+    expect(html).toContain(`--racer-color:${RACER_CSS_COLORS[0]}`);  // lauda wins run 2
   });
 
   it('works without runSummaries', () => {
@@ -1349,9 +1350,9 @@ describe('buildPlayerHtml run-by-run comparison', () => {
   it('renders run-by-run comparison section with color-coded racer headers', () => {
     const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
     expect(html).toContain('Run-by-Run Comparison');
-    // Racer headers have color styling
-    expect(html).toContain('style="color:#e74c3c">lauda');
-    expect(html).toContain('style="color:#3498db">hunt');
+    // Racer headers carry the racer colour as a token the stylesheet reads
+    expect(html).toContain('style="--racer-color:#e74c3c">lauda');
+    expect(html).toContain('style="--racer-color:#3498db">hunt');
   });
 
   it('shows trophy for winner and delta for loser in comparison table', () => {

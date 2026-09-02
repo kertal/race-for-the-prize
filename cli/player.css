@@ -1,18 +1,288 @@
+/* ===========================================================================
+   RaceForThePrize — results player stylesheet
+   ---------------------------------------------------------------------------
+   Structured in three layers so the player can be re-skinned without touching
+   a single component rule:
+
+     1. PALETTE   raw colours and type faces. A skin usually only overrides
+                  these plus a handful of semantic roles.
+     2. SEMANTIC  what a colour *means* (--bg, --surface, --accent, --border…).
+                  Component rules only ever reference this layer.
+     3. COMPONENTS the actual widgets. No literal colours, fonts, radii or
+                  durations live here — everything comes from a token.
+
+   To skin the player, redefine tokens in a stylesheet that loads after this
+   one (see cli/skins/*.css and docs/skinning.md). Scope them to
+   `:root[data-theme="<name>"]` so several skins can coexist in one document.
+   =========================================================================== */
+
+:root {
+  color-scheme: dark;
+
+  /* --- 1. Palette ------------------------------------------------------- */
+  --color-gold: #d4af37;
+  --color-gold-bright: #e8c445;
+  --color-gold-shadow: #6c5520;
+  --color-orange: #e67e22;
+  --color-red: #e74c3c;
+  --color-ink-900: #1a1a1a;
+  --color-ink-850: #222;
+  --color-ink-800: #2a2a2a;
+  --color-ink-700: #3a3a3a;
+  --color-ink-650: #333;
+  --color-ink-600: #444;
+  --color-ink-500: #555;
+  --color-parchment: #e8e0d0;
+  --color-white: #fff;
+  --color-grey-100: #ccc;
+  --color-grey-200: #bbb;
+  --color-grey-300: #999;
+  --color-grey-400: #888;
+  --color-grey-500: #777;
+  --color-grey-600: #666;
+
+  /* --- 2. Semantic roles ------------------------------------------------ */
+  --bg: var(--color-ink-900);
+  --surface: var(--color-ink-800);
+  --surface-raised: var(--color-ink-700);
+  --surface-inset: rgb(255 255 255 / 2%);
+  --scrim: rgb(0 0 0 / 85%);
+
+  --text: var(--color-parchment);
+  --text-bright: var(--color-white);
+  --text-muted: var(--color-grey-100);
+  --text-dim: var(--color-grey-300);
+  --text-subtle: var(--color-grey-400);
+  --text-faint: var(--color-grey-500);
+  --text-ghost: var(--color-grey-600);
+
+  --accent: var(--color-gold);
+  --accent-bright: var(--color-gold-bright);
+  --accent-shadow: var(--color-gold-shadow);
+  --accent-contrast: var(--color-ink-900);
+  --accent-wash: linear-gradient(180deg, rgb(212 175 55 / 12%), rgb(212 175 55 / 3%));
+
+  --border: var(--color-ink-600);
+  --border-strong: var(--color-ink-500);
+  --border-subtle: var(--color-ink-650);
+  --danger: var(--color-red);
+
+  /* Calibration panel keeps its own accent so it reads as a tool, not chrome */
+  --tool-accent: var(--color-orange);
+  --tool-surface: #2a2218;
+  --tool-contrast: var(--color-ink-900);
+
+  /* Per-racer accent. Set inline as `style="--racer-color: #e74c3c"`; every
+     racer-tinted element falls back to a neutral when it is absent. */
+  --racer-color: initial;
+
+  /* --- Typography ------------------------------------------------------- */
+  --font-ui: ui-monospace, 'Courier New', monospace;
+  --font-display: Georgia, 'Times New Roman', serif;
+
+  --font-size-marker: 0.55rem;
+  --font-size-xs: 0.72rem;
+  --font-size-sm: 0.75rem;
+  --font-size-base: 0.8rem;
+  --font-size-md: 0.85rem;
+  --font-size-lg: 0.95rem;
+  --font-size-xl: 1rem;
+  --font-size-2xl: 1.1rem;
+  --font-size-3xl: 1.2rem;
+  --font-size-4xl: 1.8rem;
+
+  --tracking-tight: 0.05em;
+  --tracking: 0.08em;
+  --tracking-wide: 0.1em;
+  --tracking-widest: 0.15em;
+  --leading: 1.4;
+  --leading-loose: 1.5;
+
+  /* --- Shape, depth & motion -------------------------------------------- */
+  --radius-sm: 3px;
+  --radius: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --border-width: 1px;
+  --border-width-thick: 2px;
+  --shadow-popover: 0 4px 12px rgb(0 0 0 / 40%);
+  --focus-ring: var(--border-width-thick) solid var(--accent);
+  --duration-fast: 0.15s;
+  --duration: 0.2s;
+  --duration-slow: 0.3s;
+
+  /* --- Layout ----------------------------------------------------------- */
+  --page-max: 1440px;
+  --content-max: 900px;
+  --gutter: 1.5rem;
+  --control-size: 34px;
+  --play-btn-width: 44px;
+
+  /* --- Ornament --------------------------------------------------------- */
+  --checker-size: 20px;
+  --checker-color-a: var(--color-ink-850);
+  --checker-color-b: var(--accent);
+
+  /* Dropdown arrow. Skins replace the whole image (the fill colour is baked
+     into the data URI, so it cannot be tokenised any further). */
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23999'/%3E%3C/svg%3E");
+
+  /* --- Media ------------------------------------------------------------ */
+  --video-bg: #000;
+  --video-border-width: var(--border-width-thick);
+  --video-border-color: var(--border-subtle);
+}
+
+/* ===========================================================================
+   3. Components
+   =========================================================================== */
+
+/* --- Document shell ------------------------------------------------------ */
 * { margin: 0; padding: 0; box-sizing: border-box; }
+
 body {
-  background: #1a1a1a;
-  color: #e8e0d0;
-  font-family: ui-monospace, 'Courier New', monospace;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
+
+h1 {
+  font-family: var(--font-display);
+  font-size: var(--font-size-4xl);
+  color: var(--accent);
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-widest);
+}
+
 .checkered-bar {
   width: 100%;
-  height: 20px;
-  background: repeating-conic-gradient(#222 0% 25%, #d4af37 0% 50%) 0 0 / 20px 20px;
+  height: var(--checker-size);
+  background:
+    repeating-conic-gradient(var(--checker-color-a) 0% 25%, var(--checker-color-b) 0% 50%)
+    0 0 / var(--checker-size) var(--checker-size);
 }
+
+/* --- Shared control chrome ----------------------------------------------
+   Every clickable control starts from the same surface/border/type so a skin
+   only has to move the tokens. Individual rules below declare what differs. */
+.run-nav-btn,
+.header-action-btn,
+.mode-btn,
+.racer-filter-btn,
+.frame-btn,
+.play-btn,
+.file-links a,
+.export-actions button,
+.export-actions a,
+.export-convert-row button,
+.debug-frame-btn,
+.debug-action-btn {
+  background: var(--surface);
+  color: var(--text-dim);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-md);
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background var(--duration),
+    border-color var(--duration),
+    color var(--duration),
+    opacity var(--duration);
+}
+
+/* Hover: lift the surface, light the border. */
+.run-nav-btn:hover,
+.header-action-btn:hover,
+.mode-btn:hover,
+.frame-btn:hover,
+.file-links a:hover,
+.export-actions button:hover,
+.export-actions a:hover {
+  background: var(--surface-raised);
+  border-color: var(--accent);
+}
+
+/* …and, where the resting state is dimmed, brighten the label too. */
+.run-nav-btn:hover,
+.header-action-btn:hover,
+.mode-btn:hover {
+  color: var(--text);
+}
+
+/* Selected/primary state shared by the nav and mode toggles. */
+.run-nav-btn.active,
+.mode-btn.active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-color: var(--accent);
+  font-weight: bold;
+}
+
+/* --- Selects ------------------------------------------------------------- */
+.segment-nav,
+.speed-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--surface) var(--select-arrow) no-repeat right 0.5rem center;
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 0.35rem 1.6rem 0.35rem 0.6rem;
+  font-size: var(--font-size-base);
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition: border-color var(--duration), background-color var(--duration);
+}
+.segment-nav:hover,
+.speed-select:hover {
+  border-color: var(--accent);
+  background-color: var(--surface-raised);
+}
+.segment-nav:focus-visible,
+.speed-select:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* --- Disclosure triangles ------------------------------------------------ */
+.section > summary,
+.section-metric > summary,
+.profile-collapsible summary {
+  list-style: none;
+  cursor: pointer;
+}
+.section > summary::-webkit-details-marker,
+.section-metric > summary::-webkit-details-marker,
+.profile-collapsible summary::-webkit-details-marker { display: none; }
+
+.section > summary::before,
+.section-metric > summary::before,
+.profile-collapsible summary::before {
+  content: "\25B6";
+  font-size: var(--font-size-marker);
+  color: var(--text-ghost);
+  display: inline-block;
+  flex-shrink: 0;
+  transition: transform var(--duration);
+}
+.section[open] > summary::before,
+.section-metric[open] > summary::before,
+.profile-collapsible[open] summary::before { transform: rotate(90deg); }
+
+.section-metric > summary:focus-visible,
+.profile-collapsible summary:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* --- Run navigation ------------------------------------------------------ */
 .run-nav {
   display: flex;
   gap: 0.4rem;
@@ -21,34 +291,25 @@ body {
   flex-wrap: wrap;
 }
 .run-nav-btn {
-  background: #2a2a2a;
-  color: #999;
-  border: 1px solid #444;
-  border-radius: 4px;
+  border-color: var(--border);
   padding: 0.3rem 0.8rem;
-  font-size: 0.8rem;
-  text-decoration: none;
-  font-family: ui-monospace, 'Courier New', monospace;
-  transition: all 0.2s;
+  font-size: var(--font-size-base);
 }
-.run-nav-btn:hover {
-  background: #3a3a3a;
-  border-color: #d4af37;
-  color: #e8e0d0;
+/* A run whose winner is known is tinted with that racer's colour. */
+.run-nav-btn.has-winner {
+  border-color: var(--racer-color, var(--border));
+  color: var(--text-bright);
 }
-.run-nav-btn.active {
-  background: #d4af37;
-  color: #1a1a1a;
-  border-color: #d4af37;
-  font-weight: bold;
-  cursor: default;
-}
+.run-nav-btn.active { cursor: default; }
+.run-nav-btn.active.has-winner { border-color: var(--racer-color, var(--accent)); }
+
+/* --- Header -------------------------------------------------------------- */
 .header-bar {
   display: flex;
   align-items: center;
   width: 100%;
-  max-width: 1440px;
-  padding: 1.2rem 1.5rem 0.3rem;
+  max-width: var(--page-max);
+  padding: 1.2rem var(--gutter) 0.3rem;
 }
 .header-icon-left { margin-right: 0.5rem; }
 .header-icon-right {
@@ -58,45 +319,37 @@ body {
   gap: 0.4rem;
 }
 .header-action-btn {
-  background: #2a2a2a;
-  border: 1px solid #444;
-  border-radius: 4px;
-  width: 34px;
-  height: 34px;
-  font-size: 1.1rem;
+  border-color: var(--border);
+  width: var(--control-size);
+  height: var(--control-size);
+  font-size: var(--font-size-2xl);
   line-height: 1;
-  cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #999;
-  transition: border-color 0.2s, color 0.2s, background 0.2s;
-}
-.header-action-btn:hover {
-  border-color: #d4af37;
-  color: #e8e0d0;
-  background: #3a3a3a;
 }
 .header-action-btn.active {
-  border-color: #d4af37;
-  color: #d4af37;
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .header-icon-group {
   position: relative;
   display: inline-block;
 }
+
+/* --- Share menu ---------------------------------------------------------- */
 .share-menu {
   display: none;
   position: absolute;
   right: 0;
   top: 100%;
-  background: #2a2a2a;
-  border: 1px solid #555;
-  border-radius: 6px;
+  background: var(--surface);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-md);
   padding: 0.3rem 0;
   min-width: 160px;
   z-index: 100;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  box-shadow: var(--shadow-popover);
 }
 .share-menu.visible { display: block; }
 .share-menu-item {
@@ -104,119 +357,49 @@ body {
   width: 100%;
   background: none;
   border: none;
-  color: #e8e0d0;
+  color: var(--text);
   padding: 0.5rem 1rem;
-  font-size: 0.82rem;
-  font-family: ui-monospace, 'Courier New', monospace;
+  font-size: var(--font-size-base);
+  font-family: var(--font-ui);
   text-align: left;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--duration-fast), color var(--duration-fast);
 }
 .share-menu-item:hover {
-  background: #3a3a3a;
-  color: #d4af37;
+  background: var(--surface-raised);
+  color: var(--accent);
 }
-h1 {
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: 1.8rem;
-  color: #d4af37;
-  text-align: center;
-  text-transform: uppercase;
-  letter-spacing: 0.15em;
-}
+
+/* --- Settings panel ------------------------------------------------------ */
 .settings-panel {
   display: none;
   width: 100%;
-  max-width: 1440px;
-  padding: 0.5rem 1.5rem;
+  max-width: var(--page-max);
+  padding: 0.5rem var(--gutter);
   gap: 0.8rem;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
 }
-.settings-panel.visible {
-  display: flex;
-}
-.settings-left {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
+.settings-panel.visible { display: flex; }
+.settings-left,
 .settings-right {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
 }
-.winner-banner:empty { display: none; }
-.winner-banner {
-  text-align: center;
-  font-family: Georgia, serif;
-  font-size: 1.2rem;
-  color: #e8e0d0;
-  padding-bottom: 1rem;
-}
-.trophy { font-size: 1.1rem; }
-.video-source-note {
-  text-align: center;
-  font-size: 0.8rem;
-  color: #777;
-  padding-bottom: 0.5rem;
-}
-.race-info, .machine-info {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 0.1rem 1.5rem;
-  font-size: 0.8rem;
-  color: #ccc;
-  padding: 0.1rem 0;
-}
-.info-item {
-  white-space: nowrap;
-}
-.info-label {
-  color: #999;
-  margin-right: 0.4rem;
-}
-.errors {
-  max-width: 900px;
-  width: 100%;
-  padding: 0.3rem 1.5rem;
-}
-.errors ul {
-  list-style: none;
-  font-size: 0.85rem;
-  color: #e74c3c;
-}
-.errors li::before { content: "\26A0  "; }
+
 .mode-toggle {
   display: flex;
   gap: 0.5rem;
   padding: 0;
 }
 .mode-btn {
-  background: #2a2a2a;
-  color: #999;
-  border: 1px solid #555;
-  border-radius: 4px;
   padding: 0.4rem 1rem;
-  font-size: 0.85rem;
-  cursor: pointer;
-  font-family: ui-monospace, 'Courier New', monospace;
-  transition: all 0.2s;
+  font-size: var(--font-size-md);
 }
-.mode-btn:hover {
-  background: #3a3a3a;
-  border-color: #d4af37;
-  color: #e8e0d0;
-}
-.mode-btn.active {
-  background: #d4af37;
-  color: #1a1a1a;
-  border-color: #d4af37;
-  font-weight: bold;
-}
+
 .racer-filter {
   display: none;
   gap: 0.4rem;
@@ -226,47 +409,74 @@ h1 {
   align-items: center;
 }
 .racer-filter-btn {
-  border: 1px solid currentcolor;
-  border-radius: 4px;
+  color: var(--racer-color, var(--text-dim));
+  border-color: currentcolor;
   padding: 0.3rem 0.9rem;
-  font-size: 0.82rem;
-  cursor: pointer;
-  font-family: ui-monospace, 'Courier New', monospace;
-  background: #2a2a2a;
-  transition: opacity 0.2s, background 0.2s;
+  font-size: var(--font-size-base);
   opacity: 0.35;
 }
 .racer-filter-btn.active { opacity: 1; }
-.racer-filter-btn:not(.active):hover { background: #3a3a3a; opacity: 0.6; }
-.racer-filter-btn.active:hover { background: #3a3a3a; }
+.racer-filter-btn:hover { background: var(--surface-raised); }
+.racer-filter-btn:not(.active):hover { opacity: 0.6; }
+
 .segment-nav {
   display: none;
-  appearance: none;
-  -webkit-appearance: none;
-  background: #2a2a2a url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23999'/%3E%3C/svg%3E") no-repeat right 0.5rem center;
-  color: #d4af37;
-  border: 1px solid #555;
-  border-radius: 4px;
-  padding: 0.35rem 1.6rem 0.35rem 0.6rem;
-  font-size: 0.82rem;
+  color: var(--accent);
   font-weight: bold;
-  cursor: pointer;
-  font-family: ui-monospace, 'Courier New', monospace;
-  transition: border-color 0.2s, background-color 0.2s;
 }
-.segment-nav:hover {
-  border-color: #d4af37;
-  background-color: #3a3a3a;
+
+/* --- Banners & notes ----------------------------------------------------- */
+.winner-banner {
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: var(--font-size-3xl);
+  color: var(--text);
+  padding-bottom: 1rem;
 }
-.segment-nav:focus-visible {
-  outline: 2px solid #d4af37;
-  outline-offset: 1px;
+.winner-banner:empty { display: none; }
+.trophy { font-size: var(--font-size-2xl); }
+
+.video-source-note {
+  text-align: center;
+  font-size: var(--font-size-base);
+  color: var(--text-faint);
+  padding-bottom: 0.5rem;
 }
+
+.errors {
+  max-width: var(--content-max);
+  width: 100%;
+  padding: 0.3rem var(--gutter);
+}
+.errors ul {
+  list-style: none;
+  font-size: var(--font-size-md);
+  color: var(--danger);
+}
+.errors li::before { content: "\26A0  "; }
+
+/* --- Info grids ---------------------------------------------------------- */
+.race-info,
+.machine-info {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 0.1rem var(--gutter);
+  font-size: var(--font-size-base);
+  color: var(--text-muted);
+  padding: 0.1rem 0;
+}
+.info-item { white-space: nowrap; }
+.info-label {
+  color: var(--text-dim);
+  margin-right: 0.4rem;
+}
+
+/* --- Video stage --------------------------------------------------------- */
 .player-container {
   display: flex;
   flex-wrap: wrap;
   gap: 1rem;
-  padding: 0 1.5rem;
+  padding: 0 var(--gutter);
   width: 100%;
   justify-content: center;
 }
@@ -276,28 +486,31 @@ h1 {
   text-align: center;
 }
 .racer-label {
-  font-family: Georgia, serif;
-  font-size: 1.1rem;
+  font-family: var(--font-display);
+  font-size: var(--font-size-2xl);
+  color: var(--racer-color, var(--text));
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--tracking-wide);
   padding: 0.5rem 0;
 }
 video {
   width: 100%;
-  border: 2px solid #333;
-  border-radius: 4px;
-  background: #000;
+  border: var(--video-border-width) solid var(--video-border-color);
+  border-radius: var(--radius);
+  background: var(--video-bg);
 }
 .merged-container {
   max-width: 1200px;
   width: 100%;
-  padding: 0 1.5rem;
+  padding: 0 var(--gutter);
 }
 .merged-container video { width: 100%; }
+
+/* --- Transport controls -------------------------------------------------- */
 .controls {
-  max-width: 900px;
+  max-width: var(--content-max);
   width: 100%;
-  padding: 1rem 1.5rem;
+  padding: 1rem var(--gutter);
   display: flex;
   align-items: center;
   gap: 0.8rem;
@@ -311,245 +524,192 @@ video {
   min-width: 300px;
 }
 .play-btn {
-  background: #d4af37;
-  color: #1a1a1a;
+  background: var(--accent);
+  color: var(--accent-contrast);
   border: none;
-  border-radius: 4px;
-  width: 44px;
-  height: 34px;
-  font-size: 1.1rem;
-  cursor: pointer;
+  width: var(--play-btn-width);
+  height: var(--control-size);
+  font-size: var(--font-size-2xl);
   font-weight: bold;
   flex-shrink: 0;
 }
-.play-btn:hover { background: #e8c445; }
+.play-btn:hover { background: var(--accent-bright); }
 .frame-btn {
-  background: #2a2a2a;
-  color: #d4af37;
-  border: 1px solid #555;
-  border-radius: 4px;
-  width: 34px;
-  height: 34px;
-  font-size: 0.7rem;
-  cursor: pointer;
+  color: var(--accent);
+  width: var(--control-size);
+  height: var(--control-size);
+  font-size: var(--font-size-xs);
   flex-shrink: 0;
 }
-.frame-btn:hover { background: #3a3a3a; border-color: #d4af37; }
 .scrubber {
   flex: 1;
-  accent-color: #d4af37;
+  accent-color: var(--accent);
   height: 6px;
   cursor: pointer;
 }
-.time-display {
-  font-size: 0.75rem;
-  color: #999;
-  min-width: 140px;
+.time-display,
+.frame-display {
+  font-size: var(--font-size-sm);
   text-align: center;
   flex-shrink: 0;
+}
+.time-display {
+  color: var(--text-dim);
+  min-width: 140px;
 }
 .frame-display {
-  font-size: 0.75rem;
-  color: #777;
+  color: var(--text-faint);
   min-width: 80px;
-  text-align: center;
-  flex-shrink: 0;
 }
 .speed-select {
-  appearance: none;
-  -webkit-appearance: none;
-  background: #2a2a2a url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23999'/%3E%3C/svg%3E") no-repeat right 0.5rem center;
-  color: #e8e0d0;
-  border: 1px solid #555;
-  border-radius: 4px;
-  padding: 0.35rem 1.6rem 0.35rem 0.6rem;
-  font-size: 0.8rem;
-  cursor: pointer;
+  color: var(--text);
   flex-shrink: 0;
-  font-family: ui-monospace, 'Courier New', monospace;
-  transition: border-color 0.2s, background-color 0.2s;
 }
-.speed-select:hover {
-  border-color: #d4af37;
-  background-color: #3a3a3a;
-}
-.speed-select:focus-visible {
-  outline: 2px solid #d4af37;
-  outline-offset: 1px;
-}
+
+/* --- Collapsible report sections ----------------------------------------- */
 .section {
-  max-width: 900px;
+  max-width: var(--content-max);
   width: 100%;
-  padding: 0.8rem 1.5rem 0.5rem;
+  padding: 0.8rem var(--gutter) 0.5rem;
 }
 .section > summary {
-  cursor: pointer;
-  list-style: none;
   display: flex;
   align-items: center;
   gap: 0.5rem;
   padding: 0.2rem 0;
 }
-.section > summary::-webkit-details-marker { display: none; }
-.section > summary::before {
-  content: "\25B6";
-  font-size: 0.55rem;
-  color: #666;
-  display: inline-block;
-  transition: transform 0.2s;
-  flex-shrink: 0;
-}
-.section[open] > summary::before {
-  transform: rotate(90deg);
-}
 .section > summary h2 {
-  font-family: Georgia, serif;
-  color: #d4af37;
-  font-size: 1rem;
+  font-family: var(--font-display);
+  color: var(--accent);
+  font-size: var(--font-size-xl);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--tracking-wide);
   margin: 0;
 }
-.section-body {
-  padding-top: 0.4rem;
-}
-.profile-note {
-  color: #777;
-  font-size: 0.8rem;
-  margin-bottom: 1rem;
-}
-.profile-scope-desc {
-  color: #888;
-  font-size: 0.78rem;
-  font-style: italic;
-  margin: -0.2rem 0 0.8rem;
-}
-.profile-category-desc {
-  color: #777;
-  font-size: 0.75rem;
-  margin: -0.2rem 0 0.5rem;
-}
-.profile-metric-desc {
-  color: #777;
-  font-size: 0.73rem;
-  margin: 0 0 0.2rem 0;
-  line-height: 1.4;
-}
-.profile-info-icon {
-  color: #888;
-  font-size: 0.7rem;
-  cursor: help;
-}
+.section-body { padding-top: 0.4rem; }
 .section h3 {
-  color: #e8e0d0;
-  font-size: 0.95rem;
+  color: var(--text);
+  font-size: var(--font-size-lg);
   margin: 1rem 0 0.5rem;
-  border-bottom: 1px solid #444;
+  border-bottom: var(--border-width) solid var(--border);
   padding-bottom: 0.3rem;
 }
+.section h4 {
+  color: var(--text-dim);
+  font-size: var(--font-size-base);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking);
+  margin: 0.8rem 0 0.4rem;
+}
+
+/* --- Run-by-run comparison table ----------------------------------------- */
 .run-comparison-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.85rem;
+  font-size: var(--font-size-md);
   margin-bottom: 1rem;
 }
 .run-comparison-table th,
 .run-comparison-table td {
   padding: 0.35rem 0.6rem;
   text-align: left;
-  border-bottom: 1px solid #333;
+  border-bottom: var(--border-width) solid var(--border-subtle);
 }
 .run-comparison-table th {
-  color: #888;
-  font-size: 0.75rem;
+  color: var(--racer-color, var(--text-subtle));
+  font-size: var(--font-size-sm);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--tracking-tight);
 }
-.run-comparison-table td {
-  color: #ccc;
-}
+.run-comparison-table td { color: var(--text-muted); }
 .run-comparison-median td {
-  border-top: 2px solid #d4af37;
-  color: #d4af37;
+  border-top: var(--border-width-thick) solid var(--accent);
+  color: var(--accent);
 }
-.section h4 {
-  color: #999;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin: 0.8rem 0 0.4rem;
+.run-delta { opacity: 0.5; }
+
+/* --- Performance profile ------------------------------------------------- */
+.profile-note {
+  color: var(--text-faint);
+  font-size: var(--font-size-base);
+  margin-bottom: 1rem;
+}
+.profile-scope-desc {
+  color: var(--text-subtle);
+  font-size: var(--font-size-base);
+  font-style: italic;
+  margin: -0.2rem 0 0.8rem;
+}
+.profile-category-desc {
+  color: var(--text-faint);
+  font-size: var(--font-size-sm);
+  margin: -0.2rem 0 0.5rem;
+}
+.profile-metric-desc {
+  color: var(--text-faint);
+  font-size: var(--font-size-xs);
+  margin: 0 0 0.2rem;
+  line-height: var(--leading);
+}
+.profile-info-icon {
+  color: var(--text-subtle);
+  font-size: var(--font-size-xs);
+  cursor: help;
 }
 .profile-metric { margin-bottom: 0.6rem; }
 .profile-metric-name {
-  color: #888;
-  font-size: 0.8rem;
+  color: var(--text-subtle);
+  font-size: var(--font-size-base);
   margin-bottom: 0.2rem;
 }
 .profile-metric-total {
-  border: 1px solid #6c5520;
-  border-radius: 6px;
-  background: linear-gradient(180deg, rgba(212, 175, 55, 0.12), rgba(212, 175, 55, 0.03));
+  border: var(--border-width) solid var(--accent-shadow);
+  border-radius: var(--radius-md);
+  background: var(--accent-wash);
   padding: 0.55rem 0.65rem 0.35rem;
   margin-bottom: 0.8rem;
 }
 .profile-metric-total .profile-metric-name {
-  color: #e8c445;
-  font-size: 0.95rem;
-  letter-spacing: 0.04em;
+  color: var(--accent-bright);
+  font-size: var(--font-size-lg);
+  letter-spacing: var(--tracking-tight);
   margin-bottom: 0.35rem;
 }
 .section-metric {
-  border-left: 2px solid #333;
+  border-left: var(--border-width-thick) solid var(--border-subtle);
   padding-left: 0.4rem;
   opacity: 0.95;
   margin: 0.45rem 0 0.7rem;
 }
 .section-metric > summary {
-  list-style: none;
-  cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
 }
-.section-metric > summary:focus-visible {
-  outline: 2px solid #d4af37;
-  outline-offset: 2px;
-  border-radius: 3px;
-}
-.section-metric > summary::-webkit-details-marker { display: none; }
-.section-metric > summary::before {
-  content: "\25B6";
-  font-size: 0.55rem;
-  color: #666;
-  display: inline-block;
-  transition: transform 0.2s;
-}
-.section-metric[open] > summary::before {
-  transform: rotate(90deg);
-}
 .section-metric > summary .profile-metric-name {
-  color: #999;
+  color: var(--text-dim);
   margin-bottom: 0;
 }
 .section-metric:not([open]) > summary .profile-metric-name::after {
   content: " (collapsed)";
-  color: #666;
-  font-size: 0.72rem;
+  color: var(--text-ghost);
+  font-size: var(--font-size-xs);
 }
 .section-metric-body {
   margin-top: 0.25rem;
   padding: 0.35rem 0.45rem 0.25rem;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: 4px;
+  background: var(--surface-inset);
+  border-radius: var(--radius);
 }
 .profile-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   padding: 0.15rem 0;
-  font-size: 0.82rem;
+  font-size: var(--font-size-base);
 }
 .profile-racer {
+  color: var(--racer-color, var(--text));
   font-weight: bold;
   min-width: 110px;
   flex-shrink: 0;
@@ -557,105 +717,82 @@ video {
 .profile-bar-track {
   flex: 1;
   height: 10px;
-  background: #2a2a2a;
-  border-radius: 3px;
+  background: var(--surface);
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 .profile-bar-fill {
   display: block;
   height: 100%;
-  border-radius: 3px;
+  background: var(--racer-color, var(--accent));
+  border-radius: var(--radius-sm);
   opacity: 0.8;
 }
 .profile-value {
   min-width: 140px;
   flex-shrink: 0;
   text-align: right;
-  color: #ccc;
+  color: var(--text-muted);
   white-space: nowrap;
 }
+.profile-value-trophies { margin-left: auto; }
 .profile-delta {
-  color: #888;
-  font-size: 0.75rem;
+  color: var(--text-subtle);
+  font-size: var(--font-size-sm);
   margin-left: 0.3rem;
 }
-.profile-medal { font-size: 0.85rem; }
+.profile-medal { font-size: var(--font-size-md); }
 .profile-winner {
-  font-size: 0.9rem;
+  font-size: var(--font-size-lg);
   font-weight: bold;
   margin-top: 0.2rem;
 }
-.profile-collapsible {
-  margin-top: 1rem;
-}
+.profile-collapsible { margin-top: 1rem; }
 .profile-collapsible summary {
-  cursor: pointer;
-  list-style: none;
-  color: #e8e0d0;
+  color: var(--text);
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
-.profile-collapsible summary:focus-visible {
-  outline: 2px solid #d4af37;
-  outline-offset: 2px;
-  border-radius: 3px;
-}
-.profile-collapsible summary::-webkit-details-marker { display: none; }
-.profile-collapsible summary::before {
-  content: "\25B6";
-  font-size: 0.55rem;
-  color: #666;
-  transition: transform 0.2s;
-  display: inline-block;
-  flex-shrink: 0;
-}
-.profile-collapsible[open] summary::before {
-  transform: rotate(90deg);
-}
-.profile-collapsible-title {
-  display: inline;
-}
+.profile-collapsible-title { display: inline; }
+
+/* Racer name chips reused by the profile and calibration panels. */
+.racer-name { color: var(--racer-color, var(--text)); }
+
+/* --- File links ---------------------------------------------------------- */
 .file-links {
   display: flex;
   gap: 0.6rem;
   flex-wrap: wrap;
 }
 .file-links a {
-  color: #e8e0d0;
-  background: #2a2a2a;
-  border: 1px solid #555;
-  border-radius: 4px;
+  color: var(--text);
   padding: 0.4rem 0.8rem;
-  text-decoration: none;
-  font-size: 0.85rem;
 }
-.file-links a:hover {
-  background: #3a3a3a;
-  border-color: #d4af37;
-}
+
+/* --- Calibration panel --------------------------------------------------- */
 .debug-panel {
-  max-width: 900px;
+  max-width: var(--content-max);
   width: 100%;
-  padding: 0.8rem 1.5rem;
-  background: #2a2218;
-  border: 1px solid #e67e22;
-  border-radius: 6px;
+  padding: 0.8rem var(--gutter);
+  background: var(--tool-surface);
+  border: var(--border-width) solid var(--tool-accent);
+  border-radius: var(--radius-md);
   margin: 0 auto;
   display: none;
 }
 .debug-panel h3 {
-  color: #e67e22;
-  font-family: Georgia, serif;
-  font-size: 0.95rem;
+  color: var(--tool-accent);
+  font-family: var(--font-display);
+  font-size: var(--font-size-lg);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--tracking-wide);
   margin-bottom: 0.6rem;
 }
 .calibration-note {
-  color: #999;
-  font-size: 0.8rem;
-  line-height: 1.5;
+  color: var(--text-dim);
+  font-size: var(--font-size-base);
+  line-height: var(--leading-loose);
   margin-bottom: 0.8rem;
 }
 .debug-row {
@@ -663,31 +800,36 @@ video {
   align-items: center;
   gap: 0.6rem;
   padding: 0.3rem 0;
-  font-size: 0.85rem;
+  font-size: var(--font-size-md);
   flex-wrap: wrap;
 }
-.debug-row .racer-name {
+.debug-row .racer-name,
+.debug-stats-row .racer-name {
   font-weight: bold;
   min-width: 90px;
 }
 .debug-row .start-info {
-  color: #999;
+  color: var(--text-dim);
   min-width: 150px;
 }
-.debug-frame-btn {
-  background: #2a2a2a;
-  color: #e67e22;
-  border: 1px solid #e67e22;
-  border-radius: 3px;
-  padding: 0.2rem 0.5rem;
-  font-size: 0.75rem;
-  cursor: pointer;
-  font-family: ui-monospace, 'Courier New', monospace;
-  transition: all 0.2s;
+.debug-frame-btn,
+.debug-action-btn {
+  color: var(--tool-accent);
+  border-color: var(--tool-accent);
 }
-.debug-frame-btn:hover {
-  background: #e67e22;
-  color: #1a1a1a;
+.debug-frame-btn {
+  border-radius: var(--radius-sm);
+  padding: 0.2rem 0.5rem;
+  font-size: var(--font-size-sm);
+}
+.debug-action-btn {
+  padding: 0.3rem 0.8rem;
+  font-size: var(--font-size-base);
+}
+.debug-frame-btn:hover,
+.debug-action-btn:hover {
+  background: var(--tool-accent);
+  color: var(--tool-contrast);
 }
 .debug-footer {
   display: flex;
@@ -695,36 +837,23 @@ video {
   gap: 0.8rem;
   margin-top: 0.6rem;
   padding-top: 0.5rem;
-  border-top: 1px solid #444;
-  font-size: 0.75rem;
-  color: #777;
+  border-top: var(--border-width) solid var(--border);
+  font-size: var(--font-size-sm);
+  color: var(--text-faint);
   flex-wrap: wrap;
 }
-.debug-action-btn {
-  background: #2a2a2a;
-  color: #e67e22;
-  border: 1px solid #e67e22;
-  border-radius: 4px;
-  padding: 0.3rem 0.8rem;
-  font-size: 0.8rem;
-  cursor: pointer;
-  font-family: ui-monospace, 'Courier New', monospace;
-  transition: all 0.2s;
-}
-.debug-action-btn:hover {
-  background: #e67e22;
-  color: #1a1a1a;
-}
-.debug-stats {
+.debug-stats,
+.debug-frames,
+.debug-timing {
   margin-top: 0.6rem;
   padding-top: 0.5rem;
-  border-top: 1px solid #444;
+  border-top: var(--border-width) solid var(--border);
 }
 .debug-stats-header {
-  color: #e67e22;
-  font-size: 0.8rem;
+  color: var(--tool-accent);
+  font-size: var(--font-size-base);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--tracking);
   margin-bottom: 0.3rem;
 }
 .debug-stats-row {
@@ -732,42 +861,26 @@ video {
   align-items: center;
   gap: 1rem;
   padding: 0.15rem 0;
-  font-size: 0.8rem;
-  color: #999;
+  font-size: var(--font-size-base);
+  color: var(--text-dim);
   flex-wrap: wrap;
 }
-.debug-stats-row .racer-name {
-  font-weight: bold;
-  min-width: 90px;
-}
-.debug-frames {
-  margin-top: 0.6rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid #444;
-}
-.debug-timing {
-  margin-top: 0.6rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid #444;
-}
-.debug-timing-racer {
-  margin-bottom: 0.5rem;
-}
+.debug-timing-racer { margin-bottom: 0.5rem; }
 .debug-timing-racer .racer-name {
   font-weight: bold;
-  font-size: 0.8rem;
+  font-size: var(--font-size-base);
   display: block;
   margin-bottom: 0.2rem;
 }
 .debug-timing-events {
-  font-size: 0.75rem;
-  color: #999;
+  font-size: var(--font-size-sm);
+  color: var(--text-dim);
 }
 .debug-timing-event {
   display: flex;
   gap: 0.5rem;
   padding: 0.1rem 0;
-  border-bottom: 1px solid #333;
+  border-bottom: var(--border-width) solid var(--border-subtle);
 }
 .debug-timing-label {
   flex: 1;
@@ -776,22 +889,25 @@ video {
 .debug-timing-val {
   min-width: 70px;
   text-align: right;
-  color: #bbb;
+  color: var(--color-grey-200);
 }
+.debug-timing-empty { color: var(--text-faint); }
+
+/* --- Export overlay ------------------------------------------------------ */
 .export-overlay {
   position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.85);
+  inset: 0;
+  background: var(--scrim);
   z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .export-modal {
-  background: #1a1a1a;
-  border: 2px solid #d4af37;
-  border-radius: 8px;
-  padding: 1.5rem;
+  background: var(--bg);
+  border: var(--border-width-thick) solid var(--accent);
+  border-radius: var(--radius-lg);
+  padding: var(--gutter);
   max-width: 90vw;
   max-height: 90vh;
   display: flex;
@@ -800,16 +916,16 @@ video {
   gap: 1rem;
 }
 .export-modal h3 {
-  font-family: Georgia, serif;
-  color: #d4af37;
-  font-size: 1rem;
+  font-family: var(--font-display);
+  color: var(--accent);
+  font-size: var(--font-size-xl);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--tracking-wide);
   margin: 0;
 }
 .export-modal canvas {
-  border: 1px solid #333;
-  border-radius: 4px;
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius);
   max-width: 100%;
   max-height: 50vh;
   object-fit: contain;
@@ -817,41 +933,30 @@ video {
 .export-progress-bar {
   width: 100%;
   height: 8px;
-  background: #2a2a2a;
-  border-radius: 4px;
+  background: var(--surface);
+  border-radius: var(--radius);
   overflow: hidden;
 }
 .export-progress-fill {
   height: 100%;
-  background: #d4af37;
-  border-radius: 4px;
+  background: var(--accent);
+  border-radius: var(--radius);
   width: 0%;
-  transition: width 0.2s;
+  transition: width var(--duration);
 }
 .export-actions {
   display: flex;
   gap: 0.8rem;
   align-items: center;
 }
-.export-actions button, .export-actions a {
-  background: #2a2a2a;
-  color: #e8e0d0;
-  border: 1px solid #555;
-  border-radius: 4px;
+.export-actions button,
+.export-actions a {
+  color: var(--text);
   padding: 0.4rem 1rem;
-  font-size: 0.85rem;
-  cursor: pointer;
-  font-family: ui-monospace, 'Courier New', monospace;
-  text-decoration: none;
-  transition: all 0.2s;
-}
-.export-actions button:hover, .export-actions a:hover {
-  background: #3a3a3a;
-  border-color: #d4af37;
 }
 .export-status {
-  color: #999;
-  font-size: 0.85rem;
+  color: var(--text-dim);
+  font-size: var(--font-size-md);
 }
 .export-convert-row {
   display: flex;
@@ -861,46 +966,59 @@ video {
   justify-content: center;
 }
 .export-convert-row button {
-  background: #2a2a2a;
-  color: #d4af37;
-  border: 1px solid #d4af37;
-  border-radius: 4px;
+  color: var(--accent);
+  border-color: var(--accent);
   padding: 0.4rem 1rem;
-  font-size: 0.85rem;
-  cursor: pointer;
-  font-family: ui-monospace, 'Courier New', monospace;
-  transition: all 0.2s;
 }
-.export-convert-row button:hover { background: #d4af37; color: #1a1a1a; }
+.export-convert-row button:hover {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
 .export-convert-row button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-  background: #2a2a2a;
-  color: #999;
-  border-color: #555;
+  background: var(--surface);
+  color: var(--text-dim);
+  border-color: var(--border-strong);
 }
+
+/* --- Notes --------------------------------------------------------------- */
+.notes-textarea {
+  width: 100%;
+  min-height: 100px;
+  background: var(--surface);
+  color: var(--text);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.6rem;
+  font-family: var(--font-ui);
+  font-size: var(--font-size-md);
+  resize: vertical;
+}
+.notes-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* --- Fullscreen ----------------------------------------------------------
+   :is() has a forgiving selector list, so the unprefixed and -webkit- forms
+   can share one block: whichever the browser does not know is dropped rather
+   than invalidating the rule. */
 .fullscreen-wrapper {
   width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
-.fullscreen-wrapper:fullscreen,
-.fullscreen-wrapper:-webkit-full-screen {
-  background: #000;
-  display: flex;
-  flex-direction: column;
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) {
+  background: var(--video-bg);
   justify-content: center;
-  align-items: center;
   padding: 0;
   position: relative;
   cursor: none;
 }
-.fullscreen-wrapper.fs-controls-visible {
-  cursor: default;
-}
-.fullscreen-wrapper:fullscreen .player-container,
-.fullscreen-wrapper:-webkit-full-screen .player-container {
+.fullscreen-wrapper.fs-controls-visible { cursor: default; }
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .player-container {
   display: grid;
   grid-template-columns: repeat(var(--fs-cols, 2), 1fr);
   grid-auto-rows: 1fr;
@@ -911,18 +1029,13 @@ video {
   min-height: 0;
   max-width: 100%;
 }
-.fullscreen-wrapper:fullscreen .racer,
-.fullscreen-wrapper:-webkit-full-screen .racer {
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .racer {
   min-width: 0;
   max-width: none;
   overflow: hidden;
 }
-.fullscreen-wrapper:fullscreen .racer-label,
-.fullscreen-wrapper:-webkit-full-screen .racer-label {
-  display: none;
-}
-.fullscreen-wrapper:fullscreen video,
-.fullscreen-wrapper:-webkit-full-screen video {
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .racer-label { display: none; }
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) video {
   width: 100%;
   height: 100%;
   max-height: 100%;
@@ -930,8 +1043,7 @@ video {
   border: none;
   border-radius: 0;
 }
-.fullscreen-wrapper:fullscreen .merged-container,
-.fullscreen-wrapper:-webkit-full-screen .merged-container {
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .merged-container {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -941,16 +1053,11 @@ video {
   padding: 0;
   height: 100vh;
 }
-.fullscreen-wrapper:fullscreen .merged-container video,
-.fullscreen-wrapper:-webkit-full-screen .merged-container video {
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .merged-container video {
   height: 100vh;
   max-height: 100vh;
-  object-fit: contain;
-  border: none;
-  border-radius: 0;
 }
-.fullscreen-wrapper:fullscreen .controls,
-.fullscreen-wrapper:-webkit-full-screen .controls {
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .controls {
   position: absolute;
   bottom: 0;
   left: 0;
@@ -958,9 +1065,9 @@ video {
   max-width: 100%;
   padding: 0.5rem 1rem;
   gap: 0.5rem;
-  background: linear-gradient(transparent, rgba(0,0,0,0.85));
+  background: linear-gradient(transparent, var(--scrim));
   opacity: 0;
-  transition: opacity 0.3s;
+  transition: opacity var(--duration-slow);
   pointer-events: none;
   z-index: 10;
 }
@@ -968,33 +1075,21 @@ video {
   opacity: 1;
   pointer-events: auto;
 }
+
+/* --- Utilities ----------------------------------------------------------- */
 .sr-only {
   position: absolute; width: 1px; height: 1px;
   padding: 0; margin: -1px; overflow: hidden;
-  clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
   }
 }
-.notes-textarea {
-  width: 100%;
-  min-height: 100px;
-  background: #2a2a2a;
-  color: #e8e0d0;
-  border: 1px solid #444;
-  border-radius: 4px;
-  padding: 0.6rem;
-  font-family: ui-monospace, 'Courier New', monospace;
-  font-size: 0.85rem;
-  resize: vertical;
-}
-.notes-textarea:focus {
-  outline: none;
-  border-color: #d4af37;
-}
+
 @media (max-width: 600px) {
   .controls-row { min-width: auto; flex-wrap: wrap; }
   .time-display { min-width: auto; }

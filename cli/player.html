@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en"{{themeAttr}}>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#1a1a1a">
+<meta name="theme-color" content="{{themeColor}}">
 <title>{{title}}</title>
 {{styles}}
+{{skinStyles}}
 </head>
 <body>
 
@@ -81,10 +81,10 @@
 <template id="build-info-item"><span class="info-item"><span class="info-label">{{label}}</span> {{value}}</span></template>
 
 <template id="build-profile-row">
-<div class="profile-row">
-  <span class="profile-racer" style="color: {{color}}">{{name}}</span>
+<div class="profile-row" style="--racer-color: {{color}}">
+  <span class="profile-racer">{{name}}</span>
   <span class="profile-bar-track">
-    <span class="profile-bar-fill" style="width: {{barPct}}%; background: {{color}}"></span>
+    <span class="profile-bar-fill" style="width: {{barPct}}%"></span>
   </span>
   <span class="profile-value">{{value}}</span>
   {{medal}}
@@ -100,7 +100,7 @@
 
 <template id="build-file-link"><a href="{{href}}" {{attrs}}>{{text}}</a></template>
 
-<template id="build-racer-name"><span class="racer-name" style="color: {{color}}">{{name}}</span></template>
+<template id="build-racer-name"><span class="racer-name" style="--racer-color: {{color}}">{{name}}</span></template>
 
 <template id="build-player-section">
 <div class="fullscreen-wrapper" id="fullscreenWrapper">

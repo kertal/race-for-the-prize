@@ -28,6 +28,7 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 - `results.js` — moves recordings from temp dirs, video format conversion (WebM→MOV/GIF)
 - `sidebyside.js` — FFmpeg side-by-side video composition
 - `colors.js` — ANSI color codes
+- `skins.js` — resolves `--skin` (built-in name or `.css` path) to inlinable CSS
 
 **Race definitions (`races/`):** Each race is a directory containing two `.spec.js` files and an optional `settings.json`. The spec files use the injected race API: `page.raceStart(name)`, `page.raceEnd(name)`, `page.raceRecordingStart()`, `page.raceRecordingEnd()`.
 
@@ -38,6 +39,8 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 - Video trimming uses visual cue detection (colored pixels injected into the page). The HTML player detects cues client-side via the Canvas API for frame-accurate calibration. With `--ffmpeg`, cues are detected via ffprobe for physical segment extraction.
 - CLI flags override `settings.json` values (CLI takes priority). See `config.js` `applyOverrides()`.
 - Tests exclude `races/` and `runner/` directories (configured in `vitest.config.js`).
+- `player.css` is layered: palette tokens → semantic tokens → component rules. The component layer must contain no literal colors/fonts/radii — a test enforces this. Skins (`cli/skins/*.css`) only redefine tokens under `:root[data-theme="<name>"]`; see `docs/skinning.md`.
+- Per-racer colors reach the page as an inline `--racer-color` custom property, never as a hard-coded `color:` declaration.
 
 ## Guidelines
 

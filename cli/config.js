@@ -6,7 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 
-const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'height', 'gemini-spec']);
+const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'height', 'gemini-spec', 'skin']);
 const BOOLEAN_VALUE_FLAGS = new Set([
   'parallel', 'headless', 'overlay', 'recording',
   'ffmpeg', 'har', 'wasm', 'serve', 'pause', 'ignore-https-errors', 'gemini',
@@ -388,6 +388,13 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
       throw new InvalidSettingError(`--cpu must be a number >= 1, got "${kvFlags.cpu}"`);
     }
     s.cpuThrottle = cpu;
+  }
+  if (kvFlags.skin !== undefined) {
+    const skin = String(kvFlags.skin).trim();
+    if (skin === '') {
+      throw new InvalidSettingError('--skin needs a skin name or a path to a .css file');
+    }
+    s.skin = skin;
   }
   if (kvFlags.format !== undefined) {
     if (!VALID_FORMATS.includes(kvFlags.format)) {

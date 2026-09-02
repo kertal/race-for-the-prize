@@ -171,12 +171,14 @@ export function buildRunNavHtml(runNav, racers, runSummaries) {
     const isCurrent = currentRun === i;
     const cls = isCurrent ? 'run-nav-btn active' : 'run-nav-btn';
     const color = winnerColors[i - 1];
-    const textColor = isCurrent ? '#1a1a1a' : '#fff';
-    const style = color ? ` style="border-color:${color};color:${textColor}"` : '';
+    // The winner's colour rides in on --racer-color; .has-winner tells the
+    // stylesheet to use it for the border and brighten the label.
+    const style = color ? ` style="--racer-color:${color}"` : '';
+    const runCls = color ? `${cls} has-winner` : cls;
     if (isCurrent) {
-      html += `<span class="${cls}"${style} aria-current="page">Run ${i}</span>`;
+      html += `<span class="${runCls}"${style} aria-current="page">Run ${i}</span>`;
     } else {
-      html += `<a class="${cls}"${style} href="${escHtml(pathPrefix)}${i}/index.html">Run ${i}</a>`;
+      html += `<a class="${runCls}"${style} href="${escHtml(pathPrefix)}${i}/index.html">Run ${i}</a>`;
     }
   }
   html += '</div>';
@@ -259,7 +261,7 @@ export function buildProfileSummaryHtml(profileComparison, racers) {
       .sort((a, b) => b.count - a.count)
       .map(({ name, i, count }) => {
         const color = RACER_CSS_COLORS[i % RACER_CSS_COLORS.length];
-        return `<div class="profile-row"><span class="profile-racer" style="color:${color}">${escHtml(name)}</span><span class="profile-value" style="margin-left:auto">${'&#127942;'.repeat(count)}</span></div>`;
+        return `<div class="profile-row" style="--racer-color:${color}"><span class="profile-racer">${escHtml(name)}</span><span class="profile-value profile-value-trophies">${'&#127942;'.repeat(count)}</span></div>`;
       }).join('');
   }
 
@@ -368,7 +370,7 @@ export function buildProfileHtml(profileComparison, racers) {
       html += `<div class="profile-winner">&#129309; Tie!</div>`;
     } else if (scope.section.overallWinner) {
       const idx = racers.indexOf(scope.section.overallWinner);
-      html += `<div class="profile-winner">&#127942; <span style="color: ${RACER_CSS_COLORS[idx % RACER_CSS_COLORS.length]}">${escHtml(scope.section.overallWinner)}</span> wins!</div>`;
+      html += `<div class="profile-winner">&#127942; <span class="racer-name" style="--racer-color:${RACER_CSS_COLORS[idx % RACER_CSS_COLORS.length]}">${escHtml(scope.section.overallWinner)}</span> wins!</div>`;
     }
     if (scope.collapsed) {
       html += `</details>\n`;
@@ -386,7 +388,7 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
   if (allNames.size === 0 && !hasProfileData) return '';
 
   const racerColors = racers.map((_, i) => RACER_CSS_COLORS[i % RACER_CSS_COLORS.length]);
-  const coloredHeader = racers.map((r, i) => `<th style="color:${racerColors[i]}">${escHtml(r)}</th>`).join('');
+  const coloredHeader = racers.map((r, i) => `<th style="--racer-color:${racerColors[i]}">${escHtml(r)}</th>`).join('');
 
   /** Format a duration cell: trophy for winner, delta for losers. */
   const durationCell = (dur, bestDur, isWinner, bold) => {
@@ -397,7 +399,7 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
       content = `${escHtml(val)} (\uD83C\uDFC6)`;
     } else if (bestDur != null) {
       const delta = `+${(dur - bestDur).toFixed(3)}s`;
-      content = `${escHtml(val)} <span style="opacity:0.5">(${escHtml(delta)})</span>`;
+      content = `${escHtml(val)} <span class="run-delta">(${escHtml(delta)})</span>`;
     } else {
       content = escHtml(val);
     }
@@ -413,7 +415,7 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
       content = `${escHtml(formatted)} (\uD83C\uDFC6)`;
     } else if (bestVal != null) {
       const delta = `+${formatFn(val - bestVal)}`;
-      content = `${escHtml(formatted)} <span style="opacity:0.5">(${escHtml(delta)})</span>`;
+      content = `${escHtml(formatted)} <span class="run-delta">(${escHtml(delta)})</span>`;
     } else {
       content = escHtml(formatted);
     }

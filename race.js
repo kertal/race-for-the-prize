@@ -32,6 +32,7 @@ import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
 import { buildPlayerHtml } from './cli/videoplayer.js';
 import { buildRunNavHtml } from './cli/player-sections.js';
+import { resolveSkin, listSkins } from './cli/skins.js';
 import { runGeminiSummary, runGeminiSpec } from './cli/gemini-summary.js';
 
 /** Format a Date as YYYY-MM-DD_HH-MM-SS for directory naming. */
@@ -77,17 +78,33 @@ export function buildNetworkIndexHtml(raceTitle, entries) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(raceTitle)} — Network Conditions</title>
 <style>
-  body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #eee; margin: 0; padding: 40px 20px; }
-  .wrap { max-width: 640px; margin: 0 auto; }
+  /* Same token layering as the results player (cli/player.css): override these
+     on :root to reskin the index without touching a component rule. */
+  :root {
+    color-scheme: dark;
+    --bg: #1a1a2e;
+    --surface: #23233b;
+    --text: #eee;
+    --text-dim: #999;
+    --text-subtle: #aaa;
+    --accent: #6c6cd8;
+    --border: #33335a;
+    --font-ui: system-ui, sans-serif;
+    --radius-lg: 8px;
+    --content-max: 640px;
+    --gutter: 20px;
+  }
+  body { font-family: var(--font-ui); background: var(--bg); color: var(--text); margin: 0; padding: 40px var(--gutter); }
+  .wrap { max-width: var(--content-max); margin: 0 auto; }
   h1 { font-size: 1.4em; margin-bottom: 4px; }
-  p.sub { color: #999; margin-top: 0; }
+  p.sub { color: var(--text-dim); margin-top: 0; }
   ul { list-style: none; padding: 0; }
   li a { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px;
-         margin: 10px 0; background: #23233b; border-radius: 8px; color: #eee;
-         text-decoration: none; border: 1px solid #33335a; }
-  li a:hover { border-color: #6c6cd8; }
+         margin: 10px 0; background: var(--surface); border-radius: var(--radius-lg); color: var(--text);
+         text-decoration: none; border: 1px solid var(--border); }
+  li a:hover { border-color: var(--accent); }
   .net { font-weight: 600; }
-  .winner { color: #aaa; }
+  .winner { color: var(--text-subtle); }
 </style>
 </head>
 <body>
@@ -282,8 +299,9 @@ function buildClipTimes(racerNames, getBrowserData, ffmpeg) {
  * @param {string[]} options.videoFiles
  * @param {object} options.playerExtras - additional fields merged into playerOptions (may include altFiles)
  * @param {object} options.raceOptions - { skipCopyFFmpeg, ffmpegPathPrefix }
+ * @param {string|null} options.raceDir - race directory, used to resolve a relative --skin path
  */
-function writePlayerAndAssets({ runDir, summary, settings, videoFiles, playerExtras, raceOptions }) {
+function writePlayerAndAssets({ runDir, summary, settings, videoFiles, playerExtras, raceOptions, raceDir = null }) {
   const { format, ffmpeg, noWasm } = settings;
   const altFormat = ffmpeg && format !== 'webm' ? format : null;
   // altFiles is passed as a separate arg to buildPlayerHtml, not via playerOptions
@@ -291,6 +309,8 @@ function writePlayerAndAssets({ runDir, summary, settings, videoFiles, playerExt
   const playerOptions = {
     ...restExtras,
     ffmpegPathPrefix: raceOptions.ffmpegPathPrefix || './',
+    skin: settings.skin,
+    skinBaseDir: raceDir,
   };
   fs.writeFileSync(
     path.join(runDir, 'index.html'),
@@ -544,6 +564,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
         altFiles,
       },
       raceOptions,
+      raceDir: ctx.raceDir,
     });
   }
 
@@ -886,9 +907,12 @@ ${c.bold}Run it:${c.reset}
  * InvalidSettingError. Anything else rethrows. Used by both directory mode
  * and URL mode so the error-handling stays in one place.
  */
-function applySettingsOrExit(base) {
+function applySettingsOrExit(base, raceDir = null) {
   try {
-    return applyDefaults(applyOverrides(base, boolFlags, kvFlags));
+    const settings = applyDefaults(applyOverrides(base, boolFlags, kvFlags));
+    // Resolve now so a bad skin name fails before the race runs, not after.
+    resolveSkin(settings.skin, raceDir);
+    return settings;
   } catch (e) {
     if (e instanceof InvalidSettingError) {
       console.error(`${c.red}Error: ${e.message}${c.reset}`);
@@ -916,7 +940,7 @@ function loadRaceDir(raceDir) {
       process.exit(1);
     }
   }
-  settings = applySettingsOrExit(settings);
+  settings = applySettingsOrExit(settings, raceDir);
 
   const allFiles = fs.readdirSync(raceDir).filter(f => !f.startsWith('.'));
   const specFiles = allFiles.filter(f => f.endsWith('.spec.js')).sort();
@@ -1084,6 +1108,7 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--network${c.reset}=${c.green}slow-3g,4g${c.reset} Race each network condition separately
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}4${c.reset}              CPU throttle multiplier (1=none)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--format${c.reset}=${c.green}mov${c.reset}          Output format: webm (default), mov, gif
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--skin${c.reset}=${c.green}light${c.reset}          Skin the results player: ${listSkins().join(', ')}, or a path to a .css file
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--runs${c.reset}=${c.green}3${c.reset}            Run multiple times, report median
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--pause${c.reset}              Pause between runs (press Enter to continue)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--slowmo${c.reset}=${c.green}2${c.reset}           Slow-motion side-by-side replay (2x, 3x, etc.)
@@ -1167,7 +1192,7 @@ if (urlMode) {
   raceDir = path.resolve('races', names.join('-vs-'));
   fs.mkdirSync(raceDir, { recursive: true }); // NOSONAR — directory from sanitized racer names
 
-  settings = applySettingsOrExit({});
+  settings = applySettingsOrExit({}, raceDir);
   racerNames = names;
   ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir });
 } else {
@@ -1549,6 +1574,7 @@ function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts
       runNavigation: runNav, clipTimes,
     },
     raceOptions: raceOpts,
+    raceDir: ctx.raceDir,
   });
 
   return { summary, clipTimes };
@@ -1787,6 +1813,8 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
       medianRunLabel,
       clipTimes: medianClipTimes,
       runSummaries: summaries,
+      skin: settings.skin,
+      skinBaseDir: ctx.raceDir,
     };
     fs.writeFileSync(
       path.join(resultsDir, 'index.html'),

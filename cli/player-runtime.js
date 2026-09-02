@@ -539,7 +539,7 @@ function updateDebugStats() {
     if (!ct || !v || !v.duration) {
       eventsEl.replaceChildren();
       const noData = document.createElement('span');
-      noData.style.color = '#777';
+      noData.className = 'debug-timing-empty';
       noData.textContent = 'No timing data';
       eventsEl.appendChild(noData);
       continue;
@@ -776,7 +776,7 @@ function buildRacerFilter() {
   for (let i = 0; i < raceVideos.length; i++) {
     const btn = document.createElement('button');
     btn.className = 'racer-filter-btn active';
-    btn.style.color = racerColors[i];
+    btn.style.setProperty('--racer-color', racerColors[i]);
     btn.textContent = racerNames[i];
     btn.dataset.idx = i;
     filterEl.appendChild(btn);

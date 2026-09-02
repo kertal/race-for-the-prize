@@ -3,7 +3,10 @@
  * video player for race results. Supports 2-5 racers.
  *
  * The HTML structure lives in player.html (a real HTML template).
- * The CSS lives in player.css (inlined into the exported HTML at build time).
+ * The CSS lives in player.css (inlined into the exported HTML at build time),
+ *   written as design tokens + component rules so it can be re-skinned.
+ * Skins live in cli/skins/ and are resolved by skins.js; the chosen one is
+ *   inlined after player.css and its name stamped onto <html data-theme>.
  * Section builders live in player-sections.js.
  * The browser-side player runtime lives in player-runtime.js.
  * This module wires everything together via {{placeholder}} replacement.
@@ -30,6 +33,7 @@ import {
   buildDebugPanelHtml,
   buildPlayerSectionHtml,
 } from './player-sections.js';
+import { resolveSkin, DEFAULT_THEME_COLOR } from './skins.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -58,6 +62,14 @@ function buildStyles(layoutCss) {
   return '<style>\n' + CSS + '  ' + layoutCss + '\n</style>';
 }
 
+/**
+ * Inline a resolved skin after the base stylesheet so its token overrides win.
+ * Returns '' when no skin was requested.
+ */
+function buildSkinStyles(skin) {
+  return skin ? `<style id="rftp-skin">\n${skin.css}\n</style>` : '';
+}
+
 function buildPlayerScript(config) {
   return '<script>\n(function() {\n' +
     render(RUNTIME, config) +
@@ -69,7 +81,7 @@ function buildPlayerScript(config) {
 // ---------------------------------------------------------------------------
 
 export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, options = {}) {
-  let { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, runNavigation, clipTimes, ffmpegPathPrefix, runSummaries } = options;
+  let { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, runNavigation, clipTimes, ffmpegPathPrefix, runSummaries, skin, skinBaseDir } = options;
 
   const ffmpegDir = (ffmpegPathPrefix || './') + 'ffmpeg/';
   const racers = summary.racers;
@@ -108,8 +120,8 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
         ? `<span class="trophy">${isTie ? '&#129309;' : '&#127942;'}</span> `
         : '';
       const vSrc = videoFiles[origIdx].startsWith('data:') ? '' : ` src="${escHtml(videoFiles[origIdx])}"`;
-      return `  <div class="racer">
-    <div class="racer-label" style="color: ${color}">${trophyHtml}${escHtml(racer)}</div>
+      return `  <div class="racer" style="--racer-color: ${color}">
+    <div class="racer-label">${trophyHtml}${escHtml(racer)}</div>
     <video id="v${displayIdx}"${vSrc} preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Race recording for ${escHtml(racer)}" data-racer-name="${escHtml(racer)}"></video>
   </div>`;
     }).join('\n');
@@ -152,9 +164,13 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   </div>` : '';
 
   const layoutCss = `.player-container { max-width: ${containerMaxWidth}px; }\n  .racer { max-width: ${maxWidth}px; }`;
+  const resolvedSkin = resolveSkin(skin, skinBaseDir);
   return render(TEMPLATE, {
     title,
+    themeAttr: resolvedSkin ? ` data-theme="${escHtml(resolvedSkin.name)}"` : '',
+    themeColor: resolvedSkin ? escHtml(resolvedSkin.themeColor) : DEFAULT_THEME_COLOR,
     styles: buildStyles(layoutCss),
+    skinStyles: buildSkinStyles(resolvedSkin),
     runNav: buildRunNavHtml(runNavigation, racers, runSummaries),
     winnerBanner,
     videoSourceNote: '',
