@@ -509,7 +509,7 @@ RaceForThePrize/
 │   ├── profile-analysis.js # CDP performance metrics collection & analysis
 │   ├── player.html         # HTML player markup + build-time templates
 │   ├── player.css          # HTML player stylesheet (design tokens + components)
-│   ├── player-runtime.js   # HTML player client-side runtime (canvas calibration)
+│   ├── player-runtime/     # HTML player client-side runtime (playback, calibration, export)
 │   ├── player-sections.js  # HTML player template sections
 │   ├── race-utils.js       # Shared race utility helpers
 │   ├── results.js          # File management & video conversion

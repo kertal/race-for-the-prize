@@ -93,9 +93,149 @@ describe('serveResults path traversal protection', () => {
     expect(res.status).toBe(400);
   });
 
+  it('returns 400 for a NUL byte instead of crashing the process', async () => {
+    // A decoded NUL makes fs.realpath throw ERR_INVALID_ARG_VALUE synchronously
+    // inside the handler, which would take the whole CLI down.
+    expect((await fetch(server, '/%00')).status).toBe(400);
+    expect((await fetch(server, '/index.html%00.png')).status).toBe(400);
+    // The server is still alive and serving.
+    expect((await fetch(server, '/index.html')).status).toBe(200);
+  });
+
   it('returns 404 for nonexistent file', async () => {
     const res = await fetch(server, '/nonexistent.txt');
     expect(res.status).toBe(404);
+  });
+});
+
+describe('createStaticHandler root normalization', () => {
+  it('serves files when constructed with a relative directory', async () => {
+    // A resolved filePath compared against a raw relative dir rejected every
+    // request with 403.
+    const relDir = path.relative(process.cwd(), tmpDir);
+    const server = http.createServer(createStaticHandler(relDir));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const res = await fetch(server, '/index.html');
+      expect(res.status).toBe(200);
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
+  });
+
+  it('serves files when the directory has a trailing separator', async () => {
+    const server = http.createServer(createStaticHandler(tmpDir + path.sep));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const res = await fetch(server, '/index.html');
+      expect(res.status).toBe(200);
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
+  });
+
+  it('still rejects traversal when constructed with a relative directory', async () => {
+    const relDir = path.relative(process.cwd(), tmpDir);
+    const server = http.createServer(createStaticHandler(relDir));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const res = await fetch(server, '/../../etc/passwd');
+      expect(res.status).toBe(403);
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
+  });
+});
+
+describe('createStaticHandler dotted in-tree names', () => {
+  it("serves an in-tree file whose name starts with '..'", async () => {
+    // A bare startsWith('..') traversal test also matches legitimate names
+    // like '..hidden', which 403'd valid files.
+    const dotted = path.join(tmpDir, '..hidden');
+    fs.mkdirSync(dotted, { recursive: true });
+    fs.writeFileSync(path.join(dotted, 'note.txt'), 'dotted but inside');
+    const server = http.createServer(createStaticHandler(tmpDir));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const res = await fetch(server, '/..hidden/note.txt');
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('dotted but inside');
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
+  });
+
+  it('still rejects real parent traversal', async () => {
+    const server = http.createServer(createStaticHandler(tmpDir));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const res = await fetch(server, '/../secret.txt');
+      expect(res.status).toBe(403);
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
+  });
+});
+
+describe('createStaticHandler symlink and root containment', () => {
+  it('does not serve a symlink inside the tree that targets a file outside it', async () => {
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'serve-outside-'));
+    const secret = path.join(outsideDir, 'secret.txt');
+    fs.writeFileSync(secret, 'TOP SECRET');
+    const link = path.join(tmpDir, 'link.txt');
+    try {
+      fs.symlinkSync(secret, link);
+    } catch {
+      return; // platform without symlink permission — nothing to assert
+    }
+    const server = http.createServer(createStaticHandler(tmpDir));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const res = await fetch(server, '/link.txt');
+      expect(res.status).toBe(403);
+      expect(res.body).not.toContain('TOP SECRET');
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+      fs.rmSync(link, { force: true });
+    }
+  });
+
+  it('still serves a symlink that stays inside the served tree', async () => {
+    const target = path.join(tmpDir, 'real.html');
+    fs.writeFileSync(target, '<h1>inside</h1>');
+    const link = path.join(tmpDir, 'alias.html');
+    try {
+      fs.symlinkSync(target, link);
+    } catch {
+      return;
+    }
+    const server = http.createServer(createStaticHandler(tmpDir));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const res = await fetch(server, '/alias.html');
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('inside');
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+      fs.rmSync(link, { force: true });
+    }
+  });
+
+  it('serves a file when the served root is the filesystem root', async () => {
+    // `rootDir + path.sep` would be '//' here, rejecting every valid child.
+    const marker = path.join(tmpDir, 'root-served.txt');
+    fs.writeFileSync(marker, 'served from /');
+    const server = http.createServer(createStaticHandler(path.parse(tmpDir).root));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const rel = path.relative(path.parse(tmpDir).root, marker).split(path.sep).join('/');
+      const res = await fetch(server, `/${rel}`);
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('served from /');
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
   });
 });
 
