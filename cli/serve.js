@@ -70,7 +70,7 @@ export function createStaticHandler(dir) {
   // The root's own symlinks resolved once (e.g. /tmp -> /private/tmp on macOS),
   // so a realpath'd request path can be compared against it.
   let realRoot;
-  try { realRoot = fs.realpathSync(rootDir); } catch { realRoot = rootDir; }
+  try { realRoot = fs.realpathSync(rootDir); } catch { realRoot = rootDir; } // NOSONAR — rootDir is the caller-supplied results dir, not request data
 
   return (req, res) => {
     let urlPath;
@@ -99,7 +99,7 @@ export function createStaticHandler(dir) {
     };
 
     const serveFile = (resolvedPath) => {
-      fs.stat(resolvedPath, (statErr, stat) => {
+      fs.stat(resolvedPath, (statErr, stat) => { // NOSONAR — resolvedPath passed isInside() both lexically and after realpath
         if (statErr || !stat.isFile()) {
           res.writeHead(404);
           res.end('Not found');
@@ -130,10 +130,10 @@ export function createStaticHandler(dir) {
           }
           if (start > end || start >= total) { res.writeHead(416); res.end(); return; }
           res.writeHead(206, { ...baseHeaders, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${total}` });
-          pipeStream(fs.createReadStream(resolvedPath, { start, end }));
+          pipeStream(fs.createReadStream(resolvedPath, { start, end })); // NOSONAR — resolvedPath confined to the served root (see serveFile caller)
         } else {
           res.writeHead(200, { ...baseHeaders, 'Content-Length': total });
-          pipeStream(fs.createReadStream(resolvedPath));
+          pipeStream(fs.createReadStream(resolvedPath)); // NOSONAR — resolvedPath confined to the served root (see serveFile caller)
         }
       });
     };
@@ -141,7 +141,7 @@ export function createStaticHandler(dir) {
     // Resolve symlinks before serving: a link *inside* the tree that points
     // outside it passes the lexical check above, so containment is re-verified
     // against the real path.
-    fs.realpath(filePath, (realErr, realPath) => {
+    fs.realpath(filePath, (realErr, realPath) => { // NOSONAR — filePath already passed the lexical isInside() check; its real path is re-checked below before any read
       if (realErr) {
         res.writeHead(404);
         res.end('Not found');
