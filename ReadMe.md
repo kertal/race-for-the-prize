@@ -269,6 +269,13 @@ Combine network throttling and CPU slowdown to approximate mobile users on spott
 node race.js ./races/my-race --network=slow-3g --cpu=6 --runs=3
 ```
 
+Both `--network` and `--cpu` accept a list. Every combination is raced separately, each into its own results subdirectory, with a top-level `index.html` linking them:
+
+```bash
+node race.js ./races/my-race --cpu=1,4              # cpu1x/, cpu4x/
+node race.js ./races/my-race --network=slow-3g,4g --cpu=1,4  # slow-3g-cpu1x/, slow-3g-cpu4x/, 4g-cpu1x/, 4g-cpu4x/
+```
+
 The `--runs` flag takes the median, smoothing out noise and giving you a number you can trust. In multi-run mode, each racer independently picks the run closest to their own median — so if Racer A performed best in Run 2 and Racer B in Run 4, each gets their own representative video. The results page shows which runs were selected (e.g., "Runs 2, 4").
 
 ## Race Flags (CLI Options)
@@ -284,6 +291,7 @@ node race.js <dir> --network=fast-3g      # Damp track
 node race.js <dir> --network=4g           # Dry track
 node race.js <dir> --network=slow-3g,4g   # Full season — race each condition separately
 node race.js <dir> --cpu=4                # Ballast penalty (CPU throttle)
+node race.js <dir> --cpu=1,4              # Race each CPU throttle rate separately
 node race.js <dir> --format=mov           # Broadcast-ready replay format (requires --ffmpeg)
 node race.js <dir> --format=gif           # Quick highlight reel (requires --ffmpeg)
 node race.js <dir> --runs=3               # Best of 3 — median wins
@@ -380,7 +388,7 @@ The terminal delivers the verdict in style:
 |---|---|---|---|
 | `parallel` | `--parallel` | `true` / `false` | `false` |
 | `network` | `--network=<preset>[,<preset>…]` | `none`, `slow-3g`, `fast-3g`, `4g` — a comma-separated list (or JSON array) races each condition separately, with results in a subdirectory named after the condition | `none` |
-| `cpuThrottle` | `--cpu=<n>` | `1` (none) to any multiplier | `1` |
+| `cpuThrottle` | `--cpu=<n>[,<n>…]` | `1` (none) to any multiplier — a comma-separated list (or JSON array) races each rate separately, with results in a subdirectory named after the rate | `1` |
 | `headless` | `--headless` | `true` / `false` | `false` |
 | `runs` | `--runs=<n>` | integer ≥ 1 (median of N runs) | `1` |
 | `slowmo` | `--slowmo=<n>` | `0` (off) to `20` (multiplier) | `0` |

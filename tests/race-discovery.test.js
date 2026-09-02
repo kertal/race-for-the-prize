@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { discoverRacers, resolveSharedRacerNames, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown, findValuelessKvFlags, parseNetworkList, InvalidSettingError } from '../cli/config.js';
+import { discoverRacers, resolveSharedRacerNames, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown, findValuelessKvFlags, parseNetworkList, parseCpuList, buildRaceConditions, InvalidSettingError } from '../cli/config.js';
 
 let tmpDir;
 
@@ -332,6 +332,22 @@ describe('settings override', () => {
   it('CLI --cpu overrides settings.json cpuThrottle', () => {
     const s = applyOverrides({ cpuThrottle: 1 }, new Set(), { cpu: '4' });
     expect(s.cpuThrottle).toBe(4);
+  });
+
+  it('CLI --cpu accepts a comma-separated list', () => {
+    const s = applyOverrides({ cpuThrottle: 1 }, new Set(), { cpu: '1,4' });
+    expect(s.cpuThrottle).toEqual([1, 4]);
+  });
+
+  it('CLI --cpu list replaces a settings.json array', () => {
+    const s = applyOverrides({ cpuThrottle: [2, 6] }, new Set(), { cpu: '1,4' });
+    expect(s.cpuThrottle).toEqual([1, 4]);
+  });
+
+  it('throws on duplicate rates in --cpu list', () => {
+    const attempt = () => applyOverrides({}, new Set(), { cpu: '4,4' });
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/Duplicate CPU throttle rate.*4/);
   });
 
   it('CLI --overlay enables overlay', () => {
@@ -833,5 +849,69 @@ describe('parseNetworkList', () => {
 
   it('throws on duplicates and names the source', () => {
     expect(() => parseNetworkList('4g,4g', 'network')).toThrow(/Duplicate network preset\(s\) in network: 4g/);
+  });
+});
+
+describe('parseCpuList', () => {
+  it('parses a single number', () => {
+    expect(parseCpuList(4)).toEqual([4]);
+    expect(parseCpuList('4')).toEqual([4]);
+  });
+
+  it('parses a comma-separated string', () => {
+    expect(parseCpuList('1,4,6')).toEqual([1, 4, 6]);
+  });
+
+  it('parses an array (settings.json form)', () => {
+    expect(parseCpuList([1, 4])).toEqual([1, 4]);
+  });
+
+  it('trims whitespace around entries', () => {
+    expect(parseCpuList(' 1 , 4 ')).toEqual([1, 4]);
+  });
+
+  it('accepts fractional rates above 1', () => {
+    expect(parseCpuList('1,2.5')).toEqual([1, 2.5]);
+  });
+
+  it('throws when no rates remain after filtering empties', () => {
+    expect(() => parseCpuList('')).toThrow(InvalidSettingError);
+    expect(() => parseCpuList(' , ')).toThrow(/at least one CPU throttle rate/);
+    expect(() => parseCpuList([])).toThrow(InvalidSettingError);
+  });
+
+  it('throws on non-numeric or out-of-range rates', () => {
+    expect(() => parseCpuList('fast')).toThrow(/--cpu must be a number >= 1, got "fast"/);
+    expect(() => parseCpuList('1,0')).toThrow(/--cpu must be a number >= 1, got "0"/);
+    expect(() => parseCpuList([4, 'x'])).toThrow(InvalidSettingError);
+  });
+
+  it('throws on duplicates and names the source', () => {
+    expect(() => parseCpuList('4,4', 'cpu')).toThrow(/Duplicate CPU throttle rate\(s\) in cpu: 4/);
+  });
+});
+
+describe('buildRaceConditions', () => {
+  it('returns a single unlabelled-dimension condition for one network and one cpu', () => {
+    expect(buildRaceConditions(['slow-3g'], [1])).toEqual([
+      { network: 'slow-3g', cpu: 1, label: 'slow-3g', title: 'Network: slow-3g' },
+    ]);
+  });
+
+  it('labels network-only variation by preset name', () => {
+    expect(buildRaceConditions(['slow-3g', '4g'], [4]).map(c => c.label)).toEqual(['slow-3g', '4g']);
+  });
+
+  it('labels cpu-only variation by rate, leaving the network out', () => {
+    const conditions = buildRaceConditions(['slow-3g'], [1, 4]);
+    expect(conditions.map(c => c.label)).toEqual(['cpu1x', 'cpu4x']);
+    expect(conditions.map(c => c.title)).toEqual(['CPU: 1x', 'CPU: 4x']);
+    expect(conditions.every(c => c.network === 'slow-3g')).toBe(true);
+  });
+
+  it('expands both dimensions into a full matrix', () => {
+    const conditions = buildRaceConditions(['none', '4g'], [1, 4]);
+    expect(conditions.map(c => c.label)).toEqual(['none-cpu1x', 'none-cpu4x', '4g-cpu1x', '4g-cpu4x']);
+    expect(conditions[3]).toEqual({ network: '4g', cpu: 4, label: '4g-cpu4x', title: 'Network: 4g · CPU: 4x' });
   });
 });

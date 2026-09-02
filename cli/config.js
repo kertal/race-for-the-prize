@@ -330,6 +330,73 @@ export function parseNetworkList(value, source = '--network') {
   return networks;
 }
 
+/**
+ * Parse a CPU throttle setting into a validated list of slowdown rates.
+ * Accepts a single number, a comma-separated string ("1,4"), or an array of
+ * numbers (settings.json). Each entry must be a finite number >= 1;
+ * duplicates are rejected because each rate becomes a results directory name.
+ *
+ * @param {number|string|Array<number|string>} value
+ * @param {string} source - Label used in error messages (e.g. "--cpu")
+ * @returns {number[]} validated CPU throttle rates, at least one
+ * @throws {InvalidSettingError}
+ */
+export function parseCpuList(value, source = '--cpu') {
+  const parts = Array.isArray(value)
+    ? value.map(v => String(v).trim())
+    : String(value).split(',').map(v => v.trim());
+  const raw = parts.filter(p => p !== '');
+  if (raw.length === 0) {
+    throw new InvalidSettingError(`${source} requires at least one CPU throttle rate (a number >= 1)`);
+  }
+  const cpus = raw.map(part => {
+    const cpu = Number(part);
+    if (!Number.isFinite(cpu) || cpu < 1) {
+      throw new InvalidSettingError(`${source} must be a number >= 1, got "${part}"`);
+    }
+    return cpu;
+  });
+  const dupes = [...new Set(cpus.filter((n, i) => cpus.indexOf(n) !== i))];
+  if (dupes.length > 0) {
+    throw new InvalidSettingError(`Duplicate CPU throttle rate(s) in ${source}: ${dupes.join(', ')}`);
+  }
+  return cpus;
+}
+
+/**
+ * Expand network presets x CPU rates into the list of conditions to race.
+ * Each condition carries a directory-safe `label` and a human-readable
+ * `title` naming only the dimensions that actually vary, so a network-only
+ * race keeps its short name ("slow-3g"), a CPU-only race reads "cpu4x", and
+ * a two-dimensional one is unambiguous ("slow-3g-cpu4x").
+ *
+ * @param {string[]} networks - from parseNetworkList
+ * @param {number[]} cpus - from parseCpuList
+ * @returns {Array<{network: string, cpu: number, label: string, title: string}>}
+ */
+export function buildRaceConditions(networks, cpus) {
+  const varyNetwork = networks.length > 1;
+  const varyCpu = cpus.length > 1;
+  const conditions = [];
+  for (const network of networks) {
+    for (const cpu of cpus) {
+      const labelParts = [];
+      const titleParts = [];
+      // Network names the condition unless CPU is the only dimension varying.
+      if (varyNetwork || !varyCpu) {
+        labelParts.push(network);
+        titleParts.push(`Network: ${network}`);
+      }
+      if (varyCpu) {
+        labelParts.push(`cpu${cpu}x`);
+        titleParts.push(`CPU: ${cpu}x`);
+      }
+      conditions.push({ network, cpu, label: labelParts.join('-'), title: titleParts.join(' · ') });
+    }
+  }
+  return conditions;
+}
+
 function parseCliBoolean(value, flagName) {
   if (value === true || value === 1) return true;
   if (value === false || value === 0) return false;
@@ -391,11 +458,8 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
     s.network = networks.length === 1 ? networks[0] : networks;
   }
   if (kvFlags.cpu !== undefined) {
-    const cpu = Number(kvFlags.cpu);
-    if (!Number.isFinite(cpu) || cpu < 1) {
-      throw new InvalidSettingError(`--cpu must be a number >= 1, got "${kvFlags.cpu}"`);
-    }
-    s.cpuThrottle = cpu;
+    const cpus = parseCpuList(kvFlags.cpu);
+    s.cpuThrottle = cpus.length === 1 ? cpus[0] : cpus;
   }
   if (kvFlags.format !== undefined) {
     if (!VALID_FORMATS.includes(kvFlags.format)) {
