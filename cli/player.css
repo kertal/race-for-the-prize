@@ -157,7 +157,7 @@ h1 {
   color: #e8e0d0;
   padding-bottom: 1rem;
 }
-/* Zero-height inline-block: the emoji renders centred on the text but adds
+/* Zero-height inline-block: the emoji renders centered on the text but adds
    nothing to the line box, keeping winner and non-winner labels identical. */
 .trophy {
   display: inline-block;
