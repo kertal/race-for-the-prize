@@ -299,11 +299,41 @@ export const VALID_NETWORKS = ['none', 'slow-3g', 'fast-3g', '4g'];
 export const VALID_FORMATS = ['webm', 'mov', 'gif'];
 
 /**
+ * Parse a throttling setting into a validated list of conditions. Accepts a
+ * single value, a comma-separated string ("slow-3g,4g"), or an array
+ * (settings.json). Entries are trimmed, empties dropped, and each surviving
+ * entry goes through `parseEntry`. Duplicates are rejected because every
+ * condition becomes a results directory name.
+ *
+ * @template T
+ * @param {*} value
+ * @param {object} spec
+ * @param {string} spec.source - Label used in error messages (e.g. "--cpu")
+ * @param {string} spec.emptyMessage - Completes "<source> ..." when nothing is left
+ * @param {string} spec.duplicateLabel - Names the unit in the duplicate error
+ * @param {(entry: string) => T} spec.parseEntry - Validates one entry
+ * @returns {T[]} validated entries, at least one
+ * @throws {InvalidSettingError}
+ */
+function parseThrottleList(value, { source, emptyMessage, duplicateLabel, parseEntry }) {
+  const parts = Array.isArray(value)
+    ? value.map(v => String(v).trim())
+    : String(value).split(',').map(v => v.trim());
+  const entries = parts.filter(p => p !== '');
+  if (entries.length === 0) {
+    throw new InvalidSettingError(`${source} ${emptyMessage}`);
+  }
+  const parsed = entries.map(parseEntry);
+  const dupes = [...new Set(parsed.filter((v, i) => parsed.indexOf(v) !== i))];
+  if (dupes.length > 0) {
+    throw new InvalidSettingError(`Duplicate ${duplicateLabel} in ${source}: ${dupes.join(', ')}`);
+  }
+  return parsed;
+}
+
+/**
  * Parse a network setting into a validated list of network presets.
- * Accepts a single preset string, a comma-separated string ("slow-3g,4g"),
- * or an array of preset strings (settings.json). Each entry must be one of
- * VALID_NETWORKS; duplicates are rejected because each network condition
- * becomes a results directory name.
+ * Each entry must be one of VALID_NETWORKS.
  *
  * @param {string|string[]} value
  * @param {string} source - Label used in error messages (e.g. "--network")
@@ -311,30 +341,22 @@ export const VALID_FORMATS = ['webm', 'mov', 'gif'];
  * @throws {InvalidSettingError}
  */
 export function parseNetworkList(value, source = '--network') {
-  const parts = Array.isArray(value)
-    ? value.map(v => String(v).trim())
-    : String(value).split(',').map(v => v.trim());
-  const networks = parts.filter(p => p !== '');
-  if (networks.length === 0) {
-    throw new InvalidSettingError(`${source} requires at least one network preset. Valid values: ${VALID_NETWORKS.join(', ')}`);
-  }
-  for (const network of networks) {
-    if (!VALID_NETWORKS.includes(network)) {
-      throw new InvalidSettingError(`Unknown network preset "${network}". Valid values: ${VALID_NETWORKS.join(', ')}`);
-    }
-  }
-  const dupes = [...new Set(networks.filter((n, i) => networks.indexOf(n) !== i))];
-  if (dupes.length > 0) {
-    throw new InvalidSettingError(`Duplicate network preset(s) in ${source}: ${dupes.join(', ')}`);
-  }
-  return networks;
+  return parseThrottleList(value, {
+    source,
+    emptyMessage: `requires at least one network preset. Valid values: ${VALID_NETWORKS.join(', ')}`,
+    duplicateLabel: 'network preset(s)',
+    parseEntry: network => {
+      if (!VALID_NETWORKS.includes(network)) {
+        throw new InvalidSettingError(`Unknown network preset "${network}". Valid values: ${VALID_NETWORKS.join(', ')}`);
+      }
+      return network;
+    },
+  });
 }
 
 /**
  * Parse a CPU throttle setting into a validated list of slowdown rates.
- * Accepts a single number, a comma-separated string ("1,4"), or an array of
- * numbers (settings.json). Each entry must be a finite number >= 1;
- * duplicates are rejected because each rate becomes a results directory name.
+ * Each entry must be a finite number >= 1.
  *
  * @param {number|string|Array<number|string>} value
  * @param {string} source - Label used in error messages (e.g. "--cpu")
@@ -342,25 +364,18 @@ export function parseNetworkList(value, source = '--network') {
  * @throws {InvalidSettingError}
  */
 export function parseCpuList(value, source = '--cpu') {
-  const parts = Array.isArray(value)
-    ? value.map(v => String(v).trim())
-    : String(value).split(',').map(v => v.trim());
-  const raw = parts.filter(p => p !== '');
-  if (raw.length === 0) {
-    throw new InvalidSettingError(`${source} requires at least one CPU throttle rate (a number >= 1)`);
-  }
-  const cpus = raw.map(part => {
-    const cpu = Number(part);
-    if (!Number.isFinite(cpu) || cpu < 1) {
-      throw new InvalidSettingError(`${source} must be a number >= 1, got "${part}"`);
-    }
-    return cpu;
+  return parseThrottleList(value, {
+    source,
+    emptyMessage: 'requires at least one CPU throttle rate (a number >= 1)',
+    duplicateLabel: 'CPU throttle rate(s)',
+    parseEntry: entry => {
+      const cpu = Number(entry);
+      if (!Number.isFinite(cpu) || cpu < 1) {
+        throw new InvalidSettingError(`${source} must be a number >= 1, got "${entry}"`);
+      }
+      return cpu;
+    },
   });
-  const dupes = [...new Set(cpus.filter((n, i) => cpus.indexOf(n) !== i))];
-  if (dupes.length > 0) {
-    throw new InvalidSettingError(`Duplicate CPU throttle rate(s) in ${source}: ${dupes.join(', ')}`);
-  }
-  return cpus;
 }
 
 /**
