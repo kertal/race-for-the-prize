@@ -5,9 +5,12 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+const { PROTOCOL_VERSION } = createRequire(import.meta.url)('../runner-protocol.cjs');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,6 +44,7 @@ describe('failure capture', () => {
     recordingsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'race-failure-'));
 
     const config = {
+      protocolVersion: PROTOCOL_VERSION,
       browsers: [{
         id: 'failing',
         script: [
