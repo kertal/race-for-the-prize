@@ -17,6 +17,8 @@ const fullVideoPaths = raceConfig.fullVideoPaths;
 const clipTimes = raceConfig.clipTimes;
 const racerNames = raceConfig.racerNames;
 const racerColors = raceConfig.racerColors;
+const tracePaths = raceConfig.tracePaths;
+const harPaths = raceConfig.harPaths;
 const ffmpegDir = raceConfig.ffmpegDir;
 const raceVideos = Array.from({ length: raceConfig.videoCount }, (_, i) => document.getElementById('v' + i));
 const mergedVideo = document.getElementById('mergedVideo');
