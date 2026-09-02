@@ -188,6 +188,43 @@ describe('loadRaceDir script-override security validation', () => {
   });
 });
 
+describe('loadRaceDir discovered-script validation', () => {
+  // Discovery and shared-spec mode pick files by name alone, so without an
+  // explicit check readFileSync would follow a link straight out of raceDir.
+  let outsideDir;
+  let outside;
+
+  beforeEach(() => {
+    outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'race-loader-outside-'));
+    outside = path.join(outsideDir, 'elsewhere.js');
+    fs.writeFileSync(outside, '// outside the race dir');
+  });
+
+  afterEach(() => {
+    fs.rmSync(outsideDir, { recursive: true, force: true });
+  });
+
+  it('rejects a discovered spec file that is a symlink', () => {
+    fs.writeFileSync(path.join(tmpDir, 'alpha.spec.js'), '// alpha');
+    fs.symlinkSync(outside, path.join(tmpDir, 'beta.spec.js'));
+    expectExit(() => load(), 1, 'must be a regular file (symlinks and directories are not allowed): beta.spec.js');
+  });
+
+  it('rejects a shared race.spec.js that is a symlink', () => {
+    // Only race.spec.js + settings.racers, so this really is shared-spec mode.
+    fs.symlinkSync(outside, path.join(tmpDir, 'race.spec.js'));
+    writeSettings({ racers: { fast: {}, slow: {} } });
+    expectExit(() => load(), 1, 'must be a regular file (symlinks and directories are not allowed): race.spec.js');
+  });
+
+  it('still loads a directory of ordinary spec files', () => {
+    fs.writeFileSync(path.join(tmpDir, 'alpha.spec.js'), '// alpha');
+    fs.writeFileSync(path.join(tmpDir, 'beta.spec.js'), '// beta');
+    const { ctx } = load();
+    expect(ctx.scripts).toEqual(['// alpha', '// beta']);
+  });
+});
+
 describe('loadRaceDir error handling', () => {
   it('exits when the race directory does not exist', () => {
     expectExit(() => load(path.join(tmpDir, 'missing')), 1, 'Race directory not found');

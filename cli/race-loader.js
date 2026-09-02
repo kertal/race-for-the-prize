@@ -163,6 +163,24 @@ export function loadRaceDir(raceDir, { boolFlags, kvFlags, rootDir, buildContext
     scriptFiles = effectiveRacerFiles;
   }
 
+  // Discovery and shared-spec mode both select entries by filename alone, and
+  // readFileSync follows symlinks — so a link named `a.spec.js` would be read
+  // from wherever it points. Apply the same regular-file rule the `script`
+  // override already gets. (Set: shared-spec mode repeats one filename per racer.)
+  for (const f of new Set(scriptFiles)) {
+    let stat;
+    try {
+      stat = fs.lstatSync(path.join(raceDir, f));
+    } catch {
+      console.error(`${c.red}Error: Could not read race script: ${f}${c.reset}`);
+      process.exit(1);
+    }
+    if (!stat?.isFile()) {
+      console.error(`${c.red}Error: Race script must be a regular file (symlinks and directories are not allowed): ${f}${c.reset}`);
+      process.exit(1);
+    }
+  }
+
   // `f` is either a filename discovered by readdir inside raceDir or a settings
   // override already validated as a basename (see the checks above), so the join
   // cannot leave the race directory the user named on the CLI.

@@ -97,10 +97,28 @@ function isSafeRacerId(id) {
  * filesystem access, so a malformed config or filename can never escape the
  * recordings directory. Returns the resolved absolute path; throws on escape.
  */
+/**
+ * True when `target` is `base` itself or sits below it.
+ *
+ * Uses path.relative rather than a `base + sep` prefix test: that prefix is
+ * '//' when base is the filesystem root, which rejects every valid child, and
+ * a raw prefix also accepts siblings that merely share a string prefix.
+ * Mirrors `isPathInside` in cli/paths.js — the ESM/CJS split means the two
+ * processes can't share one module, so this stays a deliberate duplicate.
+ */
+function isPathInside(base, target) {
+  const resolvedBase = path.resolve(base);
+  const resolvedTarget = path.resolve(target);
+  if (resolvedTarget === resolvedBase) return true;
+  const rel = path.relative(resolvedBase, resolvedTarget);
+  if (rel === '' || rel === '..') return false;
+  return !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
+}
+
 function confinePath(baseDir, ...segments) {
   const base = path.resolve(baseDir);
   const resolved = path.resolve(base, ...segments);
-  if (resolved !== base && !resolved.startsWith(base + path.sep)) {
+  if (!isPathInside(base, resolved)) {
     throw new Error(`Path escapes base directory ${base}: ${segments.join('/')}`);
   }
   return resolved;
@@ -126,6 +144,7 @@ module.exports = {
   RESULT_SENTINEL,
   isSafeRacerId,
   confinePath,
+  isPathInside,
   formatRaceMessage,
   createRaceMessageRegex,
   formatContextClosed,

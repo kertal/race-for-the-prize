@@ -31,6 +31,19 @@ describe('assertSafeFfmpegArgs', () => {
     expect(() => assertSafeFfmpegArgs(['-i', `${dir}/sub/../in.webm`], dir)).not.toThrow();
   });
 
+  it('accepts children when the recording dir is the filesystem root', () => {
+    // A `root + path.sep` prefix becomes '//' for a root dir and rejected every
+    // valid child path.
+    const fsRoot = path.parse(dir).root;
+    expect(() => assertSafeFfmpegArgs(['-i', path.join(fsRoot, 'video.webm')], fsRoot)).not.toThrow();
+  });
+
+  it("accepts an in-root file whose name starts with '..'", () => {
+    // path.relative returns '..hidden.webm' here, which a naive startsWith('..')
+    // would read as an escape.
+    expect(() => assertSafeFfmpegArgs(['-i', `${dir}/..hidden.webm`], dir)).not.toThrow();
+  });
+
   it('rejects a non-path argument that could be read as an option', () => {
     // A relative value with a separator is neither a confined path nor a
     // plain flag/name/number.

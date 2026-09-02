@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { confinePath } = require('./runner-protocol.cjs');
+const { confinePath, isPathInside } = require('./runner-protocol.cjs');
 
 const OLD_VIDEO_CLEANUP_MS = 5000;      // Age threshold for deleting stale recordings
 const FFMPEG_TIMEOUT_MS = 120000;       // Timeout for ffmpeg operations
@@ -41,10 +41,10 @@ function assertSafeFfmpegArgs(args, dir) {
       throw new Error(`Refusing to run ffmpeg: argument is not a non-empty string (${String(arg)})`);
     }
     if (path.isAbsolute(arg)) {
-      // Resolve before comparing: a prefix test on the raw string accepts
-      // `${root}/../outside.webm`, which starts with root but escapes it.
-      const resolvedArg = path.resolve(arg);
-      if (resolvedArg !== root && !resolvedArg.startsWith(root + path.sep)) {
+      // isPathInside resolves before comparing, so `${root}/../outside.webm` —
+      // which starts with root as a string but escapes it — is rejected, and a
+      // filesystem-root recording dir still accepts its own children.
+      if (!isPathInside(root, arg)) {
         throw new Error(`Refusing to run ffmpeg: path argument escapes ${root}: ${arg}`);
       }
       continue;

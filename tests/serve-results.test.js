@@ -93,6 +93,15 @@ describe('serveResults path traversal protection', () => {
     expect(res.status).toBe(400);
   });
 
+  it('returns 400 for a NUL byte instead of crashing the process', async () => {
+    // A decoded NUL makes fs.realpath throw ERR_INVALID_ARG_VALUE synchronously
+    // inside the handler, which would take the whole CLI down.
+    expect((await fetch(server, '/%00')).status).toBe(400);
+    expect((await fetch(server, '/index.html%00.png')).status).toBe(400);
+    // The server is still alive and serving.
+    expect((await fetch(server, '/index.html')).status).toBe(200);
+  });
+
   it('returns 404 for nonexistent file', async () => {
     const res = await fetch(server, '/nonexistent.txt');
     expect(res.status).toBe(404);

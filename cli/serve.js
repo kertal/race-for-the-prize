@@ -47,6 +47,12 @@ function resolveServedPath(dir, url) {
   } catch {
     return { status: 400, message: 'Bad request' };
   }
+  // A decoded NUL survives path.join/resolve but makes fs.realpath throw
+  // ERR_INVALID_ARG_VALUE *synchronously* — inside the request handler, that
+  // takes the whole CLI down. Reject it here instead.
+  if (urlPath.includes('\0')) {
+    return { status: 400, message: 'Bad request' };
+  }
   const filePath = path.resolve(path.join(dir, urlPath));
   // Reject paths that escape the served directory lexically ('../' traversal).
   if (!isPathInside(dir, filePath)) {
