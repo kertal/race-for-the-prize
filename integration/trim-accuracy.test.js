@@ -10,7 +10,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
-import { CUE_DETECTION } from '../cli/colors.js';
+import { CUE_DETECTION } from '../cli/media-config.js';
 import { hasChromiumInstalled } from './test-helpers.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -96,7 +96,7 @@ describeMaybe('trim-accuracy integration', () => {
   it('runs trim-test race and produces accurate measurement durations', () => {
     const projectRoot = path.resolve(__dirname, '..');
 
-    const proc = spawnSync('node', ['race.js', './races/trim-test', '--serve=false'], {
+    const proc = spawnSync('node', ['race.js', './races/trim-test', '--serve=false', '--cue-markers'], {
       cwd: projectRoot,
       timeout: 60_000,
       encoding: 'utf-8',
@@ -184,9 +184,9 @@ describeMaybe('trim-accuracy integration', () => {
     if (!resultsDir) return;
 
     const html = fs.readFileSync(path.join(resultsDir, 'index.html'), 'utf-8');
-    const ctMatch = html.match(/const clipTimes = (\[.*?\]);/);
-    expect(ctMatch).not.toBeNull();
-    const clipTimes = JSON.parse(ctMatch[1]);
+    const cfgMatch = html.match(/<script id="race-config" type="application\/json">([\s\S]*?)<\/script>/);
+    expect(cfgMatch).not.toBeNull();
+    const clipTimes = JSON.parse(cfgMatch[1]).clipTimes;
 
     for (let i = 0; i < RACERS.length; i++) {
       const ct = clipTimes[i];

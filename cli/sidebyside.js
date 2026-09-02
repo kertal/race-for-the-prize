@@ -6,7 +6,8 @@
 import { execFileSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import { c, VIDEO_DEFAULTS, codecArgs } from './colors.js';
+import { c } from './colors.js';
+import { VIDEO_DEFAULTS, codecArgs } from './media-config.js';
 import { startProgress } from './animation.js';
 import { compressGif } from './results.js';
 
