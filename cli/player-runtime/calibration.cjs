@@ -37,7 +37,7 @@ function applyCalibrationToClip(ct, ptsStart, videoDuration) {
   ct.calibratedEnd = ptsStart + segDuration;
   ct._ptsScale = null;
   ct.start = ptsStart;
-  ct.end = isFinite(videoDuration) ? Math.min(ptsStart + segDuration, videoDuration) : ptsStart + segDuration;
+  ct.end = Number.isFinite(videoDuration) ? Math.min(ptsStart + segDuration, videoDuration) : ptsStart + segDuration;
   ct._converted = true;
 }
 

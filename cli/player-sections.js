@@ -36,7 +36,7 @@ export function render(tmpl, data) {
 
 /** Escape a string for safe embedding in HTML text/attribute contexts. */
 export function escHtml(str) {
-  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  return String(str).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 }
 
 // ---------------------------------------------------------------------------
