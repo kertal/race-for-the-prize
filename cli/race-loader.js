@@ -147,7 +147,7 @@ export function loadRaceDir(raceDir, { boolFlags, kvFlags, rootDir, buildContext
       const scriptPath = path.join(raceDir, script);
       let stat;
       try {
-        stat = fs.lstatSync(scriptPath);
+        stat = fs.lstatSync(scriptPath); // NOSONAR — `script` is validated just above: basename only, no '..', not absolute, so scriptPath cannot leave raceDir
       } catch {
         fail(`not found: ${script}`);
       }
@@ -162,6 +162,8 @@ export function loadRaceDir(raceDir, { boolFlags, kvFlags, rootDir, buildContext
   }
 
   const scripts = scriptFiles.map(f =>
+    // NOSONAR — f is either a filename discovered by readdir inside raceDir or a
+    // settings override already validated as a basename (see the checks above).
     fs.readFileSync(path.join(raceDir, f), 'utf-8')
   );
 
