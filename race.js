@@ -13,6 +13,7 @@
  *   node race.js ./races/my-race --parallel   Run both browsers simultaneously
  *   node race.js ./races/my-race --headless   Run headless
  *   node race.js ./races/my-race --network=fast-3g --cpu=4
+ *   node race.js ./races/my-race --network=slow-3g,4g --cpu=1,4
  *   node race.js ./races/my-race --har --wasm=0 --serve=0
  */
 
@@ -27,7 +28,7 @@ import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c } from './cli/colors.js';
 import { FORMAT_EXTENSIONS } from './cli/media-config.js';
 import { raceVideoFile, fullVideoFile, traceFile, harFile, racerRelative } from './cli/paths.js';
-import { parseArgs, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown, findUnknownFlags, findValuelessKvFlags, parseNetworkList, InvalidSettingError } from './cli/config.js';
+import { parseArgs, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown, findUnknownFlags, findValuelessKvFlags, parseNetworkList, parseCpuList, buildRaceConditions, InvalidSettingError } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex, findMedianRunIndexPerRacer } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
@@ -49,31 +50,32 @@ export function formatTimestamp(date) {
 }
 
 /**
- * Build the top-level index.html for a multi-network race: one card per
- * network condition linking to that condition's results player.
+ * Build the top-level index.html for a multi-condition race: one card per
+ * throttling condition (network preset and/or CPU rate) linking to that
+ * condition's results player.
  *
  * @param {string} raceTitle - e.g. "lauda vs hunt"
- * @param {Array<{network: string, summary: object|null}>} entries
+ * @param {Array<{label: string, title?: string, summary: object|null}>} entries
  * @returns {string} HTML document
  */
-export function buildNetworkIndexHtml(raceTitle, entries) {
+export function buildConditionIndexHtml(raceTitle, entries) {
   const esc = s => String(s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  const rows = entries.map(({ network, summary }) => {
+  const rows = entries.map(({ label, title, summary }) => {
     // 'tie' is a sentinel, not a racer name — render it like the other reports do.
     const overallWinner = summary?.overallWinner;
     let winner = '—';
     if (overallWinner === 'tie') winner = '🤝 Tie';
     else if (overallWinner) winner = `🏆 ${esc(overallWinner)}`;
-    return `      <li><a href="${encodeURIComponent(network)}/index.html">` +
-      `<span class="net">${esc(network)}</span><span class="winner">${winner}</span></a></li>`;
+    return `      <li><a href="${encodeURIComponent(label)}/index.html">` +
+      `<span class="net">${esc(title || label)}</span><span class="winner">${winner}</span></a></li>`;
   }).join('\n');
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(raceTitle)} — Network Conditions</title>
+<title>${esc(raceTitle)} — Race Conditions</title>
 <style>
   body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #eee; margin: 0; padding: 40px 20px; }
   .wrap { max-width: 640px; margin: 0 auto; }
@@ -91,7 +93,7 @@ export function buildNetworkIndexHtml(raceTitle, entries) {
 <body>
 <div class="wrap">
   <h1>${esc(raceTitle)}</h1>
-  <p class="sub">One race per network condition — pick a condition to view its results.</p>
+  <p class="sub">One race per throttling condition — pick a condition to view its results.</p>
   <ul>
 ${rows}
   </ul>
@@ -810,6 +812,7 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--network${c.reset}=${c.green}slow-3g${c.reset}   Network: none, slow-3g, fast-3g, 4g
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--network${c.reset}=${c.green}slow-3g,4g${c.reset} Race each network condition separately
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}4${c.reset}              CPU throttle multiplier (1=none)
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}1,4${c.reset}            Race each CPU throttle rate separately
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--format${c.reset}=${c.green}mov${c.reset}          Output format: webm (default), mov, gif
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--runs${c.reset}=${c.green}3${c.reset}            Run multiple times, report median
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--pause${c.reset}              Pause between runs (press Enter to continue)
@@ -939,13 +942,18 @@ const runScript = (script, label, vars) => runTaskScript(script, label, vars, { 
 
 const totalRuns = settings.runs;
 
-// Resolve the network setting into a list of conditions. A single condition
-// behaves exactly as before; multiple conditions (comma-separated --network or
-// an array in settings.json) race each condition separately, with results
-// named after the condition.
-let networkConditions;
+// Resolve the network and CPU throttling settings into a list of conditions.
+// A single condition behaves exactly as before; multiple values
+// (comma-separated --network/--cpu or arrays in settings.json) race every
+// combination separately, with results named after the condition.
+// CLI values were already validated in applyOverrides, so anything invalid
+// here came from settings.json — the error labels name those keys.
+let raceConditions;
 try {
-  networkConditions = parseNetworkList(settings.network ?? 'none', 'network');
+  raceConditions = buildRaceConditions(
+    parseNetworkList(settings.network ?? 'none', 'network'),
+    parseCpuList(settings.cpuThrottle ?? 1, 'cpuThrottle')
+  );
 } catch (e) {
   if (e instanceof InvalidSettingError) {
     console.error(`${c.red}Error: ${e.message}${c.reset}`);
@@ -953,12 +961,12 @@ try {
   }
   throw e;
 }
-const multiNetwork = networkConditions.length > 1;
+const multiCondition = raceConditions.length > 1;
 
 // Include a short random nonce so rapid successive runs (timestamp collisions,
 // e.g. same second) don't overwrite each other's output.
 const baseResultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}-${crypto.randomBytes(3).toString('hex')}`);
-// In multi-network mode this is reassigned per condition (baseResultsDir/<network>).
+// In multi-condition mode this is reassigned per condition (baseResultsDir/<label>).
 let resultsDir = baseResultsDir;
 
 // --- Main ---
@@ -1217,32 +1225,28 @@ async function main() {
       console.error(`  ${c.yellow}Note: --parallel is ignored because ${reason}; racers will run one at a time.${c.reset}`);
     }
 
-    // Race each network condition separately. With a single condition this
+    // Race each throttling condition separately. With a single condition this
     // loop runs once with resultsDir === baseResultsDir (unchanged behavior).
     const baseSettings = settings;
     const baseCtx = ctx;
-    const networkSummaries = [];
-    for (const network of networkConditions) {
-      settings = { ...baseSettings, network };
-      ctx = {
-        ...baseCtx,
-        settings,
-        throttle: { ...baseCtx.throttle, network },
-        runnerConfig: { ...baseCtx.runnerConfig, throttle: { ...baseCtx.runnerConfig.throttle, network } },
-      };
-      if (multiNetwork) {
-        resultsDir = path.join(baseResultsDir, network);
-        console.error(`\n  ${c.bold}${c.magenta}══ Network: ${network} ══${c.reset}`);
+    const conditionSummaries = [];
+    for (const { network, cpu, label, title } of raceConditions) {
+      settings = { ...baseSettings, network, cpuThrottle: cpu };
+      const throttle = { ...baseCtx.throttle, network, cpu };
+      ctx = { ...baseCtx, settings, throttle, runnerConfig: { ...baseCtx.runnerConfig, throttle } };
+      if (multiCondition) {
+        resultsDir = path.join(baseResultsDir, label);
+        console.error(`\n  ${c.bold}${c.magenta}══ ${title} ══${c.reset}`);
       }
-      networkSummaries.push({ network, summary: await runRaceSeries() });
+      conditionSummaries.push({ label, title, summary: await runRaceSeries() });
     }
 
-    if (multiNetwork) {
+    if (multiCondition) {
       resultsDir = baseResultsDir;
       if (!settings.noRecording) {
         fs.writeFileSync(
           path.join(baseResultsDir, 'index.html'),
-          buildNetworkIndexHtml(racerNames.join(' vs '), networkSummaries)
+          buildConditionIndexHtml(racerNames.join(' vs '), conditionSummaries)
         );
       }
     }
