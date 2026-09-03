@@ -269,12 +269,27 @@ Combine network throttling and CPU slowdown to approximate mobile users on spott
 node race.js ./races/my-race --network=slow-3g --cpu=6 --runs=3
 ```
 
-Both `--network` and `--cpu` accept a list. Every combination is raced separately, each into its own results subdirectory, with a top-level `index.html` linking them:
+Both `--network` and `--cpu` accept a list. Every combination is raced separately, each into its own results subdirectory:
 
 ```bash
 node race.js ./races/my-race --cpu=1,4              # cpu1x/, cpu4x/
 node race.js ./races/my-race --network=slow-3g,4g --cpu=1,4  # slow-3g-cpu1x/, slow-3g-cpu4x/, 4g-cpu1x/, 4g-cpu4x/
 ```
+
+Afterwards you get a **performance matrix** — network presets down the side, CPU rates across the top, every racer's total time in each cell — printed to the terminal and rendered as the top-level `index.html`, where each cell links to that condition's own results:
+
+```
+  ⚡ Performance Matrix
+  Network  CPU 1x            CPU 4x
+  none     🏆 lauda  0.900s  🏆 lauda  3.600s
+              hunt   1.100s     hunt   4.400s
+
+  slow-3g  🏆 hunt   2.720s  🏆 hunt  10.880s
+              lauda  2.880s     lauda 11.520s
+  Conditions won: lauda 2 · hunt 2
+```
+
+One race per condition tells you who won each; the matrix tells you how the field holds up as conditions get harder — and whether the winner flips somewhere along the way.
 
 The `--runs` flag takes the median, smoothing out noise and giving you a number you can trust. In multi-run mode, each racer independently picks the run closest to their own median — so if Racer A performed best in Run 2 and Racer B in Run 4, each gets their own representative video. The results page shows which runs were selected (e.g., "Runs 2, 4").
 
