@@ -1193,6 +1193,7 @@ async function main() {
       resultsDir = baseResultsDir;
       // Overview across every condition raced: how the field holds up as the
       // network and CPU get harder, not just who won each individual race.
+      // The terminal shows total time; the HTML index can switch metrics.
       printConditionMatrix(buildConditionMatrix(conditionSummaries));
       if (!settings.noRecording) {
         fs.writeFileSync(

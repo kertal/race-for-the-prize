@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { buildConditionMatrix, printConditionMatrix, buildConditionIndexHtml } from '../cli/condition-matrix.js';
+import { buildConditionMatrix, printConditionMatrix, buildConditionIndexHtml, TOTAL_TIME_METRIC } from '../cli/condition-matrix.js';
+
+const DURATION = TOTAL_TIME_METRIC.key;
 
 /** A condition summary with one total row per racer. `durations` maps racer -> seconds (null = no data). */
-const summaryOf = (durations, overallWinner) => {
+const summaryOf = (durations, overallWinner, profileMetrics) => {
   const racers = Object.keys(durations);
   return {
     racers,
@@ -13,6 +15,7 @@ const summaryOf = (durations, overallWinner) => {
       winner: overallWinner === 'tie' ? null : overallWinner,
       racers: racers.map(name => durations[name] == null ? null : { duration: durations[name] }),
     }],
+    ...(profileMetrics ? { profileMetrics } : {}),
   };
 };
 
@@ -26,12 +29,15 @@ const gridEntries = (networks, cpus, durationsAt, winnerAt) =>
     summary: summaryOf(durationsAt(network, cpu), winnerAt(network, cpu)),
   })));
 
+/** The metric series of a cell (total time unless another metric is named). */
+const seriesOf = (cell, metric = DURATION) => cell.metrics[metric];
+
 /** Capture printConditionMatrix output as one plain string (ANSI codes stripped). */
-const render = (matrix, width = 200) => {
+const render = (matrix, options = {}) => {
   let out = '';
-  printConditionMatrix(matrix, s => { out += s; }, width);
+  printConditionMatrix(matrix, { write: s => { out += s; }, width: 200, ...options });
   // eslint-disable-next-line no-control-regex
-  return out.replace(/\[[0-9;]*m/g, '');
+  return out.replace(/\u001b\[[0-9;]*m/g, '');
 };
 
 describe('buildConditionMatrix', () => {
@@ -100,10 +106,10 @@ describe('buildConditionMatrix', () => {
       { label: '4g', network: '4g', cpu: 1, summary: summaryOf({ lauda: 2.5, hunt: 1.5 }, 'hunt') },
     ]).cells;
 
-    expect(cell.racers.map(r => r.name)).toEqual(['hunt', 'lauda']);
-    expect(cell.racers[0]).toMatchObject({ isWinner: true, formatted: '1.500s', delta: null });
-    expect(cell.racers[1]).toMatchObject({ isWinner: false, formatted: '2.500s', delta: '1.000s' });
-    expect(cell.best).toBe(1.5);
+    expect(seriesOf(cell).racers.map(r => r.name)).toEqual(['hunt', 'lauda']);
+    expect(seriesOf(cell).racers[0]).toMatchObject({ isWinner: true, formatted: '1.500s', delta: null });
+    expect(seriesOf(cell).racers[1]).toMatchObject({ isWinner: false, formatted: '2.500s', delta: '1.000s' });
+    expect(seriesOf(cell).best).toBe(1.5);
   });
 
   it('marks a tie without crowning a winner', () => {
@@ -111,9 +117,9 @@ describe('buildConditionMatrix', () => {
       { label: '4g', network: '4g', cpu: 1, summary: summaryOf({ lauda: 2, hunt: 2 }, 'tie') },
     ]).cells;
 
-    expect(cell.isTie).toBe(true);
-    expect(cell.winner).toBeNull();
-    expect(cell.racers.some(r => r.isWinner)).toBe(false);
+    expect(seriesOf(cell).isTie).toBe(true);
+    expect(seriesOf(cell).winner).toBeNull();
+    expect(seriesOf(cell).racers.some(r => r.isWinner)).toBe(false);
   });
 
   it('sums nothing for a racer with no data in a condition', () => {
@@ -122,8 +128,8 @@ describe('buildConditionMatrix', () => {
     ]).cells;
 
     // Missing values sort last and carry no formatted time.
-    expect(cell.racers.map(r => r.name)).toEqual(['lauda', 'hunt']);
-    expect(cell.racers[1].formatted).toBeNull();
+    expect(seriesOf(cell).racers.map(r => r.name)).toEqual(['lauda', 'hunt']);
+    expect(seriesOf(cell).racers[1].formatted).toBeNull();
   });
 
   it('prefers the synthetic total over the individual sections', () => {
@@ -141,7 +147,7 @@ describe('buildConditionMatrix', () => {
       },
     }]).cells;
 
-    expect(cell.racers.map(r => r.duration)).toEqual([4, 9]);
+    expect(seriesOf(cell).racers.map(r => r.value)).toEqual([4, 9]);
   });
 
   it('matches racers by name when a condition lists them in a different order', () => {
@@ -151,8 +157,8 @@ describe('buildConditionMatrix', () => {
       { label: 'b', network: 'none', cpu: 4, summary: summaryOf({ hunt: 8, lauda: 4 }, 'lauda') },
     ]);
 
-    const durations = Object.fromEntries(matrix.cells[1].racers.map(r => [r.name, r.duration]));
-    expect(durations).toEqual({ lauda: 4, hunt: 8 });
+    const values = Object.fromEntries(seriesOf(matrix.cells[1]).racers.map(r => [r.name, r.value]));
+    expect(values).toEqual({ lauda: 4, hunt: 8 });
   });
 
   it('uses the only section when there is no synthetic total', () => {
@@ -167,7 +173,7 @@ describe('buildConditionMatrix', () => {
       },
     }]).cells;
 
-    expect(cell.racers[0].duration).toBe(1.25);
+    expect(seriesOf(cell).racers[0].value).toBe(1.25);
   });
 
   it('tallies condition wins and ties, and the slowest time for bar scaling', () => {
@@ -178,9 +184,9 @@ describe('buildConditionMatrix', () => {
       { label: 'd', network: '4g', cpu: 4, summary: summaryOf({ lauda: 5, hunt: 6 }, 'lauda') },
     ]);
 
-    expect(matrix.wins).toEqual({ lauda: 2, hunt: 1 });
-    expect(matrix.ties).toBe(1);
-    expect(matrix.maxDuration).toBe(8);
+    expect(matrix.aggregates[DURATION].wins).toEqual({ lauda: 2, hunt: 1 });
+    expect(matrix.aggregates[DURATION].ties).toBe(1);
+    expect(matrix.aggregates[DURATION].max).toBe(8);
   });
 
   it('survives a condition that recorded no measurements', () => {
@@ -189,9 +195,167 @@ describe('buildConditionMatrix', () => {
       { label: 'b', network: '4g', cpu: 1, summary: { racers: ['lauda'], overallWinner: null, comparisons: [] } },
     ]);
 
-    expect(matrix.cells[0].racers.every(r => r.duration === null)).toBe(true);
-    expect(matrix.cells[1].best).toBeNull();
-    expect(matrix.maxDuration).toBe(0);
+    expect(seriesOf(matrix.cells[0]).racers.every(r => r.value === null)).toBe(true);
+    expect(seriesOf(matrix.cells[1]).best).toBeNull();
+    expect(matrix.aggregates[DURATION].max).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Profile metrics
+// ---------------------------------------------------------------------------
+
+/** Per-racer CDP profile data: { racer: { scope: { metric: value } } } in racer order. */
+const profilesOf = (...perRacer) => perRacer;
+
+describe('buildConditionMatrix profile metrics', () => {
+  const withProfiles = () => buildConditionMatrix([
+    {
+      label: 'none',
+      network: 'none',
+      cpu: 1,
+      summary: summaryOf({ lauda: 1, hunt: 2 }, 'lauda', profilesOf(
+        { measured: { networkTransferSize: 1000 }, total: { lcp: 900 } },
+        { measured: { networkTransferSize: 5000 }, total: { lcp: 1800 } },
+      )),
+    },
+    {
+      label: 'slow-3g',
+      network: 'slow-3g',
+      cpu: 1,
+      summary: summaryOf({ lauda: 2, hunt: 9 }, 'lauda', profilesOf(
+        { measured: { networkTransferSize: 1000 }, total: { lcp: 2400 } },
+        { measured: { networkTransferSize: 5000 }, total: { lcp: 9000 } },
+      )),
+    },
+  ]);
+
+  it('offers total time first, then every captured profile metric', () => {
+    const matrix = withProfiles();
+
+    expect(matrix.metrics[0].key).toBe(DURATION);
+    expect(matrix.metrics.map(m => m.key)).toContain('measured.networkTransferSize');
+    expect(matrix.metrics.map(m => m.key)).toContain('total.lcp');
+  });
+
+  it('omits metrics no condition captured', () => {
+    const keys = withProfiles().metrics.map(m => m.key);
+
+    expect(keys).not.toContain('total.cls');
+    expect(keys).not.toContain('measured.scriptDuration');
+  });
+
+  it('offers only total time when no profile data was captured', () => {
+    const matrix = buildConditionMatrix([
+      { label: 'a', network: 'none', cpu: 1, summary: summaryOf({ lauda: 1, hunt: 2 }, 'lauda') },
+    ]);
+
+    expect(matrix.metrics).toHaveLength(1);
+    expect(matrix.metrics[0].key).toBe(DURATION);
+  });
+
+  it('ranks and formats each metric in its own units', () => {
+    const [cell] = withProfiles().cells;
+    const bytes = seriesOf(cell, 'measured.networkTransferSize');
+
+    expect(bytes.racers.map(r => r.name)).toEqual(['lauda', 'hunt']);
+    expect(bytes.racers[0].formatted).toBe('1000.0 B');
+    expect(bytes.racers[1].formatted).toBe('4.9 KB');
+    expect(seriesOf(cell, 'total.lcp').racers[0].formatted).toBe('900.0ms');
+  });
+
+  it('scales each metric against its own worst value', () => {
+    const matrix = withProfiles();
+
+    expect(matrix.aggregates['total.lcp'].max).toBe(9000);
+    expect(matrix.aggregates['measured.networkTransferSize'].max).toBe(5000);
+    expect(matrix.aggregates[DURATION].max).toBe(9);
+  });
+
+  it('tallies wins per metric independently', () => {
+    const matrix = buildConditionMatrix([
+      {
+        label: 'a',
+        network: 'none',
+        cpu: 1,
+        // lauda is faster overall, but ships more bytes.
+        summary: summaryOf({ lauda: 1, hunt: 2 }, 'lauda', profilesOf(
+          { measured: { networkTransferSize: 9000 } },
+          { measured: { networkTransferSize: 1000 } },
+        )),
+      },
+    ]);
+
+    expect(matrix.aggregates[DURATION].wins).toEqual({ lauda: 1, hunt: 0 });
+    expect(matrix.aggregates['measured.networkTransferSize'].wins).toEqual({ lauda: 0, hunt: 1 });
+  });
+
+  it('treats a difference below the metric significance threshold as a tie', () => {
+    // LCP is a 'loading' metric: under 2.5% apart is noise, not a win.
+    const matrix = buildConditionMatrix([
+      {
+        label: 'a',
+        network: 'none',
+        cpu: 1,
+        summary: summaryOf({ lauda: 1, hunt: 2 }, 'lauda', profilesOf(
+          { total: { lcp: 1000 } },
+          { total: { lcp: 1010 } },
+        )),
+      },
+    ]);
+    const lcp = seriesOf(matrix.cells[0], 'total.lcp');
+
+    expect(lcp.winner).toBeNull();
+    expect(lcp.isTie).toBe(true);
+    expect(matrix.aggregates['total.lcp'].ties).toBe(1);
+  });
+
+  it('crowns a winner once the difference clears the threshold', () => {
+    const matrix = buildConditionMatrix([
+      {
+        label: 'a',
+        network: 'none',
+        cpu: 1,
+        summary: summaryOf({ lauda: 1, hunt: 2 }, 'lauda', profilesOf(
+          { total: { lcp: 1000 } },
+          { total: { lcp: 1500 } },
+        )),
+      },
+    ]);
+
+    expect(seriesOf(matrix.cells[0], 'total.lcp').winner).toBe('lauda');
+  });
+
+  it('does not call a single measured racer a tie', () => {
+    const matrix = buildConditionMatrix([
+      {
+        label: 'a',
+        network: 'none',
+        cpu: 1,
+        summary: summaryOf({ lauda: 1, hunt: 2 }, 'lauda', profilesOf(
+          { total: { lcp: 1000 } },
+          { total: {} },
+        )),
+      },
+    ]);
+    const lcp = seriesOf(matrix.cells[0], 'total.lcp');
+
+    expect(lcp.winner).toBeNull();
+    expect(lcp.isTie).toBe(false);
+  });
+
+  it('accepts a custom metric definition set', () => {
+    const matrix = buildConditionMatrix([
+      {
+        label: 'a',
+        network: 'none',
+        cpu: 1,
+        summary: summaryOf({ lauda: 1 }, 'lauda', profilesOf({ total: { widgets: 3 } })),
+      },
+    ], { 'total.widgets': { name: 'Widgets', scope: 'total', category: 'network', format: v => `${v}w` } });
+
+    expect(matrix.metrics.map(m => m.key)).toEqual([DURATION, 'total.widgets']);
+    expect(seriesOf(matrix.cells[0], 'total.widgets').racers[0].formatted).toBe('3w');
   });
 });
 
@@ -233,7 +397,7 @@ describe('printConditionMatrix', () => {
   });
 
   it('stacks conditions instead of wrapping when the grid is too wide', () => {
-    const out = render(twoByTwo(), 20);
+    const out = render(twoByTwo(), { width: 20 });
 
     expect(out).toContain('Network: none · CPU: 1x');
     expect(out).toContain('Network: slow-3g · CPU: 4x');
@@ -247,6 +411,27 @@ describe('printConditionMatrix', () => {
     ]));
 
     expect(out).toMatch(/hunt\s+-/);
+  });
+
+  it('can print a profile metric instead of total time', () => {
+    const matrix = buildConditionMatrix([
+      {
+        label: 'a',
+        network: 'none',
+        cpu: 1,
+        summary: summaryOf({ lauda: 1, hunt: 2 }, 'lauda', profilesOf(
+          { measured: { networkTransferSize: 9000 } },
+          { measured: { networkTransferSize: 1000 } },
+        )),
+      },
+    ]);
+    const out = render(matrix, { metric: 'measured.networkTransferSize' });
+
+    expect(out).toContain('8.8 KB');
+    expect(out).toContain('1000.0 B');
+    expect(out).not.toContain('1.000s');
+    // hunt ships fewer bytes, so it wins this metric even though lauda won the race.
+    expect(out).toContain('Conditions won: hunt 1');
   });
 
   it('prints nothing for an empty matrix', () => {
@@ -282,14 +467,19 @@ describe('buildConditionIndexHtml matrix', () => {
   });
 
   it('escapes racer and condition names', () => {
-    const html = buildConditionIndexHtml('<script>', [
+    const html = buildConditionIndexHtml('<script>alert(1)</script>', [
       { label: 'a&b', title: '<b>net</b>', summary: summaryOf({ '<img>': 1 }, '<img>') },
     ]);
 
-    expect(html).not.toContain('<script>');
+    // The payload survives as inert text; what matters is that it never
+    // reaches the page as markup.
+    expect(html).not.toContain('<script>alert(1)');
     expect(html).not.toContain('<img>');
     expect(html).toContain('&lt;b&gt;net&lt;/b&gt;');
+    expect(html).toContain('&lt;script&gt;');
     expect(html).toContain(`href="${encodeURIComponent('a&b')}/index.html"`);
+    // Only the page's own runtime block is a real script element.
+    expect(html.match(/<script>/g)).toHaveLength(1);
   });
 
   it('omits the tally when no condition produced a winner', () => {
@@ -298,5 +488,72 @@ describe('buildConditionIndexHtml matrix', () => {
     ]);
 
     expect(html).not.toContain('Conditions won');
+  });
+
+  it('offers a metric picker grouped by scope', () => {
+    const html = buildConditionIndexHtml('a vs b', [
+      {
+        label: 'x',
+        network: 'none',
+        cpu: 1,
+        summary: summaryOf({ a: 1, b: 2 }, 'a', profilesOf(
+          { measured: { networkTransferSize: 10 }, total: { lcp: 100 } },
+          { measured: { networkTransferSize: 20 }, total: { lcp: 200 } },
+        )),
+      },
+    ]);
+
+    expect(html).toContain('<select id="metric">');
+    expect(html).toContain('<option value="duration">Total Time</option>');
+    expect(html).toContain('<option value="measured.networkTransferSize">Network Transfer</option>');
+    expect(html).toContain('<optgroup label="Race (Measured Section)">');
+    expect(html).toContain('<optgroup label="Total Recording">');
+  });
+
+  it('renders every metric up front and shows only the first', () => {
+    const html = buildConditionIndexHtml('a vs b', [
+      {
+        label: 'x',
+        network: 'none',
+        cpu: 1,
+        summary: summaryOf({ a: 1, b: 2 }, 'a', profilesOf(
+          { total: { lcp: 100 } },
+          { total: { lcp: 200 } },
+        )),
+      },
+    ]);
+
+    // Total time is visible; the LCP block is present but hidden until picked.
+    expect(html).toContain('<span class="m" data-metric="duration">');
+    expect(html).toContain('<span class="m" data-metric="total.lcp" hidden>');
+    expect(html).toContain('100.0ms');
+  });
+
+  it('scales each metric independently in the rendered bars', () => {
+    const html = buildConditionIndexHtml('a vs b', [
+      {
+        label: 'x',
+        network: 'none',
+        cpu: 1,
+        summary: summaryOf({ a: 1, b: 4 }, 'a', profilesOf(
+          { total: { lcp: 500 } },
+          { total: { lcp: 1000 } },
+        )),
+      },
+    ]);
+
+    // Total time: 1s of 4s = 25%. LCP: 500ms of 1000ms = 50%.
+    expect(html).toContain('width:25.0%');
+    expect(html).toContain('width:50.0%');
+  });
+
+  it('still renders the picker when only total time is available', () => {
+    const html = buildConditionIndexHtml('a vs b', [
+      { label: 'x', network: 'none', cpu: 1, summary: summaryOf({ a: 1, b: 2 }, 'a') },
+    ]);
+
+    expect(html).toContain('<select id="metric">');
+    expect(html).toContain('<option value="duration">Total Time</option>');
+    expect(html).not.toContain('data-metric="total.lcp"');
   });
 });

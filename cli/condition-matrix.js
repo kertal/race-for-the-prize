@@ -6,7 +6,12 @@
  * which answers "who won under slow-3g at 4x CPU?" but not "how does the field
  * hold up as conditions get harder?". This module builds that overview: a
  * matrix with network presets down the side, CPU rates across the top, and
- * every racer's total time in each cell.
+ * every racer's value in each cell.
+ *
+ * Every cell carries a series per metric — total race time plus each profile
+ * metric that was captured (network bytes, LCP, script duration, JS heap, …) —
+ * so the HTML page can offer a picker that switches the whole matrix between
+ * them. All metrics are "lower is better", as profile-analysis.js defines them.
  *
  * Layout follows the varying dimensions: a two-dimensional race gets the full
  * grid, a one-dimensional race collapses to a single column, and entries that
@@ -18,6 +23,7 @@
 
 import { c, RACER_COLORS } from './colors.js';
 import { sortComparisonsForDisplay, rankEntries, formatDuration } from './report-model.js';
+import { PROFILE_METRICS, determineProfileMetricOutcome } from './profile-analysis.js';
 
 const WIN_MEDAL = '🏆';
 const TIE_MEDAL = '🤝';
@@ -25,6 +31,22 @@ const TIE_MEDAL = '🤝';
 const NO_MEDAL = '  ';
 const NO_DATA = '—';
 const COL_GAP = 2;
+
+/**
+ * The default series: total race time, taken from the measurements rather than
+ * the CDP profile. Shaped like a PROFILE_METRICS entry so both kinds of metric
+ * flow through the same code.
+ */
+export const TOTAL_TIME_METRIC = {
+  key: 'duration',
+  name: 'Total Time',
+  scope: 'race',
+  format: formatDuration,
+  description: 'Total measured race time — the sum of every timed section.',
+};
+
+/** Select-box grouping for the metric scopes. */
+const SCOPE_LABELS = { race: 'Race Time', measured: 'Race (Measured Section)', total: 'Total Recording' };
 
 const cpuLabel = cpu => `CPU ${cpu}x`;
 
@@ -55,46 +77,90 @@ function overallComparison(summary) {
   return sortComparisonsForDisplay(comparisons)[0];
 }
 
-/** One condition's cell: its verdict plus every racer's total time, best first. */
-function buildCell(entry, racers) {
-  const comp = overallComparison(entry.summary);
-  // 'tie' is a sentinel, not a racer name — keep it out of the winner field.
-  const overallWinner = entry.summary?.overallWinner ?? null;
-  const winner = overallWinner === 'tie' ? null : overallWinner;
-
-  // A comparison's racers are positional, indexed by its own summary's racer
-  // order — which is the matrix order in practice, but resolve by name so a
-  // condition that lists its racers differently still lands in the right cell.
+/**
+ * Total time and profile metrics are both positional, indexed by their own
+ * summary's racer order — which is the matrix order in practice, but resolve by
+ * name so a condition that lists its racers differently still lines up.
+ */
+function racerIndexer(entry, racers) {
   const own = entry.summary?.racers;
-  const durationOf = (name) => {
-    const i = own ? own.indexOf(name) : racers.indexOf(name);
-    return i >= 0 ? comp?.racers?.[i]?.duration ?? null : null;
-  };
+  return name => (own ? own.indexOf(name) : racers.indexOf(name));
+}
 
+/** One metric's raw value per racer, in matrix racer order (null when missing). */
+function metricValues(entry, racers, metric) {
+  const indexOf = racerIndexer(entry, racers);
+
+  if (metric.key === TOTAL_TIME_METRIC.key) {
+    const comp = overallComparison(entry.summary);
+    return racers.map(name => {
+      const i = indexOf(name);
+      return i >= 0 ? comp?.racers?.[i]?.duration ?? null : null;
+    });
+  }
+
+  const [scope, name] = metric.key.split('.');
+  return racers.map(racer => {
+    const i = indexOf(racer);
+    return i >= 0 ? entry.summary?.profileMetrics?.[i]?.[scope]?.[name] ?? null : null;
+  });
+}
+
+/**
+ * Who won a metric in one condition. Total time defers to the race's own
+ * verdict ('tie' is a sentinel, not a racer name); profile metrics go through
+ * determineProfileMetricOutcome so the matrix calls a difference significant
+ * exactly when the per-condition report does.
+ */
+function metricOutcome(entry, racers, metric, values) {
+  if (metric.key === TOTAL_TIME_METRIC.key) {
+    const overallWinner = entry.summary?.overallWinner ?? null;
+    return { winner: overallWinner === 'tie' ? null : overallWinner, isTie: overallWinner === 'tie' };
+  }
+
+  const { winner } = determineProfileMetricOutcome(metric, racers, values);
+  // No significant winner between two or more measured racers is a tie, not
+  // missing data — worth showing as such rather than as a blank verdict.
+  const withData = values.filter(value => value != null).length;
+  return { winner, isTie: !winner && withData >= 2 };
+}
+
+/** One condition's series for one metric: the verdict plus every racer, best first. */
+function buildSeries(entry, racers, metric) {
+  const values = metricValues(entry, racers, metric);
+  const { winner, isTie } = metricOutcome(entry, racers, metric, values);
   const { entries: ranked, bestValue, maxValue } = rankEntries(
     racers,
-    i => ({ val: durationOf(racers[i]) }),
-    formatDuration
+    i => ({ val: values[i] }),
+    metric.format
   );
 
   return {
-    label: entry.label,
-    title: entry.title || entry.label,
-    network: entry.network,
-    cpu: entry.cpu,
     winner,
-    isTie: overallWinner === 'tie',
+    isTie,
     best: bestValue ?? null,
     max: maxValue,
     racers: ranked.map(racer => ({
       name: racer.name,
       index: racer.index,
-      duration: racer.val ?? null,
-      formatted: racer.val != null ? formatDuration(racer.val) : null,
+      value: racer.val ?? null,
+      formatted: racer.val != null ? metric.format(racer.val) : null,
       delta: racer.delta,
       isWinner: racer.name === winner,
     })),
   };
+}
+
+/** Total time, then every profile metric that at least one condition captured. */
+function availableMetrics(entries, profileMetrics) {
+  const metrics = [TOTAL_TIME_METRIC];
+  for (const [key, def] of Object.entries(profileMetrics)) {
+    const [scope, name] = key.split('.');
+    const hasData = entries.some(entry =>
+      entry.summary?.profileMetrics?.some(profile => profile?.[scope]?.[name] != null));
+    if (hasData) metrics.push({ ...def, key });
+  }
+  return metrics;
 }
 
 /**
@@ -102,15 +168,26 @@ function buildCell(entry, racers) {
  *
  * @param {Array<{label: string, title?: string, network?: string, cpu?: number,
  *                summary: object|null}>} entries
+ * @param {Object} [profileMetrics] - PROFILE_METRICS-shaped definitions to offer
  * @returns {{
  *   racers: string[], rowHeader: string, columns: string[],
- *   rows: Array<{header: string, cells: Array<object|null>}>,
- *   cells: object[], wins: Record<string, number>, ties: number, maxDuration: number
+ *   rows: Array<{header: string, cells: Array<object|null>}>, cells: object[],
+ *   metrics: Array<{key: string, name: string, scope: string, format: Function}>,
+ *   aggregates: Record<string, {wins: Record<string, number>, ties: number, max: number}>
  * }}
  */
-export function buildConditionMatrix(entries) {
+export function buildConditionMatrix(entries, profileMetrics = PROFILE_METRICS) {
   const racers = collectRacers(entries);
-  const cells = entries.map(entry => buildCell(entry, racers));
+  const metrics = availableMetrics(entries, profileMetrics);
+
+  const cells = entries.map(entry => ({
+    label: entry.label,
+    title: entry.title || entry.label,
+    network: entry.network,
+    cpu: entry.cpu,
+    metrics: Object.fromEntries(metrics.map(metric => [metric.key, buildSeries(entry, racers, metric)])),
+  }));
+
   const networks = uniqueInOrder(cells.map(cell => cell.network));
   const cpus = uniqueInOrder(cells.map(cell => cell.cpu));
 
@@ -138,16 +215,16 @@ export function buildConditionMatrix(entries) {
     }
   }
 
-  return {
-    racers,
-    rowHeader,
-    columns,
-    rows,
-    cells,
-    wins: Object.fromEntries(racers.map(name => [name, cells.filter(cell => cell.winner === name).length])),
-    ties: cells.filter(cell => cell.isTie).length,
-    maxDuration: Math.max(0, ...cells.map(cell => cell.max || 0)),
-  };
+  const aggregates = Object.fromEntries(metrics.map(metric => {
+    const series = cells.map(cell => cell.metrics[metric.key]);
+    return [metric.key, {
+      wins: Object.fromEntries(racers.map(name => [name, series.filter(s => s.winner === name).length])),
+      ties: series.filter(s => s.isTie).length,
+      max: Math.max(0, ...series.map(s => s.max || 0)),
+    }];
+  }));
+
+  return { racers, rowHeader, columns, rows, cells, metrics, aggregates };
 }
 
 // ---------------------------------------------------------------------------
@@ -159,22 +236,22 @@ export function buildConditionMatrix(entries) {
  * width math — ANSI escapes would otherwise inflate every padding calculation)
  * and its colored form.
  */
-function cellLines(cell, nameWidth, timeWidth) {
-  if (!cell) return [{ plain: NO_DATA, colored: `${c.dim}${NO_DATA}${c.reset}` }];
-  if (cell.racers.length === 0) return [{ plain: NO_DATA, colored: `${c.dim}${NO_DATA}${c.reset}` }];
+function cellLines(series, nameWidth, valueWidth) {
+  const missing = { plain: NO_DATA, colored: `${c.dim}${NO_DATA}${c.reset}` };
+  if (!series || series.racers.length === 0) return [missing];
 
-  return cell.racers.map((racer, i) => {
+  return series.racers.map((racer, i) => {
     // A tie has no winner to crown, so the medal marks the row the tie is about.
     let medal = NO_MEDAL;
     if (racer.isWinner) medal = WIN_MEDAL;
-    else if (cell.isTie && i === 0) medal = TIE_MEDAL;
+    else if (series.isTie && i === 0) medal = TIE_MEDAL;
 
     const name = racer.name.padEnd(nameWidth);
-    const time = (racer.formatted || '-').padStart(timeWidth);
+    const value = (racer.formatted || '-').padStart(valueWidth);
     const color = RACER_COLORS[racer.index % RACER_COLORS.length];
     return {
-      plain: `${medal} ${name} ${time}`,
-      colored: `${medal} ${color}${c.bold}${name}${c.reset} ${time}`,
+      plain: `${medal} ${name} ${value}`,
+      colored: `${medal} ${color}${c.bold}${name}${c.reset} ${value}`,
     };
   });
 }
@@ -185,11 +262,10 @@ function padColored(line, width) {
 }
 
 /** Wins-per-racer tally, e.g. "lauda 2 · hunt 1 · 1 tie". */
-function tallyLine(matrix) {
-  const parts = matrix.racers
-    .filter(name => matrix.wins[name] > 0)
-    .map(name => `${name} ${matrix.wins[name]}`);
-  if (matrix.ties > 0) parts.push(`${matrix.ties} ${matrix.ties === 1 ? 'tie' : 'ties'}`);
+function tallyLine(matrix, metricKey) {
+  const { wins, ties } = matrix.aggregates[metricKey] || { wins: {}, ties: 0 };
+  const parts = matrix.racers.filter(name => wins[name] > 0).map(name => `${name} ${wins[name]}`);
+  if (ties > 0) parts.push(`${ties} ${ties === 1 ? 'tie' : 'ties'}`);
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
@@ -197,13 +273,23 @@ function tallyLine(matrix) {
  * Print the matrix to stderr (where all race progress output goes).
  * Falls back to a stacked, one-condition-per-block layout when the grid would
  * be wider than the terminal — a wrapped matrix is worse than no matrix.
+ *
+ * @param {Object} matrix - from buildConditionMatrix()
+ * @param {Object} [options] - { write, width, metric } (metric defaults to total time)
  */
-export function printConditionMatrix(matrix, write = s => process.stderr.write(s), width = process.stderr.columns || 100) {
+export function printConditionMatrix(matrix, options = {}) {
+  const {
+    write = s => process.stderr.write(s),
+    width = process.stderr.columns || 100,
+    metric = TOTAL_TIME_METRIC.key,
+  } = options;
   if (!matrix || matrix.rows.length === 0) return;
 
+  const seriesOf = cell => cell?.metrics?.[metric] || null;
   const nameWidth = Math.max(0, ...matrix.racers.map(name => name.length));
-  const timeWidth = Math.max(1, ...matrix.cells.flatMap(cell => cell.racers.map(r => (r.formatted || '-').length)));
-  const grid = matrix.rows.map(row => row.cells.map(cell => cellLines(cell, nameWidth, timeWidth)));
+  const valueWidth = Math.max(1, ...matrix.cells.flatMap(cell =>
+    (seriesOf(cell)?.racers || []).map(racer => (racer.formatted || '-').length)));
+  const grid = matrix.rows.map(row => row.cells.map(cell => cellLines(seriesOf(cell), nameWidth, valueWidth)));
 
   const headerWidth = Math.max(matrix.rowHeader.length, ...matrix.rows.map(row => row.header.length));
   const colWidths = matrix.columns.map((label, ci) => Math.max(
@@ -220,7 +306,7 @@ export function printConditionMatrix(matrix, write = s => process.stderr.write(s
     printGrid(matrix, grid, write, headerWidth, colWidths);
   }
 
-  const tally = tallyLine(matrix);
+  const tally = tallyLine(matrix, metric);
   if (tally) write(`  ${c.dim}Conditions won: ${tally}${c.reset}\n`);
 }
 
@@ -257,32 +343,60 @@ function printStacked(matrix, grid, write) {
 const esc = s => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-/** Verdict badge for a cell: winner, tie, or a placeholder. */
-function verdictHtml(cell) {
-  if (cell.winner) return `${WIN_MEDAL} ${esc(cell.winner)}`;
-  if (cell.isTie) return `${TIE_MEDAL} Tie`;
+/** Verdict badge for one metric in one cell: winner, tie, or a placeholder. */
+function verdictHtml(series) {
+  if (series.winner) return `${WIN_MEDAL} ${esc(series.winner)}`;
+  if (series.isTie) return `${TIE_MEDAL} Tie`;
   return NO_DATA;
 }
 
-function cellHtml(cell, maxDuration) {
-  if (!cell) return `        <td class="empty">${NO_DATA}</td>`;
-  const times = cell.racers.map(racer => {
-    const width = maxDuration > 0 && racer.duration != null ? (racer.duration / maxDuration) * 100 : 0;
-    const time = racer.formatted || '-';
+/**
+ * The per-metric blocks that share one container: exactly one is visible, and
+ * the metric picker flips `hidden` between them. Rendering every metric up
+ * front keeps all formatting in Node (one implementation, testable) and leaves
+ * the page working with JavaScript disabled.
+ */
+function metricBlocks(metrics, renderOne) {
+  return metrics.map((metric, i) =>
+    `<span class="m" data-metric="${esc(metric.key)}"${i === 0 ? '' : ' hidden'}>${renderOne(metric)}</span>`
+  ).join('');
+}
+
+function seriesHtml(series, max) {
+  const rows = series.racers.map(racer => {
+    const width = max > 0 && racer.value != null ? (racer.value / max) * 100 : 0;
     const delta = racer.delta != null ? `<span class="d">+${esc(racer.delta)}</span>` : '';
     return `<span class="r${racer.isWinner ? ' win' : ''}">` +
       `<span class="n">${esc(racer.name)}</span>` +
       `<span class="bar"><i style="width:${width.toFixed(1)}%"></i></span>` +
-      `<span class="t">${esc(time)}${delta}</span></span>`;
+      `<span class="t">${esc(racer.formatted || '-')}${delta}</span></span>`;
   }).join('');
-  return `        <td><a href="${encodeURIComponent(cell.label)}/index.html" aria-label="${esc(cell.title)} — view results">` +
-    `<span class="verdict">${verdictHtml(cell)}</span><span class="times">${times}</span></a></td>`;
+  return `<span class="verdict">${verdictHtml(series)}</span><span class="times">${rows}</span>`;
+}
+
+function cellHtml(cell, matrix) {
+  if (!cell) return `        <td class="empty">${NO_DATA}</td>`;
+  const blocks = metricBlocks(matrix.metrics, metric =>
+    seriesHtml(cell.metrics[metric.key], matrix.aggregates[metric.key].max));
+  return `        <td><a href="${encodeURIComponent(cell.label)}/index.html" ` +
+    `aria-label="${esc(cell.title)} — view results">${blocks}</a></td>`;
+}
+
+/** The metric picker: total time first, then the captured profile metrics by scope. */
+function pickerHtml(metrics) {
+  const scopes = uniqueInOrder(metrics.map(metric => metric.scope));
+  const groups = scopes.map(scope => {
+    const options = metrics.filter(metric => metric.scope === scope).map(metric =>
+      `<option value="${esc(metric.key)}">${esc(metric.name)}</option>`).join('');
+    return `<optgroup label="${esc(SCOPE_LABELS[scope] || scope)}">${options}</optgroup>`;
+  }).join('');
+  return `  <p class="pick"><label for="metric">Compare</label> <select id="metric">${groups}</select></p>`;
 }
 
 /**
  * Build the top-level index.html for a multi-condition race: a performance
  * matrix of every throttling condition, each cell linking to that condition's
- * own results player.
+ * own results player, with a picker to switch which metric the matrix compares.
  *
  * @param {string} raceTitle - e.g. "lauda vs hunt"
  * @param {Array<{label: string, title?: string, network?: string, cpu?: number,
@@ -294,10 +408,15 @@ export function buildConditionIndexHtml(raceTitle, entries) {
   const headerCells = matrix.columns.map(label => `<th scope="col">${esc(label)}</th>`).join('');
   const bodyRows = matrix.rows.map(row =>
     `      <tr>\n        <th scope="row">${esc(row.header)}</th>\n` +
-    row.cells.map(cell => cellHtml(cell, matrix.maxDuration)).join('\n') +
+    row.cells.map(cell => cellHtml(cell, matrix)).join('\n') +
     '\n      </tr>'
   ).join('\n');
-  const tally = tallyLine(matrix);
+
+  const descriptions = metricBlocks(matrix.metrics, metric => esc(metric.description || ''));
+  const tallies = metricBlocks(matrix.metrics, metric => {
+    const tally = tallyLine(matrix, metric.key);
+    return tally ? `Conditions won: ${esc(tally)}` : '';
+  });
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -310,6 +429,12 @@ export function buildConditionIndexHtml(raceTitle, entries) {
   .wrap { max-width: 1100px; margin: 0 auto; }
   h1 { font-size: 1.4em; margin-bottom: 4px; }
   p.sub { color: #999; margin-top: 0; }
+  p.pick { margin: 18px 0 6px; }
+  p.pick label { color: #999; font-size: 0.9em; margin-right: 6px; }
+  select { background: #23233b; color: #eee; border: 1px solid #33335a; border-radius: 6px;
+           padding: 6px 10px; font: inherit; font-size: 0.9em; }
+  select:hover { border-color: #6c6cd8; }
+  p.desc { color: #888; font-size: 0.85em; margin: 0 0 14px; min-height: 1.2em; max-width: 70ch; }
   .scroll { overflow-x: auto; }
   table { border-collapse: collapse; width: 100%; }
   th { text-align: left; font-size: 0.85em; color: #aaa; font-weight: 600; padding: 6px 10px; }
@@ -320,6 +445,8 @@ export function buildConditionIndexHtml(raceTitle, entries) {
   td a { display: block; padding: 10px 12px; background: #23233b; border: 1px solid #33335a;
          border-radius: 8px; color: #eee; text-decoration: none; min-width: 190px; }
   td a:hover { border-color: #6c6cd8; }
+  .m { display: block; }
+  .m[hidden] { display: none; }
   .verdict { display: block; font-weight: 600; margin-bottom: 6px; }
   .r { display: grid; grid-template-columns: minmax(52px, auto) 1fr auto; align-items: center;
        gap: 8px; font-size: 0.85em; color: #bbb; padding: 1px 0; }
@@ -336,13 +463,30 @@ export function buildConditionIndexHtml(raceTitle, entries) {
 <div class="wrap">
   <h1>${esc(raceTitle)}</h1>
   <p class="sub">One race per throttling condition — pick a cell to view its results.</p>
+${pickerHtml(matrix.metrics)}
+  <p class="desc">${descriptions}</p>
   <div class="scroll">
     <table>
       <tr><th scope="col">${esc(matrix.rowHeader)}</th>${headerCells}</tr>
 ${bodyRows}
     </table>
   </div>
-${tally ? `  <p class="tally">Conditions won: ${esc(tally)}</p>\n` : ''}</div>
+  <p class="tally">${tallies}</p>
+</div>
+<script>
+  // Every metric is already rendered; switching just flips which one shows.
+  var picker = document.getElementById('metric');
+  function showSelectedMetric() {
+    var blocks = document.querySelectorAll('.m[data-metric]');
+    for (var i = 0; i < blocks.length; i++) {
+      blocks[i].hidden = blocks[i].getAttribute('data-metric') !== picker.value;
+    }
+  }
+  picker.addEventListener('change', showSelectedMetric);
+  // Browsers restore the previous selection on reload, so sync once at startup
+  // rather than trusting the server-rendered default to still match.
+  showSelectedMetric();
+</script>
 </body>
 </html>
 `;

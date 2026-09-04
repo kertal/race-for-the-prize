@@ -291,6 +291,8 @@ Afterwards you get a **performance matrix** — network presets down the side, C
 
 One race per condition tells you who won each; the matrix tells you how the field holds up as conditions get harder — and whether the winner flips somewhere along the way.
 
+The HTML matrix also has a **Compare** picker: switch the whole grid from total time to any performance-profile metric that was captured — network transfer, request count, script execution, layout time, TTFB, FCP, LCP, CLS, DOM timings, JS heap — for the measured section or the total recording. Bars rescale to the chosen metric, and a cell is only called a win when the difference clears that metric's significance threshold; anything smaller shows as a tie.
+
 The `--runs` flag takes the median, smoothing out noise and giving you a number you can trust. In multi-run mode, each racer independently picks the run closest to their own median — so if Racer A performed best in Run 2 and Racer B in Run 4, each gets their own representative video. The results page shows which runs were selected (e.g., "Runs 2, 4").
 
 ## Race Flags (CLI Options)
