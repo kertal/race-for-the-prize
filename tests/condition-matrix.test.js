@@ -556,4 +556,25 @@ describe('buildConditionIndexHtml matrix', () => {
     expect(html).toContain('<option value="duration">Total Time</option>');
     expect(html).not.toContain('data-metric="total.lcp"');
   });
+  it('gives every racer the color the per-condition player uses for them', () => {
+    const html = buildConditionIndexHtml('a vs b', [
+      { label: 'x', network: 'none', cpu: 1, summary: summaryOf({ a: 1, b: 2 }, 'a') },
+    ]);
+
+    // RACER_CSS_COLORS in racer order: a is red, b is blue.
+    expect(html).toContain('style="--c:#e74c3c"');
+    expect(html).toContain('style="--c:#3498db"');
+    // The verdict picks up the winner's own color, not a generic accent.
+    expect(html).toContain('<span class="verdict" style="color:#e74c3c">🏆 a</span>');
+  });
+
+  it('dresses the page like the player it links to', () => {
+    const html = buildConditionIndexHtml('a vs b', [
+      { label: 'x', network: 'none', cpu: 1, summary: summaryOf({ a: 1, b: 2 }, 'a') },
+    ]);
+
+    expect(html).toContain('<div class="checkered-bar"></div>');
+    expect(html).toContain('#d4af37');
+    expect(html).toContain("font-family: ui-monospace, 'Courier New', monospace");
+  });
 });
