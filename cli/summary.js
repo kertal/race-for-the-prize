@@ -360,7 +360,7 @@ export function buildMarkdownSummary(summary, sideBySideName) {
     const mode = settings.parallel === false ? 'sequential' : 'parallel';
     lines.push(`| **Mode** | ${mode} |`);
     if (settings.network && settings.network !== 'none') lines.push(`| **Network** | ${settings.network} |`);
-    if (settings.cpuThrottle && settings.cpuThrottle > 1) lines.push(`| **CPU Throttle** | ${settings.cpuThrottle}x |`);
+    if (settings.cpuThrottle && settings.cpuThrottle > 1) lines.push(`| **CPU Throttle** | ${settings.cpuThrottle}x slower |`);
     if (settings.format && settings.format !== 'webm') lines.push(`| **Format** | ${settings.format} |`);
     if (settings.headless) lines.push(`| **Headless** | yes |`);
     if (settings.runs && settings.runs > 1) lines.push(`| **Runs** | ${settings.runs} |`);

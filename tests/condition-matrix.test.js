@@ -465,6 +465,22 @@ describe('printConditionMatrix', () => {
   it('prints nothing for an empty matrix', () => {
     expect(render(buildConditionMatrix([]))).toBe('');
   });
+
+  it('spells out which way the CPU rates go wherever they are labelled', () => {
+    expect(render(twoByTwo())).toContain('4x runs the CPU four times slower');
+
+    const cpuOnly = buildConditionMatrix(gridEntries(['none'], [1, 4], () => ({ lauda: 1 }), () => 'lauda'));
+    expect(render(cpuOnly)).toContain('4x runs the CPU four times slower');
+  });
+
+  it('leaves the CPU note out when no CPU rate is on show', () => {
+    const networksOnly = buildConditionMatrix(gridEntries(
+      ['none', 'slow-3g'], [1], () => ({ lauda: 1 }), () => 'lauda'
+    ));
+
+    expect(networksOnly.legend).toBeNull();
+    expect(render(networksOnly)).not.toContain('slower');
+  });
 });
 
 describe('buildConditionIndexHtml matrix', () => {
@@ -482,6 +498,7 @@ describe('buildConditionIndexHtml matrix', () => {
     expect(html).toContain('href="slow-3g-cpu4x/index.html"');
     expect(html).toContain('🏆 lauda');
     expect(html).toContain('Conditions won: lauda 4');
+    expect(html).toContain('4x runs the CPU four times slower');
   });
 
   it('scales the bars against the slowest time in the whole matrix', () => {

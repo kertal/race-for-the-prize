@@ -380,7 +380,7 @@ describe('buildMarkdownSummary', () => {
     const md = buildMarkdownSummary(makeSummary({ settings: { parallel: false, network: 'fast-3g', cpuThrottle: 4 } }));
     expect(md).toContain('sequential');
     expect(md).toContain('fast-3g');
-    expect(md).toContain('4x');
+    expect(md).toContain('4x slower');
   });
 
   it('includes machine info when provided', () => {

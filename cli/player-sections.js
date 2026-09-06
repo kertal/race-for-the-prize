@@ -170,7 +170,7 @@ export function buildRaceInfoHtml(summary) {
     const mode = settings.parallel === false ? 'sequential' : 'parallel';
     items.push(infoItem('Mode', mode));
     if (settings.network && settings.network !== 'none') items.push(infoItem('Network', escHtml(settings.network)));
-    if (settings.cpuThrottle && settings.cpuThrottle > 1) items.push(infoItem('CPU Throttle', `${settings.cpuThrottle}x`));
+    if (settings.cpuThrottle && settings.cpuThrottle > 1) items.push(infoItem('CPU Throttle', `${settings.cpuThrottle}x slower`));
     if (settings.format && settings.format !== 'webm') items.push(infoItem('Format', escHtml(settings.format)));
     if (settings.headless) items.push(infoItem('Headless', 'yes'));
     if (settings.runs && settings.runs > 1) items.push(infoItem('Runs', settings.runs));
