@@ -1501,10 +1501,12 @@ describe('buildPlayerHtml semantics', () => {
     expect(defaultHtml.match(/document\.body\.appendChild\(overlay\);/g)).toHaveLength(1);
   });
 
-  it('marks the calibration button as the toggle it is', () => {
-    expect(defaultHtml).toMatch(/id="modeDebug"[^>]*aria-pressed="false"/);
-    expect(defaultHtml).toContain("modeDebug?.setAttribute('aria-pressed', String(!visible))");
-    expect(defaultHtml).toContain("modeDebug.setAttribute('aria-pressed', 'false')");
+  it('marks the calibration button as the disclosure it is', () => {
+    // It shows and hides #debugPanel, so it is aria-expanded like the settings
+    // and share buttons — not the aria-pressed of a mode toggle.
+    expect(defaultHtml).toMatch(/id="modeDebug"[^>]*aria-expanded="false" aria-controls="debugPanel"/);
+    expect(defaultHtml).toContain("modeDebug?.setAttribute('aria-expanded', String(!visible))");
+    expect(defaultHtml).toContain("modeDebug.setAttribute('aria-expanded', 'false')");
   });
 
   it('leaves the share popup a disclosure rather than promising a menu', () => {

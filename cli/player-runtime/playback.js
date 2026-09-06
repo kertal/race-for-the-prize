@@ -424,7 +424,7 @@ function hideCalibration() {
   if (debugPanel) debugPanel.style.display = 'none';
   if (modeDebug) {
     modeDebug.classList.remove('active');
-    modeDebug.setAttribute('aria-pressed', 'false');
+    modeDebug.setAttribute('aria-expanded', 'false');
   }
 }
 
@@ -500,7 +500,7 @@ function toggleCalibration() {
   const visible = debugPanel.style.display === 'block';
   debugPanel.style.display = visible ? 'none' : 'block';
   modeDebug?.classList.toggle('active', !visible);
-  modeDebug?.setAttribute('aria-pressed', String(!visible));
+  modeDebug?.setAttribute('aria-expanded', String(!visible));
   if (!visible) {
     updateDebugDisplay();
     updateDebugStats();
