@@ -7,6 +7,28 @@ import { c, RACER_COLORS } from './colors.js';
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const SPINNER_INTERVAL_MS = 100;
 const TICK_INTERVAL_MS = 120;
+const FALLBACK_WIDTH = 100;
+// Never squeeze a message down to nothing, however narrow the terminal is.
+const MIN_MESSAGE_WIDTH = 12;
+
+/**
+ * Shorten `text` so a line built as prefix + text + suffix stays inside the
+ * terminal width. The animation redraws by moving the cursor up one row per
+ * line it wrote, so a single line that wraps onto two rows leaves the previous
+ * frame stranded on screen — the redraw rewinds one row short every tick.
+ * Racer messages come from race scripts and can be arbitrarily long, so they
+ * are the ones that need clamping.
+ *
+ * @param {string} text
+ * @param {number} chromeWidth - visible width of everything around the text
+ * @param {number} width - terminal width in columns
+ */
+export function fitMessageText(text, chromeWidth, width) {
+  // One column spare: writing into the last one wraps in some terminals.
+  const room = width - 1 - chromeWidth;
+  if (text.length <= room) return text;
+  return text.slice(0, Math.max(MIN_MESSAGE_WIDTH, room - 1)) + '…';
+}
 
 const isTTY = () => Boolean(process.stderr.isTTY);
 
@@ -86,10 +108,14 @@ export class RaceAnimation {
     this.lines = 1;
     process.stderr.write(line + '\x1b[K\n');
 
+    const width = process.stderr.columns || FALLBACK_WIDTH;
     for (const msg of this.messages) {
       if (!msg) continue;
       const nameColor = RACER_COLORS[msg.index % RACER_COLORS.length];
-      process.stderr.write(`  ${nameColor}${c.bold}${msg.name}:${c.reset} ${c.dim}"${msg.text}" (${msg.elapsed}s)${c.reset}\x1b[K\n`);
+      // Width of the decoration around the text, colors excluded — they cost no columns.
+      const chrome = `  ${msg.name}: "" (${msg.elapsed}s)`.length;
+      const text = fitMessageText(msg.text, chrome, width);
+      process.stderr.write(`  ${nameColor}${c.bold}${msg.name}:${c.reset} ${c.dim}"${text}" (${msg.elapsed}s)${c.reset}\x1b[K\n`);
       this.lines++;
     }
   }

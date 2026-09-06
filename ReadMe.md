@@ -53,6 +53,45 @@ The frontend framework cage match — four racers, one winner. React, Angular, S
 node race.js ./races/react-vs-angular
 ```
 
+## 🤫 Encrypted cache vs plain cache vs no cache
+
+What does caching cost, and when does it pay back? [HushHushDB](https://kertal.github.io/hush-hush-db/) downloads a dataset and can keep it in IndexedDB — encrypted with a key in `sessionStorage`, stored as plaintext, or not kept at all. Three racers boot the same app into a different cache handling mode, fetch the dataset, then ask for it a second time.
+
+```bash
+node race.js ./races/caching-comparison
+```
+
+Both halves are timed, because encryption is not free on either side of the cache. **Fetch and store** is the price paid up front — the app renders only once the write finishes. **Reload to data** is the payback, and it separates the two costs cleanly: decrypting is a CPU cost that ignores the network, refetching is a network cost that ignores the CPU.
+
+```
+  ⏱ Reload to data     encrypted   plain   no-cache
+  none    · CPU 1x       0.221s   0.107s     0.114s
+  slow-3g · CPU 1x       0.180s   0.089s     4.326s   ← same CPU, 25x slower link
+  none    · CPU 4x       0.628s   0.361s     0.206s   ← same link, 4x slower CPU
+```
+
+Six conditions (three networks x two CPU rates), and the totals show where each cost wins out:
+
+```
+  ⚡ Performance Matrix
+  Network  CPU 1x                     CPU 4x
+  none     🏆 no-cache        0.230s  🏆 no-cache        0.700s
+              plain-cache     0.348s     plain-cache     1.045s
+              encrypted-cache 0.781s     encrypted-cache 1.627s
+
+  fast-3g  🏆 plain-cache     2.043s  🏆 plain-cache     2.695s
+              encrypted-cache 2.171s     no-cache        3.101s
+              no-cache        3.169s     encrypted-cache 3.166s
+
+  slow-3g  🏆 plain-cache     4.536s  🏆 plain-cache     5.105s
+              encrypted-cache 4.765s     encrypted-cache 5.404s
+              no-cache        8.209s     no-cache        7.934s
+```
+
+On a free network the write cost makes caching pure overhead and skipping it wins outright; by slow-3g caching wins by three and a half seconds. Encryption is the smaller effect but a consistent one — under a tenth of a second on the read at CPU 1x, two to four tenths once the CPU is throttled 4x. Switch the metric picker in `index.html` to **Network Transfer** for the blunt version: the cached racers move zero bytes the second time.
+
+Times are single runs of a live site, so individual cells wobble by a tenth or two — the `fast-3g`/CPU 4x runners-up above are inside the noise. `--runs=3` reports the median instead.
+
 ## Global Install
 
 Install once, race anywhere:

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { RaceAnimation, startProgress } from '../cli/animation.js';
+import { RaceAnimation, startProgress, fitMessageText } from '../cli/animation.js';
 import { c } from '../cli/colors.js';
 
 /**
@@ -130,6 +130,46 @@ describe('RaceAnimation', () => {
     expect(output).toContain('beta');
     expect(output).toContain('gamma');
     expect(output).toContain('vs');
+  });
+
+  it('clamps long messages so no rendered line wraps', () => {
+    // A line that wraps costs two terminal rows but only one cursor-up rewind,
+    // so every tick strands the previous frame on screen.
+    const original = process.stderr.columns;
+    Object.defineProperty(process.stderr, 'columns', { value: 80, configurable: true });
+    try {
+      const anim = new RaceAnimation(['encrypted-cache']);
+      anim.start();
+      anim.addMessage(0, 'encrypted-cache',
+        'Fetched from network in 338 ms, encrypted + cached in 114 ms · rendered in 474 ms total', '0.7');
+      anim._tick();
+      anim.stop();
+
+      const rows = stderr.output().split('\n');
+      // eslint-disable-next-line no-control-regex
+      const visible = rows.map(row => row.replaceAll(/\x1b\[[0-9;?]*[a-zA-Z]/g, ''));
+      expect(visible.some(row => row.includes('encrypted-cache:'))).toBe(true);
+      for (const row of visible) expect(row.length).toBeLessThan(80);
+    } finally {
+      Object.defineProperty(process.stderr, 'columns', { value: original, configurable: true });
+    }
+  });
+});
+
+describe('fitMessageText', () => {
+  it('leaves a message that already fits untouched', () => {
+    expect(fitMessageText('short', 10, 80)).toBe('short');
+  });
+
+  it('truncates so text + chrome stays inside the width', () => {
+    const text = 'x'.repeat(200);
+    const fitted = fitMessageText(text, 20, 80);
+    expect(fitted.length + 20).toBeLessThan(80);
+    expect(fitted.endsWith('…')).toBe(true);
+  });
+
+  it('keeps a readable stub when the chrome alone fills the terminal', () => {
+    expect(fitMessageText('x'.repeat(50), 78, 80).length).toBe(13); // 12 chars + ellipsis
   });
 });
 
