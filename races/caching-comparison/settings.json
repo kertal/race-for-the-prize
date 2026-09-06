@@ -4,8 +4,8 @@
     "plain-cache": { "vars": { "MODE": "plain", "SOURCE": "bundled-9" } },
     "no-cache": { "vars": { "MODE": "nocache", "SOURCE": "bundled-9" } }
   },
-  "network": ["none", "fast-3g", "slow-3g"],
+  "network": ["none", "4g", "fast-3g", "slow-3g"],
   "cpuThrottle": [1, 4],
   "headless": true,
-  "runs": 3
+  "runs": 1
 }
