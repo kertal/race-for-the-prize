@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 import { buildConditionMatrix, printConditionMatrix, buildConditionIndexHtml, TOTAL_TIME_METRIC } from '../cli/condition-matrix.js';
+import { SKINS_DIR } from '../cli/skins.js';
 
 const DURATION = TOTAL_TIME_METRIC.key;
 
@@ -606,20 +609,71 @@ describe('buildConditionIndexHtml matrix', () => {
       { label: 'x', network: 'none', cpu: 1, summary: summaryOf({ a: 1, b: 2 }, 'a') },
     ]);
 
-    // RACER_CSS_COLORS in racer order: a is red, b is blue.
-    expect(html).toContain('style="--c:#e74c3c"');
-    expect(html).toContain('style="--c:#3498db"');
+    // RACER_CSS_COLORS in racer order: a is red, b is blue. The colour rides
+    // in on --racer-color, the same property the player uses.
+    expect(html).toContain('style="--racer-color:#e74c3c"');
+    expect(html).toContain('style="--racer-color:#3498db"');
     // The verdict picks up the winner's own color, not a generic accent.
-    expect(html).toContain('<span class="verdict" style="color:#e74c3c">🏆 a</span>');
+    expect(html).toContain('<span class="verdict" style="--racer-color:#e74c3c">🏆 a</span>');
+  });
+
+  it('leaves the verdict on the accent when no racer won the condition', () => {
+    const html = buildConditionIndexHtml('a vs b', [
+      { label: 'x', network: 'none', cpu: 1, summary: summaryOf({ a: 1, b: 1 }, null) },
+    ]);
+
+    // No --racer-color is set, so .verdict resolves to its var(--accent)
+    // fallback instead of carrying an inline colour of its own.
+    expect(html).toMatch(/<span class="verdict(?: (?:tie|none))?">/);
+    expect(html).not.toMatch(/class="verdict[^"]*" style=/);
   });
 
   it('dresses the page like the player it links to', () => {
     const html = buildConditionIndexHtml('a vs b', [
       { label: 'x', network: 'none', cpu: 1, summary: summaryOf({ a: 1, b: 2 }, 'a') },
     ]);
+    const tokens = fs.readFileSync(path.join(SKINS_DIR, '..', 'tokens.css'), 'utf-8');
 
     expect(html).toContain('<div class="checkered-bar"></div>');
-    expect(html).toContain('#d4af37');
-    expect(html).toContain("font-family: ui-monospace, 'Courier New', monospace");
+    // Not "looks similar" — the page inlines the very same token file the
+    // player does, so the two cannot drift apart.
+    expect(html).toContain(tokens);
+  });
+
+  it('keeps literal colours and raw palette tokens out of its component rules', () => {
+    const html = buildConditionIndexHtml('a vs b', [
+      { label: 'x', network: 'none', cpu: 1, summary: summaryOf({ a: 1, b: 2 }, 'a') },
+    ]);
+    // The page's own rules sit after the shared :root block; everything there
+    // must go through a semantic role so a skin reaches it.
+    const componentCss = html.slice(html.indexOf('* { box-sizing: border-box; }'), html.indexOf('</style>'));
+    const offenders = componentCss
+      .split('\n')
+      .filter(line => !line.includes('svg') && /#[0-9a-fA-F]{3,8}\b|\brgba?\(|var\(\s*--color-/.test(line));
+    expect(offenders).toEqual([]);
+  });
+});
+
+describe('buildConditionIndexHtml skinning', () => {
+  const entries = [{ label: 'x', network: 'none', cpu: 1, summary: summaryOf({ a: 1, b: 2 }, 'a') }];
+
+  it('is unskinned by default', () => {
+    const html = buildConditionIndexHtml('a vs b', entries);
+    expect(html).toContain('<html lang="en">');
+    expect(html).not.toContain('id="rftp-skin"');
+  });
+
+  it('applies a skin the same way the player does', () => {
+    const html = buildConditionIndexHtml('a vs b', entries, { skin: 'light' });
+    expect(html).toContain('<html lang="en" data-theme="light">');
+    expect(html).toContain('<style id="rftp-skin">');
+    expect(html).toContain(':root[data-theme="light"]');
+    expect(html).toContain('<meta name="theme-color" content="#f6f3ec">');
+    // The skin must land after the tokens it overrides.
+    expect(html.indexOf('id="rftp-skin"')).toBeGreaterThan(html.indexOf('--color-gold:'));
+  });
+
+  it('rejects an unknown skin rather than rendering an unthemed page', () => {
+    expect(() => buildConditionIndexHtml('a vs b', entries, { skin: 'nope' })).toThrow(/Unknown skin/);
   });
 });

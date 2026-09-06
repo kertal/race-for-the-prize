@@ -361,6 +361,7 @@ node race.js <dir> --serve=false          # Don't start local results server or 
 node race.js <dir> --pause                # Pause between racers — run all laps for each racer, then press Enter for the next
 node race.js <dir> --height=900           # Set viewport/recording height in pixels (480–4320, default 720)
 node race.js <dir> --ignore-https-errors  # Accept invalid/self-signed TLS certificates
+node race.js <dir> --skin=light           # Skin the results player (light, neon, or a path to a .css file)
 ```
 
 CLI flags always override `settings.json`. For boolean flags, you can pass explicit values like `--parallel=false` or `--ffmpeg=true`.
@@ -406,6 +407,24 @@ Disclaimer: Due to the nature of the way the video is transformed, the aim here 
 Do double check and question the metrics and findings. It should be a helpful tool supporting performance related narratives, but don't assume 100% accuracy. However, this generally applies to many 
 browser gained performance metrics. There are many side effects. And screen recording, plus video cutting is another one.
 
+### Skinning the player
+
+The report's stylesheet is built from design tokens — a palette layer, a
+semantic layer, and a component layer that contains no literal colours at all.
+A skin is therefore just a CSS file that redefines tokens:
+
+```bash
+node race.js ./races/lauda-vs-hunt --skin=light       # built-in
+node race.js ./races/lauda-vs-hunt --skin=./team.css  # your own
+```
+
+Two skins ship with the tool (`light`, `neon`) and live in `cli/skins/`. One
+skin themes the whole report set — the results player and, for a multi-condition
+race, the performance matrix above it — because both pages inline the same
+`cli/tokens.css`. Skins are inlined into the page, so exported HTML and ZIP
+bundles keep their theme. See [docs/skinning.md](docs/skinning.md) for the full
+token reference.
+
 ## The Podium Ceremony
 
 The terminal delivers the verdict in style:
@@ -436,7 +455,8 @@ The terminal delivers the verdict in style:
   "noServe": false,
   "pauseBetweenRuns": false,
   "ignoreHTTPSErrors": false,
-  "viewportHeight": 720
+  "viewportHeight": 720,
+  "skin": "light"
 }
 ```
 
@@ -458,6 +478,7 @@ The terminal delivers the verdict in style:
 | `pauseBetweenRuns` | `--pause` | `true` / `false` | `false` |
 | `ignoreHTTPSErrors` | `--ignore-https-errors` | `true` / `false` | `false` |
 | `viewportHeight` | `--height=<px>` | integer, 480–4320 | `720` |
+| `skin` | `--skin=<name\|path>` | `light`, `neon`, or a path to a `.css` file — see [Skinning the player](docs/skinning.md) | not set (built-in dark theme) |
 | `racers` | — | optional object keyed by racer name | not present by default |
 
 For boolean fields, prefer JSON literals `true` / `false` (not strings). String values like `"false"` are normalized when possible. On the CLI, boolean flags also accept explicit values (`--headless=false`, `--har=true`) and short values (`--serve=0`, `--overlay=1`).
@@ -553,10 +574,19 @@ RaceForThePrize/
 │   ├── colors.js           # ANSI color palette
 │   ├── config.js           # Argument parsing & racer discovery
 │   ├── profile-analysis.js # CDP performance metrics collection & analysis
-│   ├── player-runtime.js   # HTML player client-side runtime (canvas calibration)
+│   ├── html-templates.js   # Shared markup plumbing (escaping, {{slots}}, <template> loading)
+│   ├── player.html         # HTML player markup + build-time templates
+│   ├── tokens.css          # Design tokens shared by every generated report
+│   ├── player.css          # HTML player component styles
+│   ├── player-runtime/     # HTML player client-side runtime (playback, calibration, export)
 │   ├── player-sections.js  # HTML player template sections
 │   ├── race-utils.js       # Shared race utility helpers
 │   ├── results.js          # File management & video conversion
+│   ├── condition-matrix.js # Cross-condition performance matrix (terminal + HTML)
+│   ├── condition-matrix.html # Condition matrix markup + build-time templates
+│   ├── condition-matrix.css  # Condition matrix component styles
+│   ├── skins.js            # Skin resolution for --skin
+│   ├── skins/              # Built-in player skins (light, neon)
 │   ├── summary.js          # Results formatting & markdown reports
 │   ├── sidebyside.js       # FFmpeg video composition (--ffmpeg)
 │   └── videoplayer.js      # Interactive HTML player with clip-based trimming
@@ -564,6 +594,8 @@ RaceForThePrize/
 │   ├── lauda-vs-hunt/        # 🏆 Example: the greatest rivalry in racing
 │   ├── lebron-vs-curry/      # 🏀 Example: the GOAT debate, dribble-style
 │   └── react-vs-angular/     # ⚛️  Example: frontend framework showdown (4 racers)
+├── docs/
+│   └── skinning.md         # Design tokens & how to write a player skin
 ├── presentation/
 │   ├── slides.md           # Marp slide deck
 │   └── script.md           # Speaker notes (7 slides, ~7 min)

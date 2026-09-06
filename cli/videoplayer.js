@@ -3,7 +3,10 @@
  * video player for race results. Supports 2-5 racers.
  *
  * The HTML structure lives in player.html (a real HTML template).
- * The CSS lives in player.css (inlined into the exported HTML at build time).
+ * The CSS lives in player.css (inlined into the exported HTML at build time),
+ *   written as design tokens + component rules so it can be re-skinned.
+ * Skins live in cli/skins/ and are resolved by skins.js; the chosen one is
+ *   inlined after player.css and its name stamped onto <html data-theme>.
  * Section builders live in player-sections.js.
  * The browser-side player runtime lives in player-runtime/ as concern-scoped
  * source files, concatenated below in dependency order into one IIFE scope.
@@ -14,10 +17,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getPlacementOrder } from './summary.js';
+import { loadTemplates, escHtml, render } from './html-templates.js';
 import {
   RACER_CSS_COLORS,
-  escHtml,
-  render,
   setTemplates,
   buildRunNavHtml,
   buildRaceInfoHtml,
@@ -32,11 +34,20 @@ import {
   buildPlayerSectionHtml,
 } from './player-sections.js';
 import calibration from './player-runtime/calibration.cjs';
+import { resolveSkin, DEFAULT_THEME_COLOR } from './skins.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const RAW_HTML = fs.readFileSync(path.join(__dirname, 'player.html'), 'utf-8');
-const CSS = fs.readFileSync(path.join(__dirname, 'player.css'), 'utf-8');
+// Markup lives in player.html: the page shell plus one build-* template per
+// repeated fragment, split apart here and filled at build time.
+const { shell: TEMPLATE, templates: BUILD_TEMPLATES, fill } = loadTemplates(path.join(__dirname, 'player.html'));
+setTemplates(BUILD_TEMPLATES);
+
+// Shared design tokens first, then this page's component rules. Both reports
+// inline the same tokens.css so the player and the condition overview cannot
+// drift apart, and one skin themes both.
+const CSS = fs.readFileSync(path.join(__dirname, 'tokens.css'), 'utf-8') + '\n'
+  + fs.readFileSync(path.join(__dirname, 'player.css'), 'utf-8');
 
 // Browser-side player runtime, split into concern-scoped files that are
 // concatenated in dependency order into the single IIFE scope emitted by
@@ -60,25 +71,20 @@ const RUNTIME = RUNTIME_FILES
   .map(f => fs.readFileSync(path.join(__dirname, 'player-runtime', f), 'utf-8'))
   .join('\n');
 
-// Extract build-time templates (build-*) from HTML and strip them from the main template
-function extractBuildTemplates(html) {
-  const templates = {};
-  const cleaned = html.replace(/<template id="build-([^"]+)">([\s\S]*?)<\/template>\s*/g, (_, id, content) => {
-    templates[id] = content.trim();
-    return '';
-  });
-  return { mainTemplate: cleaned, templates };
-}
-
-const { mainTemplate: TEMPLATE, templates: BUILD_TEMPLATES } = extractBuildTemplates(RAW_HTML);
-setTemplates(BUILD_TEMPLATES);
-
 // ---------------------------------------------------------------------------
 // Style & Script Builders — read from external files and inline at export
 // ---------------------------------------------------------------------------
 
 function buildStyles(layoutCss) {
   return '<style>\n' + CSS + '  ' + layoutCss + '\n</style>';
+}
+
+/**
+ * Inline a resolved skin after the base stylesheet so its token overrides win.
+ * Returns '' when no skin was requested.
+ */
+function buildSkinStyles(skin) {
+  return skin ? `<style id="rftp-skin">\n${skin.css}\n</style>` : '';
 }
 
 function buildPlayerScript() {
@@ -102,7 +108,7 @@ function playerContainerMaxWidth(count) {
 
 function trophyHtml(isWinner, isTie) {
   if (!isWinner) return '';
-  return `<span class="trophy">${isTie ? '&#129309;' : '&#127942;'}</span> `;
+  return fill('trophy', { medal: isTie ? '&#129309;' : '&#127942;' });
 }
 
 // Build the player section, debug panel, runtime script tag, and race-config
@@ -114,17 +120,19 @@ function buildVideoPlayer(summary, videoFiles, opts) {
     const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
     const racer = racers[origIdx];
     const isWinner = isTie || (summary.overallWinner && summary.overallWinner.toLowerCase() === racer.toLowerCase());
-    const vSrc = videoFiles[origIdx].startsWith('data:') ? '' : ` src="${escHtml(videoFiles[origIdx])}"`;
-    return `  <div class="racer">
-    <div class="racer-label" style="color: ${color}">${trophyHtml(isWinner, isTie)}${escHtml(racer)}</div>
-    <video id="v${displayIdx}"${vSrc} preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Race recording for ${escHtml(racer)}" data-racer-name="${escHtml(racer)}"></video>
-  </div>`;
+    // A data: URI is swapped in by the runtime, so the attribute starts empty.
+    return fill('racer-card', {
+      color,
+      idx: displayIdx,
+      name: escHtml(racer),
+      trophy: trophyHtml(isWinner, isTie),
+      src: videoFiles[origIdx].startsWith('data:') ? '' : ` src="${escHtml(videoFiles[origIdx])}"`,
+    });
   }).join('\n');
 
-  const mergedVideoElement = mergedVideoFile ? `
-<div class="merged-container" id="mergedContainer" style="display: none;">
-  <video id="mergedVideo" src="${escHtml(mergedVideoFile)}" preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Side-by-side merged video"></video>
-</div>` : '';
+  const mergedVideoElement = mergedVideoFile
+    ? fill('merged-container', { src: escHtml(mergedVideoFile) })
+    : '';
 
   const videoIds = placementOrder.map((_, i) => `v${i}`);
   const raceConfigJson = serializeRaceConfig({
@@ -150,7 +158,7 @@ function buildVideoPlayer(summary, videoFiles, opts) {
 // ---------------------------------------------------------------------------
 
 export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, options = {}) {
-  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, runNavigation, clipTimes, ffmpegPathPrefix, runSummaries } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, runNavigation, clipTimes, ffmpegPathPrefix, runSummaries, skin, skinBaseDir } = options;
 
   const ffmpegDir = (ffmpegPathPrefix || './') + 'ffmpeg/';
   const racers = summary.racers;
@@ -170,17 +178,17 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     ? buildVideoPlayer(summary, videoFiles, { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, placementOrder, ffmpegDir })
     : {};
 
-  const mergedBtn = hasMergedVideo ? '<button class="mode-btn" id="modeMerged" title="Side-by-side merged video">Merged</button>' : '';
-  const modeToggle = hasMergedVideo ? `
-  <div class="mode-toggle">
-    ${mergedBtn}
-  </div>` : '';
+  const modeToggle = hasMergedVideo ? fill('mode-toggle') : '';
 
   const profileComparison = summary.profileComparison || {};
   const layoutCss = `.player-container { max-width: ${playerContainerMaxWidth(count)}px; }\n  .racer { max-width: ${playerMaxWidth(count)}px; }`;
+  const resolvedSkin = resolveSkin(skin, skinBaseDir);
   return render(TEMPLATE, {
     title,
+    themeAttr: resolvedSkin ? ` data-theme="${escHtml(resolvedSkin.name)}"` : '',
+    themeColor: resolvedSkin ? escHtml(resolvedSkin.themeColor) : DEFAULT_THEME_COLOR,
     styles: buildStyles(layoutCss),
+    skinStyles: buildSkinStyles(resolvedSkin),
     runNav: buildRunNavHtml(runNavigation, racers, runSummaries),
     winnerBanner: '',
     videoSourceNote: '',

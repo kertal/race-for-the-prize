@@ -13,15 +13,22 @@ import fs from 'fs';
 import path from 'path';
 import { c } from './colors.js';
 import { applyOverrides, applyDefaults, discoverRacers, resolveSharedRacerNames, InvalidSettingError } from './config.js';
+import { resolveSkin } from './skins.js';
 
 /**
  * Apply CLI overrides + defaults, exiting with code 2 on user-visible
  * InvalidSettingError. Anything else rethrows. Used by both directory mode
  * and URL mode so the error-handling stays in one place.
+ *
+ * @param {string|null} [raceDir] - race directory a relative `--skin` path is
+ *   resolved against; the skin is resolved here so a bad name fails before the
+ *   race runs rather than when the report is written.
  */
-export function applySettingsOrExit(base, boolFlags, kvFlags) {
+export function applySettingsOrExit(base, boolFlags, kvFlags, raceDir = null) {
   try {
-    return applyDefaults(applyOverrides(base, boolFlags, kvFlags));
+    const settings = applyDefaults(applyOverrides(base, boolFlags, kvFlags));
+    resolveSkin(settings.skin, raceDir);
+    return settings;
   } catch (e) {
     if (e instanceof InvalidSettingError) {
       console.error(`${c.red}Error: ${e.message}${c.reset}`);
@@ -60,7 +67,7 @@ export function loadRaceDir(raceDir, { boolFlags, kvFlags, rootDir, buildContext
       process.exit(1);
     }
   }
-  settings = applySettingsOrExit(settings, boolFlags, kvFlags);
+  settings = applySettingsOrExit(settings, boolFlags, kvFlags, raceDir);
 
   const allFiles = fs.readdirSync(raceDir).filter(f => !f.startsWith('.'));
   const specFiles = allFiles.filter(f => f.endsWith('.spec.js')).sort();

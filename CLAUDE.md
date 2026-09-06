@@ -43,8 +43,10 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 - `results.js` — moves recordings from temp dirs, video format conversion (WebM→MOV/GIF), ffmpeg.wasm asset copying
 - `sidebyside.js` — FFmpeg side-by-side video composition
 - `videoplayer.js` — assembles the HTML player from `player.html`/`player.css`/`player-runtime/`
+- `html-templates.js` — shared markup plumbing: `escHtml`, `{{placeholder}}` `render`, and `loadTemplates()`, which splits a `.html` file into its page shell and its `<template id="build-*">` fragments
 - `player-sections.js` — build-time HTML section builders (results table, comparisons, profile tables)
 - `player-runtime/` — browser-side player runtime split into concern-scoped files (playback, calibration, debug panel, export, ZIP) concatenated by `videoplayer.js` into one IIFE; the pure `.cjs` cores (calibration, export layout, ZIP/CRC32) are also requirable from Node for tests
+- `skins.js` — resolves `--skin` (built-in name or `.css` path) to inlinable CSS; built-in skins live in `skins/`
 - `gemini-summary.js` — optional Gemini CLI integration (post-race commentary, spec generation)
 - `colors.js` — ANSI color codes (media constants re-exported for compatibility; import them from `media-config.js`)
 - `media-config.js` — shared media/video constants (`FORMAT_EXTENSIONS`, `VIDEO_DEFAULTS`, `SCREEN`, `codecArgs`, `CUE_DETECTION`)
@@ -59,6 +61,10 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 - Timing and video calibration come from the Playwright trace (`trace-calibration.cjs`): the HTML player virtually trims via `traceCalibration`/clip times, and `--ffmpeg` physically trims using trace-derived PTS segments. The colored cue flashes are opt-in (`--cue-markers`) and exist only as ground truth for the ffprobe integration tests — they perturb metrics, so they're off by default.
 - CLI flags override `settings.json` values (CLI takes priority). See `config.js` `applyOverrides()`.
 - Per-racer setup scripts (e.g. `racer-a.setup.sh`) trigger split execution: each racer's setup runs right before that racer's runs, not all upfront. Without per-racer setups, all racers run together per run.
+- Generated markup lives in `.html` files, never in JS string literals: each page has a shell plus one `<template id="build-*">` per repeated fragment, loaded by `html-templates.js` and filled with `{{placeholder}}` data. Tests reject classed markup or CSS rules written inline in `player-sections.js`, `videoplayer.js` or `condition-matrix.js`, and flag fragments that are unused or missing.
+- The browser runtime builds DOM with `document.createElement`/`replaceChildren`, never `innerHTML`.
+- `tokens.css` holds the palette + semantic tokens shared by both reports; `player.css` and `condition-matrix.css` are component layers that inline it. A component layer must contain no literal colors/fonts/radii and must never reference a raw `--color-*` palette token — tests enforce both, on both stylesheets. Skins (`cli/skins/*.css`) only redefine tokens under `:root[data-theme="<name>"]`; see `docs/skinning.md`.
+- Per-racer colors reach the page as an inline `--racer-color` custom property, never as a hard-coded `color:` declaration.
 - Unit tests live in `tests/` (`vitest.config.js` excludes `races/`, `my-races/`, `integration/`). Integration tests live in `integration/` (`vitest.integration.config.js`) and skip themselves when Chromium or ffprobe is unavailable.
 
 ## Guidelines

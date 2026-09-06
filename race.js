@@ -34,6 +34,7 @@ import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
 import { buildPlayerHtml } from './cli/videoplayer.js';
 import { buildRunNavHtml } from './cli/player-sections.js';
+import { listSkins } from './cli/skins.js';
 import { runGeminiSummary, runGeminiSpec } from './cli/gemini-summary.js';
 import { buildResultsPaths, createStaticHandler, serveResults } from './cli/serve.js';
 import { loadRaceDir, applySettingsOrExit } from './cli/race-loader.js';
@@ -235,8 +236,9 @@ function buildClipTimes(racerNames, getBrowserData, ffmpeg) {
  * @param {string[]} options.videoFiles
  * @param {object} options.playerExtras - additional fields merged into playerOptions (may include altFiles)
  * @param {object} options.raceOptions - { skipCopyFFmpeg, ffmpegPathPrefix }
+ * @param {string|null} options.raceDir - race directory, used to resolve a relative --skin path
  */
-function writePlayerAndAssets({ runDir, summary, settings, videoFiles, playerExtras, raceOptions }) {
+function writePlayerAndAssets({ runDir, summary, settings, videoFiles, playerExtras, raceOptions, raceDir = null }) {
   const { format, ffmpeg, noWasm } = settings;
   const altFormat = ffmpeg && format !== 'webm' ? format : null;
   // altFiles is passed as a separate arg to buildPlayerHtml, not via playerOptions
@@ -244,6 +246,8 @@ function writePlayerAndAssets({ runDir, summary, settings, videoFiles, playerExt
   const playerOptions = {
     ...restExtras,
     ffmpegPathPrefix: raceOptions.ffmpegPathPrefix || './',
+    skin: settings.skin,
+    skinBaseDir: raceDir,
   };
   fs.writeFileSync(
     path.join(runDir, 'index.html'),
@@ -501,6 +505,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
           altFiles,
         },
         raceOptions,
+        raceDir: ctx.raceDir,
       });
     }
 
@@ -739,7 +744,7 @@ ${c.bold}Run it:${c.reset}
 
 // applySettingsOrExit and loadRaceDir live in cli/race-loader.js; bind the
 // CLI flags and context builder here so call sites below stay unchanged.
-const applySettings = (base) => applySettingsOrExit(base, boolFlags, kvFlags);
+const applySettings = (base, raceDir) => applySettingsOrExit(base, boolFlags, kvFlags, raceDir);
 const loadRace = (dir) => loadRaceDir(dir, { boolFlags, kvFlags, rootDir: __dirname, buildContext: buildRaceContext });
 
 if (positional.length === 0) {
@@ -805,6 +810,7 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}4${c.reset}              CPU slowdown: 4x slower (1=none)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}1,4${c.reset}            Race each CPU slowdown separately
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--format${c.reset}=${c.green}mov${c.reset}          Output format: webm (default), mov, gif
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--skin${c.reset}=${c.green}light${c.reset}          Skin the results player: ${listSkins().join(', ')}, or a path to a .css file
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--runs${c.reset}=${c.green}3${c.reset}            Run multiple times, report median
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--pause${c.reset}              Pause between runs (press Enter to continue)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--slowmo${c.reset}=${c.green}2${c.reset}           Slow-motion side-by-side replay (2x, 3x, etc.)
@@ -889,7 +895,7 @@ if (urlMode) {
   raceDir = path.resolve('races', names.join('-vs-'));
   fs.mkdirSync(raceDir, { recursive: true }); // NOSONAR — directory from sanitized racer names
 
-  settings = applySettings({});
+  settings = applySettings({}, raceDir);
   racerNames = names;
   ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir });
 } else {
@@ -1086,6 +1092,7 @@ function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts
       runNavigation: runNav, clipTimes,
     },
     raceOptions: raceOpts,
+    raceDir: ctx.raceDir,
   });
 
   return { summary, clipTimes };
@@ -1247,7 +1254,10 @@ async function main() {
       if (!settings.noRecording) {
         fs.writeFileSync(
           path.join(baseResultsDir, 'index.html'),
-          buildConditionIndexHtml(racerNames.join(' vs '), conditionSummaries)
+          buildConditionIndexHtml(racerNames.join(' vs '), conditionSummaries, {
+            skin: settings.skin,
+            skinBaseDir: ctx.raceDir,
+          })
         );
       }
     }
@@ -1330,6 +1340,8 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
       medianRunLabel,
       clipTimes: medianClipTimes,
       runSummaries: summaries,
+      skin: settings.skin,
+      skinBaseDir: ctx.raceDir,
     };
     fs.writeFileSync(
       path.join(resultsDir, 'index.html'),

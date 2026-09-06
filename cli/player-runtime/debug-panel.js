@@ -137,7 +137,7 @@ function renderTimingEventsRow(i) {
   if (!ct || !v?.duration) {
     eventsEl.replaceChildren();
     const noData = document.createElement('span');
-    noData.style.color = '#777';
+    noData.className = 'debug-timing-empty';
     noData.textContent = 'No timing data';
     eventsEl.appendChild(noData);
     return;

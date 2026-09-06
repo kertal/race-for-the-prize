@@ -15,6 +15,7 @@
     "races/*/*.html",
     "races/*/settings.json",
     "ReadMe.md",
+    "docs/skinning.md",
     "INSTALLATION.md"
   ],
   "scripts": {

@@ -64,7 +64,7 @@ function buildSegmentNav() {
   const names = collectSegmentNames();
   if (names.length < 1) return;
   markSegmentNavBuilt();
-  segmentNav.innerHTML = '';
+  segmentNav.replaceChildren();
 
   // Build dropdown options
   const fullOpt = document.createElement('option');
@@ -100,7 +100,7 @@ function buildRacerFilter() {
   for (let i = 0; i < raceVideos.length; i++) {
     const btn = document.createElement('button');
     btn.className = 'racer-filter-btn active';
-    btn.style.color = racerColors[i];
+    btn.style.setProperty('--racer-color', racerColors[i]);
     btn.textContent = racerNames[i];
     btn.dataset.idx = i;
     filterEl.appendChild(btn);

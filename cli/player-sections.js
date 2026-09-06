@@ -6,6 +6,7 @@
  * videoplayer.js extracts them at load time and passes them via setTemplates().
  */
 
+import { escHtml, render } from './html-templates.js';
 import { PROFILE_METRICS, categoryDescriptions, determineProfileMetricOutcome } from './profile-analysis.js';
 import { formatPlatform } from './summary.js';
 import {
@@ -24,20 +25,15 @@ let T = {};
 /** Store build-time templates extracted from player.html. */
 export function setTemplates(templates) { T = templates; }
 
-/**
- * Replace {{key}} placeholders in a template string with data values.
- * IMPORTANT: This does NOT auto-escape values. Callers MUST use escHtml() on
- * any user-supplied strings before passing them as data values. Pre-built HTML
- * snippets (e.g. nested template output) should be passed without escaping.
- */
-export function render(tmpl, data) {
-  return tmpl.replace(/\{\{(\w+)\}\}/g, (_, key) => data[key] ?? '');
+/** Render one build-* fragment from player.html by name. */
+function fill(id, data = {}) {
+  if (!(id in T)) throw new Error(`No <template id="build-${id}"> in player.html`);
+  return render(T[id], data);
 }
 
-/** Escape a string for safe embedding in HTML text/attribute contexts. */
-export function escHtml(str) {
-  return String(str).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
-}
+// Both live in html-templates.js now; re-exported for the modules and tests
+// that have always imported them from here.
+export { escHtml, render };
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -66,26 +62,20 @@ function buildMetricRowsHtml(ranking, winner) {
   for (const entry of entries) {
     const color = RACER_CSS_COLORS[entry.index % RACER_CSS_COLORS.length];
     const barPct = entry.val !== null && maxValue > 0 ? Math.round((entry.val / maxValue) * 100) : 0;
-    const delta = entry.delta != null
-      ? `<span class="profile-delta">(+${entry.delta})</span>`
-      : '';
-    html += render(T['profile-row'], {
+    const delta = entry.delta != null ? fill('profile-delta', { delta: entry.delta }) : '';
+    html += fill('profile-row', {
       color,
       name: escHtml(entry.name),
       barPct,
       value: escHtml(entry.formatted) + delta,
-      medal: winner === entry.name ? '<span class="profile-medal">&#127942;</span>' : '',
+      medal: winner === entry.name ? fill('profile-medal') : '',
     });
   }
   return html;
 }
 
 function buildCollapsibleSectionMetricHtml(name, rows, open = false) {
-  const openAttr = open ? ' open' : '';
-  return `<details class="profile-metric section-metric"${openAttr}>
-  <summary><span class="profile-metric-name">${escHtml(name)}</span></summary>
-  <div class="section-metric-body">${rows}</div>
-</details>`;
+  return fill('section-metric', { openAttr: open ? ' open' : '', name: escHtml(name), rows });
 }
 
 function buildSectionMeasuredComparisons(rawProfileMetrics, racers) {
@@ -135,28 +125,31 @@ export function buildRunNavHtml(runNav, racers, runSummaries) {
     }
   }
 
-  let html = '<div class="run-nav">';
+  /** The current entry is inert text; every other entry links to its report. */
+  const navItem = (isCurrent, cls, style, href, label) =>
+    isCurrent
+      ? fill('run-nav-current', { cls, style, label })
+      : fill('run-nav-link', { cls, style, href, label });
+
   const isMedianCurrent = currentRun === 'median';
   const medianCls = isMedianCurrent ? 'run-nav-btn active' : 'run-nav-btn';
-  if (isMedianCurrent) {
-    html += `<span class="${medianCls}" aria-current="page">Median</span>`;
-  } else {
-    html += `<a class="${medianCls}" href="${escHtml(pathPrefix)}index.html">Median</a>`;
-  }
+  let items = navItem(isMedianCurrent, medianCls, '', `${escHtml(pathPrefix)}index.html`, 'Median');
+
   for (let i = 1; i <= totalRuns; i++) {
     const isCurrent = currentRun === i;
     const cls = isCurrent ? 'run-nav-btn active' : 'run-nav-btn';
     const color = winnerColors[i - 1];
-    const textColor = isCurrent ? '#1a1a1a' : '#fff';
-    const style = color ? ` style="border-color:${color};color:${textColor}"` : '';
-    if (isCurrent) {
-      html += `<span class="${cls}"${style} aria-current="page">Run ${i}</span>`;
-    } else {
-      html += `<a class="${cls}"${style} href="${escHtml(pathPrefix)}${i}/index.html">Run ${i}</a>`;
-    }
+    // The winner's colour rides in on --racer-color; .has-winner tells the
+    // stylesheet to use it for the border and brighten the label.
+    items += navItem(
+      isCurrent,
+      color ? `${cls} has-winner` : cls,
+      color ? ` style="--racer-color:${color}"` : '',
+      `${escHtml(pathPrefix)}${i}/index.html`,
+      `Run ${i}`
+    );
   }
-  html += '</div>';
-  return html;
+  return fill('run-nav', { items });
 }
 
 export function buildRaceInfoHtml(summary) {
@@ -176,7 +169,7 @@ export function buildRaceInfoHtml(summary) {
     if (settings.runs && settings.runs > 1) items.push(infoItem('Runs', settings.runs));
   }
   if (items.length === 0) return '';
-  return `<div class="race-info">${items.join('')}</div>`;
+  return fill('info-grid', { cls: 'race-info', items: items.join('') });
 }
 
 export function buildMachineInfoHtml(machineInfo) {
@@ -190,12 +183,13 @@ export function buildMachineInfoHtml(machineInfo) {
   if (machineInfo.nodeVersion) {
     items.push(infoItem('Node.js', escHtml(machineInfo.nodeVersion)));
   }
-  return `<div class="machine-info">${items.join('')}</div>`;
+  return fill('info-grid', { cls: 'machine-info', items: items.join('') });
 }
 
 export function buildErrorsHtml(errors) {
   if (!errors || errors.length === 0) return '';
-  return `<div class="errors"><ul>${errors.map(e => `<li>${escHtml(e)}</li>`).join('')}</ul></div>`;
+  const items = errors.map(e => fill('error-item', { message: escHtml(e) })).join('');
+  return fill('errors', { items });
 }
 
 export function buildResultsHtml(comparisons, racers) {
@@ -230,7 +224,9 @@ export function buildProfileSummaryHtml(profileComparison, racers) {
       .sort((a, b) => b.count - a.count)
       .map(({ name, i, count }) => {
         const color = RACER_CSS_COLORS[i % RACER_CSS_COLORS.length];
-        return `<div class="profile-row"><span class="profile-racer" style="color:${color}">${escHtml(name)}</span><span class="profile-value" style="margin-left:auto">${'&#127942;'.repeat(count)}</span></div>`;
+        return fill('profile-trophies', {
+          color, name: escHtml(name), trophies: '&#127942;'.repeat(count),
+        });
       }).join('');
   }
 
@@ -241,27 +237,24 @@ export function buildProfileSummaryHtml(profileComparison, racers) {
 
   if (!measuredRows && !totalRows && sectionComparisons.length === 0) return '';
 
-  let html = `<details class="section" open>
-  <summary><h2>Performance Results</h2></summary>
-  <div class="section-body">`;
+  let body = '';
 
   if (measuredRows) {
-    html += render(T['profile-metric'], { metricClass: 'profile-metric-total', titleAttr: '', name: 'Race', desc: '', rows: measuredRows });
+    body += fill('profile-metric', { metricClass: 'profile-metric-total', titleAttr: '', name: 'Race', desc: '', rows: measuredRows });
   }
   if (sectionComparisons.length > 0) {
     const openSectionRows = sectionComparisons.length === 1;
-    html += sectionComparisons.map(comp => buildCollapsibleSectionMetricHtml(
+    body += sectionComparisons.map(comp => buildCollapsibleSectionMetricHtml(
       formatSectionTitle(comp.name),
       buildMetricRowsHtml(rankComparisonDurations(comp, racers), comp.winner),
       openSectionRows
     )).join('\n');
   }
   if (totalRows) {
-    html += render(T['profile-metric'], { metricClass: '', titleAttr: '', name: 'Total Recording (Including Pre and Post race)', desc: '', rows: totalRows });
+    body += fill('profile-metric', { metricClass: '', titleAttr: '', name: 'Total Recording (Including Pre and Post race)', desc: '', rows: totalRows });
   }
 
-  html += `\n  </div>\n</details>`;
-  return html;
+  return fill('section', { openAttr: ' open', title: 'Performance Results', body: body + '\n  ' });
 }
 
 export function buildProfileHtml(profileComparison, racers) {
@@ -271,10 +264,7 @@ export function buildProfileHtml(profileComparison, racers) {
   const sectionMeasuredComparisons = buildSectionMeasuredComparisons(profileComparison.rawProfileMetrics || [], racers);
   if (measured.comparisons.length === 0 && total.comparisons.length === 0 && sectionMeasuredComparisons.length === 0) return '';
 
-  let html = `<details class="section">
-  <summary><h2>Performance Profile</h2></summary>
-  <div class="section-body">
-  <p class="profile-note">Lower values are better for all metrics. Hover over metric names for details.</p>\n`;
+  let body = '\n  ' + fill('profile-note');
 
   const scopes = [
     { title: 'Race', desc: 'Metrics captured only between raceStart() and raceEnd() calls \u2014 isolates the code being tested.', section: measured, collapsed: false },
@@ -284,40 +274,41 @@ export function buildProfileHtml(profileComparison, racers) {
     const showMeasuredSectionMetrics = scope.section === measured && sectionMeasuredComparisons.length > 1;
     if (scope.section.comparisons.length === 0 && !showMeasuredSectionMetrics) continue;
 
-    if (scope.collapsed) {
-      html += `<details class="profile-collapsible">\n<summary><h3 class="profile-collapsible-title">${escHtml(scope.title)}</h3></summary>\n`;
-    } else {
-      html += `<h3>${escHtml(scope.title)}</h3>\n`;
-    }
-    html += `<p class="profile-scope-desc">${escHtml(scope.desc)}</p>\n`;
+    body += scope.collapsed
+      ? fill('profile-collapsible', { title: escHtml(scope.title) })
+      : fill('profile-heading', { title: escHtml(scope.title) });
+    body += fill('profile-scope-desc', { desc: escHtml(scope.desc) });
     for (const [category, comps] of Object.entries(scope.section.byCategory)) {
       const catLabel = category[0].toUpperCase() + category.slice(1);
       const catDesc = categoryDescriptions[category] || '';
-      html += `<h4 ${catDesc ? `title="${escHtml(catDesc)}"` : ''}>${escHtml(catLabel)}</h4>\n`;
+      body += fill('profile-subheading', {
+        titleAttr: catDesc ? ` title="${escHtml(catDesc)}"` : '',
+        label: escHtml(catLabel),
+      });
       if (catDesc) {
-        html += `<p class="profile-category-desc">${escHtml(catDesc)}</p>\n`;
+        body += fill('profile-category-desc', { desc: escHtml(catDesc) });
       }
       for (const comp of comps) {
         const metricDef = PROFILE_METRICS[comp.key];
         const ranking = rankEntries(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }), metricDef.format);
         const desc = metricDef.description || '';
-        html += render(T['profile-metric'], {
+        body += fill('profile-metric', {
           metricClass: '',
           titleAttr: desc ? `title="${escHtml(desc)}"` : '',
-          name: escHtml(comp.name) + (desc ? ' <span class="profile-info-icon">&#9432;</span>' : ''),
-          desc: desc ? `<div class="profile-metric-desc">${escHtml(desc)}</div>` : '',
+          name: escHtml(comp.name) + (desc ? fill('profile-info-icon') : ''),
+          desc: desc ? fill('profile-metric-desc', { desc: escHtml(desc) }) : '',
           rows: buildMetricRowsHtml(ranking, comp.winner),
         }) + '\n';
       }
     }
     if (showMeasuredSectionMetrics) {
-      html += `<h4>Per-Section Profile Metrics</h4>\n`;
+      body += fill('profile-subheading', { titleAttr: '', label: 'Per-Section Profile Metrics' });
       for (const section of sectionMeasuredComparisons) {
         let sectionMetricsRows = '';
         for (const comp of section.comparisons) {
           const metricDef = PROFILE_METRICS[comp.key];
           const ranking = rankEntries(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }), metricDef.format);
-          sectionMetricsRows += render(T['profile-metric'], {
+          sectionMetricsRows += fill('profile-metric', {
             metricClass: '',
             titleAttr: '',
             name: escHtml(comp.name),
@@ -325,36 +316,39 @@ export function buildProfileHtml(profileComparison, racers) {
             rows: buildMetricRowsHtml(ranking, comp.winner),
           }) + '\n';
         }
-        html += buildCollapsibleSectionMetricHtml(formatSectionTitle(section.name), sectionMetricsRows, false) + '\n';
+        body += buildCollapsibleSectionMetricHtml(formatSectionTitle(section.name), sectionMetricsRows, false) + '\n';
       }
     }
     if (scope.section.overallWinner === 'tie') {
-      html += `<div class="profile-winner">&#129309; Tie!</div>`;
+      body += fill('profile-winner-tie');
     } else if (scope.section.overallWinner) {
       const idx = racers.indexOf(scope.section.overallWinner);
-      html += `<div class="profile-winner">&#127942; <span style="color: ${RACER_CSS_COLORS[idx % RACER_CSS_COLORS.length]}">${escHtml(scope.section.overallWinner)}</span> wins!</div>`;
+      body += fill('profile-winner', {
+        color: RACER_CSS_COLORS[idx % RACER_CSS_COLORS.length],
+        name: escHtml(scope.section.overallWinner),
+      });
     }
     if (scope.collapsed) {
-      html += `</details>\n`;
+      body += `</details>\n`;
     }
   }
 
-  html += `</div>\n</details>`;
-  return html;
+  return fill('section', { openAttr: '', title: 'Performance Profile', body: body + '\n' });
 }
 
 /** Render a report-model cell as an HTML <td>: trophy for winner, delta for losers. */
 function renderHtmlCell(cell, bold) {
-  if (cell.value == null) return bold ? '<td><strong>-</strong></td>' : '<td>-</td>';
+  const template = bold ? 'comparison-cell-bold' : 'comparison-cell';
+  if (cell.value == null) return fill(template, { content: '-' });
   let content;
   if (cell.isWinner) {
     content = `${escHtml(cell.formatted)} (\uD83C\uDFC6)`;
   } else if (cell.delta != null) {
-    content = `${escHtml(cell.formatted)} <span style="opacity:0.5">(${escHtml(`+${cell.delta}`)})</span>`;
+    content = escHtml(cell.formatted) + fill('run-delta', { delta: escHtml(cell.delta) });
   } else {
     content = escHtml(cell.formatted);
   }
-  return bold ? `<td><strong>${content}</strong></td>` : `<td>${content}</td>`;
+  return fill(template, { content });
 }
 
 export function buildRunComparisonHtml(summaries, medianSummary, racers) {
@@ -362,53 +356,49 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
   const model = buildRunComparisonModel(summaries, medianSummary, racers, PROFILE_METRICS);
   if (model.isEmpty) return '';
 
-  const racerColors = racers.map((_, i) => RACER_CSS_COLORS[i % RACER_CSS_COLORS.length]);
-  const coloredHeader = racers.map((r, i) => `<th style="color:${racerColors[i]}">${escHtml(r)}</th>`).join('');
+  const header = racers.map((r, i) => fill('comparison-header-cell', {
+    color: RACER_CSS_COLORS[i % RACER_CSS_COLORS.length],
+    name: escHtml(r),
+  })).join('');
+
+  /** A median/average row: the same shape as a run row, but emphasised. */
+  const summaryRow = (label, row) => row
+    ? fill('comparison-summary-row', {
+        label,
+        cells: row.cells.map(cell => renderHtmlCell(cell, true)).join(''),
+      })
+    : '';
 
   /** Render one table (run rows + median/average rows) from a model entry. */
-  const buildTable = ({ runRows, medianRow, averageRow }) => {
-    let table = `<table class="run-comparison-table"><thead><tr><th>Run</th>`;
-    table += coloredHeader;
-    table += `</tr></thead><tbody>`;
-    for (const row of runRows) {
-      table += `<tr><td>${row.label}</td>`;
-      for (const cell of row.cells) table += renderHtmlCell(cell, false);
-      table += `</tr>`;
-    }
-    if (medianRow) {
-      table += `<tr class="run-comparison-median"><td><strong>Median</strong></td>`;
-      for (const cell of medianRow.cells) table += renderHtmlCell(cell, true);
-      table += `</tr>`;
-    }
-    if (averageRow) {
-      table += `<tr class="run-comparison-median"><td><strong>Average</strong></td>`;
-      for (const cell of averageRow.cells) table += renderHtmlCell(cell, true);
-      table += `</tr>`;
-    }
-    table += `</tbody></table>`;
-    return table;
-  };
+  const buildTable = ({ runRows, medianRow, averageRow }) => fill('comparison-table', {
+    header,
+    rows: runRows.map(row => fill('comparison-row', {
+      label: row.label,
+      cells: row.cells.map(cell => renderHtmlCell(cell, false)).join(''),
+    })).join('')
+      + summaryRow('Median', medianRow)
+      + summaryRow('Average', averageRow),
+  });
 
-  let html = `<details class="section">\n  <summary><h2>Run-by-Run Comparison</h2></summary>\n  <div class="section-body">`;
+  let body = '';
 
   // --- Measurement comparisons ---
   for (const measurement of model.measurements) {
-    html += `<h3>${escHtml(formatSectionTitle(measurement.name))}</h3>\n`;
-    html += buildTable(measurement);
+    body += fill('profile-heading', { title: escHtml(formatSectionTitle(measurement.name)) });
+    body += buildTable(measurement);
   }
 
   // --- Performance metrics comparisons ---
   for (const scope of model.profileScopes) {
-    html += `<h3>Performance: ${escHtml(scope.title)}</h3>\n`;
+    body += fill('profile-heading', { title: `Performance: ${escHtml(scope.title)}` });
 
     for (const metric of scope.metrics) {
-      html += `<h4>${escHtml(metric.name)}</h4>\n`;
-      html += buildTable(metric);
+      body += fill('profile-subheading', { titleAttr: '', label: escHtml(metric.name) });
+      body += buildTable(metric);
     }
   }
 
-  html += `\n  </div>\n</details>`;
-  return html;
+  return fill('section', { openAttr: '', title: 'Run-by-Run Comparison', body: body + '\n  ' });
 }
 
 export function buildFilesHtml(racers, videoFiles, options) {
@@ -453,14 +443,11 @@ export function buildFilesHtml(racers, videoFiles, options) {
 
   if (links.length === 0) return '';
 
-  return `<details class="section">
-  <summary><h2>Files</h2></summary>
-  <div class="section-body">
-    <div class="file-links">
-      ${links.join('\n      ')}
-    </div>
-  </div>
-</details>`;
+  return fill('section', {
+    openAttr: '',
+    title: 'Files',
+    body: '\n' + fill('file-links', { links: links.join('\n      ') }) + '\n  ',
+  });
 }
 
 export function buildDebugPanelHtml(racers, placementOrder, clipTimes) {
