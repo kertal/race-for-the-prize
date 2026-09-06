@@ -1,8 +1,8 @@
 /**
- * Skin resolution for the results player.
+ * Skin resolution for the generated reports.
  *
- * A skin is a plain CSS file that redefines the design tokens declared at the
- * top of cli/player.css. It is inlined after the base stylesheet, so it needs
+ * A skin is a plain CSS file that redefines the design tokens declared in
+ * cli/tokens.css. It is inlined after the stylesheets it overrides, so it needs
  * nothing but token overrides — no component rules, no build step.
  *
  * A skin can be:
@@ -10,8 +10,9 @@
  *   - a path to a .css file  e.g. "./team.css" (relative to the race directory,
  *                            then to the current working directory)
  *
- * Skins are scoped by `:root[data-theme="<name>"]`; buildPlayerHtml stamps that
- * name onto <html> so several skins can coexist in one document.
+ * Skins are scoped by `:root[data-theme="<name>"]`; buildPlayerHtml and
+ * buildConditionIndexHtml stamp that name onto <html> so several skins can
+ * coexist in one document, and one skin themes the whole report set.
  */
 
 import fs from 'fs';

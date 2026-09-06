@@ -10,7 +10,7 @@ ahead of that page's component rules:
 |---|---|
 | [`cli/tokens.css`](../cli/tokens.css) | Layers 1–2: the palette and semantic roles. Both pages inline it, so they cannot drift apart. |
 | [`cli/player.css`](../cli/player.css) | Layer 3 for the results player. |
-| `INDEX_CSS` in [`cli/condition-matrix.js`](../cli/condition-matrix.js) | Layer 3 for the condition overview. |
+| [`cli/condition-matrix.css`](../cli/condition-matrix.css) | Layer 3 for the condition overview (its markup lives in [`cli/condition-matrix.html`](../cli/condition-matrix.html)). |
 
 Together they form three layers, so a report can be re-themed without touching a
 single component rule:

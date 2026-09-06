@@ -137,6 +137,41 @@ describe('markup stays out of the JavaScript', () => {
     }
   });
 
+  // Three doc lines still named an INDEX_CSS constant after the stylesheet it
+  // held moved into a .css file. These two guards make that drift fail the
+  // build rather than mislead the next reader.
+  const DOC_SOURCES = ['CLAUDE.md', 'ReadMe.md', 'docs/skinning.md', 'cli/skins.js', 'cli/html-templates.js'];
+  const REPO_ROOT = path.join(CLI_DIR, '..');
+  const docText = (rel) => fs.readFileSync(path.join(REPO_ROOT, rel), 'utf-8');
+
+  it('the docs point at files that exist', () => {
+    const broken = [];
+    for (const rel of DOC_SOURCES) {
+      for (const [, ref] of docText(rel).matchAll(/\b(cli\/[\w-]+\.(?:js|css|html|cjs))/g)) {
+        if (!fs.existsSync(path.join(REPO_ROOT, ref))) broken.push(`${rel} -> ${ref}`);
+      }
+    }
+    expect(broken).toEqual([]);
+  });
+
+  it('the docs name no constant that its file no longer defines', () => {
+    const stale = [];
+    for (const rel of DOC_SOURCES) {
+      for (const line of docText(rel).split('\n')) {
+        const idents = [...line.matchAll(/`([A-Z][A-Z0-9_]{2,})`/g)].map(m => m[1]);
+        const files = [...line.matchAll(/\b(cli\/[\w-]+\.(?:js|css|html|cjs))/g)].map(m => m[1]);
+        if (idents.length === 0 || files.length === 0) continue;
+        const bodies = files
+          .filter(f => fs.existsSync(path.join(REPO_ROOT, f)))
+          .map(f => fs.readFileSync(path.join(REPO_ROOT, f), 'utf-8'));
+        for (const ident of idents) {
+          if (!bodies.some(body => body.includes(ident))) stale.push(`${rel}: ${ident} not in ${files.join(', ')}`);
+        }
+      }
+    }
+    expect(stale).toEqual([]);
+  });
+
   it('every fragment a generator asks for exists in its markup file', () => {
     const pages = { 'player.html': ['player-sections.js', 'videoplayer.js'], 'condition-matrix.html': ['condition-matrix.js'] };
     for (const [page, users] of Object.entries(pages)) {
