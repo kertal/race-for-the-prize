@@ -1,0 +1,92 @@
+/* ===========================================================================
+   RaceForThePrize — condition overview components
+   ---------------------------------------------------------------------------
+   Layer 3 for the cross-condition performance matrix. The palette and semantic
+   roles live in tokens.css, which is inlined ahead of this file — the same
+   tokens the results player uses, so the overview and the races it links to are
+   one report rather than two tools, and a single skin themes both.
+
+   Nothing below may hold a literal colour, font, radius or duration, or reach
+   past the semantic roles into the raw palette. Tests enforce both.
+   =========================================================================== */
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-ui); }
+.checkered-bar { height: var(--checker-size);
+                 background: repeating-conic-gradient(var(--checker-color-a) 0% 25%, var(--checker-color-b) 0% 50%)
+                             0 0 / var(--checker-size) var(--checker-size); }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 2rem var(--gutter) 3rem; }
+h1 { font-family: var(--font-display); font-size: var(--font-size-4xl); color: var(--accent);
+     text-align: center; text-transform: uppercase; letter-spacing: var(--tracking-widest); margin: 0 0 0.5rem; }
+p.sub { text-align: center; color: var(--text-dim); font-size: var(--font-size-base); margin: 0 0 1.8rem; }
+
+p.pick { display: flex; align-items: center; justify-content: center; gap: 0.6rem; margin: 0 0 0.6rem; }
+p.pick label { color: var(--text-dim); font-size: var(--font-size-sm); text-transform: uppercase;
+               letter-spacing: var(--tracking-wide); }
+select { appearance: none; -webkit-appearance: none; font: inherit; font-size: var(--font-size-base); font-weight: bold;
+         background: var(--surface) var(--select-arrow) no-repeat right 0.6rem center;
+         color: var(--accent); border: var(--border-width) solid var(--border-strong); border-radius: var(--radius);
+         padding: 0.35rem 1.8rem 0.35rem 0.7rem; cursor: pointer;
+         transition: border-color var(--duration), background-color var(--duration); }
+select:hover { border-color: var(--accent); background-color: var(--surface-raised); }
+select:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+p.desc { text-align: center; color: var(--text-faint); font-size: var(--font-size-base); line-height: var(--leading-loose);
+         margin: 0 auto 2rem; max-width: 68ch; min-height: 1.2em; }
+
+.scroll { overflow-x: auto; }
+/* Cards keep a fixed, readable width instead of stretching with the viewport;
+   a wide field overflows into .scroll rather than smearing the bars out. */
+table { border-collapse: separate; border-spacing: 0.5rem; margin: 0 auto; }
+th[scope="col"] { text-align: left; font-size: var(--font-size-xs); font-weight: normal; color: var(--text-subtle);
+                  text-transform: uppercase; letter-spacing: var(--tracking-widest); padding: 0 0.7rem 0.3rem; }
+th[scope="row"] { text-align: right; vertical-align: middle; white-space: nowrap;
+                  color: var(--accent); font-size: var(--font-size-base); letter-spacing: var(--tracking);
+                  text-transform: uppercase; padding-right: 0.6rem; }
+td { vertical-align: top; padding: 0; }
+td.empty { color: var(--text-ghost); text-align: center; font-size: var(--font-size-md); }
+td a { display: block; width: 380px; max-width: 100%; padding: 0.7rem 0.85rem; background: var(--surface);
+       border: var(--border-width) solid var(--border-subtle); border-radius: var(--radius-md);
+       color: inherit; text-decoration: none;
+       transition: background var(--duration), border-color var(--duration), transform var(--duration); }
+td a:hover { background: var(--surface-raised); border-color: var(--accent); transform: translateY(-1px); }
+td a:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+
+.m { display: block; }
+.m[hidden] { display: none; }
+/* The winner's racer colour arrives inline as --racer-color, the same
+   property the player uses; a cell with no winner falls back to the accent. */
+.verdict { display: block; font-size: var(--font-size-md); font-weight: bold; letter-spacing: var(--tracking-tight);
+           color: var(--racer-color, var(--accent));
+           margin-bottom: 0.5rem; padding-bottom: 0.45rem; border-bottom: var(--border-width) solid var(--border-subtle);
+           overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.verdict.tie { color: var(--text-dim); }
+.verdict.none { color: var(--text-ghost); }
+/* Fixed side columns, not auto: sized to content, every row is its own grid
+   and the bars start and end wherever that row's name and time happen to
+   end, so nothing lines up between rows or between cards. Monospace makes ch
+   exact, and a name past the budget ellipsizes rather than shoving the bar. */
+.r { display: grid; grid-template-columns: 15ch 1fr 9ch 10ch; align-items: center;
+     gap: 0.5rem; font-size: var(--font-size-xs); color: var(--text-subtle); padding: 0.12rem 0; }
+.n { color: var(--racer-color, currentcolor); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.r.win { color: var(--text); }
+.r.win .n { font-weight: bold; }
+/* Every racer keeps its own color; the winner's bar is the one at full strength. */
+.bar { height: 5px; border-radius: var(--radius-sm); background: var(--bg);
+       box-shadow: inset 0 0 0 var(--border-width) var(--border-subtle); overflow: hidden; }
+.bar i { display: block; height: 100%; border-radius: var(--radius-sm); background: var(--racer-color, var(--accent)); opacity: 0.5; }
+.r.win .bar i { opacity: 1; }
+.t { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right;
+     overflow: hidden; text-overflow: ellipsis; }
+.d { color: var(--text-ghost); font-variant-numeric: tabular-nums; white-space: nowrap;
+     text-align: right; overflow: hidden; text-overflow: ellipsis; }
+p.tally { text-align: center; color: var(--text-subtle); font-size: var(--font-size-base); margin: 2rem 0 0; }
+
+@media (max-width: 600px) {
+  .wrap { padding: 1.5rem 1rem 2rem; }
+  h1 { font-size: var(--font-size-3xl); }
+  td a { width: 250px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  td a { transition: none; }
+  td a:hover { transform: none; }
+}

@@ -159,9 +159,7 @@ function convertWithFFmpeg(blob, format, ui, downloadName, clipRange) {
       closeBtn.textContent = 'Close';
       closeBtn.addEventListener('click', () => { revokeOutUrl(); overlay.remove(); });
 
-      actionsEl.innerHTML = '';
-      actionsEl.appendChild(dlLink);
-      actionsEl.appendChild(closeBtn);
+      actionsEl.replaceChildren(dlLink, closeBtn);
 
       ff.deleteFile(inFile).catch(e => { console.warn('ffmpeg cleanup:', e.message); });
       ff.deleteFile(outFile).catch(e => { console.warn('ffmpeg cleanup:', e.message); });

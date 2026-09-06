@@ -161,8 +161,7 @@ describe('design tokens', () => {
   const componentCss = fs.readFileSync(path.join(cliDir, 'player.css'), 'utf-8');
   // Every stylesheet that consumes the tokens, so the rules below hold for the
   // whole report set rather than just the player.
-  const matrixCss = fs.readFileSync(path.join(cliDir, 'condition-matrix.js'), 'utf-8')
-    .match(/const INDEX_CSS = `([\s\S]*?)`;/)[1];
+  const matrixCss = fs.readFileSync(path.join(cliDir, 'condition-matrix.css'), 'utf-8');
   const css = rootBlock + componentCss + matrixCss;
 
   it('declares the semantic roles skins are expected to override', () => {
@@ -171,7 +170,7 @@ describe('design tokens', () => {
     }
   });
 
-  it.each([['player.css', () => componentCss], ['condition-matrix INDEX_CSS', () => matrixCss]])(
+  it.each([['player.css', () => componentCss], ['condition-matrix.css', () => matrixCss]])(
     'keeps literal colours out of %s',
     (_name, get) => {
       const literals = get()
@@ -181,7 +180,7 @@ describe('design tokens', () => {
     }
   );
 
-  it.each([['player.css', () => componentCss], ['condition-matrix INDEX_CSS', () => matrixCss]])(
+  it.each([['player.css', () => componentCss], ['condition-matrix.css', () => matrixCss]])(
     'keeps raw palette tokens out of %s',
     (_name, get) => {
       // Components must read semantic roles (--text-muted), never the palette

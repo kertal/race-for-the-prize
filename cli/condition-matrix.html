@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en"{{themeAttr}}>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="{{themeColor}}">
+<title>{{title}} — Race Conditions</title>
+{{styles}}
+{{skinStyles}}
+</head>
+<body>
+<div class="checkered-bar"></div>
+<div class="wrap">
+  <h1>{{title}}</h1>
+  <p class="sub">One race per throttling condition — pick a cell to view its results.</p>
+  <p class="pick"><label for="metric">Compare</label> <select id="metric">{{pickerGroups}}</select></p>
+  <p class="desc">{{descriptions}}</p>
+  <div class="scroll">
+    <table>
+      <tr><th scope="col">{{rowHeader}}</th>{{headerCells}}</tr>
+{{bodyRows}}
+    </table>
+  </div>
+  <p class="tally">{{tallies}}</p>
+</div>
+<template id="build-header-cell"><th scope="col">{{label}}</th></template>
+
+<template id="build-row">
+      <tr>
+        <th scope="row">{{header}}</th>
+{{cells}}
+      </tr></template>
+
+<template id="build-cell">        <td><a href="{{href}}" aria-label="{{title}} — view results">{{blocks}}</a></td></template>
+
+<template id="build-cell-empty">        <td class="empty">{{noData}}</td></template>
+
+<!-- One block per metric; exactly one is visible and the picker flips `hidden`
+     between them, so the page still works with JavaScript disabled. -->
+<template id="build-metric-block"><span class="m" data-metric="{{key}}"{{hidden}}>{{content}}</span></template>
+
+<template id="build-series"><span class="verdict{{verdictClass}}"{{tint}}>{{verdict}}</span><span class="times">{{rows}}</span></template>
+
+<template id="build-series-row"><span class="r{{winClass}}" style="--racer-color:{{color}}"><span class="n">{{name}}</span><span class="bar"><i style="width:{{width}}%"></i></span><span class="t">{{value}}</span><span class="d">{{delta}}</span></span></template>
+
+<template id="build-picker-group"><optgroup label="{{label}}">{{options}}</optgroup></template>
+
+<template id="build-picker-option"><option value="{{key}}">{{name}}</option></template>
+
+<template id="build-script">
+<script>
+  // Every metric is already rendered; switching just flips which one shows.
+  var picker = document.getElementById('metric');
+  function showSelectedMetric() {
+    var blocks = document.querySelectorAll('.m[data-metric]');
+    for (var i = 0; i < blocks.length; i++) {
+      blocks[i].hidden = blocks[i].getAttribute('data-metric') !== picker.value;
+    }
+  }
+  picker.addEventListener('change', showSelectedMetric);
+  // Browsers restore the previous selection on reload, so sync once at startup
+  // rather than trusting the server-rendered default to still match.
+  showSelectedMetric();
+</script></template>
+
+{{scriptTag}}
+</body>
+</html>

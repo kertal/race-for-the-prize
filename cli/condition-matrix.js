@@ -25,6 +25,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { c, RACER_COLORS } from './colors.js';
+import { loadTemplates, escHtml, render } from './html-templates.js';
 import { sortComparisonsForDisplay, rankEntries, formatDuration } from './report-model.js';
 import { PROFILE_METRICS, determineProfileMetricOutcome } from './profile-analysis.js';
 import { RACER_CSS_COLORS } from './player-sections.js';
@@ -32,8 +33,12 @@ import { resolveSkin, DEFAULT_THEME_COLOR } from './skins.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** The palette both reports share; inlined ahead of this page's components. */
-const TOKENS = fs.readFileSync(path.join(__dirname, 'tokens.css'), 'utf-8');
+// Markup lives in condition-matrix.html (page shell + build-* fragments) and
+// styling in condition-matrix.css, both loaded once at import.
+const { shell: SHELL, fill } = loadTemplates(path.join(__dirname, 'condition-matrix.html'));
+/** Shared palette first, then this page's own component rules. */
+const CSS = fs.readFileSync(path.join(__dirname, 'tokens.css'), 'utf-8') + '\n'
+  + fs.readFileSync(path.join(__dirname, 'condition-matrix.css'), 'utf-8');
 
 const WIN_MEDAL = '🏆';
 const TIE_MEDAL = '🤝';
@@ -356,22 +361,21 @@ function printStacked(matrix, grid, write) {
 // HTML rendering
 // ---------------------------------------------------------------------------
 
-const esc = s => String(s)
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
-
 /** Racer colors match the per-condition player, so a cell reads the same after the click-through. */
 const racerColor = index => RACER_CSS_COLORS[index % RACER_CSS_COLORS.length];
 
 /** Verdict badge for one metric in one cell: winner, tie, or a placeholder. */
-function verdictHtml(series) {
+function verdictSlots(series) {
   if (series.winner) {
     const winner = series.racers.find(racer => racer.isWinner);
-    const tint = winner ? ` style="--racer-color:${racerColor(winner.index)}"` : '';
-    return `<span class="verdict"${tint}>${WIN_MEDAL} ${esc(series.winner)}</span>`;
+    return {
+      verdictClass: '',
+      tint: winner ? ` style="--racer-color:${racerColor(winner.index)}"` : '',
+      verdict: `${WIN_MEDAL} ${escHtml(series.winner)}`,
+    };
   }
-  if (series.isTie) return `<span class="verdict tie">${TIE_MEDAL} Tie</span>`;
-  return `<span class="verdict none">${NO_DATA}</span>`;
+  if (series.isTie) return { verdictClass: ' tie', tint: '', verdict: `${TIE_MEDAL} Tie` };
+  return { verdictClass: ' none', tint: '', verdict: NO_DATA };
 }
 
 /**
@@ -381,132 +385,49 @@ function verdictHtml(series) {
  * the page working with JavaScript disabled.
  */
 function metricBlocks(metrics, renderOne) {
-  return metrics.map((metric, i) =>
-    `<span class="m" data-metric="${esc(metric.key)}"${i === 0 ? '' : ' hidden'}>${renderOne(metric)}</span>`
-  ).join('');
+  return metrics.map((metric, i) => fill('metric-block', {
+    key: escHtml(metric.key),
+    hidden: i === 0 ? '' : ' hidden',
+    content: renderOne(metric),
+  })).join('');
 }
 
 function seriesHtml(series, max) {
   const rows = series.racers.map(racer => {
     const width = max > 0 && racer.value != null ? (racer.value / max) * 100 : 0;
-    // Value and delta are separate columns, and the delta stays in the markup
-    // even when empty (the winner has none) so the values below it still line up.
-    const delta = racer.delta != null ? `+${esc(racer.delta)}` : '';
-    return `<span class="r${racer.isWinner ? ' win' : ''}" style="--racer-color:${racerColor(racer.index)}">` +
-      `<span class="n">${esc(racer.name)}</span>` +
-      `<span class="bar"><i style="width:${width.toFixed(1)}%"></i></span>` +
-      `<span class="t">${esc(racer.formatted || '-')}</span>` +
-      `<span class="d">${delta}</span></span>`;
+    return fill('series-row', {
+      winClass: racer.isWinner ? ' win' : '',
+      color: racerColor(racer.index),
+      name: escHtml(racer.name),
+      width: width.toFixed(1),
+      value: escHtml(racer.formatted || '-'),
+      // The delta column stays in the markup even when empty (the winner has
+      // none) so the values below it still line up.
+      delta: racer.delta != null ? `+${escHtml(racer.delta)}` : '',
+    });
   }).join('');
-  return `${verdictHtml(series)}<span class="times">${rows}</span>`;
+  return fill('series', { ...verdictSlots(series), rows });
 }
 
 function cellHtml(cell, matrix) {
-  if (!cell) return `        <td class="empty">${NO_DATA}</td>`;
-  const blocks = metricBlocks(matrix.metrics, metric =>
-    seriesHtml(cell.metrics[metric.key], matrix.aggregates[metric.key].max));
-  return `        <td><a href="${encodeURIComponent(cell.label)}/index.html" ` +
-    `aria-label="${esc(cell.title)} — view results">${blocks}</a></td>`;
+  if (!cell) return fill('cell-empty', { noData: NO_DATA });
+  return fill('cell', {
+    href: `${encodeURIComponent(cell.label)}/index.html`,
+    title: escHtml(cell.title),
+    blocks: metricBlocks(matrix.metrics, metric =>
+      seriesHtml(cell.metrics[metric.key], matrix.aggregates[metric.key].max)),
+  });
 }
 
 /** The metric picker: total time first, then the captured profile metrics by scope. */
-function pickerHtml(metrics) {
-  const scopes = uniqueInOrder(metrics.map(metric => metric.scope));
-  const groups = scopes.map(scope => {
-    const options = metrics.filter(metric => metric.scope === scope).map(metric =>
-      `<option value="${esc(metric.key)}">${esc(metric.name)}</option>`).join('');
-    return `<optgroup label="${esc(SCOPE_LABELS[scope] || scope)}">${options}</optgroup>`;
-  }).join('');
-  return `  <p class="pick"><label for="metric">Compare</label> <select id="metric">${groups}</select></p>`;
+function pickerGroupsHtml(metrics) {
+  return uniqueInOrder(metrics.map(metric => metric.scope)).map(scope => fill('picker-group', {
+    label: escHtml(SCOPE_LABELS[scope] || scope),
+    options: metrics.filter(metric => metric.scope === scope)
+      .map(metric => fill('picker-option', { key: escHtml(metric.key), name: escHtml(metric.name) }))
+      .join(''),
+  })).join('');
 }
-
-/**
- * The page's component rules. The palette lives in the shared tokens.css that
- * is inlined ahead of this block, so the overview and the per-condition players
- * it links to are one report rather than two tools — and a single `--skin`
- * themes both. Nothing here may hold a literal colour, font, radius or
- * duration; a test enforces that.
- */
-const INDEX_CSS = `  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-ui); }
-  .checkered-bar { height: var(--checker-size);
-                   background: repeating-conic-gradient(var(--checker-color-a) 0% 25%, var(--checker-color-b) 0% 50%)
-                               0 0 / var(--checker-size) var(--checker-size); }
-  .wrap { max-width: 1200px; margin: 0 auto; padding: 2rem var(--gutter) 3rem; }
-  h1 { font-family: var(--font-display); font-size: var(--font-size-4xl); color: var(--accent);
-       text-align: center; text-transform: uppercase; letter-spacing: var(--tracking-widest); margin: 0 0 0.5rem; }
-  p.sub { text-align: center; color: var(--text-dim); font-size: var(--font-size-base); margin: 0 0 1.8rem; }
-
-  p.pick { display: flex; align-items: center; justify-content: center; gap: 0.6rem; margin: 0 0 0.6rem; }
-  p.pick label { color: var(--text-dim); font-size: var(--font-size-sm); text-transform: uppercase;
-                 letter-spacing: var(--tracking-wide); }
-  select { appearance: none; -webkit-appearance: none; font: inherit; font-size: var(--font-size-base); font-weight: bold;
-           background: var(--surface) var(--select-arrow) no-repeat right 0.6rem center;
-           color: var(--accent); border: var(--border-width) solid var(--border-strong); border-radius: var(--radius);
-           padding: 0.35rem 1.8rem 0.35rem 0.7rem; cursor: pointer;
-           transition: border-color var(--duration), background-color var(--duration); }
-  select:hover { border-color: var(--accent); background-color: var(--surface-raised); }
-  select:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
-  p.desc { text-align: center; color: var(--text-faint); font-size: var(--font-size-base); line-height: var(--leading-loose);
-           margin: 0 auto 2rem; max-width: 68ch; min-height: 1.2em; }
-
-  .scroll { overflow-x: auto; }
-  /* Cards keep a fixed, readable width instead of stretching with the viewport;
-     a wide field overflows into .scroll rather than smearing the bars out. */
-  table { border-collapse: separate; border-spacing: 0.5rem; margin: 0 auto; }
-  th[scope="col"] { text-align: left; font-size: var(--font-size-xs); font-weight: normal; color: var(--text-subtle);
-                    text-transform: uppercase; letter-spacing: var(--tracking-widest); padding: 0 0.7rem 0.3rem; }
-  th[scope="row"] { text-align: right; vertical-align: middle; white-space: nowrap;
-                    color: var(--accent); font-size: var(--font-size-base); letter-spacing: var(--tracking);
-                    text-transform: uppercase; padding-right: 0.6rem; }
-  td { vertical-align: top; padding: 0; }
-  td.empty { color: var(--text-ghost); text-align: center; font-size: var(--font-size-md); }
-  td a { display: block; width: 380px; max-width: 100%; padding: 0.7rem 0.85rem; background: var(--surface);
-         border: var(--border-width) solid var(--border-subtle); border-radius: var(--radius-md);
-         color: inherit; text-decoration: none;
-         transition: background var(--duration), border-color var(--duration), transform var(--duration); }
-  td a:hover { background: var(--surface-raised); border-color: var(--accent); transform: translateY(-1px); }
-  td a:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
-
-  .m { display: block; }
-  .m[hidden] { display: none; }
-  /* The winner's racer colour arrives inline as --racer-color, the same
-     property the player uses; a cell with no winner falls back to the accent. */
-  .verdict { display: block; font-size: var(--font-size-md); font-weight: bold; letter-spacing: var(--tracking-tight);
-             color: var(--racer-color, var(--accent));
-             margin-bottom: 0.5rem; padding-bottom: 0.45rem; border-bottom: var(--border-width) solid var(--border-subtle);
-             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .verdict.tie { color: var(--text-dim); }
-  .verdict.none { color: var(--text-ghost); }
-  /* Fixed side columns, not auto: sized to content, every row is its own grid
-     and the bars start and end wherever that row's name and time happen to
-     end, so nothing lines up between rows or between cards. Monospace makes ch
-     exact, and a name past the budget ellipsizes rather than shoving the bar. */
-  .r { display: grid; grid-template-columns: 15ch 1fr 9ch 10ch; align-items: center;
-       gap: 0.5rem; font-size: var(--font-size-xs); color: var(--text-subtle); padding: 0.12rem 0; }
-  .n { color: var(--racer-color, currentcolor); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .r.win { color: var(--text); }
-  .r.win .n { font-weight: bold; }
-  /* Every racer keeps its own color; the winner's bar is the one at full strength. */
-  .bar { height: 5px; border-radius: var(--radius-sm); background: var(--bg);
-         box-shadow: inset 0 0 0 var(--border-width) var(--border-subtle); overflow: hidden; }
-  .bar i { display: block; height: 100%; border-radius: var(--radius-sm); background: var(--racer-color, var(--accent)); opacity: 0.5; }
-  .r.win .bar i { opacity: 1; }
-  .t { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right;
-       overflow: hidden; text-overflow: ellipsis; }
-  .d { color: var(--text-ghost); font-variant-numeric: tabular-nums; white-space: nowrap;
-       text-align: right; overflow: hidden; text-overflow: ellipsis; }
-  p.tally { text-align: center; color: var(--text-subtle); font-size: var(--font-size-base); margin: 2rem 0 0; }
-
-  @media (max-width: 600px) {
-    .wrap { padding: 1.5rem 1rem 2rem; }
-    h1 { font-size: var(--font-size-3xl); }
-    td a { width: 250px; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    td a { transition: none; }
-    td a:hover { transform: none; }
-  }`;
 
 /**
  * Build the top-level index.html for a multi-condition race: a performance
@@ -524,62 +445,25 @@ const INDEX_CSS = `  * { box-sizing: border-box; }
 export function buildConditionIndexHtml(raceTitle, entries, options = {}) {
   const skin = resolveSkin(options.skin, options.skinBaseDir);
   const matrix = buildConditionMatrix(entries);
-  const headerCells = matrix.columns.map(label => `<th scope="col">${esc(label)}</th>`).join('');
-  const bodyRows = matrix.rows.map(row =>
-    `      <tr>\n        <th scope="row">${esc(row.header)}</th>\n` +
-    row.cells.map(cell => cellHtml(cell, matrix)).join('\n') +
-    '\n      </tr>'
-  ).join('\n');
 
-  const descriptions = metricBlocks(matrix.metrics, metric => esc(metric.description || ''));
-  const tallies = metricBlocks(matrix.metrics, metric => {
-    const tally = tallyLine(matrix, metric.key);
-    return tally ? `Conditions won: ${esc(tally)}` : '';
+  return render(SHELL, {
+    title: escHtml(raceTitle),
+    themeAttr: skin ? ` data-theme="${escHtml(skin.name)}"` : '',
+    themeColor: skin ? escHtml(skin.themeColor) : DEFAULT_THEME_COLOR,
+    styles: `<style>\n${CSS}</style>`,
+    skinStyles: skin ? `<style id="rftp-skin">\n${skin.css}\n</style>` : '',
+    pickerGroups: pickerGroupsHtml(matrix.metrics),
+    descriptions: metricBlocks(matrix.metrics, metric => escHtml(metric.description || '')),
+    rowHeader: escHtml(matrix.rowHeader),
+    headerCells: matrix.columns.map(label => fill('header-cell', { label: escHtml(label) })).join(''),
+    bodyRows: matrix.rows.map(row => fill('row', {
+      header: escHtml(row.header),
+      cells: row.cells.map(cell => cellHtml(cell, matrix)).join('\n'),
+    })).join('\n'),
+    tallies: metricBlocks(matrix.metrics, metric => {
+      const tally = tallyLine(matrix, metric.key);
+      return tally ? `Conditions won: ${escHtml(tally)}` : '';
+    }),
+    scriptTag: fill('script'),
   });
-
-  return `<!DOCTYPE html>
-<html lang="en"${skin ? ` data-theme="${esc(skin.name)}"` : ''}>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="${skin ? esc(skin.themeColor) : DEFAULT_THEME_COLOR}">
-<title>${esc(raceTitle)} — Race Conditions</title>
-<style>
-${TOKENS}
-${INDEX_CSS}
-</style>
-${skin ? `<style id="rftp-skin">\n${skin.css}\n</style>` : ''}
-</head>
-<body>
-<div class="checkered-bar"></div>
-<div class="wrap">
-  <h1>${esc(raceTitle)}</h1>
-  <p class="sub">One race per throttling condition — pick a cell to view its results.</p>
-${pickerHtml(matrix.metrics)}
-  <p class="desc">${descriptions}</p>
-  <div class="scroll">
-    <table>
-      <tr><th scope="col">${esc(matrix.rowHeader)}</th>${headerCells}</tr>
-${bodyRows}
-    </table>
-  </div>
-  <p class="tally">${tallies}</p>
-</div>
-<script>
-  // Every metric is already rendered; switching just flips which one shows.
-  var picker = document.getElementById('metric');
-  function showSelectedMetric() {
-    var blocks = document.querySelectorAll('.m[data-metric]');
-    for (var i = 0; i < blocks.length; i++) {
-      blocks[i].hidden = blocks[i].getAttribute('data-metric') !== picker.value;
-    }
-  }
-  picker.addEventListener('change', showSelectedMetric);
-  // Browsers restore the previous selection on reload, so sync once at startup
-  // rather than trusting the server-rendered default to still match.
-  showSelectedMetric();
-</script>
-</body>
-</html>
-`;
 }

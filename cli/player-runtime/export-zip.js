@@ -99,10 +99,10 @@ function stripSlimSections(doc) {
 // Clear dynamically-built UI so the script rebuilds it cleanly on load.
 function clearDynamicUi(doc, slim) {
   const racerFilter = doc.querySelector('#racerFilter');
-  if (racerFilter) { racerFilter.innerHTML = ''; racerFilter.style.display = 'none'; }
+  if (racerFilter) { racerFilter.replaceChildren(); racerFilter.style.display = 'none'; }
   if (!slim) {
     const segNav = doc.querySelector('#segmentNav');
-    if (segNav) { segNav.innerHTML = ''; segNav.style.display = 'none'; }
+    if (segNav) { segNav.replaceChildren(); segNav.style.display = 'none'; }
   }
 }
 

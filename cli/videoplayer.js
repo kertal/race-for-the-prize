@@ -17,10 +17,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getPlacementOrder } from './summary.js';
+import { loadTemplates, escHtml, render } from './html-templates.js';
 import {
   RACER_CSS_COLORS,
-  escHtml,
-  render,
   setTemplates,
   buildRunNavHtml,
   buildRaceInfoHtml,
@@ -39,7 +38,11 @@ import { resolveSkin, DEFAULT_THEME_COLOR } from './skins.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const RAW_HTML = fs.readFileSync(path.join(__dirname, 'player.html'), 'utf-8');
+// Markup lives in player.html: the page shell plus one build-* template per
+// repeated fragment, split apart here and filled at build time.
+const { shell: TEMPLATE, templates: BUILD_TEMPLATES, fill } = loadTemplates(path.join(__dirname, 'player.html'));
+setTemplates(BUILD_TEMPLATES);
+
 // Shared design tokens first, then this page's component rules. Both reports
 // inline the same tokens.css so the player and the condition overview cannot
 // drift apart, and one skin themes both.
@@ -67,19 +70,6 @@ const RUNTIME_FILES = [
 const RUNTIME = RUNTIME_FILES
   .map(f => fs.readFileSync(path.join(__dirname, 'player-runtime', f), 'utf-8'))
   .join('\n');
-
-// Extract build-time templates (build-*) from HTML and strip them from the main template
-function extractBuildTemplates(html) {
-  const templates = {};
-  const cleaned = html.replace(/<template id="build-([^"]+)">([\s\S]*?)<\/template>\s*/g, (_, id, content) => {
-    templates[id] = content.trim();
-    return '';
-  });
-  return { mainTemplate: cleaned, templates };
-}
-
-const { mainTemplate: TEMPLATE, templates: BUILD_TEMPLATES } = extractBuildTemplates(RAW_HTML);
-setTemplates(BUILD_TEMPLATES);
 
 // ---------------------------------------------------------------------------
 // Style & Script Builders — read from external files and inline at export
@@ -118,7 +108,7 @@ function playerContainerMaxWidth(count) {
 
 function trophyHtml(isWinner, isTie) {
   if (!isWinner) return '';
-  return `<span class="trophy">${isTie ? '&#129309;' : '&#127942;'}</span> `;
+  return fill('trophy', { medal: isTie ? '&#129309;' : '&#127942;' });
 }
 
 // Build the player section, debug panel, runtime script tag, and race-config
@@ -130,17 +120,19 @@ function buildVideoPlayer(summary, videoFiles, opts) {
     const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
     const racer = racers[origIdx];
     const isWinner = isTie || (summary.overallWinner && summary.overallWinner.toLowerCase() === racer.toLowerCase());
-    const vSrc = videoFiles[origIdx].startsWith('data:') ? '' : ` src="${escHtml(videoFiles[origIdx])}"`;
-    return `  <div class="racer" style="--racer-color: ${color}">
-    <div class="racer-label">${trophyHtml(isWinner, isTie)}${escHtml(racer)}</div>
-    <video id="v${displayIdx}"${vSrc} preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Race recording for ${escHtml(racer)}" data-racer-name="${escHtml(racer)}"></video>
-  </div>`;
+    // A data: URI is swapped in by the runtime, so the attribute starts empty.
+    return fill('racer-card', {
+      color,
+      idx: displayIdx,
+      name: escHtml(racer),
+      trophy: trophyHtml(isWinner, isTie),
+      src: videoFiles[origIdx].startsWith('data:') ? '' : ` src="${escHtml(videoFiles[origIdx])}"`,
+    });
   }).join('\n');
 
-  const mergedVideoElement = mergedVideoFile ? `
-<div class="merged-container" id="mergedContainer" style="display: none;">
-  <video id="mergedVideo" src="${escHtml(mergedVideoFile)}" preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Side-by-side merged video"></video>
-</div>` : '';
+  const mergedVideoElement = mergedVideoFile
+    ? fill('merged-container', { src: escHtml(mergedVideoFile) })
+    : '';
 
   const videoIds = placementOrder.map((_, i) => `v${i}`);
   const raceConfigJson = serializeRaceConfig({
@@ -186,11 +178,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     ? buildVideoPlayer(summary, videoFiles, { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, placementOrder, ffmpegDir })
     : {};
 
-  const mergedBtn = hasMergedVideo ? '<button class="mode-btn" id="modeMerged" title="Side-by-side merged video">Merged</button>' : '';
-  const modeToggle = hasMergedVideo ? `
-  <div class="mode-toggle">
-    ${mergedBtn}
-  </div>` : '';
+  const modeToggle = hasMergedVideo ? fill('mode-toggle') : '';
 
   const profileComparison = summary.profileComparison || {};
   const layoutCss = `.player-container { max-width: ${playerContainerMaxWidth(count)}px; }\n  .racer { max-width: ${playerMaxWidth(count)}px; }`;

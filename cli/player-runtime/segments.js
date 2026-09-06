@@ -64,7 +64,7 @@ function buildSegmentNav() {
   const names = collectSegmentNames();
   if (names.length < 1) return;
   markSegmentNavBuilt();
-  segmentNav.innerHTML = '';
+  segmentNav.replaceChildren();
 
   // Build dropdown options
   const fullOpt = document.createElement('option');

@@ -574,6 +574,7 @@ RaceForThePrize/
 │   ├── colors.js           # ANSI color palette
 │   ├── config.js           # Argument parsing & racer discovery
 │   ├── profile-analysis.js # CDP performance metrics collection & analysis
+│   ├── html-templates.js   # Shared markup plumbing (escaping, {{slots}}, <template> loading)
 │   ├── player.html         # HTML player markup + build-time templates
 │   ├── tokens.css          # Design tokens shared by every generated report
 │   ├── player.css          # HTML player component styles
@@ -582,6 +583,8 @@ RaceForThePrize/
 │   ├── race-utils.js       # Shared race utility helpers
 │   ├── results.js          # File management & video conversion
 │   ├── condition-matrix.js # Cross-condition performance matrix (terminal + HTML)
+│   ├── condition-matrix.html # Condition matrix markup + build-time templates
+│   ├── condition-matrix.css  # Condition matrix component styles
 │   ├── skins.js            # Skin resolution for --skin
 │   ├── skins/              # Built-in player skins (light, neon)
 │   ├── summary.js          # Results formatting & markdown reports

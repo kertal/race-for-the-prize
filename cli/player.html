@@ -100,6 +100,88 @@
 </div>
 </template>
 
+<!-- Report sections: one collapsible <details> per block of the report. -->
+<template id="build-section">
+<details class="section"{{openAttr}}>
+  <summary><h2>{{title}}</h2></summary>
+  <div class="section-body">{{body}}</div>
+</details></template>
+
+<!-- Run navigation across a multi-run race. -->
+<template id="build-run-nav"><div class="run-nav">{{items}}</div></template>
+<template id="build-run-nav-current"><span class="{{cls}}"{{style}} aria-current="page">{{label}}</span></template>
+<template id="build-run-nav-link"><a class="{{cls}}"{{style}} href="{{href}}">{{label}}</a></template>
+
+<!-- Key/value grids under Run Info. -->
+<template id="build-info-grid"><div class="{{cls}}">{{items}}</div></template>
+
+<!-- Racer failures reported by the runner. -->
+<template id="build-errors"><div class="errors"><ul>{{items}}</ul></div></template>
+<template id="build-error-item"><li>{{message}}</li></template>
+
+<!-- Profile fragments. -->
+<template id="build-profile-delta"><span class="profile-delta">(+{{delta}})</span></template>
+<template id="build-profile-medal"><span class="profile-medal">&#127942;</span></template>
+<template id="build-profile-info-icon"> <span class="profile-info-icon">&#9432;</span></template>
+<template id="build-profile-metric-desc"><div class="profile-metric-desc">{{desc}}</div></template>
+<template id="build-profile-note"><p class="profile-note">Lower values are better for all metrics. Hover over metric names for details.</p>
+</template>
+<template id="build-profile-scope-desc"><p class="profile-scope-desc">{{desc}}</p>
+</template>
+<template id="build-profile-category-desc"><p class="profile-category-desc">{{desc}}</p>
+</template>
+<template id="build-profile-heading"><h3>{{title}}</h3>
+</template>
+<template id="build-profile-subheading"><h4{{titleAttr}}>{{label}}</h4>
+</template>
+<template id="build-profile-collapsible"><details class="profile-collapsible">
+<summary><h3 class="profile-collapsible-title">{{title}}</h3></summary>
+</template>
+<template id="build-profile-trophies"><div class="profile-row" style="--racer-color:{{color}}"><span class="profile-racer">{{name}}</span><span class="profile-value profile-value-trophies">{{trophies}}</span></div></template>
+<template id="build-profile-winner-tie"><div class="profile-winner">&#129309; Tie!</div></template>
+<template id="build-profile-winner"><div class="profile-winner">&#127942; <span class="racer-name" style="--racer-color:{{color}}">{{name}}</span> wins!</div></template>
+
+<!-- One profile metric, collapsed into its own disclosure. -->
+<template id="build-section-metric"><details class="profile-metric section-metric"{{openAttr}}>
+  <summary><span class="profile-metric-name">{{name}}</span></summary>
+  <div class="section-metric-body">{{rows}}</div>
+</details></template>
+
+<!-- Run-by-run comparison table. -->
+<template id="build-comparison-table"><table class="run-comparison-table"><thead><tr><th>Run</th>{{header}}</tr></thead><tbody>{{rows}}</tbody></table></template>
+<template id="build-comparison-header-cell"><th style="--racer-color:{{color}}">{{name}}</th></template>
+<template id="build-comparison-row"><tr><td>{{label}}</td>{{cells}}</tr></template>
+<template id="build-comparison-summary-row"><tr class="run-comparison-median"><td><strong>{{label}}</strong></td>{{cells}}</tr></template>
+<template id="build-comparison-cell"><td>{{content}}</td></template>
+<template id="build-comparison-cell-bold"><td><strong>{{content}}</strong></td></template>
+<template id="build-run-delta"> <span class="run-delta">(+{{delta}})</span></template>
+
+<!-- Downloadable artefacts. -->
+<template id="build-file-links">
+    <div class="file-links">
+      {{links}}
+    </div>
+  </template>
+
+<!-- The video stage: one card per racer, plus the optional merged view. -->
+<template id="build-trophy"><span class="trophy">{{medal}}</span> </template>
+
+<template id="build-racer-card">
+  <div class="racer" style="--racer-color: {{color}}">
+    <div class="racer-label">{{trophy}}{{name}}</div>
+    <video id="v{{idx}}"{{src}} preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Race recording for {{name}}" data-racer-name="{{name}}"></video>
+  </div></template>
+
+<template id="build-merged-container">
+<div class="merged-container" id="mergedContainer" style="display: none;">
+  <video id="mergedVideo" src="{{src}}" preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Side-by-side merged video"></video>
+</div></template>
+
+<template id="build-mode-toggle">
+  <div class="mode-toggle">
+    <button class="mode-btn" id="modeMerged" title="Side-by-side merged video">Merged</button>
+  </div></template>
+
 <template id="build-file-link"><a href="{{href}}" {{attrs}}>{{text}}</a></template>
 
 <template id="build-racer-name"><span class="racer-name" style="--racer-color: {{color}}">{{name}}</span></template>
