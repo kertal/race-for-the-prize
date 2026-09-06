@@ -21,7 +21,7 @@
   <nav class="header-icon header-icon-right" aria-label="Player actions">
     <button type="button" class="header-action-btn" id="fullscreenBtn" title="Fullscreen (F)" aria-label="Toggle fullscreen" aria-pressed="false">&#x26F6;</button>
     <span class="header-icon-group">
-      <button type="button" class="header-action-btn" id="shareToggle" title="Export / Share" aria-label="Export and share menu" aria-haspopup="true" aria-expanded="false" aria-controls="shareMenu">&#x1F4E4;</button>
+      <button type="button" class="header-action-btn" id="shareToggle" title="Export / Share" aria-label="Export and share menu" aria-expanded="false" aria-controls="shareMenu">&#x1F4E4;</button>
       <div class="share-menu" id="shareMenu">
         <button type="button" class="share-menu-item" id="exportBtn">Export Recording</button>
         <button type="button" class="share-menu-item" id="exportHtmlBtn">Export Zip</button>
@@ -172,7 +172,7 @@
   </template>
 
 <!-- The video stage: one card per racer, plus the optional merged view. -->
-<template id="build-trophy"><span class="trophy">{{medal}}</span> </template>
+<template id="build-trophy"><span class="trophy" role="img" aria-label="winner">{{medal}}</span> </template>
 
 <template id="build-racer-card">
   <div class="racer" style="--racer-color: {{color}}">
@@ -220,7 +220,7 @@
     <option value="1" selected>🚙 1x</option>
     <option value="2">🏎️ 2x</option>
   </select>
-  <button type="button" class="frame-btn" id="modeDebug" title="Calibration" aria-label="Toggle calibration" style="display:none">🎛️</button>
+  <button type="button" class="frame-btn" id="modeDebug" title="Calibration" aria-label="Toggle calibration" aria-pressed="false" style="display:none">🎛️</button>
 </div>
 </div>
 </template>
@@ -287,11 +287,11 @@
 </template>
 
 <template id="tmpl-export-overlay">
-  <div class="export-overlay" role="dialog" aria-modal="true" aria-labelledby="exportDialogTitle">
+  <div class="export-overlay" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="exportDialogTitle">
     <div class="export-modal">
       <h3 id="exportDialogTitle">Exporting Side-by-Side</h3>
       <canvas class="export-canvas"></canvas>
-      <div class="export-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="export-progress-fill"></div></div>
+      <div class="export-progress-bar" role="progressbar" aria-label="Export progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="export-progress-fill"></div></div>
       <div class="export-status" aria-live="polite">Preparing...</div>
       <div class="export-actions"><button type="button" class="export-cancel">Cancel</button></div>
     </div>

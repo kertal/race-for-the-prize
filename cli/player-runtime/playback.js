@@ -422,7 +422,10 @@ function switchMode(targetSrcSet, targetVideos, modeBtn, opts) {
 
 function hideCalibration() {
   if (debugPanel) debugPanel.style.display = 'none';
-  if (modeDebug) modeDebug.classList.remove('active');
+  if (modeDebug) {
+    modeDebug.classList.remove('active');
+    modeDebug.setAttribute('aria-pressed', 'false');
+  }
 }
 
 function resetSegmentState({ hide = false } = {}) {
@@ -497,6 +500,7 @@ function toggleCalibration() {
   const visible = debugPanel.style.display === 'block';
   debugPanel.style.display = visible ? 'none' : 'block';
   modeDebug?.classList.toggle('active', !visible);
+  modeDebug?.setAttribute('aria-pressed', String(!visible));
   if (!visible) {
     updateDebugDisplay();
     updateDebugStats();

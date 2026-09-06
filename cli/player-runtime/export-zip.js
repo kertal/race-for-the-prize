@@ -144,7 +144,7 @@ function setupExportOverlay(titleText) {
   const overlay = tmpl.content.cloneNode(true).firstElementChild;
   overlay.querySelector('.export-canvas').style.display = 'none';
   overlay.querySelector('h3').textContent = titleText;
-  document.body.appendChild(overlay);
+  mountExportDialog(overlay);
   const abortCtrl = new AbortController();
   overlay.querySelector('.export-cancel').addEventListener('click', () => { abortCtrl.abort(); overlay.remove(); });
   return {

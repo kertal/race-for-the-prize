@@ -89,6 +89,49 @@ function loadFFmpeg() {
 }
 
 /**
+ * Show an export overlay as the modal dialog it claims to be: focus moves into
+ * it, Tab cycles inside it, Escape cancels, and focus returns to whatever
+ * opened it once the overlay leaves the page. Closing is a plain
+ * overlay.remove() in half a dozen places, so the teardown watches for the
+ * removal rather than routing every one of them through a close helper.
+ */
+function mountExportDialog(overlay) {
+  const opener = document.activeElement;
+  document.body.appendChild(overlay);
+  const focusable = () => [...overlay.querySelectorAll('button:not([disabled])')];
+  overlay.focus();
+
+  function onKeyDown(e) {
+    if (e.key === 'Escape') {
+      const cancel = overlay.querySelector('.export-cancel') || focusable()[0];
+      if (cancel) cancel.click();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const items = focusable();
+    if (items.length === 0) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    const outside = !overlay.contains(active);
+    if (e.shiftKey && (active === first || outside)) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && (active === last || outside)) { e.preventDefault(); first.focus(); }
+  }
+  document.addEventListener('keydown', onKeyDown, true);
+
+  const watcher = new MutationObserver(() => {
+    if (overlay.isConnected) return;
+    document.removeEventListener('keydown', onKeyDown, true);
+    watcher.disconnect();
+    opener?.focus?.();
+    // The share menu closes with the dialog, and focusing a hidden element
+    // quietly does nothing, so a menu item hands focus back to its toggle.
+    if (document.activeElement !== opener && opener?.closest?.('.share-menu')) shareToggle?.focus?.();
+  });
+  watcher.observe(document.body, { childList: true });
+}
+
+/**
  * Move the export progress bar. The width is the visible half; aria-valuenow on
  * the enclosing role="progressbar" is the half a screen reader reads, so both
  * are set together and neither can go stale.
@@ -212,7 +255,7 @@ async function startExport() {
   const canvas = overlay.querySelector('.export-canvas');
   canvas.width = layout.canvasW;
   canvas.height = layout.canvasH;
-  document.body.appendChild(overlay);
+  mountExportDialog(overlay);
 
   const ctx = canvas.getContext('2d');
   const progressFill = overlay.querySelector('.export-progress-fill');

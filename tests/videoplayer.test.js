@@ -1459,7 +1459,7 @@ describe('buildPlayerHtml semantics', () => {
   });
 
   it('keeps the export progress bar value in step with its width', () => {
-    expect(defaultHtml).toContain('role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"');
+    expect(defaultHtml).toContain('role="progressbar" aria-label="Export progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"');
     expect(defaultHtml).toContain("bar.setAttribute('aria-valuenow', String(Math.round(clamped)))");
     // The helper is the only thing that moves the fill, so the width and the
     // announced value can never disagree.
@@ -1489,9 +1489,34 @@ describe('buildPlayerHtml semantics', () => {
     expect(debugHtml).toContain('<h4 class="debug-stats-header">VIDEO INFO</h4>');
   });
 
-  it('treats the export overlay as a modal dialog', () => {
+  it('treats the export overlay as a modal dialog, and behaves like one', () => {
     expect(defaultHtml).toContain('role="dialog" aria-modal="true" aria-labelledby="exportDialogTitle"');
     expect(defaultHtml).toContain('<h3 id="exportDialogTitle">');
+    // aria-modal only tells the truth if focus actually moves in and back out,
+    // so both overlays are mounted through the helper that arranges that.
+    expect(defaultHtml).toContain('function mountExportDialog(overlay)');
+    expect(defaultHtml).toContain('<div class="export-overlay" tabindex="-1" role="dialog"');
+    expect(defaultHtml.match(/mountExportDialog\(overlay\);/g)).toHaveLength(2);
+    // The only bare append left is the helper's own.
+    expect(defaultHtml.match(/document\.body\.appendChild\(overlay\);/g)).toHaveLength(1);
+  });
+
+  it('marks the calibration button as the toggle it is', () => {
+    expect(defaultHtml).toMatch(/id="modeDebug"[^>]*aria-pressed="false"/);
+    expect(defaultHtml).toContain("modeDebug?.setAttribute('aria-pressed', String(!visible))");
+    expect(defaultHtml).toContain("modeDebug.setAttribute('aria-pressed', 'false')");
+  });
+
+  it('leaves the share popup a disclosure rather than promising a menu', () => {
+    // Plain buttons in a panel: claiming a menu would have screen readers
+    // expect arrow-key navigation the runtime does not implement.
+    expect(defaultHtml).not.toContain('aria-haspopup');
+    expect(defaultHtml).not.toContain('role="menu"');
+  });
+
+  it('names the winner trophy with a role that can carry the name', () => {
+    const html = buildPlayerHtml(huntWinsSummary(), videoFiles);
+    expect(html).toContain('<span class="trophy" role="img" aria-label="winner">');
   });
 });
 
