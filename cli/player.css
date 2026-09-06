@@ -948,7 +948,28 @@ video {
   max-width: none;
   overflow: hidden;
 }
-.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .racer-label { display: none; }
+/* Fullscreen has no room for a label above each video without stealing height
+   from the grid, so the name rides on top of its own recording instead: a
+   scrim-backed chip in the corner, out of the way of the action but keeping
+   every racer identifiable. */
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .racer { position: relative; }
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .racer-label {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  z-index: 5;
+  max-width: 100%;
+  padding: 0.3rem 0.7rem;
+  font-size: var(--font-size-lg);
+  background: var(--scrim);
+  border-end-end-radius: var(--radius);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* Clicking a video toggles the auto-hiding controls; the label must not
+     swallow that click. */
+  pointer-events: none;
+}
 .fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) video {
   width: 100%;
   height: 100%;

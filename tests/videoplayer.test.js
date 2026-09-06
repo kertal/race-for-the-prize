@@ -1500,3 +1500,26 @@ describe('buildPlayerHtml semantics', () => {
     expect(defaultHtml).toContain('<h3 id="exportDialogTitle">');
   });
 });
+
+// --- Fullscreen labels ---
+
+describe('buildPlayerHtml fullscreen labels', () => {
+  const fullscreenCss = (html) => html
+    .split('\n')
+    .filter(line => line.includes(':fullscreen'))
+    .join('\n');
+
+  it('shows the racer name over its video instead of hiding it', () => {
+    const css = fullscreenCss(defaultHtml);
+    expect(css).toContain('.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .racer-label {');
+    expect(css).not.toContain('.racer-label { display: none; }');
+  });
+
+  it('overlays the label so it steals no height from the video grid', () => {
+    const block = defaultHtml.slice(defaultHtml.indexOf(':-webkit-full-screen) .racer-label {'));
+    const rule = block.slice(0, block.indexOf('}'));
+    expect(rule).toContain('position: absolute');
+    expect(rule).toContain('pointer-events: none');
+    expect(defaultHtml).toContain(':-webkit-full-screen) .racer { position: relative; }');
+  });
+});
