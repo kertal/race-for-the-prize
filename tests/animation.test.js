@@ -138,10 +138,14 @@ describe('RaceAnimation', () => {
     const original = process.stderr.columns;
     Object.defineProperty(process.stderr, 'columns', { value: 80, configurable: true });
     try {
-      const anim = new RaceAnimation(['encrypted-cache']);
+      const anim = new RaceAnimation(['encrypted-cache', 'a-racer-name-far-too-long-to-fit-in-any-sensible-terminal-row']);
       anim.start();
       anim.addMessage(0, 'encrypted-cache',
         'Fetched from network in 338 ms, encrypted + cached in 114 ms · rendered in 474 ms total', '0.7');
+      anim.addMessage(1, 'a-racer-name-far-too-long-to-fit-in-any-sensible-terminal-row', 'short', '1.2');
+      // Only the redraw region has to fit: the header is written once, before
+      // the loop, and is never rewound over.
+      stderr.stderrSpy.mockClear();
       anim._tick();
       anim.stop();
 
@@ -168,8 +172,16 @@ describe('fitMessageText', () => {
     expect(fitted.endsWith('…')).toBe(true);
   });
 
-  it('keeps a readable stub when the chrome alone fills the terminal', () => {
-    expect(fitMessageText('x'.repeat(50), 78, 80).length).toBe(13); // 12 chars + ellipsis
+  it('never returns more than the room left over', () => {
+    // Overflowing by even one column causes the wrap this function prevents,
+    // so a narrow terminal gets a stub or nothing rather than a minimum length.
+    for (let chrome = 70; chrome <= 82; chrome++) {
+      const fitted = fitMessageText('x'.repeat(50), chrome, 80);
+      expect(fitted.length).toBeLessThanOrEqual(Math.max(0, 80 - 1 - chrome));
+    }
+    expect(fitMessageText('x'.repeat(50), 78, 80)).toBe('…');
+    expect(fitMessageText('x'.repeat(50), 79, 80)).toBe('');
+    expect(fitMessageText('x'.repeat(50), 200, 80)).toBe('');
   });
 });
 

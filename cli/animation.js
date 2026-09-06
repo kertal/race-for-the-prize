@@ -8,9 +8,6 @@ const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', 
 const SPINNER_INTERVAL_MS = 100;
 const TICK_INTERVAL_MS = 120;
 const FALLBACK_WIDTH = 100;
-// Never squeeze a message down to nothing, however narrow the terminal is.
-const MIN_MESSAGE_WIDTH = 12;
-
 /**
  * Shorten `text` so a line built as prefix + text + suffix stays inside the
  * terminal width. The animation redraws by moving the cursor up one row per
@@ -19,15 +16,21 @@ const MIN_MESSAGE_WIDTH = 12;
  * Racer messages come from race scripts and can be arbitrarily long, so they
  * are the ones that need clamping.
  *
+ * The result never exceeds the room left over, down to an empty string: a
+ * minimum length would be self-defeating here, since overflowing by a
+ * character causes exactly the wrap this exists to prevent.
+ *
  * @param {string} text
  * @param {number} chromeWidth - visible width of everything around the text
  * @param {number} width - terminal width in columns
+ * @returns {string} text of at most `width - 1 - chromeWidth` columns
  */
 export function fitMessageText(text, chromeWidth, width) {
   // One column spare: writing into the last one wraps in some terminals.
   const room = width - 1 - chromeWidth;
+  if (room <= 0) return '';
   if (text.length <= room) return text;
-  return text.slice(0, Math.max(MIN_MESSAGE_WIDTH, room - 1)) + '…';
+  return room === 1 ? '…' : text.slice(0, room - 1) + '…';
 }
 
 const isTTY = () => Boolean(process.stderr.isTTY);
@@ -112,10 +115,13 @@ export class RaceAnimation {
     for (const msg of this.messages) {
       if (!msg) continue;
       const nameColor = RACER_COLORS[msg.index % RACER_COLORS.length];
-      // Width of the decoration around the text, colors excluded — they cost no columns.
-      const chrome = `  ${msg.name}: "" (${msg.elapsed}s)`.length;
-      const text = fitMessageText(msg.text, chrome, width);
-      process.stderr.write(`  ${nameColor}${c.bold}${msg.name}:${c.reset} ${c.dim}"${text}" (${msg.elapsed}s)${c.reset}\x1b[K\n`);
+      // Width of the punctuation around name and text, colors excluded — they
+      // cost no columns. The name is clamped first: one long enough to fill the
+      // row on its own would blow the budget before the message even starts.
+      const decoration = `  : "" (${msg.elapsed}s)`.length;
+      const name = fitMessageText(msg.name, decoration, width);
+      const text = fitMessageText(msg.text, decoration + name.length, width);
+      process.stderr.write(`  ${nameColor}${c.bold}${name}:${c.reset} ${c.dim}"${text}" (${msg.elapsed}s)${c.reset}\x1b[K\n`);
       this.lines++;
     }
   }

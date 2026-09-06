@@ -52,31 +52,47 @@ const url = `https://kertal.github.io/hush-hush-db/?mode=${race.vars.MODE}&sourc
 // stay readable on one terminal row.
 const status = async () => (await page.textContent('#status-line')).split(' · ')[0];
 
+// Time a phase, closing the measurement even when the page work throws. The
+// runner rethrows a failing script before it finalizes, and raceEnd is what
+// records a measurement — so without this a timed-out click would take the
+// whole phase down with it instead of reporting how far it got.
+const measure = async (name, work) => {
+  await page.raceStart(name);
+  try {
+    await work();
+  } finally {
+    page.raceEnd(name);
+  }
+};
+
 await page.raceRecordingStart();
+try {
+  // Cold page, empty cache — the same starting line for everyone.
+  await page.goto(url, { waitUntil: 'load' });
+  await page.waitForSelector('#fetch-button');
+  await page.waitForTimeout(1000);
 
-// Cold page, empty cache — the same starting line for everyone.
-await page.goto(url, { waitUntil: 'load' });
-await page.waitForSelector('#fetch-button');
-await page.waitForTimeout(1000);
+  await measure('Fetch and store', async () => {
+    await page.click('#fetch-button');
+    await page.waitForSelector('#records-body tr');
+  });
 
-await page.raceStart('Fetch and store');
-await page.click('#fetch-button');
-await page.waitForSelector('#records-body tr');
-page.raceEnd('Fetch and store');
+  page.raceMessage(await status());
+  await page.waitForTimeout(1000);
 
-page.raceMessage(await status());
-await page.waitForTimeout(1000);
+  await measure('Reload to data', async () => {
+    await page.click('#reload-page-button');
+    // The button's handler hides the table before it re-reads the cache, and
+    // it does that synchronously while the click is dispatched — so by the
+    // time the click resolves the panel is already gone and waiting for it to
+    // come back really does time the read. Waiting on `#records-body tr` would
+    // not: the rows from the previous render stay in the DOM and match
+    // instantly.
+    await page.waitForSelector('#dataset-panel:not([hidden])');
+  });
 
-await page.raceStart('Reload to data');
-await page.click('#reload-page-button');
-// The button's handler hides the table before it re-reads the cache, and it
-// does that synchronously while the click is dispatched — so by the time the
-// click resolves the panel is already gone and waiting for it to come back
-// really does time the read. Waiting on `#records-body tr` would not: the rows
-// from the previous render stay in the DOM and match instantly.
-await page.waitForSelector('#dataset-panel:not([hidden])');
-page.raceEnd('Reload to data');
-
-page.raceMessage(await status());
-await page.waitForTimeout(2000);
-await page.raceRecordingEnd();
+  page.raceMessage(await status());
+  await page.waitForTimeout(2000);
+} finally {
+  await page.raceRecordingEnd();
+}

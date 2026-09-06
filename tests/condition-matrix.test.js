@@ -118,6 +118,17 @@ describe('buildConditionMatrix', () => {
     expect(matrix.rows.every(row => row.cells[0] !== null)).toBe(true);
   });
 
+  it('emits a delta column on every row so the value columns line up', () => {
+    // Each row is its own grid, so the winner omitting its delta would let its
+    // value slide right and break alignment with the rows underneath.
+    const html = buildConditionIndexHtml('race', [
+      { label: '4g', network: '4g', cpu: 1, summary: summaryOf({ lauda: 2.5, hunt: 1.5 }, 'hunt') },
+    ]);
+    const rows = html.match(/<span class="r[^"]*"[\s\S]*?<\/span><\/span>/g) || [];
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) expect(row).toContain('<span class="d">');
+  });
+
   it('ranks each cell fastest first and flags the winner', () => {
     const [cell] = buildConditionMatrix([
       { label: '4g', network: '4g', cpu: 1, summary: summaryOf({ lauda: 2.5, hunt: 1.5 }, 'hunt') },

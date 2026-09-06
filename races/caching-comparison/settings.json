@@ -7,5 +7,5 @@
   "network": ["none", "fast-3g", "slow-3g"],
   "cpuThrottle": [1, 4],
   "headless": true,
-  "runs": 1
+  "runs": 3
 }

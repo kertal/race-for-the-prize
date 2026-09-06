@@ -382,11 +382,14 @@ function metricBlocks(metrics, renderOne) {
 function seriesHtml(series, max) {
   const rows = series.racers.map(racer => {
     const width = max > 0 && racer.value != null ? (racer.value / max) * 100 : 0;
-    const delta = racer.delta != null ? `<span class="d">+${esc(racer.delta)}</span>` : '';
+    // Value and delta are separate columns, and the delta stays in the markup
+    // even when empty (the winner has none) so the values below it still line up.
+    const delta = racer.delta != null ? `+${esc(racer.delta)}` : '';
     return `<span class="r${racer.isWinner ? ' win' : ''}" style="--c:${racerColor(racer.index)}">` +
       `<span class="n">${esc(racer.name)}</span>` +
       `<span class="bar"><i style="width:${width.toFixed(1)}%"></i></span>` +
-      `<span class="t">${esc(racer.formatted || '-')}${delta}</span></span>`;
+      `<span class="t">${esc(racer.formatted || '-')}</span>` +
+      `<span class="d">${delta}</span></span>`;
   }).join('');
   return `${verdictHtml(series)}<span class="times">${rows}</span>`;
 }
@@ -449,7 +452,7 @@ const INDEX_CSS = `  * { box-sizing: border-box; }
                     text-transform: uppercase; padding-right: 0.6rem; }
   td { vertical-align: top; padding: 0; }
   td.empty { color: #555; text-align: center; font-size: 0.85rem; }
-  td a { display: block; width: 340px; max-width: 100%; padding: 0.7rem 0.85rem; background: #222;
+  td a { display: block; width: 380px; max-width: 100%; padding: 0.7rem 0.85rem; background: #222;
          border: 1px solid #3a3a3a; border-radius: 6px; color: inherit; text-decoration: none;
          transition: background 0.2s, border-color 0.2s, transform 0.2s; }
   td a:hover { background: #2a2a2a; border-color: ${GOLD}; transform: translateY(-1px); }
@@ -458,10 +461,15 @@ const INDEX_CSS = `  * { box-sizing: border-box; }
   .m { display: block; }
   .m[hidden] { display: none; }
   .verdict { display: block; font-size: 0.88rem; font-weight: bold; letter-spacing: 0.03em;
-             margin-bottom: 0.5rem; padding-bottom: 0.45rem; border-bottom: 1px solid #333; }
+             margin-bottom: 0.5rem; padding-bottom: 0.45rem; border-bottom: 1px solid #333;
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .verdict.tie { color: #999; }
   .verdict.none { color: #555; }
-  .r { display: grid; grid-template-columns: minmax(48px, auto) 1fr auto; align-items: center;
+  /* Fixed side columns, not auto: sized to content, every row is its own grid
+     and the bars start and end wherever that row's name and time happen to
+     end, so nothing lines up between rows or between cards. Monospace makes ch
+     exact, and a name past the budget ellipsizes rather than shoving the bar. */
+  .r { display: grid; grid-template-columns: 15ch 1fr 9ch 10ch; align-items: center;
        gap: 0.5rem; font-size: 0.74rem; color: #8a8a8a; padding: 0.12rem 0; }
   .n { color: var(--c); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .r.win { color: #e8e0d0; }
@@ -471,8 +479,10 @@ const INDEX_CSS = `  * { box-sizing: border-box; }
          overflow: hidden; }
   .bar i { display: block; height: 100%; border-radius: 2px; background: var(--c); opacity: 0.5; }
   .r.win .bar i { opacity: 1; }
-  .t { font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .d { color: #6f6f6f; margin-left: 0.35rem; }
+  .t { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right;
+       overflow: hidden; text-overflow: ellipsis; }
+  .d { color: #6f6f6f; font-variant-numeric: tabular-nums; white-space: nowrap;
+       text-align: right; overflow: hidden; text-overflow: ellipsis; }
   p.tally { text-align: center; color: #8a8a8a; font-size: 0.78rem; margin: 2rem 0 0; }
 
   @media (max-width: 600px) {
