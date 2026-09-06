@@ -38,6 +38,7 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 - `animation.js` — live terminal race animation
 - `summary.js` — summary data model, terminal output, JSON/Markdown report generation
 - `race-utils.js` — overall-winner computation and `TIE_THRESHOLD_PERCENT`
+- `condition-matrix.js` — cross-condition overview for multi-condition races (network × CPU matrix model with a series per metric, terminal renderer, and the top-level `index.html` with its metric picker)
 - `profile-analysis.js` — CDP metric definitions (`PROFILE_METRICS`), comparison, terminal/Markdown rendering
 - `results.js` — moves recordings from temp dirs, video format conversion (WebM→MOV/GIF), ffmpeg.wasm asset copying
 - `sidebyside.js` — FFmpeg side-by-side video composition

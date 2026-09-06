@@ -38,69 +38,17 @@ import { runGeminiSummary, runGeminiSpec } from './cli/gemini-summary.js';
 import { buildResultsPaths, createStaticHandler, serveResults } from './cli/serve.js';
 import { loadRaceDir, applySettingsOrExit } from './cli/race-loader.js';
 import { runScript as runTaskScript } from './cli/task-runner.js';
+import { buildConditionMatrix, printConditionMatrix, buildConditionIndexHtml } from './cli/condition-matrix.js';
 
 // Re-exports for backwards compatibility — tests (and any external consumers)
-// import these from race.js even though the implementations moved to cli/serve.js.
-export { buildResultsPaths, createStaticHandler, serveResults };
+// import these from race.js even though the implementations moved to
+// cli/serve.js and cli/condition-matrix.js.
+export { buildResultsPaths, createStaticHandler, serveResults, buildConditionIndexHtml };
 
 /** Format a Date as YYYY-MM-DD_HH-MM-SS for directory naming. */
 export function formatTimestamp(date) {
   const pad = n => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
-}
-
-/**
- * Build the top-level index.html for a multi-condition race: one card per
- * throttling condition (network preset and/or CPU rate) linking to that
- * condition's results player.
- *
- * @param {string} raceTitle - e.g. "lauda vs hunt"
- * @param {Array<{label: string, title?: string, summary: object|null}>} entries
- * @returns {string} HTML document
- */
-export function buildConditionIndexHtml(raceTitle, entries) {
-  const esc = s => String(s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  const rows = entries.map(({ label, title, summary }) => {
-    // 'tie' is a sentinel, not a racer name — render it like the other reports do.
-    const overallWinner = summary?.overallWinner;
-    let winner = '—';
-    if (overallWinner === 'tie') winner = '🤝 Tie';
-    else if (overallWinner) winner = `🏆 ${esc(overallWinner)}`;
-    return `      <li><a href="${encodeURIComponent(label)}/index.html">` +
-      `<span class="net">${esc(title || label)}</span><span class="winner">${winner}</span></a></li>`;
-  }).join('\n');
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(raceTitle)} — Race Conditions</title>
-<style>
-  body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #eee; margin: 0; padding: 40px 20px; }
-  .wrap { max-width: 640px; margin: 0 auto; }
-  h1 { font-size: 1.4em; margin-bottom: 4px; }
-  p.sub { color: #999; margin-top: 0; }
-  ul { list-style: none; padding: 0; }
-  li a { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px;
-         margin: 10px 0; background: #23233b; border-radius: 8px; color: #eee;
-         text-decoration: none; border: 1px solid #33335a; }
-  li a:hover { border-color: #6c6cd8; }
-  .net { font-weight: 600; }
-  .winner { color: #aaa; }
-</style>
-</head>
-<body>
-<div class="wrap">
-  <h1>${esc(raceTitle)}</h1>
-  <p class="sub">One race per throttling condition — pick a condition to view its results.</p>
-  <ul>
-${rows}
-  </ul>
-</div>
-</body>
-</html>
-`;
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1238,11 +1186,15 @@ async function main() {
         resultsDir = path.join(baseResultsDir, label);
         console.error(`\n  ${c.bold}${c.magenta}══ ${title} ══${c.reset}`);
       }
-      conditionSummaries.push({ label, title, summary: await runRaceSeries() });
+      conditionSummaries.push({ label, title, network, cpu, summary: await runRaceSeries() });
     }
 
     if (multiCondition) {
       resultsDir = baseResultsDir;
+      // Overview across every condition raced: how the field holds up as the
+      // network and CPU get harder, not just who won each individual race.
+      // The terminal shows total time; the HTML index can switch metrics.
+      printConditionMatrix(buildConditionMatrix(conditionSummaries));
       if (!settings.noRecording) {
         fs.writeFileSync(
           path.join(baseResultsDir, 'index.html'),
