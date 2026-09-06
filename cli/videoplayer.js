@@ -40,7 +40,11 @@ import { resolveSkin, DEFAULT_THEME_COLOR } from './skins.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const RAW_HTML = fs.readFileSync(path.join(__dirname, 'player.html'), 'utf-8');
-const CSS = fs.readFileSync(path.join(__dirname, 'player.css'), 'utf-8');
+// Shared design tokens first, then this page's component rules. Both reports
+// inline the same tokens.css so the player and the condition overview cannot
+// drift apart, and one skin themes both.
+const CSS = fs.readFileSync(path.join(__dirname, 'tokens.css'), 'utf-8') + '\n'
+  + fs.readFileSync(path.join(__dirname, 'player.css'), 'utf-8');
 
 // Browser-side player runtime, split into concern-scoped files that are
 // concatenated in dependency order into the single IIFE scope emitted by

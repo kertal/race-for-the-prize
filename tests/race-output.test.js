@@ -1,5 +1,51 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { formatTimestamp, buildResultsPaths, buildNetworkIndexHtml, waitForEnter } from '../race.js';
+import { formatTimestamp, buildResultsPaths, buildConditionIndexHtml, waitForEnter, findMissingBrowser } from '../race.js';
+
+describe('findMissingBrowser', () => {
+  const playwright = executablePath => async () => ({ chromium: { executablePath: () => executablePath } });
+
+  it('passes when the Chromium executable is on disk', async () => {
+    const result = await findMissingBrowser({
+      importPlaywright: playwright('/browsers/chromium/chrome'),
+      exists: () => true,
+    });
+    expect(result).toBeNull();
+  });
+
+  it('names the chromium-only download when the browser is missing', async () => {
+    // Playwright's own error suggests the full-suite "npx playwright install";
+    // this project only ever launches Chromium.
+    const result = await findMissingBrowser({
+      importPlaywright: playwright('/browsers/chromium/chrome'),
+      exists: () => false,
+    });
+    expect(result).toContain('npx playwright install chromium');
+    expect(result).toContain('postinstall');
+  });
+
+  it('reports the package itself being absent', async () => {
+    const result = await findMissingBrowser({
+      importPlaywright: async () => { throw new Error('Cannot find module'); },
+      exists: () => true,
+    });
+    expect(result).toContain('Playwright is not installed');
+  });
+
+  it('stays quiet when Playwright will not name an executable', async () => {
+    // Custom channels and unusual layouts make executablePath() throw; there is
+    // nothing to check, so the runner should get its chance to report instead.
+    const result = await findMissingBrowser({
+      importPlaywright: async () => ({ chromium: { executablePath: () => { throw new Error('no path'); } } }),
+      exists: () => false,
+    });
+    expect(result).toBeNull();
+  });
+
+  it('stays quiet when the executable path is empty', async () => {
+    const result = await findMissingBrowser({ importPlaywright: playwright(''), exists: () => false });
+    expect(result).toBeNull();
+  });
+});
 
 describe('formatTimestamp', () => {
   it('formats date as YYYY-MM-DD_HH-MM-SS', () => {
@@ -37,45 +83,52 @@ describe('buildResultsPaths', () => {
   });
 });
 
-describe('buildNetworkIndexHtml', () => {
-  it('links each network condition to its results player', () => {
-    const html = buildNetworkIndexHtml('lauda vs hunt', [
-      { network: 'slow-3g', summary: { overallWinner: 'lauda' } },
-      { network: '4g', summary: { overallWinner: 'hunt' } },
-    ]);
-    expect(html).toContain('lauda vs hunt');
-    expect(html).toContain('href="slow-3g/index.html"');
-    expect(html).toContain('href="4g/index.html"');
-    expect(html).toContain('🏆 lauda');
-    expect(html).toContain('🏆 hunt');
+describe('buildConditionIndexHtml', () => {
+  /** Render an index page and assert on the strings it must (and must not) contain. */
+  const expectIndex = (raceTitle, entries, { has = [], hasNot = [] }) => {
+    const html = buildConditionIndexHtml(raceTitle, entries);
+    for (const needle of has) expect(html).toContain(needle);
+    for (const needle of hasNot) expect(html).not.toContain(needle);
+  };
+
+  it('links each condition to its results player', () => {
+    expectIndex('lauda vs hunt', [
+      { label: 'slow-3g', title: 'Network: slow-3g', summary: { overallWinner: 'lauda' } },
+      { label: '4g', title: 'Network: 4g', summary: { overallWinner: 'hunt' } },
+    ], { has: ['lauda vs hunt', 'href="slow-3g/index.html"', 'href="4g/index.html"', '🏆 lauda', '🏆 hunt'] });
+  });
+
+  it('links CPU-only conditions by their label', () => {
+    expectIndex('a vs b', [
+      { label: 'cpu1x', title: 'CPU: 1x', summary: { overallWinner: 'a' } },
+      { label: 'cpu4x', title: 'CPU: 4x', summary: { overallWinner: 'b' } },
+    ], { has: ['href="cpu1x/index.html"', 'href="cpu4x/index.html"', 'CPU: 4x'] });
+  });
+
+  it('falls back to the label when no title is given', () => {
+    expectIndex('a vs b', [{ label: 'slow-3g-cpu4x', summary: null }], {
+      has: ['href="slow-3g-cpu4x/index.html"', '>slow-3g-cpu4x<'],
+    });
   });
 
   it('shows a placeholder when a summary has no winner', () => {
-    const html = buildNetworkIndexHtml('a vs b', [
-      { network: 'none', summary: { overallWinner: null } },
-      { network: 'fast-3g', summary: null },
-    ]);
-    expect(html).toContain('href="none/index.html"');
-    expect(html).not.toContain('🏆');
-    expect(html).toContain('—');
+    expectIndex('a vs b', [
+      { label: 'none', summary: { overallWinner: null } },
+      { label: 'fast-3g', summary: null },
+    ], { has: ['href="none/index.html"', '—'], hasNot: ['🏆'] });
   });
 
   it('renders a tie without the winner trophy', () => {
-    const html = buildNetworkIndexHtml('a vs b', [
-      { network: '4g', summary: { overallWinner: 'tie' } },
-    ]);
-    expect(html).toContain('🤝 Tie');
-    expect(html).not.toContain('🏆');
-    expect(html).not.toContain('🏆 tie');
+    expectIndex('a vs b', [{ label: '4g', summary: { overallWinner: 'tie' } }], {
+      has: ['🤝 Tie'],
+      hasNot: ['🏆'],
+    });
   });
 
   it('escapes HTML in titles and winner names', () => {
-    const html = buildNetworkIndexHtml('<b>x</b> vs y', [
-      { network: 'none', summary: { overallWinner: 'a<script>' } },
-    ]);
-    expect(html).not.toContain('<b>x</b>');
-    expect(html).toContain('&lt;b&gt;x&lt;/b&gt;');
-    expect(html).not.toContain('a<script>');
+    expectIndex('<b>x</b> vs y', [
+      { label: 'none', title: '<i>net</i>', summary: { overallWinner: 'a<script>' } },
+    ], { has: ['&lt;b&gt;x&lt;/b&gt;'], hasNot: ['<b>x</b>', '<i>net</i>', 'a<script>'] });
   });
 });
 

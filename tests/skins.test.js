@@ -155,10 +155,15 @@ describe('buildPlayerHtml skinning', () => {
   });
 });
 
-describe('player.css design tokens', () => {
-  const css = fs.readFileSync(path.join(SKINS_DIR, '..', 'player.css'), 'utf-8');
-  const rootBlock = css.slice(css.indexOf(':root {'), css.indexOf('3. Components'));
-  const componentCss = css.slice(css.indexOf('3. Components'));
+describe('design tokens', () => {
+  const cliDir = path.join(SKINS_DIR, '..');
+  const rootBlock = fs.readFileSync(path.join(cliDir, 'tokens.css'), 'utf-8');
+  const componentCss = fs.readFileSync(path.join(cliDir, 'player.css'), 'utf-8');
+  // Every stylesheet that consumes the tokens, so the rules below hold for the
+  // whole report set rather than just the player.
+  const matrixCss = fs.readFileSync(path.join(cliDir, 'condition-matrix.js'), 'utf-8')
+    .match(/const INDEX_CSS = `([\s\S]*?)`;/)[1];
+  const css = rootBlock + componentCss + matrixCss;
 
   it('declares the semantic roles skins are expected to override', () => {
     for (const token of ['--bg', '--surface', '--text', '--accent', '--border', '--font-ui', '--font-display', '--radius', '--tool-accent']) {
@@ -166,20 +171,36 @@ describe('player.css design tokens', () => {
     }
   });
 
-  it('keeps literal colours out of the component layer', () => {
-    const literals = componentCss
-      .split('\n')
-      .filter(line => !line.includes('svg') && /#[0-9a-fA-F]{3,8}\b|\brgba?\(/.test(line));
-    expect(literals).toEqual([]);
-  });
+  it.each([['player.css', () => componentCss], ['condition-matrix INDEX_CSS', () => matrixCss]])(
+    'keeps literal colours out of %s',
+    (_name, get) => {
+      const literals = get()
+        .split('\n')
+        .filter(line => !line.includes('svg') && /#[0-9a-fA-F]{3,8}\b|\brgba?\(/.test(line));
+      expect(literals).toEqual([]);
+    }
+  );
 
-  it('keeps raw palette tokens out of the component layer', () => {
-    // Components must read semantic roles (--text-muted), never the palette
-    // (--color-grey-200) — otherwise a skin that remaps the roles misses them.
-    const paletteUses = componentCss
-      .split('\n')
-      .filter(line => /var\(\s*--color-/.test(line));
-    expect(paletteUses).toEqual([]);
+  it.each([['player.css', () => componentCss], ['condition-matrix INDEX_CSS', () => matrixCss]])(
+    'keeps raw palette tokens out of %s',
+    (_name, get) => {
+      // Components must read semantic roles (--text-muted), never the palette
+      // (--color-grey-200) — otherwise a skin that remaps the roles misses them.
+      const paletteUses = get().split('\n').filter(line => /var\(\s*--color-/.test(line));
+      expect(paletteUses).toEqual([]);
+    }
+  );
+
+  it('resolves every token the component layers reference', () => {
+    const declared = new Set([...rootBlock.matchAll(/^\s*(--[a-z0-9-]+):/gm)].map(m => m[1]));
+    const referenced = new Set(
+      [...(componentCss + matrixCss).matchAll(/var\(\s*(--[a-z0-9-]+)/g)].map(m => m[1])
+    );
+    // --racer-color is set inline per element, never declared at :root.
+    referenced.delete('--racer-color');
+    referenced.delete('--fs-cols');
+    const missing = [...referenced].filter(token => !declared.has(token));
+    expect(missing).toEqual([]);
   });
 
   it('declares no palette token that nothing consumes', () => {

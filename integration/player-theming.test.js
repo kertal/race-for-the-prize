@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
 import { buildPlayerHtml } from '../cli/videoplayer.js';
+import { buildConditionIndexHtml } from '../cli/condition-matrix.js';
 import { RACER_CSS_COLORS } from '../cli/player-sections.js';
 import { hasChromiumInstalled } from './test-helpers.js';
 
@@ -42,10 +43,10 @@ const rgb = (hex) => {
 
 // Tokens the assertions below pin to, read straight from the stylesheet so a
 // deliberate palette change updates the expectations instead of breaking them.
-const CSS = fs.readFileSync(path.join(__dirname, '..', 'cli', 'player.css'), 'utf-8');
+const TOKENS_CSS = fs.readFileSync(path.join(__dirname, '..', 'cli', 'tokens.css'), 'utf-8');
 const token = (name) => {
-  const m = new RegExp(`^\\s*${name}:\\s*([^;]+);`, 'm').exec(CSS);
-  if (!m) throw new Error(`token ${name} not found in player.css`);
+  const m = new RegExp(`^\\s*${name}:\\s*([^;]+);`, 'm').exec(TOKENS_CSS);
+  if (!m) throw new Error(`token ${name} not found in tokens.css`);
   return m[1].trim();
 };
 const ACCENT = token('--color-gold');
@@ -174,6 +175,69 @@ describeMaybe('player theming integration', () => {
       });
       // --racer-color is unset, so .racer-name must resolve to --text.
       expect(fallback).toBe(rgb(token('--color-parchment')));
+    });
+  });
+
+  describe('condition overview', () => {
+    /** The cross-condition comparison page, which shares the player's tokens. */
+    function writeMatrix(name, options) {
+      const dir = path.join(tmpDir, name);
+      fs.mkdirSync(dir, { recursive: true });
+      const entries = [
+        { label: 'none-cpu1', network: 'none', cpu: 1, summary },
+        { label: 'slow-3g-cpu1', network: 'slow-3g', cpu: 1, summary: { ...summary, overallWinner: 'hunt' } },
+      ];
+      fs.writeFileSync(path.join(dir, 'index.html'), buildConditionIndexHtml('lauda vs hunt', entries, options));
+      return `file://${path.join(dir, 'index.html')}`;
+    }
+
+    /** Card background, winner label colour and page ground, as rendered. */
+    const readCard = () => page.evaluate(() => {
+      const card = document.querySelector('td a');
+      const win = document.querySelector('.r.win');
+      return {
+        page: getComputedStyle(document.body).backgroundColor,
+        card: getComputedStyle(card).backgroundColor,
+        winner: getComputedStyle(win).color,
+        verdict: getComputedStyle(document.querySelector('.verdict')).color,
+      };
+    });
+
+    it('renders on the same palette as the player', async () => {
+      await page.goto(writeMatrix('matrix-default', {}));
+      const seen = await readCard();
+      expect(seen.page).toBe(rgb(token('--color-ink-900')));
+      expect(seen.card).toBe(rgb(token('--color-ink-800')));
+      expect(seen.winner).toBe(rgb(token('--color-parchment')));
+      // The verdict is tinted with the winning racer's own colour.
+      expect(seen.verdict).toBe(rgb(RACER_CSS_COLORS[0]));
+    });
+
+    it('follows a skin, so the whole report set themes together', async () => {
+      await page.goto(writeMatrix('matrix-light', { skin: 'light' }));
+      const seen = await readCard();
+
+      expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('light');
+      expect(seen.page).toBe(rgb('#f6f3ec'));
+      // Regression: the card once kept a dark-theme background under a light
+      // skin, because it read a palette ink no skin remaps. It must track the
+      // skin's own surface, and the winner's label must stay legible on it.
+      expect(seen.card).toBe(rgb('#ffffff'));
+      expect(seen.winner).toBe(rgb('#23201a'));
+      // Cards must never end up darker than the page they sit on.
+      const luma = (c) => c.match(/\d+/g).slice(0, 3).reduce((a, v) => a + Number(v), 0);
+      expect(luma(seen.card)).toBeGreaterThan(luma(seen.page));
+    });
+
+    it('keeps racer tints independent of the skin', async () => {
+      await page.goto(writeMatrix('matrix-neon', { skin: 'neon' }));
+      // Every metric is rendered up front with one block visible, so scope to
+      // the first card's visible block rather than sweeping the whole page.
+      const names = await page.evaluate(() =>
+        [...document.querySelector('td a').querySelectorAll('.m:not([hidden]) .r .n')]
+          .map(el => getComputedStyle(el).color)
+      );
+      expect(names).toEqual([rgb(RACER_CSS_COLORS[0]), rgb(RACER_CSS_COLORS[1])]);
     });
   });
 

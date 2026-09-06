@@ -13,6 +13,7 @@
  *   node race.js ./races/my-race --parallel   Run both browsers simultaneously
  *   node race.js ./races/my-race --headless   Run headless
  *   node race.js ./races/my-race --network=fast-3g --cpu=4
+ *   node race.js ./races/my-race --network=slow-3g,4g --cpu=1,4
  *   node race.js ./races/my-race --har --wasm=0 --serve=0
  */
 
@@ -27,7 +28,7 @@ import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c } from './cli/colors.js';
 import { FORMAT_EXTENSIONS } from './cli/media-config.js';
 import { raceVideoFile, fullVideoFile, traceFile, harFile, racerRelative } from './cli/paths.js';
-import { parseArgs, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown, findUnknownFlags, findValuelessKvFlags, parseNetworkList, InvalidSettingError } from './cli/config.js';
+import { parseArgs, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown, findUnknownFlags, findValuelessKvFlags, parseNetworkList, parseCpuList, buildRaceConditions, InvalidSettingError } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex, findMedianRunIndexPerRacer } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
@@ -38,84 +39,17 @@ import { runGeminiSummary, runGeminiSpec } from './cli/gemini-summary.js';
 import { buildResultsPaths, createStaticHandler, serveResults } from './cli/serve.js';
 import { loadRaceDir, applySettingsOrExit } from './cli/race-loader.js';
 import { runScript as runTaskScript } from './cli/task-runner.js';
+import { buildConditionMatrix, printConditionMatrix, buildConditionIndexHtml } from './cli/condition-matrix.js';
 
 // Re-exports for backwards compatibility — tests (and any external consumers)
-// import these from race.js even though the implementations moved to cli/serve.js.
-export { buildResultsPaths, createStaticHandler, serveResults };
+// import these from race.js even though the implementations moved to
+// cli/serve.js and cli/condition-matrix.js.
+export { buildResultsPaths, createStaticHandler, serveResults, buildConditionIndexHtml };
 
 /** Format a Date as YYYY-MM-DD_HH-MM-SS for directory naming. */
 export function formatTimestamp(date) {
   const pad = n => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
-}
-
-/**
- * Build the top-level index.html for a multi-network race: one card per
- * network condition linking to that condition's results player.
- *
- * @param {string} raceTitle - e.g. "lauda vs hunt"
- * @param {Array<{network: string, summary: object|null}>} entries
- * @returns {string} HTML document
- */
-export function buildNetworkIndexHtml(raceTitle, entries) {
-  const esc = s => String(s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  const rows = entries.map(({ network, summary }) => {
-    // 'tie' is a sentinel, not a racer name — render it like the other reports do.
-    const overallWinner = summary?.overallWinner;
-    let winner = '—';
-    if (overallWinner === 'tie') winner = '🤝 Tie';
-    else if (overallWinner) winner = `🏆 ${esc(overallWinner)}`;
-    return `      <li><a href="${encodeURIComponent(network)}/index.html">` +
-      `<span class="net">${esc(network)}</span><span class="winner">${winner}</span></a></li>`;
-  }).join('\n');
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(raceTitle)} — Network Conditions</title>
-<style>
-  /* Same token layering as the results player (cli/player.css): override these
-     on :root to reskin the index without touching a component rule. */
-  :root {
-    color-scheme: dark;
-    --bg: #1a1a2e;
-    --surface: #23233b;
-    --text: #eee;
-    --text-dim: #999;
-    --text-subtle: #aaa;
-    --accent: #6c6cd8;
-    --border: #33335a;
-    --font-ui: system-ui, sans-serif;
-    --radius-lg: 8px;
-    --content-max: 640px;
-    --gutter: 20px;
-  }
-  body { font-family: var(--font-ui); background: var(--bg); color: var(--text); margin: 0; padding: 40px var(--gutter); }
-  .wrap { max-width: var(--content-max); margin: 0 auto; }
-  h1 { font-size: 1.4em; margin-bottom: 4px; }
-  p.sub { color: var(--text-dim); margin-top: 0; }
-  ul { list-style: none; padding: 0; }
-  li a { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px;
-         margin: 10px 0; background: var(--surface); border-radius: var(--radius-lg); color: var(--text);
-         text-decoration: none; border: 1px solid var(--border); }
-  li a:hover { border-color: var(--accent); }
-  .net { font-weight: 600; }
-  .winner { color: var(--text-subtle); }
-</style>
-</head>
-<body>
-<div class="wrap">
-  <h1>${esc(raceTitle)}</h1>
-  <p class="sub">One race per network condition — pick a condition to view its results.</p>
-  <ul>
-${rows}
-  </ul>
-</div>
-</body>
-</html>
-`;
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -612,6 +546,49 @@ export function buildRaceContext({ racerNames, scripts, settings, rootDir = __di
   return { racerNames, settings, executionMode, throttle, runnerConfig, rootDir, raceDir, racerFiles };
 }
 
+/**
+ * Check that the Chromium build Playwright launches is actually on disk.
+ *
+ * The postinstall hook downloads it, and package managers increasingly gate
+ * install scripts behind an approval step (npm's allowScripts, pnpm's
+ * onlyBuiltDependencies). When the hook has not run, the failure surfaces at
+ * launch instead — once per racer, from inside the runner, whose stderr this
+ * process consumes for race messages rather than forwarding. So the browser is
+ * checked here, before the setup script runs or a results directory exists,
+ * and the answer is one actionable line naming the lighter chromium-only
+ * download rather than Playwright's full-suite suggestion.
+ *
+ * Dependencies are injected so this is unit-testable without a real install.
+ *
+ * @param {object} [deps]
+ * @param {() => Promise<object>} [deps.importPlaywright]
+ * @param {(path: string) => boolean} [deps.exists]
+ * @returns {Promise<string|null>} error message, or null when the browser is present
+ */
+export async function findMissingBrowser({
+  importPlaywright = () => import('playwright'),
+  exists = fs.existsSync,
+} = {}) {
+  let chromium;
+  try {
+    ({ chromium } = await importPlaywright());
+  } catch {
+    return 'Playwright is not installed. Run "npm install" to install dependencies.';
+  }
+  let executable;
+  try {
+    executable = chromium.executablePath();
+  } catch {
+    // Playwright declined to name a path (custom channel, unusual install
+    // layout). Nothing reliable to check — let the runner try and report.
+    return null;
+  }
+  if (!executable || exists(executable)) return null;
+  return 'Chromium is not downloaded. Run "npx playwright install chromium" to fetch it.\n' +
+    "  Your package manager may have skipped this package's postinstall hook, " +
+    'which normally does it for you.';
+}
+
 // --- CLI entry point ---
 
 // Check if running as main module (not imported)
@@ -831,6 +808,7 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--network${c.reset}=${c.green}slow-3g${c.reset}   Network: none, slow-3g, fast-3g, 4g
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--network${c.reset}=${c.green}slow-3g,4g${c.reset} Race each network condition separately
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}4${c.reset}              CPU throttle multiplier (1=none)
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}1,4${c.reset}            Race each CPU throttle rate separately
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--format${c.reset}=${c.green}mov${c.reset}          Output format: webm (default), mov, gif
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--skin${c.reset}=${c.green}light${c.reset}          Skin the results player: ${listSkins().join(', ')}, or a path to a .css file
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--runs${c.reset}=${c.green}3${c.reset}            Run multiple times, report median
@@ -961,13 +939,18 @@ const runScript = (script, label, vars) => runTaskScript(script, label, vars, { 
 
 const totalRuns = settings.runs;
 
-// Resolve the network setting into a list of conditions. A single condition
-// behaves exactly as before; multiple conditions (comma-separated --network or
-// an array in settings.json) race each condition separately, with results
-// named after the condition.
-let networkConditions;
+// Resolve the network and CPU throttling settings into a list of conditions.
+// A single condition behaves exactly as before; multiple values
+// (comma-separated --network/--cpu or arrays in settings.json) race every
+// combination separately, with results named after the condition.
+// CLI values were already validated in applyOverrides, so anything invalid
+// here came from settings.json — the error labels name those keys.
+let raceConditions;
 try {
-  networkConditions = parseNetworkList(settings.network ?? 'none', 'network');
+  raceConditions = buildRaceConditions(
+    parseNetworkList(settings.network ?? 'none', 'network'),
+    parseCpuList(settings.cpuThrottle ?? 1, 'cpuThrottle')
+  );
 } catch (e) {
   if (e instanceof InvalidSettingError) {
     console.error(`${c.red}Error: ${e.message}${c.reset}`);
@@ -975,12 +958,12 @@ try {
   }
   throw e;
 }
-const multiNetwork = networkConditions.length > 1;
+const multiCondition = raceConditions.length > 1;
 
 // Include a short random nonce so rapid successive runs (timestamp collisions,
 // e.g. same second) don't overwrite each other's output.
 const baseResultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}-${crypto.randomBytes(3).toString('hex')}`);
-// In multi-network mode this is reassigned per condition (baseResultsDir/<network>).
+// In multi-condition mode this is reassigned per condition (baseResultsDir/<label>).
 let resultsDir = baseResultsDir;
 
 // --- Main ---
@@ -1224,6 +1207,12 @@ async function runSplitModeSeries() {
 }
 
 async function main() {
+  const missingBrowser = await findMissingBrowser();
+  if (missingBrowser) {
+    console.error(`\n  ${c.red}Error: ${missingBrowser}${c.reset}`);
+    process.exit(1);
+  }
+
   let setupCompleted = false;
 
   try {
@@ -1240,32 +1229,35 @@ async function main() {
       console.error(`  ${c.yellow}Note: --parallel is ignored because ${reason}; racers will run one at a time.${c.reset}`);
     }
 
-    // Race each network condition separately. With a single condition this
+    // Race each throttling condition separately. With a single condition this
     // loop runs once with resultsDir === baseResultsDir (unchanged behavior).
     const baseSettings = settings;
     const baseCtx = ctx;
-    const networkSummaries = [];
-    for (const network of networkConditions) {
-      settings = { ...baseSettings, network };
-      ctx = {
-        ...baseCtx,
-        settings,
-        throttle: { ...baseCtx.throttle, network },
-        runnerConfig: { ...baseCtx.runnerConfig, throttle: { ...baseCtx.runnerConfig.throttle, network } },
-      };
-      if (multiNetwork) {
-        resultsDir = path.join(baseResultsDir, network);
-        console.error(`\n  ${c.bold}${c.magenta}══ Network: ${network} ══${c.reset}`);
+    const conditionSummaries = [];
+    for (const { network, cpu, label, title } of raceConditions) {
+      settings = { ...baseSettings, network, cpuThrottle: cpu };
+      const throttle = { ...baseCtx.throttle, network, cpu };
+      ctx = { ...baseCtx, settings, throttle, runnerConfig: { ...baseCtx.runnerConfig, throttle } };
+      if (multiCondition) {
+        resultsDir = path.join(baseResultsDir, label);
+        console.error(`\n  ${c.bold}${c.magenta}══ ${title} ══${c.reset}`);
       }
-      networkSummaries.push({ network, summary: await runRaceSeries() });
+      conditionSummaries.push({ label, title, network, cpu, summary: await runRaceSeries() });
     }
 
-    if (multiNetwork) {
+    if (multiCondition) {
       resultsDir = baseResultsDir;
+      // Overview across every condition raced: how the field holds up as the
+      // network and CPU get harder, not just who won each individual race.
+      // The terminal shows total time; the HTML index can switch metrics.
+      printConditionMatrix(buildConditionMatrix(conditionSummaries));
       if (!settings.noRecording) {
         fs.writeFileSync(
           path.join(baseResultsDir, 'index.html'),
-          buildNetworkIndexHtml(racerNames.join(' vs '), networkSummaries)
+          buildConditionIndexHtml(racerNames.join(' vs '), conditionSummaries, {
+            skin: settings.skin,
+            skinBaseDir: ctx.raceDir,
+          })
         );
       }
     }

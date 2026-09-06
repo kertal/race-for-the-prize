@@ -1,9 +1,19 @@
 # Skinning the results player
 
-The HTML report RaceForThePrize writes to `results-*/index.html` is styled by a
-single stylesheet, [`cli/player.css`](../cli/player.css), which is inlined into
-the page at build time. That stylesheet is written in three layers so the whole
-player can be re-themed without touching a single component rule:
+The HTML reports RaceForThePrize writes — the results player at
+`results-*/index.html`, and the cross-condition overview that a multi-condition
+race puts above it — are styled from one shared set of design tokens,
+[`cli/tokens.css`](../cli/tokens.css), inlined into each page at build time
+ahead of that page's component rules:
+
+| File | Role |
+|---|---|
+| [`cli/tokens.css`](../cli/tokens.css) | Layers 1–2: the palette and semantic roles. Both pages inline it, so they cannot drift apart. |
+| [`cli/player.css`](../cli/player.css) | Layer 3 for the results player. |
+| `INDEX_CSS` in [`cli/condition-matrix.js`](../cli/condition-matrix.js) | Layer 3 for the condition overview. |
+
+Together they form three layers, so a report can be re-themed without touching a
+single component rule:
 
 | Layer | What lives there | Example |
 |---|---|---|
@@ -11,10 +21,14 @@ player can be re-themed without touching a single component rule:
 | **2. Semantic roles** | What a colour *means* | `--accent: var(--color-gold)` |
 | **3. Components** | The widgets themselves | `.play-btn { background: var(--accent) }` |
 
-The component layer contains **no literal colours, fonts, radii, or durations** —
-every one of them comes from a token. A skin is therefore just a CSS file that
-redefines tokens. There is no build step, no preprocessor, and no need to keep a
-fork of the stylesheet in sync.
+Both component layers contain **no literal colours, fonts, radii, or durations**,
+and never reach past the semantic roles into the raw palette — every value comes
+from a semantic token. Tests enforce both rules on both stylesheets. A skin is
+therefore just a CSS file that redefines tokens: there is no build step, no
+preprocessor, and no need to keep a fork of the stylesheet in sync.
+
+Because both pages read the same tokens, one `--skin` themes the whole report
+set — the overview and every per-condition player it links to.
 
 ## Using a skin
 
@@ -76,7 +90,7 @@ Colour — surfaces and text:
 | Token | Role |
 |---|---|
 | `--bg` | Page background |
-| `--surface` | Buttons, selects, panels, inputs |
+| `--surface` | Buttons, selects, panels, inputs, overview cards |
 | `--surface-raised` | Hover state for the above |
 | `--surface-inset` | Recessed panel behind nested metrics |
 | `--scrim` | Modal backdrop, fullscreen control gradient |
@@ -120,6 +134,11 @@ Ornament and media:
 | `--select-arrow` | Dropdown arrow, as a full `url()` — the fill colour is baked into the data URI, so replace the whole image |
 | `--video-bg`, `--video-border-width`, `--video-border-color` | The video frames |
 
+A skin that only redefines `--bg`, `--surface` and `--text` still themes both
+pages correctly, because every component reads through those roles rather than
+inventing its own. Avoid introducing a component-specific colour token: a skin
+that does not know about it will leave that one element on the default theme.
+
 ### Per-racer colours
 
 Racer tints are not part of the skin: each racer gets a colour from
@@ -132,7 +151,8 @@ it with a neutral fallback, e.g.
 ```
 
 so a skin can restyle anything racer-tinted by overriding the rule's fallback,
-and unset racer colours degrade to the skin's own text colour.
+and unset racer colours degrade to the skin's own text colour. The condition
+overview uses the same property for its cards' racer rows, bars and verdicts.
 
 ### Light skins
 

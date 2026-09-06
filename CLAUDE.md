@@ -38,6 +38,7 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 - `animation.js` — live terminal race animation
 - `summary.js` — summary data model, terminal output, JSON/Markdown report generation
 - `race-utils.js` — overall-winner computation and `TIE_THRESHOLD_PERCENT`
+- `condition-matrix.js` — cross-condition overview for multi-condition races (network × CPU matrix model with a series per metric, terminal renderer, and the top-level `index.html` with its metric picker)
 - `profile-analysis.js` — CDP metric definitions (`PROFILE_METRICS`), comparison, terminal/Markdown rendering
 - `results.js` — moves recordings from temp dirs, video format conversion (WebM→MOV/GIF), ffmpeg.wasm asset copying
 - `sidebyside.js` — FFmpeg side-by-side video composition
@@ -59,7 +60,7 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 - Timing and video calibration come from the Playwright trace (`trace-calibration.cjs`): the HTML player virtually trims via `traceCalibration`/clip times, and `--ffmpeg` physically trims using trace-derived PTS segments. The colored cue flashes are opt-in (`--cue-markers`) and exist only as ground truth for the ffprobe integration tests — they perturb metrics, so they're off by default.
 - CLI flags override `settings.json` values (CLI takes priority). See `config.js` `applyOverrides()`.
 - Per-racer setup scripts (e.g. `racer-a.setup.sh`) trigger split execution: each racer's setup runs right before that racer's runs, not all upfront. Without per-racer setups, all racers run together per run.
-- `player.css` is layered: palette tokens → semantic tokens → component rules. The component layer must contain no literal colors/fonts/radii — a test enforces this. Skins (`cli/skins/*.css`) only redefine tokens under `:root[data-theme="<name>"]`; see `docs/skinning.md`.
+- `tokens.css` holds the palette + semantic tokens shared by both reports; `player.css` and `condition-matrix.js`'s `INDEX_CSS` are component layers that inline it. A component layer must contain no literal colors/fonts/radii and must never reference a raw `--color-*` palette token — tests enforce both, on both stylesheets. Skins (`cli/skins/*.css`) only redefine tokens under `:root[data-theme="<name>"]`; see `docs/skinning.md`.
 - Per-racer colors reach the page as an inline `--racer-color` custom property, never as a hard-coded `color:` declaration.
 - Unit tests live in `tests/` (`vitest.config.js` excludes `races/`, `my-races/`, `integration/`). Integration tests live in `integration/` (`vitest.integration.config.js`) and skip themselves when Chromium or ffprobe is unavailable.
 

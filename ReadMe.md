@@ -53,6 +53,45 @@ The frontend framework cage match — four racers, one winner. React, Angular, S
 node race.js ./races/react-vs-angular
 ```
 
+## 🤫 Encrypted cache vs plain cache vs no cache
+
+What does caching cost, and when does it pay back? [HushHushDB](https://kertal.github.io/hush-hush-db/) downloads a dataset and can keep it in IndexedDB — encrypted with a key in `sessionStorage`, stored as plaintext, or not kept at all. Three racers boot the same app into a different cache handling mode, fetch the dataset, then ask for it a second time.
+
+```bash
+node race.js ./races/caching-comparison
+```
+
+Both halves are timed, because encryption is not free on either side of the cache. **Fetch and store** is the price paid up front — the app renders only once the write finishes. **Reload to data** is the payback, and it separates the two costs cleanly: decrypting is a CPU cost that ignores the network, refetching is a network cost that ignores the CPU.
+
+```text
+  ⏱ Reload to data     encrypted   plain   no-cache
+  none    · CPU 1x       0.190s   0.133s     0.068s
+  slow-3g · CPU 1x       0.189s   0.150s     4.332s   ← same CPU, 25x slower link
+  none    · CPU 4x       0.496s   0.306s     0.127s   ← same link, 4x slower CPU
+```
+
+Six conditions (three networks x two CPU rates), three runs each, reported as medians — the whole thing takes about nine minutes:
+
+```text
+  ⚡ Performance Matrix
+  Network  CPU 1x                     CPU 4x
+  none     🏆 no-cache        0.171s  🏆 no-cache        0.345s
+              plain-cache     0.300s     plain-cache     0.849s
+              encrypted-cache 0.393s     encrypted-cache 1.179s
+
+  fast-3g  🏆 plain-cache     2.059s  🏆 plain-cache     2.571s
+              encrypted-cache 2.138s     no-cache        2.867s
+              no-cache        3.164s     encrypted-cache 2.920s
+
+  slow-3g  🏆 plain-cache     4.583s  🏆 plain-cache     5.062s
+              encrypted-cache 4.667s     encrypted-cache 5.404s
+              no-cache        8.217s     no-cache        7.917s
+```
+
+On a free network the write cost makes caching pure overhead and skipping it wins outright; by slow-3g caching wins by three and a half seconds. Encryption is the smaller effect but a remarkably steady one: on the read it costs 40–60ms at CPU 1x and around 190ms at CPU 4x, in every network condition. Switch the metric picker in `index.html` to **Network Transfer** under *Total Recording* for the blunt version: the cached racers move 380 KB over the whole run, no-cache 594 KB — the extra 214 KB is the dataset, fetched a second time.
+
+Single runs of a live site wobble enough to flip cells, so `settings.json` asks for three. Drop it to `"runs": 1` if you would rather have the answer in three minutes.
+
 ## Global Install
 
 Install once, race anywhere:
@@ -269,6 +308,30 @@ Combine network throttling and CPU slowdown to approximate mobile users on spott
 node race.js ./races/my-race --network=slow-3g --cpu=6 --runs=3
 ```
 
+Both `--network` and `--cpu` accept a list. Every combination is raced separately, each into its own results subdirectory:
+
+```bash
+node race.js ./races/my-race --cpu=1,4              # cpu1x/, cpu4x/
+node race.js ./races/my-race --network=slow-3g,4g --cpu=1,4  # slow-3g-cpu1x/, slow-3g-cpu4x/, 4g-cpu1x/, 4g-cpu4x/
+```
+
+Afterwards you get a **performance matrix** — network presets down the side, CPU rates across the top, every racer's total time in each cell — printed to the terminal and rendered as the top-level `index.html`, where each cell links to that condition's own results:
+
+```text
+  ⚡ Performance Matrix
+  Network  CPU 1x            CPU 4x
+  none     🏆 lauda  0.900s  🏆 lauda  3.600s
+              hunt   1.100s     hunt   4.400s
+
+  slow-3g  🏆 hunt   2.720s  🏆 hunt  10.880s
+              lauda  2.880s     lauda 11.520s
+  Conditions won: lauda 2 · hunt 2
+```
+
+One race per condition tells you who won each; the matrix tells you how the field holds up as conditions get harder — and whether the winner flips somewhere along the way.
+
+The HTML matrix also has a **Compare** picker: switch the whole grid from total time to any performance-profile metric that was captured — network transfer, request count, script execution, layout time, TTFB, FCP, LCP, CLS, DOM timings, JS heap — for the measured section or the total recording. Bars rescale to the chosen metric, and a cell is only called a win when the difference clears that metric's significance threshold; anything smaller shows as a tie.
+
 The `--runs` flag takes the median, smoothing out noise and giving you a number you can trust. In multi-run mode, each racer independently picks the run closest to their own median — so if Racer A performed best in Run 2 and Racer B in Run 4, each gets their own representative video. The results page shows which runs were selected (e.g., "Runs 2, 4").
 
 ## Race Flags (CLI Options)
@@ -284,6 +347,7 @@ node race.js <dir> --network=fast-3g      # Damp track
 node race.js <dir> --network=4g           # Dry track
 node race.js <dir> --network=slow-3g,4g   # Full season — race each condition separately
 node race.js <dir> --cpu=4                # Ballast penalty (CPU throttle)
+node race.js <dir> --cpu=1,4              # Race each CPU throttle rate separately
 node race.js <dir> --format=mov           # Broadcast-ready replay format (requires --ffmpeg)
 node race.js <dir> --format=gif           # Quick highlight reel (requires --ffmpeg)
 node race.js <dir> --runs=3               # Best of 3 — median wins
@@ -354,9 +418,12 @@ node race.js ./races/lauda-vs-hunt --skin=light       # built-in
 node race.js ./races/lauda-vs-hunt --skin=./team.css  # your own
 ```
 
-Two skins ship with the tool (`light`, `neon`) and live in `cli/skins/`. Skins
-are inlined into the page, so exported HTML and ZIP bundles keep their theme.
-See [docs/skinning.md](docs/skinning.md) for the full token reference.
+Two skins ship with the tool (`light`, `neon`) and live in `cli/skins/`. One
+skin themes the whole report set — the results player and, for a multi-condition
+race, the performance matrix above it — because both pages inline the same
+`cli/tokens.css`. Skins are inlined into the page, so exported HTML and ZIP
+bundles keep their theme. See [docs/skinning.md](docs/skinning.md) for the full
+token reference.
 
 ## The Podium Ceremony
 
@@ -397,7 +464,7 @@ The terminal delivers the verdict in style:
 |---|---|---|---|
 | `parallel` | `--parallel` | `true` / `false` | `false` |
 | `network` | `--network=<preset>[,<preset>…]` | `none`, `slow-3g`, `fast-3g`, `4g` — a comma-separated list (or JSON array) races each condition separately, with results in a subdirectory named after the condition | `none` |
-| `cpuThrottle` | `--cpu=<n>` | `1` (none) to any multiplier | `1` |
+| `cpuThrottle` | `--cpu=<n>[,<n>…]` | `1` (none) to any multiplier — a comma-separated list (or JSON array) races each rate separately, with results in a subdirectory named after the rate | `1` |
 | `headless` | `--headless` | `true` / `false` | `false` |
 | `runs` | `--runs=<n>` | integer ≥ 1 (median of N runs) | `1` |
 | `slowmo` | `--slowmo=<n>` | `0` (off) to `20` (multiplier) | `0` |
@@ -508,11 +575,13 @@ RaceForThePrize/
 │   ├── config.js           # Argument parsing & racer discovery
 │   ├── profile-analysis.js # CDP performance metrics collection & analysis
 │   ├── player.html         # HTML player markup + build-time templates
-│   ├── player.css          # HTML player stylesheet (design tokens + components)
+│   ├── tokens.css          # Design tokens shared by every generated report
+│   ├── player.css          # HTML player component styles
 │   ├── player-runtime/     # HTML player client-side runtime (playback, calibration, export)
 │   ├── player-sections.js  # HTML player template sections
 │   ├── race-utils.js       # Shared race utility helpers
 │   ├── results.js          # File management & video conversion
+│   ├── condition-matrix.js # Cross-condition performance matrix (terminal + HTML)
 │   ├── skins.js            # Skin resolution for --skin
 │   ├── skins/              # Built-in player skins (light, neon)
 │   ├── summary.js          # Results formatting & markdown reports
