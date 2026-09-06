@@ -5,12 +5,13 @@
  * Runs the trim-test race in default (non-ffmpeg) mode and uses ffprobe to
  * analyze the recorded video frames for cue detection accuracy.
  */
-import { describe, it, expect, afterAll, beforeAll } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
-import { CUE_DETECTION } from '../cli/colors.js';
+import { CUE_DETECTION } from '../cli/media-config.js';
+import { hasChromiumInstalled } from './test-helpers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -82,19 +83,20 @@ function detectCues(videoPath) {
   return { greenFrames, redFrames, totalFrames: lines.length };
 }
 
-describe('trim-accuracy integration', () => {
-  let resultsDir;
+// This suite needs both ffprobe (frame analysis) and a real Chromium (to run
+// the race). When either is missing, skip the whole suite cleanly — throwing in
+// a hook would fail the entire integration run, and other optional-binary suites
+// already establish describe.skip as the convention here.
+const canRun = hasFfprobe() && hasChromiumInstalled(path.resolve(__dirname, '..'));
+const describeMaybe = canRun ? describe : describe.skip;
 
-  beforeAll(() => {
-    if (!hasFfprobe()) {
-      throw new Error('ffprobe is not installed or not on PATH — skipping trim-accuracy tests');
-    }
-  });
+describeMaybe('trim-accuracy integration', () => {
+  let resultsDir;
 
   it('runs trim-test race and produces accurate measurement durations', () => {
     const projectRoot = path.resolve(__dirname, '..');
 
-    const proc = spawnSync('node', ['race.js', './races/trim-test', '--serve=false'], {
+    const proc = spawnSync('node', ['race.js', './races/trim-test', '--serve=false', '--cue-markers'], {
       cwd: projectRoot,
       timeout: 60_000,
       encoding: 'utf-8',
@@ -182,9 +184,9 @@ describe('trim-accuracy integration', () => {
     if (!resultsDir) return;
 
     const html = fs.readFileSync(path.join(resultsDir, 'index.html'), 'utf-8');
-    const ctMatch = html.match(/const clipTimes = (\[.*?\]);/);
-    expect(ctMatch).not.toBeNull();
-    const clipTimes = JSON.parse(ctMatch[1]);
+    const cfgMatch = html.match(/<script id="race-config" type="application\/json">([\s\S]*?)<\/script>/);
+    expect(cfgMatch).not.toBeNull();
+    const clipTimes = JSON.parse(cfgMatch[1]).clipTimes;
 
     for (let i = 0; i < RACERS.length; i++) {
       const ct = clipTimes[i];

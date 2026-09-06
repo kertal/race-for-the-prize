@@ -1,46 +1,20 @@
 import { describe, it, expect } from 'vitest';
-import { determineOverallWinner, TIE_THRESHOLD_PERCENT } from '../cli/race-utils.js';
+import { determineOverallWinner } from '../cli/race-utils.js';
 
 describe('determineOverallWinner', () => {
-  it('returns null when there are no comparisons', () => {
-    const winner = determineOverallWinner({ a: 0, b: 0 }, ['a', 'b'], []);
-    expect(winner).toBeNull();
-  });
+  // [description, wins, racerNames, comparisons, expected]
+  const cases = [
+    ['returns null when there are no comparisons', { a: 0, b: 0 }, ['a', 'b'], [], null],
+    ['returns the sole win leader', { a: 2, b: 0 }, ['a', 'b'], [{}, {}], 'a'],
+    // A racer that consistently wins by a small margin still wins overall; "how
+    // close counts as a win" is decided per-comparison, not re-litigated here.
+    ['returns the leader even for a slim single-win margin', { a: 1, b: 0 }, ['a', 'b'], [{}], 'a'],
+    ['returns tie when win counts are equal', { a: 1, b: 1 }, ['a', 'b'], [{}, {}], 'tie'],
+    ['returns null when nobody won any comparison', { a: 0, b: 0 }, ['a', 'b'], [{}, {}], null],
+    ['resolves a three-way field by highest win count', { a: 0, b: 3, c: 1 }, ['a', 'b', 'c'], [{}, {}, {}, {}], 'b'],
+  ];
 
-  it('returns tie when average diff is below threshold, even with a win leader', () => {
-    const wins = { a: 2, b: 0 };
-    const comparisons = [
-      { diffPercent: TIE_THRESHOLD_PERCENT - 0.5 },
-      { diffPercent: TIE_THRESHOLD_PERCENT - 0.1 },
-    ];
-    const winner = determineOverallWinner(wins, ['a', 'b'], comparisons);
-    expect(winner).toBe('tie');
-  });
-
-  it('returns leader when average diff is at or above threshold', () => {
-    const wins = { a: 2, b: 0 };
-    const comparisons = [
-      { diffPercent: TIE_THRESHOLD_PERCENT },
-      { diffPercent: TIE_THRESHOLD_PERCENT + 2 },
-    ];
-    const winner = determineOverallWinner(wins, ['a', 'b'], comparisons);
-    expect(winner).toBe('a');
-  });
-
-  it('returns tie when wins are equal and threshold does not force tie', () => {
-    const wins = { a: 1, b: 1 };
-    const comparisons = [
-      { diffPercent: TIE_THRESHOLD_PERCENT + 3 },
-      { diffPercent: TIE_THRESHOLD_PERCENT + 1 },
-    ];
-    const winner = determineOverallWinner(wins, ['a', 'b'], comparisons);
-    expect(winner).toBe('tie');
-  });
-
-  it('ignores null diffPercent values and still resolves winner from wins', () => {
-    const wins = { a: 0, b: 2 };
-    const comparisons = [{ diffPercent: null }, { diffPercent: undefined }];
-    const winner = determineOverallWinner(wins, ['a', 'b'], comparisons);
-    expect(winner).toBe('b');
+  it.each(cases)('%s', (_desc, wins, racerNames, comparisons, expected) => {
+    expect(determineOverallWinner(wins, racerNames, comparisons)).toBe(expected);
   });
 });

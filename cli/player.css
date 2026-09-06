@@ -1,434 +1,403 @@
-:root {
-  --color-bg: #1a1a1a;
-  --color-panel: #2a2a2a;
-  --color-panel-hover: #3a3a3a;
-  --color-text: #e8e0d0;
-  --color-text-muted: #ccc;
-  --color-gold: #d4af37;
-  --color-gold-hover: #e8c445;
-  --color-gold-soft: #e8c445;
-  --color-muted: #999;
-  --color-subtle: #777;
-  --color-faint: #888;
-  --color-border: #555;
-  --color-border-soft: #444;
-  --color-border-faint: #333;
-  --color-orange: #e67e22;
-  --color-danger: #e74c3c;
-  --color-debug-bg: #2a2218;
-  --color-debug-border: #6c5520;
+/* ===========================================================================
+   RaceForThePrize — results player components
+   ---------------------------------------------------------------------------
+   Layer 3 of the report stylesheet. The palette and semantic roles live in
+   tokens.css, which is inlined ahead of this file; nothing below may contain a
+   literal colour, font, radius or duration, and nothing below may reach past
+   the semantic roles into the raw palette. Tests enforce both.
+   =========================================================================== */
 
-  --font-mono: ui-monospace, 'Courier New', monospace;
-  --font-display: Georgia, 'Times New Roman', serif;
-
-  --radius-sm: 3px;
-  --radius: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-
-  --transition-fast: 0.15s;
-  --transition: 0.2s;
-
-  --max-content: 900px;
-  --max-wide: 1440px;
-
-  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23999'/%3E%3C/svg%3E");
-}
-
-*, *::before, *::after { box-sizing: border-box; }
-body, h1, h2, h3, h4, p, ul, ol, dl, dd, figure, blockquote { margin: 0; }
-ul, ol { padding: 0; }
+/* --- Document shell ------------------------------------------------------ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-family: var(--font-mono);
-  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
 
-:focus-visible {
-  outline: 2px solid var(--color-gold);
-  outline-offset: 2px;
-  border-radius: var(--radius);
+h1 {
+  font-family: var(--font-display);
+  font-size: var(--font-size-4xl);
+  color: var(--accent);
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-widest);
 }
-
-/* --- Accessibility helpers --- */
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
-}
-
-.skip-link {
-  position: absolute;
-  inset-inline-start: 0.5rem;
-  inset-block-start: -3rem;
-  background: var(--color-gold);
-  color: var(--color-bg);
-  padding: 0.5rem 1rem;
-  border-radius: var(--radius);
-  text-decoration: none;
-  font-weight: bold;
-  z-index: 1000;
-  transition: top var(--transition);
-}
-.skip-link:focus {
-  inset-block-start: 0.5rem;
-}
-
-/* --- Decorative bars --- */
 
 .checkered-bar {
   width: 100%;
-  height: 20px;
-  background: repeating-conic-gradient(#222 0% 25%, var(--color-gold) 0% 50%) 0 0 / 20px 20px;
+  height: var(--checker-size);
+  background:
+    repeating-conic-gradient(var(--checker-color-a) 0% 25%, var(--checker-color-b) 0% 50%)
+    0 0 / var(--checker-size) var(--checker-size);
 }
 
-/* --- Header --- */
-
-body > header {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  max-width: var(--max-wide);
-  padding: 1.2rem 1.5rem 0.3rem;
-  gap: 0.5rem;
-}
-body > header > h1 {
-  font-family: var(--font-display);
-  font-size: 1.8rem;
-  color: var(--color-gold);
-  text-align: center;
-  text-transform: uppercase;
-  letter-spacing: 0.15em;
-}
-body > header > nav {
-  margin-inline-start: auto;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-body > header > nav > span {
-  position: relative;
-  display: inline-block;
-}
-body > header button {
-  background: var(--color-panel);
-  border: 1px solid var(--color-border-soft);
+/* --- Shared control chrome ----------------------------------------------
+   Every clickable control starts from the same surface/border/type so a skin
+   only has to move the tokens. Individual rules below declare what differs. */
+.run-nav-btn,
+.header-action-btn,
+.mode-btn,
+.racer-filter-btn,
+.frame-btn,
+.play-btn,
+.file-links a,
+.export-actions button,
+.export-actions a,
+.export-convert-row button,
+.debug-frame-btn,
+.debug-action-btn {
+  background: var(--surface);
+  color: var(--text-dim);
+  border: var(--border-width) solid var(--border-strong);
   border-radius: var(--radius);
-  width: 34px;
-  height: 34px;
-  font-size: 1.1rem;
-  line-height: 1;
+  font-family: var(--font-ui);
+  font-size: var(--font-size-md);
+  text-decoration: none;
   cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-muted);
-  transition: border-color var(--transition), color var(--transition), background var(--transition);
-}
-body > header button:hover {
-  border-color: var(--color-gold);
-  color: var(--color-text);
-  background: var(--color-panel-hover);
-}
-body > header button[aria-expanded="true"],
-body > header button[aria-pressed="true"] {
-  border-color: var(--color-gold);
-  color: var(--color-gold);
+  transition:
+    background var(--duration),
+    border-color var(--duration),
+    color var(--duration),
+    opacity var(--duration);
 }
 
-/* --- Share menu (HTML5 <menu>) --- */
+/* Hover: lift the surface, light the border. */
+.run-nav-btn:hover,
+.header-action-btn:hover,
+.mode-btn:hover,
+.frame-btn:hover,
+.file-links a:hover,
+.export-actions button:hover,
+.export-actions a:hover {
+  background: var(--surface-raised);
+  border-color: var(--accent);
+}
 
-#shareMenu {
-  display: none;
-  position: absolute;
-  inset-inline-end: 0;
-  top: 100%;
-  background: var(--color-panel);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 0.3rem 0;
-  min-width: 160px;
-  z-index: 100;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+/* …and, where the resting state is dimmed, brighten the label too. */
+.run-nav-btn:hover,
+.header-action-btn:hover,
+.mode-btn:hover {
+  color: var(--text);
+}
+
+/* Selected/primary state shared by the nav and mode toggles. */
+.run-nav-btn.active,
+.mode-btn.active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-color: var(--accent);
+  font-weight: bold;
+}
+
+/* --- Selects ------------------------------------------------------------- */
+.segment-nav,
+.speed-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--surface) var(--select-arrow) no-repeat right 0.5rem center;
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 0.35rem 1.6rem 0.35rem 0.6rem;
+  font-size: var(--font-size-base);
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition: border-color var(--duration), background-color var(--duration);
+}
+.segment-nav:hover,
+.speed-select:hover {
+  border-color: var(--accent);
+  background-color: var(--surface-raised);
+}
+.segment-nav:focus-visible,
+.speed-select:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* --- Disclosure triangles ------------------------------------------------ */
+.section > summary,
+.section-metric > summary,
+.profile-collapsible summary {
   list-style: none;
-}
-#shareMenu.visible { display: block; }
-#shareMenu li { display: block; }
-#shareMenu button {
-  display: block;
-  width: 100%;
-  background: none;
-  border: none;
-  color: var(--color-text);
-  padding: 0.5rem 1rem;
-  font-size: 0.82rem;
-  font-family: var(--font-mono);
-  text-align: start;
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
 }
-#shareMenu button:hover {
-  background: var(--color-panel-hover);
-  color: var(--color-gold);
+.section > summary::-webkit-details-marker,
+.section-metric > summary::-webkit-details-marker,
+.profile-collapsible summary::-webkit-details-marker { display: none; }
+
+.section > summary::before,
+.section-metric > summary::before,
+.profile-collapsible summary::before {
+  content: "\25B6";
+  font-size: var(--font-size-marker);
+  color: var(--text-ghost);
+  display: inline-block;
+  flex-shrink: 0;
+  transition: transform var(--duration);
+}
+.section[open] > summary::before,
+.section-metric[open] > summary::before,
+.profile-collapsible[open] summary::before { transform: rotate(90deg); }
+
+.section-metric > summary:focus-visible,
+.profile-collapsible summary:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
-/* --- Run navigation --- */
-
-nav.run-nav {
+/* --- Run navigation ------------------------------------------------------ */
+.run-nav {
   display: flex;
   gap: 0.4rem;
   padding: 0.7rem 1rem 0;
   justify-content: center;
   flex-wrap: wrap;
 }
-nav.run-nav > a,
-nav.run-nav > span {
-  background: var(--color-panel);
-  color: var(--color-muted);
-  border: 1px solid var(--color-border-soft);
-  border-radius: var(--radius);
+.run-nav-btn {
+  border-color: var(--border);
   padding: 0.3rem 0.8rem;
-  font-size: 0.8rem;
-  text-decoration: none;
-  font-family: var(--font-mono);
-  transition: background var(--transition), border-color var(--transition), color var(--transition);
+  font-size: var(--font-size-base);
 }
-nav.run-nav > a:hover {
-  background: var(--color-panel-hover);
-  border-color: var(--color-gold);
-  color: var(--color-text);
-}
-nav.run-nav > [aria-current="page"] {
-  background: var(--color-gold);
-  color: var(--color-bg);
-  border-color: var(--color-gold);
-  font-weight: bold;
-  cursor: default;
-}
+/* A run whose winner is known is tinted with that racer's colour. This rule
+   has the same specificity as .run-nav-btn.active above and comes later, so it
+   wins on border-color — which is what we want. The brighter label must NOT
+   leak into the active state, though: that one sits on the accent fill and
+   needs its inverted text to stay legible. */
+.run-nav-btn.has-winner { border-color: var(--racer-color, var(--border)); }
+.run-nav-btn.has-winner:not(.active) { color: var(--text-bright); }
+.run-nav-btn.active { cursor: default; }
 
-/* --- Main --- */
-
-main {
-  width: 100%;
+/* --- Header -------------------------------------------------------------- */
+.header-bar {
   display: flex;
-  flex-direction: column;
   align-items: center;
+  width: 100%;
+  max-width: var(--page-max);
+  padding: 1.2rem var(--gutter) 0.3rem;
+}
+.header-icon-left { margin-right: 0.5rem; }
+.header-icon-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.header-action-btn {
+  border-color: var(--border);
+  width: var(--control-size);
+  height: var(--control-size);
+  font-size: var(--font-size-2xl);
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.header-action-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.header-icon-group {
+  position: relative;
+  display: inline-block;
 }
 
-/* --- Winner banner --- */
-
-.winner-banner {
-  text-align: center;
-  font-family: var(--font-display);
-  font-size: 1.2rem;
-  color: var(--color-text);
-  padding-bottom: 1rem;
+/* --- Share menu ---------------------------------------------------------- */
+.share-menu {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: 100%;
+  background: var(--surface);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 0.3rem 0;
+  min-width: 160px;
+  z-index: 100;
+  box-shadow: var(--shadow-popover);
+}
+.share-menu.visible { display: block; }
+.share-menu-item {
   display: block;
-}
-.winner-banner:empty { display: none; }
-.trophy { font-size: 1.1rem; }
-
-/* --- Video source note (rendered as bare div with class) --- */
-.video-source-note {
-  text-align: center;
-  font-size: 0.8rem;
-  color: var(--color-subtle);
-  padding-bottom: 0.5rem;
-}
-
-/* --- Race info / Machine info as definition lists --- */
-
-dl.race-info, dl.machine-info {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  column-gap: 0.6rem;
-  row-gap: 0.1rem;
-  font-size: 0.8rem;
-  color: var(--color-text-muted);
-  padding: 0.1rem 0;
-  max-width: var(--max-wide);
   width: 100%;
+  background: none;
+  border: none;
+  color: var(--text);
+  padding: 0.5rem 1rem;
+  font-size: var(--font-size-base);
+  font-family: var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-fast), color var(--duration-fast);
 }
-dl.race-info dt, dl.machine-info dt {
-  color: var(--color-muted);
-  white-space: nowrap;
-}
-dl.race-info dd, dl.machine-info dd {
-  margin: 0;
-  white-space: nowrap;
-}
-
-/* --- Errors --- */
-
-.errors {
-  max-width: var(--max-content);
-  width: 100%;
-  padding: 0.3rem 1.5rem;
-}
-.errors ul {
-  list-style: none;
-  font-size: 0.85rem;
-  color: var(--color-danger);
-}
-.errors li::before {
-  content: "\26A0  ";
-  speak: none;
+.share-menu-item:hover {
+  background: var(--surface-raised);
+  color: var(--accent);
 }
 
-/* --- Settings panel --- */
-
-#settingsPanel {
+/* --- Settings panel ------------------------------------------------------ */
+.settings-panel {
   display: none;
   width: 100%;
-  max-width: var(--max-wide);
-  padding: 0.5rem 1.5rem;
+  max-width: var(--page-max);
+  padding: 0.5rem var(--gutter);
   gap: 0.8rem;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
 }
-#settingsPanel.visible { display: flex; }
-#settingsPanel > div {
+.settings-panel.visible { display: flex; }
+.settings-left,
+.settings-right {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
 }
-
-/* --- Racer filter (built by JS, uses .racer-filter-btn) --- */
-
-#racerFilter {
-  display: none;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-  align-items: center;
-}
-.racer-filter-btn {
-  border: 1px solid currentcolor;
-  border-radius: var(--radius);
-  padding: 0.3rem 0.9rem;
-  font-size: 0.82rem;
-  cursor: pointer;
-  font-family: var(--font-mono);
-  background: var(--color-panel);
-  transition: opacity var(--transition), background var(--transition);
-  opacity: 0.35;
-}
-.racer-filter-btn[aria-pressed="true"] { opacity: 1; }
-.racer-filter-btn[aria-pressed="false"]:hover { background: var(--color-panel-hover); opacity: 0.6; }
-.racer-filter-btn[aria-pressed="true"]:hover { background: var(--color-panel-hover); }
-
-/* --- Segment nav --- */
-
-#segmentNav {
-  display: none;
-  appearance: none;
-  background: var(--color-panel) var(--select-chevron) no-repeat right 0.5rem center;
-  color: var(--color-gold);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  padding: 0.35rem 1.6rem 0.35rem 0.6rem;
-  font-size: 0.82rem;
-  font-weight: bold;
-  cursor: pointer;
-  font-family: var(--font-mono);
-  transition: border-color var(--transition), background-color var(--transition);
-}
-#segmentNav:hover {
-  border-color: var(--color-gold);
-  background-color: var(--color-panel-hover);
-}
-
-/* --- Mode toggle (built by videoplayer.js) --- */
 
 .mode-toggle {
   display: flex;
   gap: 0.5rem;
+  padding: 0;
 }
-.mode-toggle button {
-  background: var(--color-panel);
-  color: var(--color-muted);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
+.mode-btn {
   padding: 0.4rem 1rem;
-  font-size: 0.85rem;
-  cursor: pointer;
-  font-family: var(--font-mono);
-  transition: background var(--transition), border-color var(--transition), color var(--transition);
+  font-size: var(--font-size-md);
 }
-.mode-toggle button:hover {
-  background: var(--color-panel-hover);
-  border-color: var(--color-gold);
-  color: var(--color-text);
+
+.racer-filter {
+  display: none;
+  gap: 0.4rem;
+  padding: 0;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  align-items: center;
 }
-.mode-toggle button.active,
-.mode-toggle button[aria-pressed="true"] {
-  background: var(--color-gold);
-  color: var(--color-bg);
-  border-color: var(--color-gold);
+.racer-filter-btn {
+  color: var(--racer-color, var(--text-dim));
+  border-color: currentcolor;
+  padding: 0.3rem 0.9rem;
+  font-size: var(--font-size-base);
+  opacity: 0.35;
+}
+.racer-filter-btn.active { opacity: 1; }
+.racer-filter-btn:hover { background: var(--surface-raised); }
+.racer-filter-btn:not(.active):hover { opacity: 0.6; }
+
+.segment-nav {
+  display: none;
+  color: var(--accent);
   font-weight: bold;
 }
 
-/* --- Player container --- */
+/* --- Banners & notes ----------------------------------------------------- */
+.winner-banner {
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: var(--font-size-3xl);
+  color: var(--text);
+  padding-bottom: 1rem;
+}
+.winner-banner:empty { display: none; }
+/* Zero-height inline-block: the emoji renders centered on the text but adds
+   nothing to the line box, keeping winner and non-winner labels identical. */
+.trophy {
+  display: inline-block;
+  font-size: var(--font-size-2xl);
+  line-height: 0;
+  vertical-align: middle;
+}
 
+.video-source-note {
+  text-align: center;
+  font-size: var(--font-size-base);
+  color: var(--text-faint);
+  padding-bottom: 0.5rem;
+}
+
+.errors {
+  max-width: var(--content-max);
+  width: 100%;
+  padding: 0.3rem var(--gutter);
+}
+.errors ul {
+  list-style: none;
+  font-size: var(--font-size-md);
+  color: var(--danger);
+}
+.errors li::before { content: "\26A0  "; }
+
+/* --- Info grids ---------------------------------------------------------- */
+.race-info,
+.machine-info {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 0.1rem var(--gutter);
+  font-size: var(--font-size-base);
+  color: var(--text-muted);
+  padding: 0.1rem 0;
+}
+.info-item { white-space: nowrap; }
+.info-label {
+  color: var(--text-dim);
+  margin-right: 0.4rem;
+}
+
+/* --- Video stage --------------------------------------------------------- */
 .player-container {
   display: flex;
   flex-wrap: wrap;
   gap: 1rem;
-  padding: 0 1.5rem;
+  padding: 0 var(--gutter);
   width: 100%;
   justify-content: center;
 }
-figure.racer {
+.racer {
   flex: 1;
   min-width: 280px;
   text-align: center;
 }
-figure.racer > figcaption {
+.racer-label {
   font-family: var(--font-display);
-  font-size: 1.1rem;
+  font-size: var(--font-size-2xl);
+  color: var(--racer-color, var(--text));
+  /* Explicit line-height keeps every label the same height, so the winner's
+     trophy can never push its video down relative to the other racers. */
+  line-height: var(--leading);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--tracking-wide);
   padding: 0.5rem 0;
 }
-
 video {
   width: 100%;
-  border: 2px solid var(--color-border-faint);
+  border: var(--video-border-width) solid var(--video-border-color);
   border-radius: var(--radius);
-  background: #000;
+  background: var(--video-bg);
 }
 .merged-container {
   max-width: 1200px;
   width: 100%;
-  padding: 0 1.5rem;
+  padding: 0 var(--gutter);
 }
 .merged-container video { width: 100%; }
 
-/* --- Playback toolbar --- */
-
-[role="toolbar"] {
-  max-width: var(--max-content);
+/* --- Transport controls -------------------------------------------------- */
+.controls {
+  max-width: var(--content-max);
   width: 100%;
-  padding: 1rem 1.5rem;
+  padding: 1rem var(--gutter);
   display: flex;
   align-items: center;
   gap: 0.8rem;
   flex-wrap: wrap;
 }
-[role="toolbar"] > div {
+.controls-row {
   display: flex;
   align-items: center;
   gap: 0.8rem;
@@ -436,258 +405,192 @@ video {
   min-width: 300px;
 }
 .play-btn {
-  background: var(--color-gold);
-  color: var(--color-bg);
+  background: var(--accent);
+  color: var(--accent-contrast);
   border: none;
-  border-radius: var(--radius);
-  width: 44px;
-  height: 34px;
-  font-size: 1.1rem;
-  cursor: pointer;
+  width: var(--play-btn-width);
+  height: var(--control-size);
+  font-size: var(--font-size-2xl);
   font-weight: bold;
   flex-shrink: 0;
 }
-.play-btn:hover { background: var(--color-gold-hover); }
+.play-btn:hover { background: var(--accent-bright); }
 .frame-btn {
-  background: var(--color-panel);
-  color: var(--color-gold);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  width: 34px;
-  height: 34px;
-  font-size: 0.7rem;
-  cursor: pointer;
+  color: var(--accent);
+  width: var(--control-size);
+  height: var(--control-size);
+  font-size: var(--font-size-xs);
   flex-shrink: 0;
 }
-.frame-btn:hover { background: var(--color-panel-hover); border-color: var(--color-gold); }
-[role="toolbar"] input[type="range"] {
+.scrubber {
   flex: 1;
-  accent-color: var(--color-gold);
+  accent-color: var(--accent);
   height: 6px;
   cursor: pointer;
 }
-.time-display {
-  font-size: 0.75rem;
-  color: var(--color-muted);
-  min-width: 140px;
+.time-display,
+.frame-display {
+  font-size: var(--font-size-sm);
   text-align: center;
   flex-shrink: 0;
+}
+.time-display {
+  color: var(--text-dim);
+  min-width: 140px;
 }
 .frame-display {
-  font-size: 0.75rem;
-  color: var(--color-subtle);
+  color: var(--text-faint);
   min-width: 80px;
-  text-align: center;
+}
+.speed-select {
+  color: var(--text);
   flex-shrink: 0;
 }
-[role="toolbar"] select {
-  appearance: none;
-  background: var(--color-panel) var(--select-chevron) no-repeat right 0.5rem center;
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  padding: 0.35rem 1.6rem 0.35rem 0.6rem;
-  font-size: 0.8rem;
-  cursor: pointer;
-  flex-shrink: 0;
-  font-family: var(--font-mono);
-  transition: border-color var(--transition), background-color var(--transition);
-}
-[role="toolbar"] select:hover {
-  border-color: var(--color-gold);
-  background-color: var(--color-panel-hover);
-}
 
-/* --- Sections (each <details> directly under <main>) --- */
-
-main > details {
-  max-width: var(--max-content);
+/* --- Collapsible report sections ----------------------------------------- */
+.section {
+  max-width: var(--content-max);
   width: 100%;
-  padding: 0.8rem 1.5rem 0.5rem;
+  padding: 0.8rem var(--gutter) 0.5rem;
 }
-main > details > summary {
-  cursor: pointer;
-  list-style: none;
+.section > summary {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   padding: 0.2rem 0;
 }
-main > details > summary::-webkit-details-marker { display: none; }
-main > details > summary::before {
-  content: "\25B6";
-  font-size: 0.55rem;
-  color: var(--color-subtle);
-  display: inline-block;
-  transition: transform var(--transition);
-  flex-shrink: 0;
-}
-main > details[open] > summary::before {
-  transform: rotate(90deg);
-}
-main > details > summary h2 {
+.section > summary h2 {
   font-family: var(--font-display);
-  color: var(--color-gold);
-  font-size: 1rem;
+  color: var(--accent);
+  font-size: var(--font-size-xl);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--tracking-wide);
+  margin: 0;
 }
-main > details > div {
-  padding-top: 0.4rem;
-}
-
-/* --- Profile text helpers --- */
-
-.profile-note {
-  color: var(--color-subtle);
-  font-size: 0.8rem;
-  margin-bottom: 1rem;
-}
-.profile-scope-desc {
-  color: var(--color-faint);
-  font-size: 0.78rem;
-  font-style: italic;
-  margin: -0.2rem 0 0.8rem;
-}
-.profile-category-desc {
-  color: var(--color-subtle);
-  font-size: 0.75rem;
-  margin: -0.2rem 0 0.5rem;
-}
-.profile-metric-desc {
-  color: var(--color-subtle);
-  font-size: 0.73rem;
-  margin: 0 0 0.2rem 0;
-  line-height: 1.4;
-}
-.profile-info-icon {
-  color: var(--color-faint);
-  font-size: 0.7rem;
-  cursor: help;
-}
-
-main > details h3 {
-  color: var(--color-text);
-  font-size: 0.95rem;
+.section-body { padding-top: 0.4rem; }
+.section h3 {
+  color: var(--text);
+  font-size: var(--font-size-lg);
   margin: 1rem 0 0.5rem;
-  border-bottom: 1px solid var(--color-border-soft);
+  border-bottom: var(--border-width) solid var(--border);
   padding-bottom: 0.3rem;
 }
-main > details h4 {
-  color: var(--color-muted);
-  font-size: 0.8rem;
+.section h4 {
+  color: var(--text-dim);
+  font-size: var(--font-size-base);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--tracking);
   margin: 0.8rem 0 0.4rem;
 }
 
-/* --- Run-comparison tables --- */
-
+/* --- Run-by-run comparison table ----------------------------------------- */
 .run-comparison-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.85rem;
+  font-size: var(--font-size-md);
   margin-bottom: 1rem;
-}
-.run-comparison-table caption {
-  text-align: start;
-  color: var(--color-text);
-  font-size: 0.95rem;
-  font-weight: normal;
-  padding-bottom: 0.4rem;
-  border-bottom: 1px solid var(--color-border-soft);
-  margin-bottom: 0.3rem;
 }
 .run-comparison-table th,
 .run-comparison-table td {
   padding: 0.35rem 0.6rem;
-  text-align: start;
-  border-bottom: 1px solid var(--color-border-faint);
+  text-align: left;
+  border-bottom: var(--border-width) solid var(--border-subtle);
 }
 .run-comparison-table th {
-  color: var(--color-faint);
-  font-size: 0.75rem;
+  color: var(--racer-color, var(--text-subtle));
+  font-size: var(--font-size-sm);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--tracking-tight);
 }
-.run-comparison-table td {
-  color: var(--color-text-muted);
-}
+.run-comparison-table td { color: var(--text-muted); }
 .run-comparison-median td {
-  border-top: 2px solid var(--color-gold);
-  color: var(--color-gold);
+  border-top: var(--border-width-thick) solid var(--accent);
+  color: var(--accent);
 }
+.run-delta { opacity: 0.5; }
 
-/* --- Profile metric rows --- */
-
+/* --- Performance profile ------------------------------------------------- */
+.profile-note {
+  color: var(--text-faint);
+  font-size: var(--font-size-base);
+  margin-bottom: 1rem;
+}
+.profile-scope-desc {
+  color: var(--text-subtle);
+  font-size: var(--font-size-base);
+  font-style: italic;
+  margin: -0.2rem 0 0.8rem;
+}
+.profile-category-desc {
+  color: var(--text-faint);
+  font-size: var(--font-size-sm);
+  margin: -0.2rem 0 0.5rem;
+}
+.profile-metric-desc {
+  color: var(--text-faint);
+  font-size: var(--font-size-xs);
+  margin: 0 0 0.2rem;
+  line-height: var(--leading);
+}
+.profile-info-icon {
+  color: var(--text-subtle);
+  font-size: var(--font-size-xs);
+  cursor: help;
+}
 .profile-metric { margin-bottom: 0.6rem; }
 .profile-metric-name {
-  color: var(--color-faint);
-  font-size: 0.8rem;
+  color: var(--text-subtle);
+  font-size: var(--font-size-base);
   margin-bottom: 0.2rem;
 }
 .profile-metric-total {
-  border: 1px solid var(--color-debug-border);
+  border: var(--border-width) solid var(--accent-shadow);
   border-radius: var(--radius-md);
-  background: linear-gradient(180deg, rgba(212, 175, 55, 0.12), rgba(212, 175, 55, 0.03));
+  background: var(--accent-wash);
   padding: 0.55rem 0.65rem 0.35rem;
   margin-bottom: 0.8rem;
 }
 .profile-metric-total .profile-metric-name {
-  color: var(--color-gold-soft);
-  font-size: 0.95rem;
-  letter-spacing: 0.04em;
+  color: var(--accent-bright);
+  font-size: var(--font-size-lg);
+  letter-spacing: var(--tracking-tight);
   margin-bottom: 0.35rem;
 }
-
 .section-metric {
-  border-inline-start: 2px solid var(--color-border-faint);
-  padding-inline-start: 0.4rem;
+  border-left: var(--border-width-thick) solid var(--border-subtle);
+  padding-left: 0.4rem;
   opacity: 0.95;
   margin: 0.45rem 0 0.7rem;
 }
 .section-metric > summary {
-  list-style: none;
-  cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
 }
-.section-metric > summary::-webkit-details-marker { display: none; }
-.section-metric > summary::before {
-  content: "\25B6";
-  font-size: 0.55rem;
-  color: var(--color-subtle);
-  display: inline-block;
-  transition: transform var(--transition);
-}
-.section-metric[open] > summary::before {
-  transform: rotate(90deg);
-}
 .section-metric > summary .profile-metric-name {
-  color: var(--color-muted);
+  color: var(--text-dim);
   margin-bottom: 0;
 }
 .section-metric:not([open]) > summary .profile-metric-name::after {
   content: " (collapsed)";
-  color: var(--color-subtle);
-  font-size: 0.72rem;
+  color: var(--text-ghost);
+  font-size: var(--font-size-xs);
 }
-.section-metric > div {
+.section-metric-body {
   margin-top: 0.25rem;
   padding: 0.35rem 0.45rem 0.25rem;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--surface-inset);
   border-radius: var(--radius);
 }
-
 .profile-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   padding: 0.15rem 0;
-  font-size: 0.82rem;
+  font-size: var(--font-size-base);
 }
 .profile-racer {
+  color: var(--racer-color, var(--text));
   font-weight: bold;
   min-width: 110px;
   flex-shrink: 0;
@@ -695,228 +598,170 @@ main > details h4 {
 .profile-bar-track {
   flex: 1;
   height: 10px;
-  background: var(--color-panel);
+  background: var(--surface);
   border-radius: var(--radius-sm);
   overflow: hidden;
 }
 .profile-bar-fill {
   display: block;
   height: 100%;
+  background: var(--racer-color, var(--accent));
   border-radius: var(--radius-sm);
   opacity: 0.8;
 }
 .profile-value {
   min-width: 140px;
   flex-shrink: 0;
-  text-align: end;
-  color: var(--color-text-muted);
+  text-align: right;
+  color: var(--text-muted);
   white-space: nowrap;
 }
+.profile-value-trophies { margin-left: auto; }
 .profile-delta {
-  color: var(--color-faint);
-  font-size: 0.75rem;
-  margin-inline-start: 0.3rem;
+  color: var(--text-subtle);
+  font-size: var(--font-size-sm);
+  margin-left: 0.3rem;
 }
-.profile-medal { font-size: 0.85rem; }
+.profile-medal { font-size: var(--font-size-md); }
 .profile-winner {
-  font-size: 0.9rem;
+  font-size: var(--font-size-lg);
   font-weight: bold;
   margin-top: 0.2rem;
 }
-
-/* Nested <details> inside a section */
-main > details details {
-  margin-top: 1rem;
-}
-main > details details > summary {
-  cursor: pointer;
-  list-style: none;
-  color: var(--color-text);
+.profile-collapsible { margin-top: 1rem; }
+.profile-collapsible summary {
+  color: var(--text);
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
-main > details details > summary::-webkit-details-marker { display: none; }
-main > details details > summary::before {
-  content: "\25B6";
-  font-size: 0.55rem;
-  color: var(--color-subtle);
-  transition: transform var(--transition);
-  display: inline-block;
-  flex-shrink: 0;
-}
-main > details details[open] > summary::before {
-  transform: rotate(90deg);
-}
+.profile-collapsible-title { display: inline; }
 
-/* --- File links list --- */
+/* Racer name chips reused by the profile and calibration panels. */
+.racer-name { color: var(--racer-color, var(--text)); }
 
+/* --- File links ---------------------------------------------------------- */
 .file-links {
   display: flex;
   gap: 0.6rem;
   flex-wrap: wrap;
-  list-style: none;
 }
 .file-links a {
-  color: var(--color-text);
-  background: var(--color-panel);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
+  color: var(--text);
   padding: 0.4rem 0.8rem;
-  text-decoration: none;
-  font-size: 0.85rem;
-  display: inline-block;
-}
-.file-links a:hover {
-  background: var(--color-panel-hover);
-  border-color: var(--color-gold);
 }
 
-/* --- Notes textarea (only textarea on the page) --- */
-
-main textarea {
+/* --- Calibration panel --------------------------------------------------- */
+.debug-panel {
+  max-width: var(--content-max);
   width: 100%;
-  min-height: 100px;
-  background: var(--color-panel);
-  color: var(--color-text);
-  border: 1px solid var(--color-border-soft);
-  border-radius: var(--radius);
-  padding: 0.6rem;
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-  resize: vertical;
-}
-main textarea:focus {
-  outline: none;
-  border-color: var(--color-gold);
-}
-
-/* --- Debug panel (aside.debug-panel) --- */
-
-aside.debug-panel {
-  max-width: var(--max-content);
-  width: 100%;
-  padding: 0.8rem 1.5rem;
-  background: var(--color-debug-bg);
-  border: 1px solid var(--color-orange);
+  padding: 0.8rem var(--gutter);
+  background: var(--tool-surface);
+  border: var(--border-width) solid var(--tool-accent);
   border-radius: var(--radius-md);
   margin: 0 auto;
   display: none;
 }
-aside.debug-panel h3 {
-  color: var(--color-orange);
+.debug-panel h3 {
+  color: var(--tool-accent);
   font-family: var(--font-display);
-  font-size: 0.95rem;
+  font-size: var(--font-size-lg);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--tracking-wide);
   margin-bottom: 0.6rem;
 }
-aside.debug-panel > p {
-  color: var(--color-muted);
-  font-size: 0.8rem;
-  line-height: 1.5;
+.calibration-note {
+  color: var(--text-dim);
+  font-size: var(--font-size-base);
+  line-height: var(--leading-loose);
   margin-bottom: 0.8rem;
 }
-aside.debug-panel section {
-  margin-top: 0.6rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--color-border-soft);
-}
-aside.debug-panel section h4 {
-  color: var(--color-orange);
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin-bottom: 0.3rem;
-}
-aside.debug-panel .debug-row {
+.debug-row {
   display: flex;
   align-items: center;
   gap: 0.6rem;
   padding: 0.3rem 0;
-  font-size: 0.85rem;
+  font-size: var(--font-size-md);
   flex-wrap: wrap;
 }
-aside.debug-panel .debug-row .racer-name {
+.debug-row .racer-name,
+.debug-stats-row .racer-name {
   font-weight: bold;
   min-width: 90px;
 }
-aside.debug-panel .debug-row .start-info {
-  color: var(--color-muted);
+.debug-row .start-info {
+  color: var(--text-dim);
   min-width: 150px;
 }
-aside.debug-panel .debug-row > button {
-  background: var(--color-panel);
-  color: var(--color-orange);
-  border: 1px solid var(--color-orange);
+.debug-frame-btn,
+.debug-action-btn {
+  color: var(--tool-accent);
+  border-color: var(--tool-accent);
+}
+.debug-frame-btn {
   border-radius: var(--radius-sm);
   padding: 0.2rem 0.5rem;
-  font-size: 0.75rem;
-  cursor: pointer;
-  font-family: var(--font-mono);
-  transition: background var(--transition), color var(--transition);
+  font-size: var(--font-size-sm);
 }
-aside.debug-panel .debug-row > button:hover {
-  background: var(--color-orange);
-  color: var(--color-bg);
+.debug-action-btn {
+  padding: 0.3rem 0.8rem;
+  font-size: var(--font-size-base);
 }
-aside.debug-panel > footer {
+.debug-frame-btn:hover,
+.debug-action-btn:hover {
+  background: var(--tool-accent);
+  color: var(--tool-contrast);
+}
+.debug-footer {
   display: flex;
   align-items: center;
   gap: 0.8rem;
   margin-top: 0.6rem;
   padding-top: 0.5rem;
-  border-top: 1px solid var(--color-border-soft);
-  font-size: 0.75rem;
-  color: var(--color-subtle);
+  border-top: var(--border-width) solid var(--border);
+  font-size: var(--font-size-sm);
+  color: var(--text-faint);
   flex-wrap: wrap;
 }
-aside.debug-panel > footer button {
-  background: var(--color-panel);
-  color: var(--color-orange);
-  border: 1px solid var(--color-orange);
-  border-radius: var(--radius);
-  padding: 0.3rem 0.8rem;
-  font-size: 0.8rem;
-  cursor: pointer;
-  font-family: var(--font-mono);
-  transition: background var(--transition), color var(--transition);
+.debug-stats,
+.debug-frames,
+.debug-timing {
+  margin-top: 0.6rem;
+  padding-top: 0.5rem;
+  border-top: var(--border-width) solid var(--border);
 }
-aside.debug-panel > footer button:hover {
-  background: var(--color-orange);
-  color: var(--color-bg);
+.debug-stats-header {
+  color: var(--tool-accent);
+  font-size: var(--font-size-base);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking);
+  margin-bottom: 0.3rem;
 }
 .debug-stats-row {
   display: flex;
   align-items: center;
   gap: 1rem;
   padding: 0.15rem 0;
-  font-size: 0.8rem;
-  color: var(--color-muted);
+  font-size: var(--font-size-base);
+  color: var(--text-dim);
   flex-wrap: wrap;
 }
-.debug-stats-row .racer-name {
-  font-weight: bold;
-  min-width: 90px;
-}
-.debug-timing-racer {
-  margin-bottom: 0.5rem;
-}
+.debug-timing-racer { margin-bottom: 0.5rem; }
 .debug-timing-racer .racer-name {
   font-weight: bold;
-  font-size: 0.8rem;
+  font-size: var(--font-size-base);
   display: block;
   margin-bottom: 0.2rem;
 }
 .debug-timing-events {
-  font-size: 0.75rem;
-  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+  color: var(--text-dim);
 }
 .debug-timing-event {
   display: flex;
   gap: 0.5rem;
   padding: 0.1rem 0;
-  border-bottom: 1px solid var(--color-border-faint);
+  border-bottom: var(--border-width) solid var(--border-subtle);
 }
 .debug-timing-label {
   flex: 1;
@@ -924,28 +769,28 @@ aside.debug-panel > footer button:hover {
 }
 .debug-timing-val {
   min-width: 70px;
-  text-align: end;
-  color: #bbb;
+  text-align: right;
+  color: var(--text-muted);
 }
+.debug-timing-empty { color: var(--text-faint); }
 
-/* --- Export overlay (dialog-style) --- */
-
+/* --- Export overlay ------------------------------------------------------ */
 .export-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.85);
+  background: var(--scrim);
   z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .export-modal {
-  background: var(--color-bg);
-  border: 2px solid var(--color-gold);
+  background: var(--bg);
+  border: var(--border-width-thick) solid var(--accent);
   border-radius: var(--radius-lg);
-  padding: 1.5rem;
+  padding: var(--gutter);
   max-width: 90vw;
-  max-height: 90dvh;
+  max-height: 90vh;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -953,56 +798,46 @@ aside.debug-panel > footer button:hover {
 }
 .export-modal h3 {
   font-family: var(--font-display);
-  color: var(--color-gold);
-  font-size: 1rem;
+  color: var(--accent);
+  font-size: var(--font-size-xl);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--tracking-wide);
+  margin: 0;
 }
 .export-modal canvas {
-  border: 1px solid var(--color-border-faint);
+  border: var(--border-width) solid var(--border-subtle);
   border-radius: var(--radius);
   max-width: 100%;
-  max-height: 50dvh;
+  max-height: 50vh;
   object-fit: contain;
 }
 .export-progress-bar {
   width: 100%;
   height: 8px;
-  background: var(--color-panel);
+  background: var(--surface);
   border-radius: var(--radius);
   overflow: hidden;
 }
 .export-progress-fill {
   height: 100%;
-  background: var(--color-gold);
+  background: var(--accent);
   border-radius: var(--radius);
   width: 0%;
-  transition: width var(--transition);
+  transition: width var(--duration);
 }
 .export-actions {
   display: flex;
   gap: 0.8rem;
   align-items: center;
 }
-.export-actions button, .export-actions a {
-  background: var(--color-panel);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
+.export-actions button,
+.export-actions a {
+  color: var(--text);
   padding: 0.4rem 1rem;
-  font-size: 0.85rem;
-  cursor: pointer;
-  font-family: var(--font-mono);
-  text-decoration: none;
-  transition: background var(--transition), border-color var(--transition);
-}
-.export-actions button:hover, .export-actions a:hover {
-  background: var(--color-panel-hover);
-  border-color: var(--color-gold);
 }
 .export-status {
-  color: var(--color-muted);
-  font-size: 0.85rem;
+  color: var(--text-dim);
+  font-size: var(--font-size-md);
 }
 .export-convert-row {
   display: flex;
@@ -1012,71 +847,76 @@ aside.debug-panel > footer button:hover {
   justify-content: center;
 }
 .export-convert-row button {
-  background: var(--color-panel);
-  color: var(--color-gold);
-  border: 1px solid var(--color-gold);
-  border-radius: var(--radius);
+  color: var(--accent);
+  border-color: var(--accent);
   padding: 0.4rem 1rem;
-  font-size: 0.85rem;
-  cursor: pointer;
-  font-family: var(--font-mono);
-  transition: background var(--transition), color var(--transition);
 }
-.export-convert-row button:hover { background: var(--color-gold); color: var(--color-bg); }
+.export-convert-row button:hover {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
 .export-convert-row button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-  background: var(--color-panel);
-  color: var(--color-muted);
-  border-color: var(--color-border);
+  background: var(--surface);
+  color: var(--text-dim);
+  border-color: var(--border-strong);
 }
 
-/* --- Fullscreen --- */
+/* --- Notes --------------------------------------------------------------- */
+.notes-textarea {
+  width: 100%;
+  min-height: 100px;
+  background: var(--surface);
+  color: var(--text);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.6rem;
+  font-family: var(--font-ui);
+  font-size: var(--font-size-md);
+  resize: vertical;
+}
+.notes-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
 
+/* --- Fullscreen ----------------------------------------------------------
+   :is() has a forgiving selector list, so the unprefixed and -webkit- forms
+   can share one block: whichever the browser does not know is dropped rather
+   than invalidating the rule. */
 .fullscreen-wrapper {
   width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
-.fullscreen-wrapper:fullscreen,
-.fullscreen-wrapper:-webkit-full-screen {
-  background: #000;
-  display: flex;
-  flex-direction: column;
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) {
+  background: var(--video-bg);
   justify-content: center;
-  align-items: center;
   padding: 0;
   position: relative;
   cursor: none;
 }
-.fullscreen-wrapper.fs-controls-visible {
-  cursor: default;
-}
-.fullscreen-wrapper:fullscreen .player-container,
-.fullscreen-wrapper:-webkit-full-screen .player-container {
+.fullscreen-wrapper.fs-controls-visible { cursor: default; }
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .player-container {
   display: grid;
   grid-template-columns: repeat(var(--fs-cols, 2), 1fr);
   grid-auto-rows: 1fr;
   gap: 2px;
   padding: 0;
   width: 100%;
-  height: 100dvh;
+  height: 100vh;
   min-height: 0;
   max-width: 100%;
 }
-.fullscreen-wrapper:fullscreen figure.racer,
-.fullscreen-wrapper:-webkit-full-screen figure.racer {
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .racer {
   min-width: 0;
   max-width: none;
   overflow: hidden;
 }
-.fullscreen-wrapper:fullscreen figure.racer > figcaption,
-.fullscreen-wrapper:-webkit-full-screen figure.racer > figcaption {
-  display: none;
-}
-.fullscreen-wrapper:fullscreen video,
-.fullscreen-wrapper:-webkit-full-screen video {
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .racer-label { display: none; }
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) video {
   width: 100%;
   height: 100%;
   max-height: 100%;
@@ -1084,8 +924,7 @@ aside.debug-panel > footer button:hover {
   border: none;
   border-radius: 0;
 }
-.fullscreen-wrapper:fullscreen .merged-container,
-.fullscreen-wrapper:-webkit-full-screen .merged-container {
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .merged-container {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -1093,36 +932,37 @@ aside.debug-panel > footer button:hover {
   justify-content: center;
   max-width: 100%;
   padding: 0;
-  height: 100dvh;
+  height: 100vh;
 }
-.fullscreen-wrapper:fullscreen .merged-container video,
-.fullscreen-wrapper:-webkit-full-screen .merged-container video {
-  height: 100dvh;
-  max-height: 100dvh;
-  object-fit: contain;
-  border: none;
-  border-radius: 0;
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .merged-container video {
+  height: 100vh;
+  max-height: 100vh;
 }
-.fullscreen-wrapper:fullscreen [role="toolbar"],
-.fullscreen-wrapper:-webkit-full-screen [role="toolbar"] {
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .controls {
   position: absolute;
   bottom: 0;
-  inset-inline: 0;
+  left: 0;
+  right: 0;
   max-width: 100%;
   padding: 0.5rem 1rem;
   gap: 0.5rem;
-  background: linear-gradient(transparent, rgba(0,0,0,0.85));
+  background: linear-gradient(transparent, var(--scrim));
   opacity: 0;
-  transition: opacity 0.3s;
+  transition: opacity var(--duration-slow);
   pointer-events: none;
   z-index: 10;
 }
-.fullscreen-wrapper.fs-controls-visible [role="toolbar"] {
+.fullscreen-wrapper.fs-controls-visible .controls {
   opacity: 1;
   pointer-events: auto;
 }
 
-/* --- Reduced motion --- */
+/* --- Utilities ----------------------------------------------------------- */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -1131,9 +971,7 @@ aside.debug-panel > footer button:hover {
   }
 }
 
-/* --- Mobile --- */
-
 @media (max-width: 600px) {
-  [role="toolbar"] > div { min-width: auto; flex-wrap: wrap; }
+  .controls-row { min-width: auto; flex-wrap: wrap; }
   .time-display { min-width: auto; }
 }

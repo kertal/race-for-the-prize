@@ -8,6 +8,15 @@ import path from 'path';
 import { c, RACER_COLORS } from './colors.js';
 import { buildProfileComparison, printProfileAnalysis, buildProfileMarkdown, PROFILE_METRICS } from './profile-analysis.js';
 import { determineOverallWinner } from './race-utils.js';
+import {
+  isSyntheticTotal,
+  getSectionComparisons,
+  sortComparisonsForDisplay,
+  buildResultsModel,
+  buildRunComparisonModel,
+  rankEntries,
+  formatDuration,
+} from './report-model.js';
 
 const PLATFORM_NAMES = { darwin: 'macOS', linux: 'Linux', win32: 'Windows' };
 
@@ -52,14 +61,6 @@ const SYNTHETIC_TOTAL_FALLBACK_NAME = 'Race (All Sections)';
 // Treat sub-frame timing noise as ties for summed multi-section totals.
 const TOTAL_TIE_EPSILON = 0.01;
 
-function isSyntheticTotalComparison(comp) {
-  return comp?.isSyntheticTotal === true;
-}
-
-function getSectionComparisons(comparisons) {
-  return comparisons.filter(comp => !isSyntheticTotalComparison(comp));
-}
-
 function getSyntheticTotalName(existingComparisons) {
   const names = new Set(existingComparisons.map(c => c.name));
   return names.has(SYNTHETIC_TOTAL_NAME) ? SYNTHETIC_TOTAL_FALLBACK_NAME : SYNTHETIC_TOTAL_NAME;
@@ -68,7 +69,7 @@ function getSyntheticTotalName(existingComparisons) {
 function appendSyntheticTotalComparison(comparisons, racerNames) {
   const sections = getSectionComparisons(comparisons);
   if (sections.length <= 1) return;
-  if (comparisons.some(comp => isSyntheticTotalComparison(comp))) return;
+  if (comparisons.some(comp => isSyntheticTotal(comp))) return;
 
   const totalVals = racerNames.map((_, i) => {
     const durs = sections.map(c => c.racers[i]?.duration);
@@ -103,7 +104,7 @@ function computeOverallWinner(racerNames, comparisons) {
 
   if (sections.length === 1) {
     const wins = computeWins(racerNames, sections);
-    return determineOverallWinner(wins, racerNames, sections, 0);
+    return determineOverallWinner(wins, racerNames, sections);
   }
 
   const totals = racerNames.map((name, i) => {
@@ -133,11 +134,15 @@ function computeComparison(name, vals, racerNames) {
   if (racersWithData.length >= 2) {
     const winIdx = racersWithData[0].index;
     const loseIdx = racersWithData[racersWithData.length - 1].index;
-    comp.winner = racerNames[winIdx];
     comp.diff = vals[loseIdx].duration - vals[winIdx].duration;
     comp.diffPercent = vals[winIdx].duration > 0
       ? (comp.diff / vals[winIdx].duration * 100) : 0;
     comp.rankings = racersWithData.map(r => racerNames[r.index]);
+    // A true dead heat (fastest and slowest measure identically) has no winner.
+    // Without this guard the stable sort would silently award the win to the
+    // lowest-indexed racer. Any real difference — even sub-millisecond — still
+    // resolves to the faster racer.
+    comp.winner = comp.diff > 0 ? racerNames[winIdx] : null;
   }
   return comp;
 }
@@ -152,10 +157,14 @@ export function getPlacementOrder(summary) {
   const { racers, comparisons } = summary;
   if (!comparisons || comparisons.length === 0) return racers.map((_, i) => i);
 
+  // Exclude the synthetic total row: it is just the sum of the sections, so
+  // counting it here would double-weight the summed winner and skew 2nd-vs-3rd
+  // placement away from the per-section evidence.
+  const sectionComparisons = getSectionComparisons(comparisons);
   const avgRank = racers.map((name) => {
     let totalRank = 0;
     let counted = 0;
-    for (const comp of comparisons) {
+    for (const comp of sectionComparisons) {
       if (comp.rankings && comp.rankings.length > 0) {
         const rank = comp.rankings.indexOf(name);
         totalRank += rank !== -1 ? rank : racers.length;
@@ -172,30 +181,25 @@ export function getPlacementOrder(summary) {
 
 
 /**
- * Format a duration cell for markdown: trophy for winner, delta for losers.
+ * Render a report-model cell as markdown: trophy for winner, delta for losers.
  */
-function formatDurationCell(dur, bestDur, isWinner, bold) {
-  if (dur == null) return bold ? '**-**' : '-';
-  const val = `${dur.toFixed(3)}s`;
+function renderMarkdownCell(cell, bold) {
+  if (cell.value == null) return bold ? '**-**' : '-';
   let content;
-  if (isWinner) {
-    content = `${val} (\uD83C\uDFC6)`;
-  } else if (bestDur != null) {
-    content = `${val} (+${(dur - bestDur).toFixed(3)}s)`;
+  if (cell.isWinner) {
+    content = `${cell.formatted} (\uD83C\uDFC6)`;
+  } else if (cell.delta != null) {
+    content = `${cell.formatted} (+${cell.delta})`;
   } else {
-    content = val;
+    content = cell.formatted;
   }
   return bold ? `**${content}**` : content;
 }
 
-function sortComparisonsForDisplay(comparisons) {
-  return [...comparisons].sort((a, b) => {
-    const aIsTotal = isSyntheticTotalComparison(a);
-    const bIsTotal = isSyntheticTotalComparison(b);
-    if (aIsTotal && !bIsTotal) return -1;
-    if (!aIsTotal && bIsTotal) return 1;
-    return 0;
-  });
+/** Profile-metric cells render missing values as plain '-' even in bold rows. */
+function renderMarkdownMetricCell(cell, bold) {
+  if (cell.value == null) return '-';
+  return renderMarkdownCell(cell, bold);
 }
 
 /**
@@ -207,12 +211,9 @@ function buildResultsTable(comparisons, racers) {
   const headerCols = ['Measurement', ...racers];
   lines.push(`| ${headerCols.join(' | ')} |`);
   lines.push(`|${headerCols.map(() => '---').join('|')}|`);
-  for (const comp of sortComparisonsForDisplay(comparisons)) {
-    const bestDur = comp.winner ? comp.racers[racers.indexOf(comp.winner)]?.duration : null;
-    const durations = racers.map((r, i) =>
-      formatDurationCell(comp.racers[i]?.duration, bestDur, comp.winner === r, false)
-    );
-    lines.push(`| ${comp.name} | ${durations.join(' | ')} |`);
+  for (const row of buildResultsModel(comparisons, racers).rows) {
+    const durations = row.cells.map(cell => renderMarkdownCell(cell, false));
+    lines.push(`| ${row.name} | ${durations.join(' | ')} |`);
   }
 
   return lines;
@@ -287,24 +288,18 @@ export function printSummary(summary) {
       const maxDur = Math.max(...comp.racers.map(r => r?.duration || 0));
 
       // Sort racers by duration ascending (best/fastest first), nulls last
-      const sorted = racers
-        .map((name, i) => ({ name, index: i, racer: comp.racers[i] }))
-        .sort((a, b) => {
-          if (!a.racer) return 1;
-          if (!b.racer) return -1;
-          return a.racer.duration - b.racer.duration;
-        });
-      const bestDur = sorted[0].racer ? sorted[0].racer.duration : null;
+      const { entries: sorted } = rankEntries(
+        racers,
+        i => ({ racer: comp.racers[i], val: comp.racers[i] ? comp.racers[i].duration : null }),
+        formatDuration
+      );
 
       write(`  ${c.dim}⏱ ${comp.name}${c.reset}\n`);
       for (const entry of sorted) {
         const color = RACER_COLORS[entry.index % RACER_COLORS.length];
         if (entry.racer) {
           const isWinner = comp.winner === entry.name;
-          let delta = '';
-          if (bestDur !== null && entry.racer.duration !== bestDur) {
-            delta = ` ${c.dim}(+${(entry.racer.duration - bestDur).toFixed(3)}s)${c.reset}`;
-          }
+          const delta = entry.delta != null ? ` ${c.dim}(+${entry.delta})${c.reset}` : '';
           write(`${printBar(entry.name, entry.racer.duration, maxDur, color, isWinner, 30, labelWidth)}${delta}\n`);
         } else {
           write(`    ${color}${c.bold}${entry.name.padEnd(labelWidth)}${c.reset} ${c.dim}(no data)${c.reset}\n`);
@@ -365,7 +360,7 @@ export function buildMarkdownSummary(summary, sideBySideName) {
     const mode = settings.parallel === false ? 'sequential' : 'parallel';
     lines.push(`| **Mode** | ${mode} |`);
     if (settings.network && settings.network !== 'none') lines.push(`| **Network** | ${settings.network} |`);
-    if (settings.cpuThrottle && settings.cpuThrottle > 1) lines.push(`| **CPU Throttle** | ${settings.cpuThrottle}x |`);
+    if (settings.cpuThrottle && settings.cpuThrottle > 1) lines.push(`| **CPU Throttle** | ${settings.cpuThrottle}x slower |`);
     if (settings.format && settings.format !== 'webm') lines.push(`| **Format** | ${settings.format} |`);
     if (settings.headless) lines.push(`| **Headless** | yes |`);
     if (settings.runs && settings.runs > 1) lines.push(`| **Runs** | ${settings.runs} |`);
@@ -503,6 +498,9 @@ function buildMedianProfileMetrics(summaries) {
 
 /** Compute median of each measurement across multiple runs. */
 export function buildMedianSummary(summaries, resultsDir) {
+  if (!Array.isArray(summaries) || summaries.length === 0) {
+    throw new Error('buildMedianSummary requires at least one run summary');
+  }
   const racers = summaries[0].racers;
   const allNames = new Set(
     summaries.flatMap(s => getSectionComparisons(s.comparisons).map(c => c.name))
@@ -550,146 +548,44 @@ export function buildMedianSummary(summaries, resultsDir) {
 /** Build a collapsible run-by-run comparison table grouped by measurement. */
 function buildRunComparisonSection(medianSummary, summaries) {
   const racers = medianSummary.racers;
-  const allNames = new Set(summaries.flatMap(s => s.comparisons.map(c => c.name)));
-  const hasProfileData = summaries.some(s => s.profileMetrics?.some(Boolean));
-  if (allNames.size === 0 && !hasProfileData) return '';
+  const model = buildRunComparisonModel(summaries, medianSummary, racers, PROFILE_METRICS);
+  if (model.isEmpty) return '';
 
   const lines = ['', '<details>', '<summary><b>Run-by-Run Comparison</b></summary>', ''];
 
-  const orderedNames = sortComparisonsForDisplay([...allNames].map(name => ({ name }))).map(c => c.name);
-  for (const name of orderedNames) {
-    lines.push(`#### ${name}`, '');
+  const pushTableHeader = () => {
     const headerCols = ['Run', ...racers];
     lines.push(`| ${headerCols.join(' | ')} |`);
     lines.push(`|${headerCols.map(() => '---').join('|')}|`);
-
-    for (let i = 0; i < summaries.length; i++) {
-      const comp = summaries[i].comparisons.find(c => c.name === name);
-      if (!comp) {
-        lines.push(`| ${i + 1} | ${racers.map(() => '-').join(' | ')} |`);
-        continue;
-      }
-      const bestDur = comp.winner ? comp.racers[racers.indexOf(comp.winner)]?.duration : null;
-      const durations = racers.map((r, j) =>
-        formatDurationCell(comp.racers[j]?.duration, bestDur, comp.winner === r, false)
-      );
-      lines.push(`| ${i + 1} | ${durations.join(' | ')} |`);
+  };
+  const pushRows = ({ runRows, medianRow, averageRow }, renderCell) => {
+    for (const row of runRows) {
+      lines.push(`| ${row.label} | ${row.cells.map(cell => renderCell(cell, false)).join(' | ')} |`);
     }
-
-    // Median row
-    const medComp = medianSummary.comparisons.find(c => c.name === name);
-    if (medComp) {
-      const bestDur = medComp.winner ? medComp.racers[racers.indexOf(medComp.winner)]?.duration : null;
-      const durations = racers.map((r, j) =>
-        formatDurationCell(medComp.racers[j]?.duration, bestDur, medComp.winner === r, true)
-      );
-      lines.push(`| **Median** | ${durations.join(' | ')} |`);
+    if (medianRow) {
+      lines.push(`| **Median** | ${medianRow.cells.map(cell => renderCell(cell, true)).join(' | ')} |`);
     }
-
-    // Average row
-    const avgDurations = racers.map((_, j) => {
-      const vals = summaries
-        .map(s => s.comparisons.find(c => c.name === name)?.racers[j]?.duration)
-        .filter(d => d != null);
-      return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-    });
-    if (avgDurations.some(v => v != null)) {
-      const validAvg = avgDurations.filter(v => v != null);
-      const bestAvg = validAvg.length >= 2 ? Math.min(...validAvg) : null;
-      const durations = racers.map((_, j) => {
-        const isWinner = bestAvg != null && avgDurations[j] === bestAvg;
-        return formatDurationCell(avgDurations[j], bestAvg, isWinner, true);
-      });
-      lines.push(`| **Average** | ${durations.join(' | ')} |`);
+    if (averageRow) {
+      lines.push(`| **Average** | ${averageRow.cells.map(cell => renderCell(cell, true)).join(' | ')} |`);
     }
+  };
 
+  for (const measurement of model.measurements) {
+    lines.push(`#### ${measurement.name}`, '');
+    pushTableHeader();
+    pushRows(measurement, renderMarkdownCell);
     lines.push('');
   }
 
   // --- Performance metrics ---
-  if (hasProfileData) {
-    const metricsWithData = [];
-    for (const [key, metric] of Object.entries(PROFILE_METRICS)) {
-      const [scope, metricName] = key.split('.');
-      const hasData = summaries.some(s =>
-        racers.some((_, j) => s.profileMetrics?.[j]?.[scope]?.[metricName] != null)
-      );
-      if (hasData) metricsWithData.push({ metric, scope, metricName });
-    }
+  for (const scope of model.profileScopes) {
+    lines.push(`#### Performance: ${scope.title}`, '');
 
-    const scopes = [
-      { scope: 'measured', title: 'Performance: Race' },
-      { scope: 'total', title: 'Performance: Total Recording (Including Pre and Post race)' },
-    ];
-    for (const { scope: scopeName, title: scopeTitle } of scopes) {
-      const scopeMetrics = metricsWithData.filter(m => m.scope === scopeName);
-      if (scopeMetrics.length === 0) continue;
-
-      lines.push(`#### ${scopeTitle}`, '');
-
-      for (const { metric, metricName } of scopeMetrics) {
-        lines.push(`**${metric.name}**`, '');
-        const headerCols = ['Run', ...racers];
-        lines.push(`| ${headerCols.join(' | ')} |`);
-        lines.push(`|${headerCols.map(() => '---').join('|')}|`);
-
-        for (let i = 0; i < summaries.length; i++) {
-          const vals = racers.map((_, j) => summaries[i].profileMetrics?.[j]?.[scopeName]?.[metricName] ?? null);
-          const withData = vals.map((v, j) => v != null ? { j, v } : null).filter(Boolean).sort((a, b) => a.v - b.v);
-          const bestVal = (withData.length >= 2 && withData[0].v !== withData[withData.length - 1].v) ? withData[0].v : null;
-          const winnerIdx = bestVal != null ? withData[0].j : -1;
-          const formatted = vals.map((v, j) => {
-            if (v == null) return '-';
-            if (j === winnerIdx) return `${metric.format(v)} (\uD83C\uDFC6)`;
-            if (bestVal != null) return `${metric.format(v)} (+${metric.format(v - bestVal)})`;
-            return metric.format(v);
-          });
-          lines.push(`| ${i + 1} | ${formatted.join(' | ')} |`);
-        }
-
-        // Median row
-        const medVals = racers.map((_, j) => medianSummary.profileMetrics?.[j]?.[scopeName]?.[metricName] ?? null);
-        const medWithData = medVals.map((v, j) => v != null ? { j, v } : null).filter(Boolean).sort((a, b) => a.v - b.v);
-        if (medVals.some(v => v != null)) {
-          const bestMedVal = (medWithData.length >= 2 && medWithData[0].v !== medWithData[medWithData.length - 1].v) ? medWithData[0].v : null;
-          const medWinnerIdx = bestMedVal != null ? medWithData[0].j : -1;
-          const formatted = medVals.map((v, j) => {
-            if (v == null) return '-';
-            const f = metric.format(v);
-            let content;
-            if (j === medWinnerIdx) content = `${f} (\uD83C\uDFC6)`;
-            else if (bestMedVal != null) content = `${f} (+${metric.format(v - bestMedVal)})`;
-            else content = f;
-            return `**${content}**`;
-          });
-          lines.push(`| **Median** | ${formatted.join(' | ')} |`);
-        }
-
-        // Average row
-        const avgVals = racers.map((_, j) => {
-          const vals = summaries
-            .map(s => s.profileMetrics?.[j]?.[scopeName]?.[metricName] ?? null)
-            .filter(v => v != null);
-          return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-        });
-        if (avgVals.some(v => v != null)) {
-          const avgWithData = avgVals.map((v, j) => v != null ? { j, v } : null).filter(Boolean).sort((a, b) => a.v - b.v);
-          const bestAvgVal = (avgWithData.length >= 2 && avgWithData[0].v !== avgWithData[avgWithData.length - 1].v) ? avgWithData[0].v : null;
-          const avgWinnerIdx = bestAvgVal != null ? avgWithData[0].j : -1;
-          const formatted = avgVals.map((v, j) => {
-            if (v == null) return '-';
-            const f = metric.format(v);
-            let content;
-            if (j === avgWinnerIdx) content = `${f} (\uD83C\uDFC6)`;
-            else if (bestAvgVal != null) content = `${f} (+${metric.format(v - bestAvgVal)})`;
-            else content = f;
-            return `**${content}**`;
-          });
-          lines.push(`| **Average** | ${formatted.join(' | ')} |`);
-        }
-
-        lines.push('');
-      }
+    for (const metric of scope.metrics) {
+      lines.push(`**${metric.name}**`, '');
+      pushTableHeader();
+      pushRows(metric, renderMarkdownMetricCell);
+      lines.push('');
     }
   }
 
@@ -764,22 +660,23 @@ export function printRecentRaces(raceDir) {
 
     if (!e.summary) {
       write(`  ${num}  ${c.dim}${dateStr}${c.reset}  ${c.dim}(no summary)${c.reset}\n`);
-    } else {
+    } else try {
       const s = e.summary;
-      const racers = s.racers;
+      const racers = Array.isArray(s.racers) ? s.racers : [];
 
       let badge = '';
       if (s.overallWinner === 'tie') badge = `${c.yellow}🤝 Tie${c.reset}`;
       else if (s.overallWinner) {
         const winnerIdx = racers.indexOf(s.overallWinner);
-        const wc = RACER_COLORS[winnerIdx % RACER_COLORS.length];
+        const wc = RACER_COLORS[(winnerIdx >= 0 ? winnerIdx : 0) % RACER_COLORS.length];
         badge = `${wc}🏆 ${s.overallWinner}${c.reset}`;
       }
 
       write(`  ${num}  ${c.dim}${dateStr}${c.reset}  ${badge}\n`);
 
-      for (const comp of sortComparisonsForDisplay(s.comparisons)) {
-        const durations = comp.racers.map((r, j) => r ? `${r.duration.toFixed(3)}s` : '-');
+      for (const comp of sortComparisonsForDisplay(s.comparisons || [])) {
+        const durations = (comp.racers || []).map((r) =>
+          r && typeof r.duration === 'number' ? `${r.duration.toFixed(3)}s` : '-');
         // Assign medals based on ranking
         const medals = racers.map(r => {
           if (!comp.rankings || comp.rankings.length === 0) return '';
@@ -801,6 +698,9 @@ export function printRecentRaces(raceDir) {
       if (s.errors?.length > 0) {
         write(`      ${c.red}⚠ ${s.errors.length} error(s)${c.reset}\n`);
       }
+    } catch (err) {
+      // A malformed/old summary.json must not abort the entire listing.
+      write(`  ${num}  ${c.dim}${dateStr}${c.reset}  ${c.dim}(unreadable summary)${c.reset}\n`);
     }
 
     write(`      ${c.dim}${e.fullPath}${c.reset}\n`);

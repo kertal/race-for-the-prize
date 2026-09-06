@@ -1,6 +1,6 @@
 {
   "name": "race-for-the-prize",
-  "version": "0.8.0",
+  "version": "0.9.2",
   "description": "🏆 Race browsers head-to-head and crown a champion",
   "type": "module",
   "bin": {
@@ -8,16 +8,18 @@
   },
   "files": [
     "race.js",
-    "runner.cjs",
-    "sync-barrier.cjs",
+    "*.cjs",
     "cli/",
+    "scripts/postinstall.cjs",
     "races/*/*.spec.js",
+    "races/*/*.html",
     "races/*/settings.json",
     "ReadMe.md",
+    "docs/skinning.md",
     "INSTALLATION.md"
   ],
   "scripts": {
-    "postinstall": "playwright install chromium",
+    "postinstall": "node scripts/postinstall.cjs",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.js",
     "race": "node race.js"

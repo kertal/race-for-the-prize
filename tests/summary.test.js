@@ -54,9 +54,11 @@ describe('buildSummary', () => {
     ];
     const summary = buildSummary(names, results, {}, 'test-results');
 
-    // Equal duration: racer1 wins (<=), so it's 1-0 not a tie
-    expect(summary.comparisons[0].winner).toBe('lauda');
+    // A true dead heat has no winner — it must not silently award the
+    // lowest-indexed racer.
+    expect(summary.comparisons[0].winner).toBeNull();
     expect(summary.comparisons[0].diff).toBeCloseTo(0);
+    expect(summary.overallWinner).toBeNull();
   });
 
   it('handles multiple measurements with split winners and equal totals', () => {
@@ -378,7 +380,7 @@ describe('buildMarkdownSummary', () => {
     const md = buildMarkdownSummary(makeSummary({ settings: { parallel: false, network: 'fast-3g', cpuThrottle: 4 } }));
     expect(md).toContain('sequential');
     expect(md).toContain('fast-3g');
-    expect(md).toContain('4x');
+    expect(md).toContain('4x slower');
   });
 
   it('includes machine info when provided', () => {

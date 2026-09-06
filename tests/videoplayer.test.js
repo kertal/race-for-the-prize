@@ -38,6 +38,12 @@ const withSummary = (overrides) => buildPlayerHtml(makeSummary(overrides), video
 const withOptions = (opts, summary) => buildPlayerHtml(summary || makeSummary(), videoFiles, null, null, opts);
 const defaultHtml = withSummary();
 const noVideosHtml = buildPlayerHtml(makeSummary(), []);
+
+// Extract and parse the embedded #race-config JSON block from generated HTML.
+const getRaceConfig = (html) => {
+  const m = html.match(/<script id="race-config" type="application\/json">([\s\S]*?)<\/script>/);
+  return m && m[1] ? JSON.parse(m[1]) : null;
+};
 const loadRenderComparisons = [
   { name: 'Load', racers: [{ duration: 1.1 }, { duration: 1.4 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
   { name: 'Render', racers: [{ duration: 0.9 }, { duration: 1.2 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
@@ -244,7 +250,7 @@ describe('buildPlayerHtml', () => {
       expect(html).toContain(`src="${name}/${name}.race.webm"`);
       expect(html).toContain(`>${name}<`);
     }
-    expect(html).toContain('const raceVideos = [v0, v1, v2]');
+    expect(getRaceConfig(html).videoCount).toBe(3);
   });
 
   it('supports 4 racers', () => {
@@ -252,7 +258,7 @@ describe('buildPlayerHtml', () => {
     const videos = ['a/a.race.webm', 'b/b.race.webm', 'c/c.race.webm', 'd/d.race.webm'];
     const html = buildPlayerHtml(summary, videos);
     for (let i = 0; i < 4; i++) expect(html).toContain(`id="v${i}"`);
-    expect(html).toContain('const raceVideos = [v0, v1, v2, v3]');
+    expect(getRaceConfig(html).videoCount).toBe(4);
   });
 
   it('supports 5 racers with download links', () => {
@@ -263,15 +269,15 @@ describe('buildPlayerHtml', () => {
     expect(html).toContain('id="v4"');
     expect(html).toContain('r1 (.gif)');
     expect(html).toContain('r5 (.gif)');
-    expect(html).toContain('const raceVideos = [v0, v1, v2, v3, v4]');
+    expect(getRaceConfig(html).videoCount).toBe(5);
   });
 
-  it('assigns correct colors to racer labels', () => {
+  it('assigns correct colors to racer labels via the --racer-color token', () => {
     const summary = makeSummary({ racers: ['red', 'blue', 'green'], comparisons: [], overallWinner: null });
     const html = buildPlayerHtml(summary, ['r/r.webm', 'b/b.webm', 'g/g.webm']);
-    expect(html).toContain('style="color: #e74c3c"');
-    expect(html).toContain('style="color: #3498db"');
-    expect(html).toContain('style="color: #27ae60"');
+    expect(html).toContain('style="--racer-color: #e74c3c"');
+    expect(html).toContain('style="--racer-color: #3498db"');
+    expect(html).toContain('style="--racer-color: #27ae60"');
   });
 
   it('displays time and step counters', () => {
@@ -444,8 +450,8 @@ describe('buildPlayerHtml', () => {
 
   it('shows winner video first with original colors preserved', () => {
     const html = buildPlayerHtml(huntWinsSummary(), videoFiles);
-    const huntLabelMatch = html.match(/color: (#[0-9a-f]+)">hunt/);
-    expect(huntLabelMatch[1]).toBe('#3498db');
+    const huntCard = html.match(/--racer-color: (#[0-9a-f]+)">\s*<div class="racer-label">(?:(?!<\/div>).)*hunt/s);
+    expect(huntCard[1]).toBe('#3498db');
   });
 
   it('omits script tag when no videos provided', () => {
@@ -454,6 +460,23 @@ describe('buildPlayerHtml', () => {
     });
     expect(html).not.toContain('<script>');
     expect(html).toContain('Results');
+  });
+
+  it('inline runtime script contains no premature </script> that would truncate it', () => {
+    // A literal </script> anywhere in the runtime source (even in a comment)
+    // ends the inline <script> early, breaking the whole player.
+    const html = withOptions({
+      clipTimes: [
+        { start: 1, end: 3, measurements: [{ name: 'Load', startTime: 1, endTime: 2 }] },
+        { start: 1, end: 3, measurements: [] },
+      ],
+    });
+    const open = html.indexOf('<script>\n(function() {');
+    const close = html.indexOf('})();\n</script>', open);
+    expect(open).toBeGreaterThan(-1);
+    expect(close).toBeGreaterThan(open);
+    const body = html.slice(open + '<script>'.length, close);
+    expect(body).not.toContain('</script');
   });
 
   it('shows median page with videos', () => {
@@ -469,7 +492,7 @@ describe('buildPlayerHtml', () => {
     const html = withOptions({ runNavigation: { currentRun: 1, totalRuns: 3, pathPrefix: '../' } });
     for (let i = 1; i <= 3; i++) expect(html).toContain(`Run ${i}`);
     expect(html).toContain('Median');
-    expect(html).toContain('aria-current="page">Run 1</span>');
+    expect(html).toContain('run-nav-btn active');
   });
 });
 
@@ -489,7 +512,7 @@ describe('buildPlayerHtml race info', () => {
     const html = buildPlayerHtml(abSummary({ settings: { parallel: false, network: 'slow-3g', cpuThrottle: 4 } }), abVideoFiles);
     expect(html).toContain('sequential');
     expect(html).toContain('slow-3g');
-    expect(html).toContain('4x');
+    expect(html).toContain('4x slower');
   });
 
   it('defaults mode to parallel', () => {
@@ -523,7 +546,7 @@ describe('buildPlayerHtml machine info', () => {
   });
 
   it('omits machine info section when not provided', () => {
-    expect(buildPlayerHtml(abSummary(), abVideoFiles)).not.toContain('class="machine-info"');
+    expect(buildPlayerHtml(abSummary(), abVideoFiles)).not.toContain('<div class="machine-info">');
   });
 
   it('HTML-escapes values', () => {
@@ -556,13 +579,12 @@ describe('buildPlayerHtml gemini commentary', () => {
   it('renders commentary into notes textarea when present', () => {
     const html = withSummary({ geminiCommentary: 'What a thrilling race!' });
     expect(html).toContain('What a thrilling race!');
-    // Notes section is open when commentary present
-    expect(html).toMatch(/<details open>\s*<summary><h2>Notes<\/h2>/);
+    expect(html).toMatch(/<details class="section" open>/);
   });
 
   it('leaves notes empty and collapsed when no commentary', () => {
     const html = withSummary({});
-    expect(html).toMatch(/<details >\s*<summary><h2>Notes<\/h2>/);
+    expect(html).toMatch(/<details class="section" >/);
     expect(html).toContain('placeholder="Add notes about this race..."');
   });
 });
@@ -574,26 +596,27 @@ describe('buildRunNavHtml winner colors', () => {
   const racers = ['lauda', 'hunt'];
   const makeRunSummaries = (winners) => winners.map(w => ({ overallWinner: w }));
 
-  it('colors run buttons with winner border and white text', () => {
+  it('tints run buttons with the winner colour token', () => {
     const nav = { currentRun: 'median', totalRuns: 2, pathPrefix: '' };
     const html = buildRunNavHtml(nav, racers, makeRunSummaries(['lauda', 'hunt']));
-    expect(html).toContain(`border-color:${RACER_CSS_COLORS[0]}`);
-    expect(html).toContain(`border-color:${RACER_CSS_COLORS[1]}`);
-    expect(html).toContain('color:#fff');
+    expect(html).toContain(`--racer-color:${RACER_CSS_COLORS[0]}`);
+    expect(html).toContain(`--racer-color:${RACER_CSS_COLORS[1]}`);
+    // .has-winner is what tells the stylesheet to use the token
+    expect(html.match(/has-winner/g)).toHaveLength(2);
   });
 
-  it('uses black text for the active run button', () => {
+  it('marks the active run button so the stylesheet can invert it', () => {
     const nav = { currentRun: 1, totalRuns: 2, pathPrefix: '../' };
     const html = buildRunNavHtml(nav, racers, makeRunSummaries(['lauda', 'hunt']));
-    expect(html).toMatch(/color:#1a1a1a.*Run 1/);
-    expect(html).toMatch(/color:#fff.*Run 2/);
+    expect(html).toMatch(/class="run-nav-btn active has-winner"[^>]*>Run 1</);
+    expect(html).toMatch(/class="run-nav-btn has-winner"[^>]*>Run 2</);
   });
 
   it('does not add style for ties', () => {
     const nav = { currentRun: 'median', totalRuns: 2, pathPrefix: '' };
     const html = buildRunNavHtml(nav, racers, makeRunSummaries(['tie', 'lauda']));
     expect(html).toMatch(/<a(?![^>]*style)[^>]*>Run 1<\/a>/);  // no style attr on tie
-    expect(html).toContain(`border-color:${RACER_CSS_COLORS[0]}`);  // lauda wins run 2
+    expect(html).toContain(`--racer-color:${RACER_CSS_COLORS[0]}`);  // lauda wins run 2
   });
 
   it('works without runSummaries', () => {
@@ -619,21 +642,22 @@ describe('buildPlayerHtml clipTimes', () => {
     expect(html).not.toContain('id="modeFull"');
   });
 
-  it('embeds clipTimes data in player script', () => {
+  it('embeds clipTimes data in race config', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
-    expect(html).toContain('const clipTimes =');
-    expect(html).toContain('"start":');
-    expect(html).toContain('"end":');
+    const cfg = getRaceConfig(html);
+    expect(cfg.clipTimes).toBeTruthy();
+    expect(cfg.clipTimes[0]).toHaveProperty('start');
+    expect(cfg.clipTimes[0]).toHaveProperty('end');
   });
 
   it('sets clipTimes to null when not provided', () => {
-    expect(defaultHtml).toContain('const clipTimes = null');
+    expect(getRaceConfig(defaultHtml).clipTimes).toBe(null);
   });
 
   it('handles clipTimes with null entries', () => {
     const html = withClips([{ start: 1, end: 2 }, null]);
     expect(html).not.toContain('id="modeFull"');
-    expect(html).toContain('const clipTimes =');
+    expect(getRaceConfig(html).clipTimes).toBeTruthy();
   });
 
   it('hides Full button when all clipTimes entries are null', () => {
@@ -650,9 +674,8 @@ describe('buildPlayerHtml clipTimes', () => {
 
   it('orders clipTimes by placement (winner first)', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 0.5, end: 2.5 }], { summary: huntWinsSummary() });
-    const clipMatch = html.match(/const clipTimes = (\[.*?\]);/);
-    expect(clipMatch).toBeTruthy();
-    const parsed = JSON.parse(clipMatch[1]);
+    const parsed = getRaceConfig(html).clipTimes;
+    expect(parsed).toBeTruthy();
     expect(parsed[0].start).toBe(0.5); // hunt's clip first (winner)
     expect(parsed[1].start).toBe(1); // lauda's clip second
   });
@@ -667,11 +690,8 @@ describe('buildPlayerHtml clipTimes', () => {
       { start: 1.2, end: 2.8, recordingOffset: 0.15, wallClockDuration: 4.8 },
     ];
     const html = withClips(clips);
-    expect(html).toContain('"recordingOffset"');
-    expect(html).toContain('"wallClockDuration"');
-    const clipMatch = html.match(/const clipTimes = (\[.*?\]);/);
-    expect(clipMatch).toBeTruthy();
-    const parsed = JSON.parse(clipMatch[1]);
+    const parsed = getRaceConfig(html).clipTimes;
+    expect(parsed).toBeTruthy();
     expect(parsed[0].recordingOffset).toBe(0.12);
     expect(parsed[0].wallClockDuration).toBe(5.0);
     expect(parsed[1].recordingOffset).toBe(0.15);
@@ -836,9 +856,10 @@ describe('buildPlayerHtml debug mode', () => {
     }
   });
 
-  it('debug panel contains stats with Video info header', () => {
+  it('debug panel contains stats with VIDEO INFO header', () => {
     expect(debugHtml).toContain('id="debugStats"');
-    expect(debugHtml).toContain('>Video info</h4>');
+    expect(debugHtml).toContain('VIDEO INFO');
+    expect(debugHtml).toContain('debug-stats-header');
   });
 
   it('script includes updateDebugStats function', () => {
@@ -852,9 +873,9 @@ describe('buildPlayerHtml debug mode', () => {
     expect(panelSection.indexOf('>hunt<')).toBeLessThan(panelSection.indexOf('>lauda<'));
   });
 
-  it('renders Frame positions section in debug panel', () => {
+  it('renders FRAME POSITIONS section in debug panel', () => {
     expect(debugHtml).toContain('id="debugFrames"');
-    expect(debugHtml).toContain('>Frame positions</h4>');
+    expect(debugHtml).toContain('FRAME POSITIONS');
     expect(debugHtml).toContain('id="debugFrameRow0"');
     expect(debugHtml).toContain('id="debugFrameRow1"');
   });
@@ -879,8 +900,8 @@ describe('buildPlayerHtml timing events', () => {
   ];
   const timingHtml = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
 
-  it('renders Timing events section in debug panel', () => {
-    expect(timingHtml).toContain('>Timing events</h4>');
+  it('renders TIMING EVENTS section in debug panel', () => {
+    expect(timingHtml).toContain('TIMING EVENTS');
     expect(timingHtml).toContain('id="debugTiming"');
     expect(timingHtml).toContain('debug-timing');
   });
@@ -893,9 +914,8 @@ describe('buildPlayerHtml timing events', () => {
   });
 
   it('embeds measurements in clipTimes JSON', () => {
-    const clipMatch = timingHtml.match(/const clipTimes = (\[.*?\]);/);
-    expect(clipMatch).toBeTruthy();
-    const parsed = JSON.parse(clipMatch[1]);
+    const parsed = getRaceConfig(timingHtml).clipTimes;
+    expect(parsed).toBeTruthy();
     // clipTimes are reordered by placement; winner (lauda) is first
     expect(parsed[0].measurements).toBeDefined();
     expect(parsed[0].measurements.length).toBeGreaterThan(0);
@@ -939,7 +959,7 @@ describe('buildPlayerHtml timing events', () => {
       { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
     ];
     const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes: noMeasClips });
-    expect(html).toContain('>Timing events</h4>');
+    expect(html).toContain('TIMING EVENTS');
     expect(html).toContain('id="debugTimingEvents0"');
     // Should still contain measurement iteration code
     expect(html).toContain('const measurements = ct.measurements || []');
@@ -972,7 +992,7 @@ describe('buildPlayerHtml export', () => {
   });
 
   it('export modal canvas has max-height to keep buttons visible', () => {
-    expect(defaultHtml).toContain('max-height: 50dvh');
+    expect(defaultHtml).toContain('max-height: 50vh');
   });
 });
 
@@ -983,11 +1003,12 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
     expect(defaultHtml).toContain('convertWithFFmpeg');
   });
 
-  it('includes loadFFmpeg function with local paths', () => {
+  it('includes loadFFmpeg function using the configured ffmpeg dir', () => {
     expect(defaultHtml).toContain('loadFFmpeg');
-    expect(defaultHtml).toContain("import('./ffmpeg/index.js')");
-    expect(defaultHtml).toContain('./ffmpeg/ffmpeg-core.js');
-    expect(defaultHtml).toContain('./ffmpeg/ffmpeg-core.wasm');
+    expect(defaultHtml).toContain("import(ffmpegDir + 'index.js')");
+    expect(defaultHtml).toContain("ffmpegDir + 'ffmpeg-core.js'");
+    expect(defaultHtml).toContain("ffmpegDir + 'ffmpeg-core.wasm'");
+    expect(getRaceConfig(defaultHtml).ffmpegDir).toBe('./ffmpeg/');
   });
 
   it('includes file:// protocol check with helpful error message', () => {
@@ -1179,12 +1200,12 @@ describe('buildPlayerHtml seekAllWithVerify', () => {
     expect(onMetaFn).toContain('activeSegmentClipTimes = getSegmentClipTimes(activeSegmentName)');
   });
 
-  it('onMeta convertedAny branch uses seekAllWithVerify', () => {
+  it('finalizeCalibration convertedAny branch uses seekAllWithVerify', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
-    const onMetaStart = html.indexOf('function onMeta(');
-    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
-    const onMetaFn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
-    expect(onMetaFn).toContain('seekAllWithVerify(');
+    const fnStart = html.indexOf('function finalizeCalibration(');
+    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 1500);
+    expect(fn).toContain('seekAllWithVerify(');
   });
 
   it('attaches canplay fallback listener in seekAllWithVerify', () => {
@@ -1196,15 +1217,19 @@ describe('buildPlayerHtml seekAllWithVerify', () => {
     expect(fn).toContain('{ once: true }');
   });
 
-  it('canplay fallback resets retries and re-seeks when currentTime is off', () => {
+  it('canplay fallback re-attempts within a single hard-capped retry budget', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
     const fnStart = html.indexOf('function seekAllWithVerify(');
     const fnEnd = html.indexOf('\nif (clipTimes)', fnStart);
     const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 800);
-    // Must check position is still wrong before re-seeking (uses named constant)
+    // Position check still uses the named tolerance constant.
     expect(fn).toContain('SEEK_SNAP_TOLERANCE');
-    // Must reset retries so the seeked retry loop gets fresh attempts
-    expect(fn).toContain('retries = 0');
+    // Total seeks are capped so MAX_SEEK_RETRIES is a genuine hard ceiling…
+    expect(fn).toContain('MAX_SEEK_RETRIES');
+    // …and canplay reuses the same retry routine rather than resetting a
+    // counter shared by two concurrently-live seeked chains.
+    expect(fn).toContain("addEventListener('canplay', reseek");
+    expect(fn).not.toContain('retries = 0');
   });
 });
 
@@ -1217,39 +1242,39 @@ describe('buildPlayerHtml onMeta _durationForced (Chrome WebM Infinity duration)
     expect(html).toContain('WeakMap');
   });
 
-  it('onMeta triggers 1e10 seek when duration is non-finite', () => {
+  it('ensureFiniteDurations triggers 1e10 seek when duration is non-finite', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
-    const onMetaStart = html.indexOf('function onMeta(');
-    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
-    const fn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
+    const fnStart = html.indexOf('function ensureFiniteDurations(');
+    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 1500);
     expect(fn).toContain('1e10');
     expect(fn).toContain('durationchange');
   });
 
-  it('onMeta always returns early while any video has non-finite duration', () => {
+  it('ensureFiniteDurations always returns early while any video has non-finite duration', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
-    const onMetaStart = html.indexOf('function onMeta(');
-    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
-    const fn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
-    // The return; must be unconditional — i.e. it appears after the closing brace
+    const fnStart = html.indexOf('function ensureFiniteDurations(');
+    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 1500);
+    // The return must be unconditional — i.e. it appears after the closing brace
     // of the if (!_durationForced.has(v)) { ... } block, not inside it.
     // Search for the actual assignment (not a comment mention) to find the right position.
     const seek1e10Idx = fn.indexOf('currentTime = 1e10');
     expect(seek1e10Idx).toBeGreaterThan(-1);
     // Find the closing brace of the has-guard block (after the 1e10 assignment)
     const closingBraceIdx = fn.indexOf('}', seek1e10Idx);
-    const returnIdx = fn.indexOf('return;', closingBraceIdx);
+    const returnIdx = fn.indexOf('return false;', closingBraceIdx);
     expect(returnIdx).toBeGreaterThan(closingBraceIdx);
-    // Only whitespace/comments between the closing brace and return;
+    // Only whitespace/comments between the closing brace and return false;
     const between = fn.slice(closingBraceIdx + 1, returnIdx).replace(/\/\/[^\n]*/g, '').trim();
     expect(between).toBe('');
   });
 
-  it('onMeta only triggers 1e10 seek once per src (WeakMap guard)', () => {
+  it('ensureFiniteDurations only triggers 1e10 seek once per src (WeakMap guard)', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
-    const onMetaStart = html.indexOf('function onMeta(');
-    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
-    const fn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
+    const fnStart = html.indexOf('function ensureFiniteDurations(');
+    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 1500);
     // WeakMap API: set() inside the guard, get() !== srcKey as the condition
     expect(fn).toContain('_durationForced.set(v');
     const getGuardIdx = fn.indexOf('_durationForced.get(v)');
@@ -1345,9 +1370,9 @@ describe('buildPlayerHtml run-by-run comparison', () => {
   it('renders run-by-run comparison section with color-coded racer headers', () => {
     const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
     expect(html).toContain('Run-by-Run Comparison');
-    // Racer headers have color styling
-    expect(html).toContain('style="color:#e74c3c">lauda');
-    expect(html).toContain('style="color:#3498db">hunt');
+    // Racer headers carry the racer colour as a token the stylesheet reads
+    expect(html).toContain('style="--racer-color:#e74c3c">lauda');
+    expect(html).toContain('style="--racer-color:#3498db">hunt');
   });
 
   it('shows trophy for winner and delta for loser in comparison table', () => {

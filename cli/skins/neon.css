@@ -1,0 +1,60 @@
+/* ---------------------------------------------------------------------------
+   Skin: neon — "night circuit"
+   Synthwave palette with softer corners and a sans-serif display face, to show
+   that a skin can move shape and type as well as colour.
+   --------------------------------------------------------------------------- */
+:root[data-theme="neon"] {
+  color-scheme: dark;
+
+  /* Palette */
+  --color-gold: #ff2d95;
+  --color-gold-bright: #ff6ab8;
+  --color-gold-shadow: #7a1349;
+
+  /* Surfaces */
+  --bg: #0d0a1f;
+  --surface: #17123a;
+  --surface-raised: #241c55;
+  --surface-inset: rgb(120 200 255 / 5%);
+  --scrim: rgb(5 3 15 / 88%);
+
+  /* Text */
+  --text: #e6e1ff;
+  --text-bright: #ffffff;
+  --text-muted: #c3bbe8;
+  --text-dim: #9a90c9;
+  --text-subtle: #857aba;
+  --text-faint: #6d63a0;
+  --text-ghost: #564d85;
+
+  /* Accents */
+  --accent-contrast: #0d0a1f;
+  --accent-wash: linear-gradient(180deg, rgb(255 45 149 / 18%), rgb(0 229 255 / 5%));
+
+  /* Lines */
+  --border: #2f2568;
+  --border-strong: #453a8c;
+  --border-subtle: #221b4d;
+  --danger: #ff4d6d;
+
+  /* Calibration panel */
+  --tool-accent: #00e5ff;
+  --tool-surface: #10203a;
+  --tool-contrast: #0d0a1f;
+
+  /* Shape & type */
+  --font-display: 'Avenir Next', 'Segoe UI', system-ui, sans-serif;
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --tracking-widest: 0.22em;
+
+  /* Ornament & chrome */
+  --checker-color-a: #00e5ff;
+  --checker-color-b: #ff2d95;
+  --shadow-popover: 0 6px 24px rgb(255 45 149 / 28%);
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%239a90c9'/%3E%3C/svg%3E");
+
+  --video-border-color: #2f2568;
+}

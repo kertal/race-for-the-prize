@@ -17,11 +17,15 @@ try {
 }
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
 const { waitForStability } = require('./visual-stability.cjs');
 const { deriveTraceTiming } = require('./trace-calibration.cjs');
 const { flashCue, OverlayController } = require('./overlay.cjs');
-const { RESULT_SENTINEL } = require('./runner-protocol.cjs');
+const { createRaceApi } = require('./race-api.cjs');
+const { RESULT_SENTINEL, PROTOCOL_VERSION, isSafeRacerId, confinePath, formatRaceMessage, formatContextClosed } = require('./runner-protocol.cjs');
+const { getMostRecentVideo, cleanupOldVideos, trimVideoWithFfmpeg } = require('./runner-video.cjs');
+const { setupMetricsCollection, startProfiling, collectProfilingResults } = require('./runner-metrics.cjs');
+const { applyThrottling } = require('./runner-throttling.cjs');
+const { calculateWindowLayout } = require('./runner-layout.cjs');
 
 // Track active browsers/contexts for cleanup on SIGTERM/SIGINT
 let activeBrowsers = [];
@@ -30,12 +34,13 @@ let cleanupInProgress = false;
 
 // --- Named constants (previously magic numbers) ---
 
-const OLD_VIDEO_CLEANUP_MS = 5000;      // Age threshold for deleting stale recordings
-// MEDAL_DISPLAY_MS moved to overlay.cjs
 const POST_RACE_WAIT_MS = 500;          // Pause after race finishes for final video frames
 const SLOWMO_MULTIPLIER = 20;           // Playwright slowMo factor per slowmo unit
 const PAGE_TIMEOUT_MS = 90000;          // Default page action/navigation timeout
-const FFMPEG_TIMEOUT_MS = 120000;       // Timeout for ffmpeg operations
+// Barrier deadline sits above the page timeout so Playwright's own errors fire
+// first; it exists to catch pure-JS hangs those timeouts can't see, which would
+// otherwise deadlock the other racer at a sync point forever.
+const BARRIER_TIMEOUT_MS = PAGE_TIMEOUT_MS + 30000;
 
 // --- Constants (loaded from shared ESM module) ---
 
@@ -43,115 +48,9 @@ const FFMPEG_TIMEOUT_MS = 120000;       // Timeout for ffmpeg operations
 let SCREEN, WINDOW_HEIGHT;
 
 async function loadConstants() {
-  const { SCREEN: s, VIDEO_DEFAULTS: v } = await import('./cli/colors.js');
+  const { SCREEN: s, VIDEO_DEFAULTS: v } = await import('./cli/media-config.js');
   SCREEN = s;
   WINDOW_HEIGHT = v.windowHeight;
-}
-
-// --- Video helpers ---
-
-/** Return the most recently modified .webm filename in a directory, or null. */
-function getMostRecentVideo(dir) {
-  try {
-    if (!fs.existsSync(dir)) return null;
-    const files = fs.readdirSync(dir)
-      .filter(f => f.endsWith('.webm'))
-      .map(f => ({ name: f, mtime: fs.statSync(path.join(dir, f)).mtime.getTime() }))
-      .sort((a, b) => b.mtime - a.mtime);
-    return files.length > 0 ? files[0].name : null;
-  } catch (e) {
-    return null;
-  }
-}
-
-/**
- * Extract recording segments from a full video and concatenate them.
- * Uses pre-computed PTS segments for frame-accurate cutting.
- * Keeps the original as a `_full` copy. Requires ffmpeg.
- */
-function extractSegments(videoPath, segments, browserId) {
-  const dir = path.dirname(videoPath);
-  const ext = path.extname(videoPath);
-  const base = path.basename(videoPath, ext);
-  const fullPath = path.join(dir, `${base}_full${ext}`);
-
-  fs.copyFileSync(videoPath, fullPath);
-
-  if (!segments || segments.length === 0) {
-    return { trimmedPath: videoPath, fullPath };
-  }
-
-  try {
-    if (segments.length === 1) {
-      const seg = segments[0];
-      const trimmedPath = path.join(dir, `${base}_trimmed${ext}`);
-      execFileSync('ffmpeg', [
-        '-y', '-i', videoPath,
-        '-ss', seg.start.toFixed(3), '-t', (seg.end - seg.start).toFixed(3),
-        '-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0',
-        trimmedPath
-      ], { timeout: FFMPEG_TIMEOUT_MS, stdio: 'pipe' });
-      fs.unlinkSync(videoPath);
-      fs.renameSync(trimmedPath, videoPath);
-      return { trimmedPath: videoPath, fullPath };
-    }
-
-    // Multiple segments: extract each then concatenate
-    const segmentFiles = [];
-    const concatListPath = path.join(dir, `${base}_concat.txt`);
-
-    for (let i = 0; i < segments.length; i++) {
-      const seg = segments[i];
-      const segPath = path.join(dir, `${base}_seg${i}${ext}`);
-      segmentFiles.push(segPath);
-      execFileSync('ffmpeg', [
-        '-y', '-i', videoPath,
-        '-ss', seg.start.toFixed(3), '-t', (seg.end - seg.start).toFixed(3),
-        '-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0',
-        segPath
-      ], { timeout: FFMPEG_TIMEOUT_MS, stdio: 'pipe' });
-    }
-
-    fs.writeFileSync(concatListPath, segmentFiles.map(f => `file '${f}'`).join('\n'));
-    const outputPath = path.join(dir, `${base}_final${ext}`);
-    execFileSync('ffmpeg', [
-      '-y', '-f', 'concat', '-safe', '0',
-      '-i', concatListPath, '-c', 'copy', outputPath
-    ], { timeout: FFMPEG_TIMEOUT_MS, stdio: 'pipe' });
-
-    for (const f of segmentFiles) { try { fs.unlinkSync(f); } catch (e) { console.error(`[extractSegments] Cleanup warning: ${e.message}`); } }
-    try { fs.unlinkSync(concatListPath); } catch (e) { console.error(`[extractSegments] Cleanup warning: ${e.message}`); }
-    fs.unlinkSync(videoPath);
-    fs.renameSync(outputPath, videoPath);
-
-    return { trimmedPath: videoPath, fullPath };
-  } catch (error) {
-    console.error(`[${browserId}] Failed to extract segments (ffmpeg may not be installed): ${error.message}`);
-    try {
-      for (const file of fs.readdirSync(dir)) {
-        if (['_seg', '_concat', '_final', '_trimmed'].some(p => file.includes(p))) {
-          try { fs.unlinkSync(path.join(dir, file)); } catch {}
-        }
-      }
-    } catch {}
-    return { trimmedPath: videoPath, fullPath };
-  }
-}
-
-/** Delete .webm files older than 5 seconds in a directory. */
-function cleanupOldVideos(dir) {
-  try {
-    if (!fs.existsSync(dir)) return;
-    const now = Date.now();
-    for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.webm'))) {
-      const filepath = path.join(dir, file);
-      if (now - fs.statSync(filepath).mtime.getTime() > OLD_VIDEO_CLEANUP_MS) {
-        fs.unlinkSync(filepath);
-      }
-    }
-  } catch (e) {
-    console.error(`[cleanupOldVideos] Warning: ${e.message}`);
-  }
 }
 
 // --- Signal handling ---
@@ -194,272 +93,6 @@ if (require.main === module) {
 
 const { SyncBarrier } = require('./sync-barrier.cjs');
 
-// --- Performance metrics collection via CDP ---
-
-/**
- * Set up CDP session for capturing network and performance metrics.
- * Tracks network transfer sizes, request counts, and prepares for Performance API collection.
- * Supports both total session metrics and measurement-scoped metrics (between raceStart/raceEnd).
- * @param {Page} page - Playwright page
- * @param {string} id - Browser identifier for logging
- * @returns {Object} Metrics collector with methods to snapshot and collect
- */
-async function setupMetricsCollection(page, id) {
-  // Running totals for network (accumulated via events)
-  const networkTotals = {
-    transferSize: 0,
-    requestCount: 0
-  };
-
-  // Snapshot taken at raceStart for computing deltas
-  let startSnapshot = null;
-
-  // Network activity during measurement period
-  let measuredNetwork = { transferSize: 0, requestCount: 0 };
-  let isMeasuring = false;
-  const sectionMeasurements = new Map();
-
-  let client = null;
-
-  try {
-    client = await page.context().newCDPSession(page);
-    await client.send('Network.enable');
-    await client.send('Performance.enable');
-
-    // Track network transfer sizes
-    client.on('Network.loadingFinished', (params) => {
-      const size = params.encodedDataLength || 0;
-      networkTotals.transferSize += size;
-      networkTotals.requestCount++;
-      // Also track during measurement period
-      if (isMeasuring) {
-        measuredNetwork.transferSize += size;
-        measuredNetwork.requestCount++;
-      }
-    });
-
-  } catch (error) {
-    console.error(`[${id}] Warning: metrics collection setup failed: ${error.message}`);
-  }
-
-  /**
-   * Get current CDP performance metrics snapshot.
-   */
-  async function getCdpMetrics() {
-    if (!client) return null;
-    try {
-      const perfMetrics = await client.send('Performance.getMetrics');
-      const metricsMap = {};
-      for (const m of perfMetrics.metrics) {
-        metricsMap[m.name] = m.value;
-      }
-      // CDP Performance.getMetrics returns durations in seconds; convert to ms
-      return {
-        jsHeapUsedSize: metricsMap.JSHeapUsedSize || 0,
-        scriptDuration: (metricsMap.ScriptDuration || 0) * 1000,
-        layoutDuration: (metricsMap.LayoutDuration || 0) * 1000,
-        recalcStyleDuration: (metricsMap.RecalcStyleDuration || 0) * 1000,
-        taskDuration: (metricsMap.TaskDuration || 0) * 1000
-      };
-    } catch {
-      return null;
-    }
-  }
-
-  function cloneNetworkTotals() {
-    return {
-      transferSize: networkTotals.transferSize,
-      requestCount: networkTotals.requestCount,
-    };
-  }
-
-  return {
-    /**
-     * Take a snapshot at measurement start (raceStart).
-     * Call this to begin tracking measurement-scoped metrics.
-     */
-    async startMeasurement() {
-      startSnapshot = await getCdpMetrics();
-      measuredNetwork = { transferSize: 0, requestCount: 0 };
-      isMeasuring = true;
-    },
-
-    /**
-     * End measurement period (raceEnd).
-     */
-    stopMeasurement() {
-      isMeasuring = false;
-    },
-
-    async startSectionMeasurement(name = 'default') {
-      const sectionName = String(name);
-      if (sectionMeasurements.has(sectionName)) {
-        console.warn(`[${id}] Section measurement "${sectionName}" started again before ending; previous measurement will be lost`);
-      }
-      const startCdp = await getCdpMetrics();
-      sectionMeasurements.set(sectionName, {
-        startCdp,
-        endCdp: null,
-        startNetwork: cloneNetworkTotals(),
-        endNetwork: null,
-        endCdpPromise: null,
-      });
-    },
-
-    stopSectionMeasurement(name = 'default') {
-      const sectionName = String(name);
-      const section = sectionMeasurements.get(sectionName);
-      if (!section) return;
-      section.endNetwork = cloneNetworkTotals();
-      section.endCdpPromise = getCdpMetrics()
-        .then(metrics => { section.endCdp = metrics; })
-        .catch(() => { section.endCdp = null; });
-    },
-
-    /**
-     * Collect final metrics at the end of the race.
-     * Returns both total session metrics and measurement-scoped metrics.
-     */
-    async collect() {
-      await Promise.all(
-        [...sectionMeasurements.values()]
-          .map(s => s.endCdpPromise)
-          .filter(Boolean)
-      );
-
-      const result = {
-        total: {
-          networkTransferSize: networkTotals.transferSize,
-          networkRequestCount: networkTotals.requestCount,
-          ttfb: null,
-          fcp: null,
-          lcp: null,
-          cls: null,
-          domContentLoaded: null,
-          domComplete: null,
-          jsHeapUsedSize: null,
-          scriptDuration: null,
-          layoutDuration: null,
-          recalcStyleDuration: null,
-          taskDuration: null
-        },
-        measured: {
-          networkTransferSize: measuredNetwork.transferSize,
-          networkRequestCount: measuredNetwork.requestCount,
-          scriptDuration: null,
-          layoutDuration: null,
-          recalcStyleDuration: null,
-          taskDuration: null
-        },
-        measuredSections: Object.create(null)
-      };
-
-      try {
-        // Get navigation timing + web vitals from the page in a single evaluate
-        const timing = await page.evaluate(() => {
-          const perf = window.performance;
-          if (!perf) return null;
-          const t = perf.timing || {};
-          const nav = perf.getEntriesByType('navigation');
-          const paint = perf.getEntriesByType('paint');
-          const fcpEntry = paint.find(e => e.name === 'first-contentful-paint');
-          const lcpEntries = window.__raceLCPEntries;
-          return {
-            domContentLoaded: t.domContentLoadedEventEnd && t.navigationStart
-              ? t.domContentLoadedEventEnd - t.navigationStart : null,
-            domComplete: t.domComplete && t.navigationStart
-              ? t.domComplete - t.navigationStart : null,
-            ttfb: nav.length > 0 ? nav[0].responseStart : (
-              t.responseStart && t.navigationStart ? t.responseStart - t.navigationStart : null
-            ),
-            fcp: fcpEntry ? fcpEntry.startTime : null,
-            lcp: lcpEntries && lcpEntries.length > 0 ? lcpEntries[lcpEntries.length - 1] : null,
-            cls: typeof window.__raceCLSValue === 'number' ? window.__raceCLSValue : null,
-          };
-        });
-
-        if (timing) {
-          result.total.domContentLoaded = timing.domContentLoaded > 0 ? timing.domContentLoaded : null;
-          result.total.domComplete = timing.domComplete > 0 ? timing.domComplete : null;
-          result.total.ttfb = timing.ttfb > 0 ? timing.ttfb : null;
-          result.total.fcp = timing.fcp > 0 ? timing.fcp : null;
-          result.total.lcp = timing.lcp > 0 ? timing.lcp : null;
-          result.total.cls = timing.cls != null ? timing.cls : null;
-        }
-
-        // Get final CDP metrics
-        const endMetrics = await getCdpMetrics();
-        if (endMetrics) {
-          result.total.jsHeapUsedSize = endMetrics.jsHeapUsedSize || null;
-          result.total.scriptDuration = endMetrics.scriptDuration || null;
-          result.total.layoutDuration = endMetrics.layoutDuration || null;
-          result.total.recalcStyleDuration = endMetrics.recalcStyleDuration || null;
-          result.total.taskDuration = endMetrics.taskDuration || null;
-
-          // Compute deltas for measurement period
-          if (startSnapshot) {
-            const computeDelta = (metric) => {
-              const delta = endMetrics[metric] - startSnapshot[metric];
-              if (delta < 0) console.warn(`[${id}] Negative delta for "${metric}" (${startSnapshot[metric]} → ${endMetrics[metric]}), clamping to 0`);
-              return Math.max(0, delta);
-            };
-            result.measured.scriptDuration = computeDelta('scriptDuration');
-            result.measured.layoutDuration = computeDelta('layoutDuration');
-            result.measured.recalcStyleDuration = computeDelta('recalcStyleDuration');
-            result.measured.taskDuration = computeDelta('taskDuration');
-          }
-        }
-      } catch (error) {
-        console.error(`[${id}] Warning: failed to collect metrics: ${error.message}`);
-      }
-
-      for (const [sectionName, section] of sectionMeasurements.entries()) {
-        const startNetwork = section.startNetwork;
-        const endNetwork = section.endNetwork;
-        const startCdp = section.startCdp;
-        const endCdp = section.endCdp;
-
-        const measuredSection = {
-          networkTransferSize: (startNetwork && endNetwork)
-            ? Math.max(0, endNetwork.transferSize - startNetwork.transferSize)
-            : null,
-          networkRequestCount: (startNetwork && endNetwork)
-            ? Math.max(0, endNetwork.requestCount - startNetwork.requestCount)
-            : null,
-          scriptDuration: null,
-          layoutDuration: null,
-          recalcStyleDuration: null,
-          taskDuration: null,
-        };
-
-        if (startCdp && endCdp) {
-          const computeDelta = (metric) => {
-            const delta = endCdp[metric] - startCdp[metric];
-            return Math.max(0, delta);
-          };
-          measuredSection.scriptDuration = computeDelta('scriptDuration');
-          measuredSection.layoutDuration = computeDelta('layoutDuration');
-          measuredSection.recalcStyleDuration = computeDelta('recalcStyleDuration');
-          measuredSection.taskDuration = computeDelta('taskDuration');
-        }
-
-        result.measuredSections[sectionName] = measuredSection;
-      }
-
-      return result;
-    },
-
-    /**
-     * Detach the CDP session.
-     */
-    async detach() {
-      try {
-        if (client) await client.detach();
-      } catch {}
-    }
-  };
-}
-
 // --- Script execution ---
 
 /** Fix smart quotes, non-breaking spaces, and line endings in user scripts. */
@@ -492,15 +125,17 @@ function sanitizeScript(script) {
  *
  * Returns { segments, measurements } for video trimming and result comparison.
  */
-async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay = false, metricsCollector = null, noRecording = false) {
+async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay = false, metricsCollector = null, noRecording = false, cueMarkers = false) {
   const { id, script: raceScript, vars } = config;
 
-  const segments = [];
-  let currentSegmentStart = null;
-  const measurements = [];
-  const activeMeasurements = {};
-
-  // --- Visual cues for frame-accurate trimming / calibration ---
+  // --- Visual cues (opt-in via --cue-markers) ---
+  // Colored flashes injected at segment boundaries so ffprobe-based tests can
+  // verify trace calibration against ground truth in the recorded frames.
+  // Off by default: the flash forces a reflow and animates a DOM element at
+  // the exact raceStart/raceEnd boundaries, perturbing the CPU/layout/paint
+  // metrics being measured — and no production consumer reads the cues (the
+  // player and ffmpeg trimming both calibrate from the Playwright trace).
+  const flashCues = cueMarkers && !noRecording;
   const CUE_COLOR_START = '#00FF00';
   const CUE_COLOR_END = '#FF0000';
   const traceMarkPrefix = 'race:';
@@ -529,108 +164,72 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
 
   const overlayCtrl = new OverlayController(page, { noOverlay, noRecording });
 
-  const startRecording = async () => {
-    if (currentSegmentStart !== null) return;
-    if (isParallel && barriers) {
-      const result = await barriers.recordingStart.wait(`${id} startRecording`);
-      if (result?.aborted) return;
-    }
-    const startWallMs = Date.now();
-    currentSegmentStart = (startWallMs - recordingStartTime) / 1000;
-    await markTrace(`${traceMarkPrefix}recording:start`);
-    await Promise.all([
-      overlayCtrl.onStartRecording(),
-      !noRecording ? flashCue(page, CUE_COLOR_START) : null,
-    ]);
-  };
-
-
-  let stopPromise = null;
-  const stopRecording = async () => {
-    if (currentSegmentStart === null) return stopPromise;
-    segments.push({ start: currentSegmentStart, end: (Date.now() - recordingStartTime) / 1000 });
-    await markTrace(`${traceMarkPrefix}recording:end`);
-    currentSegmentStart = null;
-    stopPromise = (async () => {
-      if (sharedState) {
-        const lastMeasurement = measurements[measurements.length - 1];
-        const endTime = lastMeasurement ? lastMeasurement.endTime : (Date.now() - recordingStartTime) / 1000;
-        sharedState.finishOrder.push({ id, endTime });
-        if (!noOverlay && !noRecording) {
-          // Calculate placement from finish order for the medal display
-          const sorted = [...sharedState.finishOrder].sort((a, b) => a.endTime - b.endTime);
-          const place = isParallel ? sorted.findIndex(f => f.id === id) + 1 : null;
-          await overlayCtrl.onFinish(place);
+  // The state machine lives in race-api.cjs; everything runner-specific
+  // (trace marks, overlays, cues, CDP metrics, barriers, stderr protocol)
+  // is injected as hooks.
+  const api = createRaceApi({
+    recordingStartTime,
+    hooks: {
+      gateRecordingStart: isParallel && barriers
+        ? () => barriers.recordingStart.wait(`${id} startRecording`)
+        : null,
+      onRecordingStart: async () => {
+        await markTrace(`${traceMarkPrefix}recording:start`);
+        await Promise.all([
+          overlayCtrl.onStartRecording(),
+          flashCues ? flashCue(page, CUE_COLOR_START) : null,
+        ]);
+      },
+      markRecordingEnd: () => markTrace(`${traceMarkPrefix}recording:end`),
+      onRecordingStop: async ({ endTime }) => {
+        if (sharedState) {
+          // Record one finish entry per racer, not per recording segment. A racer
+          // with several raceRecordingStart/End segments would otherwise appear
+          // multiple times and corrupt the medal-placement index (which assumes
+          // one entry per racer).
+          const existing = sharedState.finishOrder.find(f => f.id === id);
+          if (existing) existing.endTime = endTime;
+          else sharedState.finishOrder.push({ id, endTime });
+          if (!noOverlay && !noRecording) {
+            // Calculate placement from finish order for the medal display
+            const sorted = [...sharedState.finishOrder].sort((a, b) => a.endTime - b.endTime);
+            const place = isParallel ? sorted.findIndex(f => f.id === id) + 1 : null;
+            await overlayCtrl.onFinish(place);
+          }
         }
-      }
-      await Promise.all([
-        !noRecording ? flashCue(page, CUE_COLOR_END) : null,
-        overlayCtrl.onStopRecording(),
-      ]);
-    })();
-    return stopPromise;
-  };
-
-  let raceStartTime = null;
-
-  const startMeasure = async (name = 'default') => {
-    if (raceStartTime === null) raceStartTime = Date.now();
-    activeMeasurements[name] = (Date.now() - recordingStartTime) / 1000;
-    await markTrace(`${traceMarkPrefix}measure:start:${encodeMeasureName(name)}`);
-    await overlayCtrl.onMeasureStart();
-  };
-
-  const endMeasure = (name = 'default') => {
-    const start = activeMeasurements[name];
-    if (start === undefined) return 0;
-    const end = (Date.now() - recordingStartTime) / 1000;
-    const duration = end - start;
-    measurements.push({ name, startTime: start, endTime: end, duration });
-    delete activeMeasurements[name];
-    queueTraceMark(`${traceMarkPrefix}measure:end:${encodeMeasureName(name)}`);
-    overlayCtrl.onMeasureEnd();
-    return end - start;
-  };
-
-  let hasExplicitRecording = false;
-  let autoRecordingStarted = false;
-
-  page.raceMessage = (text) => {
-    if (text == null) {
-      text = '';
-    } else if (typeof text !== 'string') {
-      text = String(text);
-    }
-    const elapsed = raceStartTime ? ((Date.now() - raceStartTime) / 1000).toFixed(1) : '0.0';
-    console.error(`[${id}] __raceMessage__[${elapsed}]:${text}`);
-  };
-  page.raceRecordingStart = async () => { hasExplicitRecording = true; await startRecording(); };
-  page.raceRecordingEnd = async () => { hasExplicitRecording = true; await stopRecording(); };
-  page.raceStart = async (name = 'default') => {
-    if (!hasExplicitRecording && !autoRecordingStarted) {
-      autoRecordingStarted = true;
-      await startRecording();
-    }
-    // Start metrics measurement on first raceStart
-    if (metricsCollector && raceStartTime === null) {
-      await metricsCollector.startMeasurement();
-    }
-    if (metricsCollector) {
-      await metricsCollector.startSectionMeasurement(name);
-    }
-    await startMeasure(name);
-  };
-  page.raceEnd = (name = 'default') => {
-    const duration = endMeasure(name);
-    if (metricsCollector) {
-      metricsCollector.stopSectionMeasurement(name);
-    }
-    // Stop metrics measurement when the last measurement ends
-    if (metricsCollector && Object.keys(activeMeasurements).length === 0) {
-      metricsCollector.stopMeasurement();
-    }
-    return duration;
-  };
+        await Promise.all([
+          flashCues ? flashCue(page, CUE_COLOR_END) : null,
+          overlayCtrl.onStopRecording(),
+        ]);
+      },
+      onMeasureStart: async (name) => {
+        await markTrace(`${traceMarkPrefix}measure:start:${encodeMeasureName(name)}`);
+        await overlayCtrl.onMeasureStart();
+      },
+      onMeasureEnd: (name) => {
+        queueTraceMark(`${traceMarkPrefix}measure:end:${encodeMeasureName(name)}`);
+        overlayCtrl.onMeasureEnd();
+      },
+      onUnmatchedMeasureEnd: (name) => {
+        console.error(`[${id}] Warning: raceEnd(${JSON.stringify(name)}) called with no matching raceStart — measurement ignored.`);
+      },
+      onFirstRaceStart: metricsCollector
+        ? () => metricsCollector.startMeasurement()
+        : null,
+      onSectionStart: metricsCollector
+        ? (name) => metricsCollector.startSectionMeasurement(name)
+        : null,
+      onSectionEnd: metricsCollector
+        ? (name, activeCount) => {
+            metricsCollector.stopSectionMeasurement(name);
+            // Stop metrics measurement when the last measurement ends
+            if (activeCount === 0) metricsCollector.stopMeasurement();
+          }
+        : null,
+      onMessage: (elapsed, text) => console.error(formatRaceMessage(id, elapsed, text)),
+    },
+  });
+  api.attach(page);
 
   // CDP session for visual stability checks — created lazily, cleaned up after script
   let cdpSession = null;
@@ -702,7 +301,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   try {
     const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor; // NOSONAR — intentional: executes user-provided race scripts
     const fn = new AsyncFunction('page', 'race', '__startRecording', '__stopRecording', '__startMeasure', '__endMeasure', sanitized); // NOSONAR
-    await fn(page, raceContext, startRecording, stopRecording, startMeasure, endMeasure);
+    await fn(page, raceContext, api.startRecording, api.stopRecording, api.startMeasure, api.endMeasure);
   } catch (error) {
     console.error(`[${id}] Script failed: ${error.message}`);
     throw new Error(`Script execution failed: ${error.message}`);
@@ -714,118 +313,14 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     }
   }
 
-  if (currentSegmentStart !== null) await stopRecording();
-  if (stopPromise) await stopPromise;
+  await api.finalize();
 
   if (isParallel && barriers) {
     await barriers.stop.wait(`${id} finished`);
   }
 
   await page.waitForTimeout(POST_RACE_WAIT_MS);
-  return { segments, measurements };
-}
-
-// --- Network & CPU throttling ---
-
-const NETWORK_PRESETS = {
-  'none': null,
-  'slow-3g': { downloadThroughput: 500 * 1024 / 8, uploadThroughput: 500 * 1024 / 8, latency: 400 },
-  'fast-3g': { downloadThroughput: 1500 * 1024 / 8, uploadThroughput: 750 * 1024 / 8, latency: 150 },
-  '4g': { downloadThroughput: 4000 * 1024 / 8, uploadThroughput: 3000 * 1024 / 8, latency: 50 },
-};
-
-async function applyThrottling(page, throttle, id) {
-  if (!throttle) return;
-  try {
-    // CDP session intentionally kept alive — detaching removes throttling.
-    // Session is cleaned up when the browser context closes.
-    const client = await page.context().newCDPSession(page);
-    const net = NETWORK_PRESETS[throttle.network];
-    if (net) {
-      await client.send('Network.enable');
-      await client.send('Network.emulateNetworkConditions', { offline: false, ...net });
-    }
-    if (throttle.cpu > 1) {
-      await client.send('Emulation.setCPUThrottlingRate', { rate: throttle.cpu });
-    }
-  } catch (error) {
-    console.error(`[${id}] Warning: throttling failed: ${error.message}`);
-  }
-}
-
-// --- Window layout calculation for N browsers ---
-
-/**
- * Calculate window position and size for browser at given index.
- * For 2 browsers: side-by-side horizontally
- * For 3 browsers: 3 across
- * For 4 browsers: 2x2 grid
- * For 5 browsers: 3 on top, 2 on bottom
- */
-function calculateWindowLayout(index, total) {
-  const { width: screenWidth, height: screenHeight } = SCREEN;
-
-  if (total <= 2) {
-    // Side by side
-    const width = Math.floor(screenWidth / 2);
-    return { x: index * width, y: 0, width, height: WINDOW_HEIGHT };
-  } else if (total === 3) {
-    // 3 across
-    const width = Math.floor(screenWidth / 3);
-    return { x: index * width, y: 0, width, height: WINDOW_HEIGHT };
-  } else if (total === 4) {
-    // 2x2 grid
-    const width = Math.floor(screenWidth / 2);
-    const height = Math.floor(screenHeight / 2);
-    const row = Math.floor(index / 2);
-    const col = index % 2;
-    return { x: col * width, y: row * height, width, height };
-  } else {
-    // 5 browsers: 3 on top, 2 on bottom (centered)
-    const width = Math.floor(screenWidth / 3);
-    const height = Math.floor(screenHeight / 2);
-    if (index < 3) {
-      // Top row: 3 browsers
-      return { x: index * width, y: 0, width, height };
-    } else {
-      // Bottom row: 2 browsers, centered
-      const bottomOffset = Math.floor(width / 2);
-      return { x: bottomOffset + (index - 3) * width, y: height, width, height };
-    }
-  }
-}
-
-// --- Profiling & trimming helpers ---
-
-async function startProfiling(page, browser, id) {
-  const metricsCollector = await setupMetricsCollection(page, id);
-  await browser.startTracing(page, { screenshots: true, categories: ['devtools.timeline', 'blink.user_timing'] });
-  return metricsCollector;
-}
-
-async function collectProfilingResults(browser, metricsCollector, outputDir, id) {
-  let profileMetrics = null;
-  if (metricsCollector) {
-    profileMetrics = await metricsCollector.collect();
-    await metricsCollector.detach();
-  }
-  const traceBuffer = await browser.stopTracing();
-  const tracePath = path.join(outputDir, `${id}.trace.json`);
-  fs.writeFileSync(tracePath, traceBuffer);
-  console.error(`[${id}] Performance trace saved: ${tracePath}`);
-  return {
-    tracePath,
-    profileMetrics,
-    traceText: traceBuffer.toString('utf8'),
-  };
-}
-
-function trimVideoWithFfmpeg(outputDir, trimSegments, id) {
-  const videoFile = getMostRecentVideo(outputDir);
-  if (!videoFile) return null;
-  const videoPath = path.join(outputDir, videoFile);
-  const res = extractSegments(videoPath, trimSegments, id);
-  return path.basename(res.fullPath);
+  return { segments: api.segments, measurements: api.measurements };
 }
 
 // --- Single browser recording flow ---
@@ -835,20 +330,22 @@ function trimVideoWithFfmpeg(outputDir, trimSegments, id) {
  * Called N times (once per racer) by runParallel or runSequential.
  */
 async function runBrowserRecording(config, barriers, isParallel, sharedState, opts = {}) {
-  const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, noRecording = false, ffmpeg = false, har = false, recordingsDir = null, ignoreHTTPSErrors = false, viewportHeight: configViewportHeight = null } = opts;
+  const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, noRecording = false, ffmpeg = false, har = false, cueMarkers = false, recordingsDir = null, ignoreHTTPSErrors = false, viewportHeight: configViewportHeight = null } = opts;
   const { id, headless: headlessRaw } = config;
   const headless = headlessRaw === true;
-  const outputDir = recordingsDir ? path.join(recordingsDir, id) : path.join(__dirname, 'recordings', id);
+  // id is validated at config entry (isSafeRacerId); confinePath re-checks the
+  // constructed path so the racer's output can never land outside the base.
+  const outputDir = confinePath(recordingsDir || path.join(__dirname, 'recordings'), id);
   let browser = null;
   let context = null;
   let page = null;
   let metricsCollector = null;
   let error = null;
 
-  fs.mkdirSync(outputDir, { recursive: true });
+  fs.mkdirSync(outputDir, { recursive: true }); // NOSONAR — outputDir comes from confinePath (id validated by isSafeRacerId at config entry)
   cleanupOldVideos(outputDir);
 
-  const layout = calculateWindowLayout(browserIndex, totalBrowsers);
+  const layout = calculateWindowLayout(browserIndex, totalBrowsers, { screen: SCREEN, windowHeight: WINDOW_HEIGHT });
   const windowArgs = isParallel
     ? [`--window-position=${layout.x},${layout.y}`, `--window-size=${layout.width},${layout.height}`]
     : [];
@@ -887,7 +384,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
 
     metricsCollector = await startProfiling(page, browser, id);
 
-    const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay, metricsCollector, noRecording);
+    const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay, metricsCollector, noRecording, cueMarkers);
     const markerSegments = result?.segments || [];
     const markerMeasurements = result?.measurements || [];
 
@@ -901,7 +398,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     const wallClockDuration = (Date.now() - contextCreationStart) / 1000;
     activeContexts = activeContexts.filter(ctx => ctx !== context);
     context = null;
-    console.error(`[${id}] Context closed`);
+    console.error(formatContextClosed(id));
 
     await browser.close();
     activeBrowsers = activeBrowsers.filter(b => b !== browser);
@@ -1018,9 +515,9 @@ async function runParallel(browserConfigs, opts = {}) {
   const count = browserConfigs.length;
   const sharedState = { hasError: false, errorMessage: null, finishOrder: [] };
   const barriers = {
-    ready: new SyncBarrier(count, sharedState),
-    recordingStart: new SyncBarrier(count, sharedState),
-    stop: new SyncBarrier(count, sharedState)
+    ready: new SyncBarrier(count, sharedState, { timeoutMs: BARRIER_TIMEOUT_MS }),
+    recordingStart: new SyncBarrier(count, sharedState, { timeoutMs: BARRIER_TIMEOUT_MS }),
+    stop: new SyncBarrier(count, sharedState, { timeoutMs: BARRIER_TIMEOUT_MS })
   };
 
   const promises = browserConfigs.map((config, i) =>
@@ -1047,28 +544,79 @@ async function runSequential(browserConfigs, opts = {}) {
 
 // --- Main entry point ---
 
+/**
+ * Emit the sentinel result line and exit with the given code, but only after
+ * stdout has been flushed. process.exit() does not wait for a piped stdout to
+ * drain, so a large result payload can be truncated mid-JSON if we exit on the
+ * next line. The timeout is a safety net in case the write callback never fires.
+ */
+function emitResultAndExit(payload, code) {
+  const line = RESULT_SENTINEL + payload + '\n';
+  const done = () => process.exit(code);
+  const timer = setTimeout(done, 5000);
+  timer.unref();
+  process.stdout.write(line, () => { clearTimeout(timer); done(); });
+}
+
 async function main() {
   // Load shared constants from ESM module
   await loadConstants();
 
-  const configJson = process.argv[2];
+  // Config is passed either inline as argv[2] (legacy / direct invocation) or,
+  // to stay well under the OS argv size limit for large race scripts, via a
+  // temp file: `runner.cjs --config-file <path>`. The file is consumed once.
+  let configJson;
+  if (process.argv[2] === '--config-file') {
+    const configPath = process.argv[3];
+    if (!configPath) { console.error('Error: --config-file requires a path'); process.exit(1); }
+    try { configJson = fs.readFileSync(configPath, 'utf-8'); }
+    catch (e) { console.error('Error: Could not read config file:', e.message); process.exit(1); }
+    finally { try { fs.unlinkSync(configPath); } catch {} }
+  } else {
+    configJson = process.argv[2];
+  }
   if (!configJson) { console.error('Error: Config JSON required'); process.exit(1); }
 
   let config;
   try { config = JSON.parse(configJson); }
   catch (e) { console.error('Error: Invalid JSON:', e.message); process.exit(1); }
 
-  const { browsers, executionMode, throttle, headless: headlessRaw, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir, ignoreHTTPSErrors, viewportHeight } = config;
+  if (config.protocolVersion !== PROTOCOL_VERSION) {
+    console.error(
+      `Error: Runner protocol mismatch — runner.cjs speaks v${PROTOCOL_VERSION} but the config is ` +
+      `v${config.protocolVersion ?? 'unversioned'}. race.js and runner.cjs must come from the same install.`
+    );
+    process.exit(1);
+  }
+
+  const { browsers, executionMode, throttle, headless: headlessRaw, slowmo, noOverlay, noRecording, ffmpeg, har, cueMarkers, recordingsDir, ignoreHTTPSErrors, viewportHeight } = config;
+
+  // Racer ids become directory/file names under the recordings dir, so reject
+  // anything that isn't a plain basename before any path is built from them.
+  if (!Array.isArray(browsers) || browsers.length === 0) {
+    console.error('Error: Config must include a non-empty browsers array');
+    process.exit(1);
+  }
+  for (const b of browsers) {
+    if (!isSafeRacerId(b?.id)) {
+      console.error(`Error: Unsafe racer id ${JSON.stringify(b?.id)} — ids must be plain names without path separators`);
+      process.exit(1);
+    }
+  }
   const headless = headlessRaw === true;
-  const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, har, recordingsDir, ignoreHTTPSErrors, viewportHeight };
+
+  // The recordings dir is chosen by the parent process (or defaults to a dir
+  // next to the runner). Resolve it once to an absolute path so every path the
+  // runner derives from it stays anchored under this directory.
+  const recBase = path.resolve(recordingsDir || path.join(__dirname, 'recordings'));
+  fs.mkdirSync(recBase, { recursive: true });
+
+  const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, har, cueMarkers, recordingsDir: recBase, ignoreHTTPSErrors, viewportHeight };
 
   // Set headless flag on all browser configs (strict boolean — strings must not slip through)
   for (const browser of browsers) {
     browser.headless = headless;
   }
-
-  const recBase = recordingsDir || path.join(__dirname, 'recordings');
-  fs.mkdirSync(recBase, { recursive: true });
 
   let results;
   try {
@@ -1085,6 +633,7 @@ async function main() {
   // can reliably distinguish this line from any other stdout (e.g. from
   // subprocess tooling, Playwright logs, or a signal-cleanup stub).
   const payload = JSON.stringify({
+    protocolVersion: PROTOCOL_VERSION,
     browsers: results.map(r => ({
       id: r.id,
       videoPath: r.videoPath || null,
@@ -1102,17 +651,15 @@ async function main() {
     })),
     errors: errors.length > 0 ? errors : undefined
   });
-  console.log(RESULT_SENTINEL + payload);
 
-  process.exit(errors.length > 0 ? 1 : 0);
+  emitResultAndExit(payload, errors.length > 0 ? 1 : 0);
 }
 
 // Allow unit testing of internal functions when required as a module
 if (require.main === module) {
   main().catch(err => {
     console.error('Fatal error:', err);
-    console.log(RESULT_SENTINEL + JSON.stringify({ browsers: [], errors: [err.message] }));
-    process.exit(1);
+    emitResultAndExit(JSON.stringify({ protocolVersion: PROTOCOL_VERSION, browsers: [], errors: [err.message] }), 1);
   });
 }
 

@@ -6,7 +6,9 @@ import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
 import { createRequire } from 'module';
-import { c, FORMAT_EXTENSIONS, VIDEO_DEFAULTS, codecArgs } from './colors.js';
+import { c } from './colors.js';
+import { FORMAT_EXTENSIONS, VIDEO_DEFAULTS, codecArgs } from './media-config.js';
+import { raceVideoFile, fullVideoFile, traceFile, harFile } from './paths.js';
 
 /** Move recordings from the runner's temp dir to the results folder. */
 export function moveResults(recordingsBase, racerName, destDir, browserResult) {
@@ -33,29 +35,33 @@ export function moveResults(recordingsBase, racerName, destDir, browserResult) {
 
     const webms = files.filter(f => f.endsWith('.webm'));
     const fullVideo = webms.find(f => f.includes('_full'));
-    const mainVideo = webms.find(f => !f.includes('_full')) || webms[0];
+    // Prefer a dedicated (trimmed) video as the main race video; fall back to
+    // the full video or any single file. Crucially, when only a _full video
+    // exists, mainVideo === fullVideo — we must NOT rename the same file twice
+    // (the second rename would ENOENT and abort, dropping measurements.json).
+    const mainVideo = webms.find(f => !f.includes('_full')) || fullVideo || webms[0];
     if (mainVideo) {
-      const renamed = `${racerName}.race.webm`;
+      const renamed = raceVideoFile(racerName);
       fs.renameSync(path.join(destDir, mainVideo), path.join(destDir, renamed));
       data.videoPath = path.join(destDir, renamed);
     }
-    if (fullVideo) {
-      const renamed = `${racerName}.full.webm`;
+    if (fullVideo && fullVideo !== mainVideo) {
+      const renamed = fullVideoFile(racerName);
       fs.renameSync(path.join(destDir, fullVideo), path.join(destDir, renamed));
       data.fullVideoPath = path.join(destDir, renamed);
     }
 
-    const traceFile = files.find(f => f.endsWith('.trace.json'));
-    if (traceFile) {
-      const renamed = `${racerName}.trace.json`;
-      fs.renameSync(path.join(destDir, traceFile), path.join(destDir, renamed));
+    const sourceTrace = files.find(f => f.endsWith('.trace.json'));
+    if (sourceTrace) {
+      const renamed = traceFile(racerName);
+      fs.renameSync(path.join(destDir, sourceTrace), path.join(destDir, renamed));
       data.tracePath = path.join(destDir, renamed);
     }
 
-    const harFile = files.find(f => f.endsWith('.har'));
-    if (harFile) {
-      const renamed = `${racerName}.har`;
-      fs.renameSync(path.join(destDir, harFile), path.join(destDir, renamed));
+    const sourceHar = files.find(f => f.endsWith('.har'));
+    if (sourceHar) {
+      const renamed = harFile(racerName);
+      fs.renameSync(path.join(destDir, sourceHar), path.join(destDir, renamed));
       data.harPath = path.join(destDir, renamed);
     }
 
@@ -131,11 +137,31 @@ export function copyFFmpegFiles(destDir) {
   }
 }
 
+/** True if an `ffmpeg` binary is callable on PATH. */
+function ffmpegAvailable() {
+  try {
+    execFileSync('ffmpeg', ['-version'], { stdio: 'pipe' }); // NOSONAR — ffmpeg resolved via PATH is intentional (optional user-installed system dep); args are an array (no shell)
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Convert .webm videos to the requested format (mov/gif) via ffmpeg. */
 export function convertVideos(results, format) {
   const ext = FORMAT_EXTENSIONS[format];
   if (!ext) {
     console.error(`${c.dim}Warning: Unknown format "${format}", skipping conversion${c.reset}`);
+    return;
+  }
+  // Converting webm→webm would run `ffmpeg -i src ... src`, reading and
+  // overwriting the same file in place and corrupting it. There is nothing to
+  // convert, so skip.
+  if (ext === FORMAT_EXTENSIONS.webm) return;
+  // Preflight ffmpeg once. Without this every file logs an ENOENT warning and
+  // the summary still advertises .mov/.gif paths that were never produced.
+  if (!ffmpegAvailable()) {
+    console.error(`${c.dim}Warning: ffmpeg not found — keeping .webm, skipping ${format} conversion${c.reset}`);
     return;
   }
   for (const r of results) {

@@ -6,10 +6,11 @@
 import fs from 'fs';
 import path from 'path';
 
-const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'height', 'gemini-spec']);
+const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'height', 'gemini-spec', 'skin']);
 const BOOLEAN_VALUE_FLAGS = new Set([
   'parallel', 'headless', 'overlay', 'recording',
   'ffmpeg', 'har', 'wasm', 'serve', 'pause', 'ignore-https-errors', 'gemini',
+  'cue-markers',
 ]);
 
 /** Boolean flags the CLI recognises. Unknown flags produce an error. */
@@ -17,6 +18,7 @@ export const KNOWN_BOOL_FLAGS = new Set([
   'parallel', 'headless', 'overlay', 'recording',
   'ffmpeg', 'har', 'wasm', 'serve', 'pause', 'ignore-https-errors',
   'gemini', 'results', 'init', 'verbose', 'help', 'version',
+  'cue-markers',
 ]);
 
 /** Combined set of all valid flag names (bool + kv). */
@@ -77,6 +79,16 @@ export function findUnknownFlags(boolFlags, kvFlags) {
     if (!KNOWN_FLAGS.has(name)) unknown.push(name);
   }
   return unknown;
+}
+
+/**
+ * Return value-requiring flags (e.g. --runs, --cpu) that were passed without a
+ * value and therefore landed in boolFlags. Left unreported, they are silently
+ * ignored — `--runs` at the end of argv, or `--runs --parallel`, would run once
+ * with no warning even though the user clearly meant to set a count.
+ */
+export function findValuelessKvFlags(boolFlags) {
+  return [...boolFlags].filter(name => KV_FLAG_NAMES.has(name));
 }
 
 export function discoverRacers(raceDir) {
@@ -228,6 +240,7 @@ const BOOLEAN_SETTING_KEYS = [
   'noServe',
   'pauseBetweenRuns',
   'ignoreHTTPSErrors',
+  'cueMarkers',
 ];
 
 /**
@@ -267,6 +280,7 @@ export function applyDefaults(settings) {
     noServe: false,
     pauseBetweenRuns: false,
     ignoreHTTPSErrors: false,
+    cueMarkers: false,
     viewportHeight: 720,
     format: 'webm',
     network: 'none',
@@ -283,6 +297,120 @@ export function applyDefaults(settings) {
 
 export const VALID_NETWORKS = ['none', 'slow-3g', 'fast-3g', '4g'];
 export const VALID_FORMATS = ['webm', 'mov', 'gif'];
+
+/**
+ * Parse a throttling setting into a validated list of conditions. Accepts a
+ * single value, a comma-separated string ("slow-3g,4g"), or an array
+ * (settings.json). Entries are trimmed, empties dropped, and each surviving
+ * entry goes through `parseEntry`. Duplicates are rejected because every
+ * condition becomes a results directory name.
+ *
+ * @template T
+ * @param {*} value
+ * @param {object} spec
+ * @param {string} spec.source - Label used in error messages (e.g. "--cpu")
+ * @param {string} spec.emptyMessage - Completes "<source> ..." when nothing is left
+ * @param {string} spec.duplicateLabel - Names the unit in the duplicate error
+ * @param {(entry: string) => T} spec.parseEntry - Validates one entry
+ * @returns {T[]} validated entries, at least one
+ * @throws {InvalidSettingError}
+ */
+function parseThrottleList(value, { source, emptyMessage, duplicateLabel, parseEntry }) {
+  const parts = Array.isArray(value)
+    ? value.map(v => String(v).trim())
+    : String(value).split(',').map(v => v.trim());
+  const entries = parts.filter(p => p !== '');
+  if (entries.length === 0) {
+    throw new InvalidSettingError(`${source} ${emptyMessage}`);
+  }
+  const parsed = entries.map(parseEntry);
+  const dupes = [...new Set(parsed.filter((v, i) => parsed.indexOf(v) !== i))];
+  if (dupes.length > 0) {
+    throw new InvalidSettingError(`Duplicate ${duplicateLabel} in ${source}: ${dupes.join(', ')}`);
+  }
+  return parsed;
+}
+
+/**
+ * Parse a network setting into a validated list of network presets.
+ * Each entry must be one of VALID_NETWORKS.
+ *
+ * @param {string|string[]} value
+ * @param {string} source - Label used in error messages (e.g. "--network")
+ * @returns {string[]} validated network presets, at least one
+ * @throws {InvalidSettingError}
+ */
+export function parseNetworkList(value, source = '--network') {
+  return parseThrottleList(value, {
+    source,
+    emptyMessage: `requires at least one network preset. Valid values: ${VALID_NETWORKS.join(', ')}`,
+    duplicateLabel: 'network preset(s)',
+    parseEntry: network => {
+      if (!VALID_NETWORKS.includes(network)) {
+        throw new InvalidSettingError(`Unknown network preset "${network}". Valid values: ${VALID_NETWORKS.join(', ')}`);
+      }
+      return network;
+    },
+  });
+}
+
+/**
+ * Parse a CPU throttle setting into a validated list of slowdown rates.
+ * Each entry must be a finite number >= 1.
+ *
+ * @param {number|string|Array<number|string>} value
+ * @param {string} source - Label used in error messages (e.g. "--cpu")
+ * @returns {number[]} validated CPU throttle rates, at least one
+ * @throws {InvalidSettingError}
+ */
+export function parseCpuList(value, source = '--cpu') {
+  return parseThrottleList(value, {
+    source,
+    emptyMessage: 'requires at least one CPU throttle rate (a number >= 1)',
+    duplicateLabel: 'CPU throttle rate(s)',
+    parseEntry: entry => {
+      const cpu = Number(entry);
+      if (!Number.isFinite(cpu) || cpu < 1) {
+        throw new InvalidSettingError(`${source} must be a number >= 1, got "${entry}"`);
+      }
+      return cpu;
+    },
+  });
+}
+
+/**
+ * Expand network presets x CPU rates into the list of conditions to race.
+ * Each condition carries a directory-safe `label` and a human-readable
+ * `title` naming only the dimensions that actually vary, so a network-only
+ * race keeps its short name ("slow-3g"), a CPU-only race reads "cpu4x", and
+ * a two-dimensional one is unambiguous ("slow-3g-cpu4x").
+ *
+ * @param {string[]} networks - from parseNetworkList
+ * @param {number[]} cpus - from parseCpuList
+ * @returns {Array<{network: string, cpu: number, label: string, title: string}>}
+ */
+export function buildRaceConditions(networks, cpus) {
+  const varyNetwork = networks.length > 1;
+  const varyCpu = cpus.length > 1;
+  const conditions = [];
+  for (const network of networks) {
+    for (const cpu of cpus) {
+      const labelParts = [];
+      const titleParts = [];
+      // Network names the condition unless CPU is the only dimension varying.
+      if (varyNetwork || !varyCpu) {
+        labelParts.push(network);
+        titleParts.push(`Network: ${network}`);
+      }
+      if (varyCpu) {
+        labelParts.push(`cpu${cpu}x`);
+        titleParts.push(`CPU: ${cpu}x`);
+      }
+      conditions.push({ network, cpu, label: labelParts.join('-'), title: titleParts.join(' · ') });
+    }
+  }
+  return conditions;
+}
 
 function parseCliBoolean(value, flagName) {
   if (value === true || value === 1) return true;
@@ -322,6 +450,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('pause')) s.pauseBetweenRuns = true;
   if (boolFlags.has('ignore-https-errors')) s.ignoreHTTPSErrors = true;
   if (boolFlags.has('gemini')) s.gemini = true;
+  if (boolFlags.has('cue-markers')) s.cueMarkers = true;
   // Explicit boolean values (for example --parallel=false) override presence flags.
   if (kvFlags.parallel !== undefined) s.parallel = parseCliBoolean(kvFlags.parallel, '--parallel');
   if (kvFlags.headless !== undefined) s.headless = parseCliBoolean(kvFlags.headless, '--headless');
@@ -336,18 +465,23 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
     s.ignoreHTTPSErrors = parseCliBoolean(kvFlags['ignore-https-errors'], '--ignore-https-errors');
   }
   if (kvFlags.gemini !== undefined) s.gemini = parseCliBoolean(kvFlags.gemini, '--gemini');
+  if (kvFlags['cue-markers'] !== undefined) {
+    s.cueMarkers = parseCliBoolean(kvFlags['cue-markers'], '--cue-markers');
+  }
   if (kvFlags.network !== undefined) {
-    if (!VALID_NETWORKS.includes(kvFlags.network)) {
-      throw new InvalidSettingError(`Unknown network preset "${kvFlags.network}". Valid values: ${VALID_NETWORKS.join(', ')}`);
-    }
-    s.network = kvFlags.network;
+    const networks = parseNetworkList(kvFlags.network);
+    s.network = networks.length === 1 ? networks[0] : networks;
   }
   if (kvFlags.cpu !== undefined) {
-    const cpu = Number(kvFlags.cpu);
-    if (!Number.isFinite(cpu) || cpu < 1) {
-      throw new InvalidSettingError(`--cpu must be a number >= 1, got "${kvFlags.cpu}"`);
+    const cpus = parseCpuList(kvFlags.cpu);
+    s.cpuThrottle = cpus.length === 1 ? cpus[0] : cpus;
+  }
+  if (kvFlags.skin !== undefined) {
+    const skin = String(kvFlags.skin).trim();
+    if (skin === '') {
+      throw new InvalidSettingError('--skin needs a skin name or a path to a .css file');
     }
-    s.cpuThrottle = cpu;
+    s.skin = skin;
   }
   if (kvFlags.format !== undefined) {
     if (!VALID_FORMATS.includes(kvFlags.format)) {

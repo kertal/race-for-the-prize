@@ -1,0 +1,53 @@
+/* ---------------------------------------------------------------------------
+   Skin: light — "paddock daylight"
+   A bright, printable counterpart to the default dark grand-prix theme.
+   Only tokens are redefined; no component rule is touched.
+   --------------------------------------------------------------------------- */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* Palette */
+  /* Darkened for contrast: 5.3:1 against white fills, 4.8:1 against --bg */
+  --color-gold: #8a6314;
+  --color-gold-bright: #6d4e10;
+  --color-gold-shadow: #d8bd74;
+
+  /* Surfaces */
+  --bg: #f6f3ec;
+  --surface: #ffffff;
+  --surface-raised: #ece7dc;
+  --surface-inset: rgb(0 0 0 / 3%);
+  --scrim: rgb(30 26 18 / 82%);
+
+  /* Text */
+  --text: #23201a;
+  --text-bright: #000000;
+  --text-muted: #3d382e;
+  --text-dim: #5f584a;
+  --text-subtle: #6f6757;
+  --text-faint: #857c69;
+  --text-ghost: #a49a85;
+
+  /* Accents */
+  --accent-contrast: #ffffff;
+  --accent-wash: linear-gradient(180deg, rgb(138 99 20 / 14%), rgb(138 99 20 / 4%));
+
+  /* Lines */
+  --border: #d5cdbc;
+  --border-strong: #bdb3a0;
+  --border-subtle: #e3ddd0;
+  --danger: #c0392b;
+
+  /* Calibration panel */
+  --tool-accent: #b35c00;
+  --tool-surface: #fdf1e2;
+  --tool-contrast: #ffffff;
+
+  /* Ornament & chrome */
+  --checker-color-a: #2b2b2b;
+  --shadow-popover: 0 4px 12px rgb(60 50 30 / 18%);
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%235f584a'/%3E%3C/svg%3E");
+
+  /* Video stays on black so recordings keep their letterboxing */
+  --video-border-color: #c9c0ae;
+}
