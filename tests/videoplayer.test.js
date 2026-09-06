@@ -443,12 +443,7 @@ describe('buildPlayerHtml', () => {
     expect(html).toContain('profile-bar-fill');
   });
 
-  it('shows winner video first when hunt wins', () => {
-    const html = buildPlayerHtml(huntWinsSummary(), videoFiles);
-    expect(html.indexOf('src="hunt/hunt.race.webm"')).toBeLessThan(html.indexOf('src="lauda/lauda.race.webm"'));
-  });
-
-  it('shows winner video first with original colors preserved', () => {
+  it('keeps each racer on their own colour wherever they finished', () => {
     const html = buildPlayerHtml(huntWinsSummary(), videoFiles);
     const huntCard = html.match(/--racer-color: (#[0-9a-f]+)">\s*<div class="racer-label">(?:(?!<\/div>).)*hunt/s);
     expect(huntCard[1]).toBe('#3498db');
@@ -672,12 +667,12 @@ describe('buildPlayerHtml clipTimes', () => {
     expect(html).toContain('resolveClip');
   });
 
-  it('orders clipTimes by placement (winner first)', () => {
+  it('keeps clipTimes in racer order, winner or not', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 0.5, end: 2.5 }], { summary: huntWinsSummary() });
     const parsed = getRaceConfig(html).clipTimes;
     expect(parsed).toBeTruthy();
-    expect(parsed[0].start).toBe(0.5); // hunt's clip first (winner)
-    expect(parsed[1].start).toBe(1); // lauda's clip second
+    expect(parsed[0].start).toBe(1); // lauda is racer 1, though hunt won
+    expect(parsed[1].start).toBe(0.5);
   });
 
   it('does not show Merged button without mergedVideoFile', () => {
@@ -867,10 +862,10 @@ describe('buildPlayerHtml debug mode', () => {
     expect(debugHtml).toContain('getVideoPlaybackQuality');
   });
 
-  it('debug rows ordered by placement (winner first)', () => {
+  it('debug rows follow the racer order', () => {
     const html = withOptions({ clipTimes }, huntWinsSummary());
     const panelSection = html.slice(html.indexOf('id="debugPanel"'));
-    expect(panelSection.indexOf('>hunt<')).toBeLessThan(panelSection.indexOf('>lauda<'));
+    expect(panelSection.indexOf('>lauda<')).toBeLessThan(panelSection.indexOf('>hunt<'));
   });
 
   it('renders FRAME POSITIONS section in debug panel', () => {
@@ -916,7 +911,6 @@ describe('buildPlayerHtml timing events', () => {
   it('embeds measurements in clipTimes JSON', () => {
     const parsed = getRaceConfig(timingHtml).clipTimes;
     expect(parsed).toBeTruthy();
-    // clipTimes are reordered by placement; winner (lauda) is first
     expect(parsed[0].measurements).toBeDefined();
     expect(parsed[0].measurements.length).toBeGreaterThan(0);
     expect(parsed[0].measurements[0].name).toBe('Load');
@@ -1501,7 +1495,40 @@ describe('buildPlayerHtml semantics', () => {
   });
 });
 
-// --- Fullscreen labels ---
+// --- Racer order & fullscreen labels ---
+
+describe('buildPlayerHtml racer order', () => {
+  // hunt wins, but lauda is racer 1: the grid, the config arrays and the file
+  // links all stay in the order the racers were declared.
+  const html = buildPlayerHtml(huntWinsSummary(), videoFiles, null, null, {
+    fullVideoFiles: ['lauda/lauda.full.webm', 'hunt/hunt.full.webm'],
+    clipTimes: [{ start: 1, end: 3 }, { start: 0.5, end: 2.5 }],
+  });
+
+  it('lays the videos out in racer order, not placement order', () => {
+    expect(html.indexOf('data-racer-name="lauda"')).toBeLessThan(html.indexOf('data-racer-name="hunt"'));
+    expect(html).toContain('<video id="v0" src="lauda/lauda.race.webm"');
+    expect(html).toContain('<video id="v1" src="hunt/hunt.race.webm"');
+  });
+
+  it('keeps every injected array aligned with that order', () => {
+    const config = getRaceConfig(html);
+    expect(config.racerNames).toEqual(['lauda', 'hunt']);
+    expect(config.raceVideoPaths).toEqual(videoFiles);
+    expect(config.fullVideoPaths).toEqual(['lauda/lauda.full.webm', 'hunt/hunt.full.webm']);
+    expect(config.racerColors).toEqual([RACER_CSS_COLORS[0], RACER_CSS_COLORS[1]]);
+  });
+
+  it('still marks the winner with a trophy wherever they are placed', () => {
+    const huntCard = html.slice(html.indexOf('data-racer-name="hunt"') - 400, html.indexOf('data-racer-name="hunt"'));
+    expect(huntCard).toContain('class="trophy"');
+  });
+
+  it('lists the files in racer order too', () => {
+    const files = html.slice(html.indexOf('file-links'));
+    expect(files.indexOf('lauda/lauda.race.webm')).toBeLessThan(files.indexOf('hunt/hunt.race.webm'));
+  });
+});
 
 describe('buildPlayerHtml fullscreen labels', () => {
   const fullscreenCss = (html) => html

@@ -405,9 +405,9 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
 }
 
 export function buildFilesHtml(racers, videoFiles, options) {
-  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, altFormat, altFiles, placementOrder } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, altFormat, altFiles, displayOrder } = options;
   const links = [];
-  const order = placementOrder || racers.map((_, i) => i);
+  const order = displayOrder || racers.map((_, i) => i);
 
   order.forEach(i => {
     if (videoFiles[i]) links.push(render(T['file-link'], { href: escHtml(videoFiles[i]), attrs: '', text: `${escHtml(racers[i])} (race)` }));
@@ -453,24 +453,24 @@ export function buildFilesHtml(racers, videoFiles, options) {
   });
 }
 
-export function buildDebugPanelHtml(racers, placementOrder, clipTimes) {
-  const orderedClipTimes = placementOrder.map(i => clipTimes[i] || null);
+export function buildDebugPanelHtml(racers, displayOrder, clipTimes) {
+  const orderedClipTimes = displayOrder.map(i => clipTimes[i] || null);
 
-  const debugRows = placementOrder.map((origIdx, displayIdx) => {
+  const debugRows = displayOrder.map((origIdx, displayIdx) => {
     const clip = orderedClipTimes[displayIdx];
     const startVal = clip && Number.isFinite(clip.start) ? clip.start.toFixed(3) : '0.000';
     return render(T['debug-row'], { displayIdx, racerNameSpan: racerName(racers, origIdx), startVal });
   }).join('');
 
-  const statsRows = placementOrder.map((origIdx, displayIdx) =>
+  const statsRows = displayOrder.map((origIdx, displayIdx) =>
     render(T['debug-stats-row'], { displayIdx, racerNameSpan: racerName(racers, origIdx) })
   ).join('\n');
 
-  const frameRows = placementOrder.map((origIdx, displayIdx) =>
+  const frameRows = displayOrder.map((origIdx, displayIdx) =>
     render(T['debug-frame-row'], { displayIdx, racerNameSpan: racerName(racers, origIdx) })
   ).join('\n');
 
-  const timingRows = placementOrder.map((origIdx, displayIdx) =>
+  const timingRows = displayOrder.map((origIdx, displayIdx) =>
     render(T['debug-timing-racer'], { displayIdx, racerNameSpan: racerName(racers, origIdx) })
   ).join('\n');
 

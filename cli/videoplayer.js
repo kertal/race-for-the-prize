@@ -16,7 +16,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getPlacementOrder } from './summary.js';
 import { loadTemplates, escHtml, render } from './html-templates.js';
 import {
   RACER_CSS_COLORS,
@@ -114,9 +113,9 @@ function trophyHtml(isWinner, isTie) {
 // Build the player section, debug panel, runtime script tag, and race-config
 // JSON for a race that has videos. Returns the render() slots it produces.
 function buildVideoPlayer(summary, videoFiles, opts) {
-  const { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, placementOrder, ffmpegDir } = opts;
+  const { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, displayOrder, ffmpegDir } = opts;
   const isTie = summary.overallWinner === 'tie';
-  const videoElements = placementOrder.map((origIdx, displayIdx) => {
+  const videoElements = displayOrder.map((origIdx, displayIdx) => {
     const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
     const racer = racers[origIdx];
     const isWinner = isTie || (summary.overallWinner && summary.overallWinner.toLowerCase() === racer.toLowerCase());
@@ -134,20 +133,20 @@ function buildVideoPlayer(summary, videoFiles, opts) {
     ? fill('merged-container', { src: escHtml(mergedVideoFile) })
     : '';
 
-  const videoIds = placementOrder.map((_, i) => `v${i}`);
+  const videoIds = displayOrder.map((_, i) => `v${i}`);
   const raceConfigJson = serializeRaceConfig({
     videoCount: videoIds.length,
-    raceVideoPaths: placementOrder.map(i => videoFiles[i]),
-    fullVideoPaths: fullVideoFiles ? placementOrder.map(i => fullVideoFiles[i]) : null,
-    clipTimes: clipTimes ? placementOrder.map(i => clipTimes[i] || null) : null,
-    racerNames: placementOrder.map(i => racers[i]),
-    racerColors: placementOrder.map(i => RACER_CSS_COLORS[i % RACER_CSS_COLORS.length]),
+    raceVideoPaths: displayOrder.map(i => videoFiles[i]),
+    fullVideoPaths: fullVideoFiles ? displayOrder.map(i => fullVideoFiles[i]) : null,
+    clipTimes: clipTimes ? displayOrder.map(i => clipTimes[i] || null) : null,
+    racerNames: displayOrder.map(i => racers[i]),
+    racerColors: displayOrder.map(i => RACER_CSS_COLORS[i % RACER_CSS_COLORS.length]),
     ffmpegDir,
   });
 
   return {
     playerSection: buildPlayerSectionHtml(videoElements, mergedVideoElement),
-    debugPanelOut: hasClipTimes ? buildDebugPanelHtml(racers, placementOrder, clipTimes) : '',
+    debugPanelOut: hasClipTimes ? buildDebugPanelHtml(racers, displayOrder, clipTimes) : '',
     scriptTag: buildPlayerScript(),
     raceConfigJson,
   };
@@ -169,13 +168,17 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     : `Race: ${racers.map(escHtml).join(' vs ')}`;
 
   const hasVideos = videoFiles && videoFiles.length > 0;
-  const placementOrder = getPlacementOrder(summary);
+  // Racers appear everywhere on the page in the order they were declared —
+  // videos, calibration rows and file links alike. The results tables rank
+  // them; the recordings stay where the viewer expects to find them, so the
+  // same racer is in the same place across every run of a race.
+  const displayOrder = racers.map((_, i) => i);
   // Same predicate the browser runtime uses (calibration.cjs isValidClipEntry).
   const hasClipTimes = clipTimes?.some(calibration.isValidClipEntry);
   const hasMergedVideo = !!mergedVideoFile;
 
   const { playerSection = '', scriptTag = '', raceConfigJson = '', debugPanelOut = '' } = hasVideos
-    ? buildVideoPlayer(summary, videoFiles, { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, placementOrder, ffmpegDir })
+    ? buildVideoPlayer(summary, videoFiles, { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, displayOrder, ffmpegDir })
     : {};
 
   const modeToggle = hasMergedVideo ? fill('mode-toggle') : '';
@@ -210,7 +213,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
       rawProfileMetrics: summary.profileMetrics || [],
     }, racers),
     files: buildFilesHtml(racers, videoFiles, {
-      fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, altFormat, altFiles, placementOrder,
+      fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, altFormat, altFiles, displayOrder,
     }),
     notesContent: summary.geminiCommentary
       ? `🤖 Gemini Race Commentary\n${'─'.repeat(40)}\n${escHtml(summary.geminiCommentary)}`

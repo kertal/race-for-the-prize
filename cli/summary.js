@@ -148,39 +148,6 @@ function computeComparison(name, vals, racerNames) {
 }
 
 /**
- * Compute display order from best to worst using average ranking position
- * across all comparisons. Each comparison's `rankings` array gives the full
- * order (fastest to slowest), so this captures 2nd vs 3rd, not just wins.
- * Returns array of original indices into summary.racers.
- */
-export function getPlacementOrder(summary) {
-  const { racers, comparisons } = summary;
-  if (!comparisons || comparisons.length === 0) return racers.map((_, i) => i);
-
-  // Exclude the synthetic total row: it is just the sum of the sections, so
-  // counting it here would double-weight the summed winner and skew 2nd-vs-3rd
-  // placement away from the per-section evidence.
-  const sectionComparisons = getSectionComparisons(comparisons);
-  const avgRank = racers.map((name) => {
-    let totalRank = 0;
-    let counted = 0;
-    for (const comp of sectionComparisons) {
-      if (comp.rankings && comp.rankings.length > 0) {
-        const rank = comp.rankings.indexOf(name);
-        totalRank += rank !== -1 ? rank : racers.length;
-        counted++;
-      }
-    }
-    return counted > 0 ? totalRank / counted : racers.length;
-  });
-
-  const indices = racers.map((_, i) => i);
-  indices.sort((a, b) => (avgRank[a] - avgRank[b]) || (a - b));
-  return indices;
-}
-
-
-/**
  * Render a report-model cell as markdown: trophy for winner, delta for losers.
  */
 function renderMarkdownCell(cell, bold) {
