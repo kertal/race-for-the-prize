@@ -101,6 +101,23 @@ describe('buildConditionMatrix', () => {
     expect(matrix.rows).toHaveLength(3);
   });
 
+  it('falls back to one row per condition when coordinates repeat', () => {
+    // Four conditions over 2 networks x 2 CPUs matches a full grid by count,
+    // but two share a coordinate — so two pairs are missing. Laid out as a
+    // grid, the duplicates would be rendered once and the conditions they
+    // displaced would vanish behind empty cells.
+    const matrix = buildConditionMatrix([
+      { label: 'none-cpu1x', network: 'none', cpu: 1, summary: summaryOf({ a: 1 }, 'a') },
+      { label: 'none-cpu1x-again', network: 'none', cpu: 1, summary: summaryOf({ a: 2 }, 'a') },
+      { label: '4g-cpu4x', network: '4g', cpu: 4, summary: summaryOf({ a: 3 }, 'a') },
+      { label: '4g-cpu4x-again', network: '4g', cpu: 4, summary: summaryOf({ a: 4 }, 'a') },
+    ]);
+
+    expect(matrix.rowHeader).toBe('Condition');
+    expect(matrix.rows).toHaveLength(4);
+    expect(matrix.rows.every(row => row.cells[0] !== null)).toBe(true);
+  });
+
   it('ranks each cell fastest first and flags the winner', () => {
     const [cell] = buildConditionMatrix([
       { label: '4g', network: '4g', cpu: 1, summary: summaryOf({ lauda: 2.5, hunt: 1.5 }, 'hunt') },

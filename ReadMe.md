@@ -63,7 +63,7 @@ node race.js ./races/caching-comparison
 
 Both halves are timed, because encryption is not free on either side of the cache. **Fetch and store** is the price paid up front — the app renders only once the write finishes. **Reload to data** is the payback, and it separates the two costs cleanly: decrypting is a CPU cost that ignores the network, refetching is a network cost that ignores the CPU.
 
-```
+```text
   ⏱ Reload to data     encrypted   plain   no-cache
   none    · CPU 1x       0.221s   0.107s     0.114s
   slow-3g · CPU 1x       0.180s   0.089s     4.326s   ← same CPU, 25x slower link
@@ -72,7 +72,7 @@ Both halves are timed, because encryption is not free on either side of the cach
 
 Six conditions (three networks x two CPU rates), and the totals show where each cost wins out:
 
-```
+```text
   ⚡ Performance Matrix
   Network  CPU 1x                     CPU 4x
   none     🏆 no-cache        0.230s  🏆 no-cache        0.700s
@@ -317,7 +317,7 @@ node race.js ./races/my-race --network=slow-3g,4g --cpu=1,4  # slow-3g-cpu1x/, s
 
 Afterwards you get a **performance matrix** — network presets down the side, CPU rates across the top, every racer's total time in each cell — printed to the terminal and rendered as the top-level `index.html`, where each cell links to that condition's own results:
 
-```
+```text
   ⚡ Performance Matrix
   Network  CPU 1x            CPU 4x
   none     🏆 lauda  0.900s  🏆 lauda  3.600s

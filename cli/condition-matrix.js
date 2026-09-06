@@ -195,9 +195,15 @@ export function buildConditionMatrix(entries, profileMetrics = PROFILE_METRICS) 
   const cpus = uniqueInOrder(cells.map(cell => cell.cpu));
 
   // A full grid needs both coordinates on every condition and no gaps or
-  // duplicates; anything else lists one condition per row instead.
+  // duplicates; anything else lists one condition per row instead. Counting
+  // cells is not enough to prove that: two conditions sharing a coordinate hit
+  // the same count as a complete grid, and then `at()` — which takes the first
+  // match — would render the duplicate once and leave the pair it displaced as
+  // an empty cell, silently dropping a condition from the overview.
+  const coords = new Set(cells.map(cell => `${cell.network}\u0000${cell.cpu}`));
   const isGrid = cells.every(cell => cell.network != null && cell.cpu != null)
-    && networks.length * cpus.length === cells.length;
+    && coords.size === cells.length
+    && coords.size === networks.length * cpus.length;
 
   let rowHeader = 'Condition';
   let columns = ['Result'];
