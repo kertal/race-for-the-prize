@@ -21,8 +21,14 @@
 {{bodyRows}}
     </table>
   </div>
-  <p class="tally">{{tallies}}</p>
+{{legend}}  <p class="tally">{{tallies}}</p>
 </div>
+<!-- Trailing whitespace up to one newline is trimmed, so the blank line below
+     is what keeps this fragment's own line break before the tally that follows. -->
+<template id="build-legend">  <p class="legend">{{text}}</p>
+
+</template>
+
 <template id="build-header-cell"><th scope="col">{{label}}</th></template>
 
 <template id="build-row">

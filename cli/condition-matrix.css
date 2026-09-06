@@ -80,6 +80,8 @@ td a:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .d { color: var(--text-ghost); font-variant-numeric: tabular-nums; white-space: nowrap;
      text-align: right; overflow: hidden; text-overflow: ellipsis; }
 p.tally { text-align: center; color: var(--text-subtle); font-size: var(--font-size-base); margin: 2rem 0 0; }
+/* A footnote to the table it explains, so it sits closer to it than the tally does. */
+p.legend { text-align: center; color: var(--text-ghost); font-size: var(--font-size-xs); margin: 0.9rem 0 0; }
 
 @media (max-width: 600px) {
   .wrap { padding: 1.5rem 1rem 2rem; }

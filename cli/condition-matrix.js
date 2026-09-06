@@ -65,6 +65,14 @@ const SCOPE_LABELS = { race: 'Race Time', measured: 'Race (Measured Section)', t
 
 const cpuLabel = cpu => `CPU ${cpu}x`;
 
+/**
+ * The rates are slowdowns — Emulation.setCPUThrottlingRate divides the CPU's
+ * speed by them — but "4x" beside a stopwatch reads just as easily as four
+ * times faster. Shown wherever a cpuLabel() is, so the axis is never the
+ * ambiguous part of the result.
+ */
+const CPU_LEGEND = 'CPU rates are slowdowns: 4x runs the CPU four times slower, 1x is unthrottled.';
+
 /** Unique values in first-seen order (Set loses nothing here, but order matters). */
 function uniqueInOrder(values) {
   const seen = [];
@@ -220,6 +228,7 @@ export function buildConditionMatrix(entries, profileMetrics = PROFILE_METRICS) 
   let rowHeader = 'Condition';
   let columns = ['Result'];
   let rows = cells.map(cell => ({ header: cell.title, cells: [cell] }));
+  let legend = null;
 
   if (isGrid) {
     const at = (network, cpu) => cells.find(cell => cell.network === network && cell.cpu === cpu) || null;
@@ -227,9 +236,11 @@ export function buildConditionMatrix(entries, profileMetrics = PROFILE_METRICS) 
       rowHeader = 'Network';
       columns = cpus.map(cpuLabel);
       rows = networks.map(network => ({ header: network, cells: cpus.map(cpu => at(network, cpu)) }));
+      legend = CPU_LEGEND;
     } else if (cpus.length > 1) {
       rowHeader = 'CPU';
       rows = cpus.map(cpu => ({ header: cpuLabel(cpu), cells: [at(networks[0], cpu)] }));
+      legend = CPU_LEGEND;
     } else {
       rowHeader = 'Network';
       rows = networks.map(network => ({ header: network, cells: [at(network, cpus[0])] }));
@@ -245,7 +256,7 @@ export function buildConditionMatrix(entries, profileMetrics = PROFILE_METRICS) 
     }];
   }));
 
-  return { racers, rowHeader, columns, rows, cells, metrics, aggregates };
+  return { racers, rowHeader, columns, rows, cells, metrics, aggregates, legend };
 }
 
 // ---------------------------------------------------------------------------
@@ -326,6 +337,8 @@ export function printConditionMatrix(matrix, options = {}) {
   } else {
     printGrid(matrix, grid, write, headerWidth, colWidths);
   }
+
+  if (matrix.legend) write(`  ${c.dim}${matrix.legend}${c.reset}\n`);
 
   const tally = tallyLine(matrix, metric);
   if (tally) write(`  ${c.dim}Conditions won: ${tally}${c.reset}\n`);
@@ -460,6 +473,7 @@ export function buildConditionIndexHtml(raceTitle, entries, options = {}) {
       header: escHtml(row.header),
       cells: row.cells.map(cell => cellHtml(cell, matrix)).join('\n'),
     })).join('\n'),
+    legend: matrix.legend ? fill('legend', { text: escHtml(matrix.legend) }) : '',
     tallies: metricBlocks(matrix.metrics, metric => {
       const tally = tallyLine(matrix, metric.key);
       return tally ? `Conditions won: ${escHtml(tally)}` : '';

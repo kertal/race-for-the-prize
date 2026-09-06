@@ -512,7 +512,7 @@ describe('buildPlayerHtml race info', () => {
     const html = buildPlayerHtml(abSummary({ settings: { parallel: false, network: 'slow-3g', cpuThrottle: 4 } }), abVideoFiles);
     expect(html).toContain('sequential');
     expect(html).toContain('slow-3g');
-    expect(html).toContain('4x');
+    expect(html).toContain('4x slower');
   });
 
   it('defaults mode to parallel', () => {

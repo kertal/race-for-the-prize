@@ -6,7 +6,8 @@
  * All metrics follow "less is better" - lower values win.
  *
  * Two scopes are tracked:
- * - "measured": metrics captured only during the raceStart/raceEnd measurement period
+ * - "measured": metrics captured only inside the raceStart/raceEnd windows (summed
+ *   across sections, so the gaps between them are excluded)
  * - "total": metrics for the entire browser session
  */
 
