@@ -48,12 +48,23 @@ function assertSafeName(name) {
 }
 
 /**
+ * Strip comments and quoted strings from CSS, so a scan for a declaration
+ * cannot match text that the browser never applies.
+ */
+function stripInertCss(css) {
+  return css
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'/g, ' ');
+}
+
+/**
  * Pull the page background out of a skin so the browser's theme-color meta
  * matches it. Only a literal colour counts — a var() reference cannot be
- * resolved without a layout engine, so those fall back to the default.
+ * resolved without a layout engine, so those fall back to the default. A
+ * commented-out or quoted `--bg` is not a declaration and must not count.
  */
 function extractThemeColor(css) {
-  const match = /--bg:\s*(#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)|[a-zA-Z]+)\s*[;}]/.exec(css);
+  const match = /--bg:\s*(#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)|[a-zA-Z]+)\s*[;}]/.exec(stripInertCss(css));
   return match ? match[1] : DEFAULT_THEME_COLOR;
 }
 
@@ -99,7 +110,18 @@ export function resolveSkin(skin, baseDir) {
     name = value;
   }
 
-  const css = fs.readFileSync(source, 'utf-8');
+  // existsSync() also accepts a directory, and a file can be unreadable. Both
+  // must surface as InvalidSettingError, or they escape the CLI's handler and
+  // print a stack trace instead of a clean "bad setting" exit.
+  if (!fs.statSync(source, { throwIfNoEntry: false })?.isFile()) {
+    throw new InvalidSettingError(`Skin "${name}" is not a file: ${source}`);
+  }
+  let css;
+  try {
+    css = fs.readFileSync(source, 'utf-8');
+  } catch (e) {
+    throw new InvalidSettingError(`Could not read skin "${name}" (${source}): ${e.message}`);
+  }
   // The skin is inlined in a <style> block, so a literal close tag would end it
   // early and let the rest of the file render as markup.
   if (/<\/style/i.test(css)) {

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -60,6 +60,19 @@ describe('resolveSkin', () => {
     expect(resolveSkin('neon').themeColor).toBe('#0d0a1f');
   });
 
+  it('ignores a --bg that only appears in a comment', () => {
+    // A commented-out draft is not a declaration; the browser never applies it.
+    withTempSkin('/* draft: --bg: #ff0000; */\n:root { --bg: #123456; }', (file) => {
+      expect(resolveSkin(file).themeColor).toBe('#123456');
+    });
+  });
+
+  it('ignores a --bg that only appears inside a quoted string', () => {
+    withTempSkin(`:root { --note: "--bg: #ff0000;"; --bg: #123456; }`, (file) => {
+      expect(resolveSkin(file).themeColor).toBe('#123456');
+    });
+  });
+
   it('falls back to the default theme colour when --bg is not a literal', () => {
     withTempSkin(':root { --bg: var(--color-ink-900); }', (file) => {
       expect(resolveSkin(file).themeColor).toBe(DEFAULT_THEME_COLOR);
@@ -97,6 +110,34 @@ describe('resolveSkin', () => {
 
   it('reports a missing skin file', () => {
     expect(() => resolveSkin('./nope.css')).toThrow(/Skin file not found/);
+  });
+
+  it('rejects a directory that happens to end in .css', () => {
+    // existsSync() accepts a directory, so reading it would throw EISDIR and
+    // escape the CLI's InvalidSettingError handler as a stack trace.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rftp-skin-'));
+    const asSkin = path.join(dir, 'theme.css');
+    fs.mkdirSync(asSkin);
+    try {
+      expect(() => resolveSkin(asSkin)).toThrow(InvalidSettingError);
+      expect(() => resolveSkin(asSkin)).toThrow(/is not a file/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports an unreadable skin as an invalid setting', () => {
+    withTempSkin(':root { --bg: #000; }', (file) => {
+      const readFile = vi.spyOn(fs, 'readFileSync').mockImplementation(() => {
+        throw Object.assign(new Error('EACCES: permission denied, open'), { code: 'EACCES' });
+      });
+      try {
+        expect(() => resolveSkin(file)).toThrow(InvalidSettingError);
+        expect(() => resolveSkin(file)).toThrow(/Could not read skin/);
+      } finally {
+        readFile.mockRestore();
+      }
+    });
   });
 
   it('refuses CSS that would break out of the inline <style> block', () => {
