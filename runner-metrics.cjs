@@ -98,7 +98,6 @@ async function setupMetricsCollection(page, id) {
   function openMeasurementWindow(startCdp) {
     if (isMeasuring) return;
     isMeasuring = true;
-    if (startCdp) hasMeasuredCpu = true;
     windowStartCdp = startCdp;
     lastSectionEndCdp = null;
   }
@@ -116,7 +115,10 @@ async function setupMetricsCollection(page, id) {
     pendingWindowEnds.push(
       (lastSectionEndCdp || getCdpMetrics())
         .then(endCdp => {
+          // Only a complete start/end pair says anything about CPU time; without
+          // one the measured scope reports null rather than a misleading zero.
           if (!endCdp) return;
+          hasMeasuredCpu = true;
           for (const metric of Object.keys(measuredCpu)) {
             const delta = endCdp[metric] - startCdp[metric];
             if (delta < 0) console.warn(`[${id}] Negative delta for "${metric}" (${startCdp[metric]} → ${endCdp[metric]}), clamping to 0`);

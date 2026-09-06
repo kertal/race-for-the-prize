@@ -189,4 +189,60 @@ describe('runner metrics collection', () => {
     expect(profileMetrics.total.networkRequestCount).toBe(3);
     expect(profileMetrics.total.networkTransferSize).toBe(301);
   });
+
+  it('reports null measured CPU when the closing snapshot fails, not zero', async () => {
+    let snapshots = 0;
+    const client = {
+      on() {},
+      async send(method) {
+        if (method === 'Network.enable' || method === 'Performance.enable') return {};
+        if (method === 'Performance.getMetrics') {
+          snapshots += 1;
+          // The section start snapshot lands; every later one fails, so no
+          // window ever gets a complete start/end pair.
+          if (snapshots === 1) return makePerformanceMetrics({ scriptDuration: 4, taskDuration: 6 });
+          throw new Error('CDP session closed');
+        }
+        throw new Error(`Unexpected CDP method: ${method}`);
+      },
+      async detach() {},
+    };
+
+    const page = {
+      on() {},
+      context() {
+        return { newCDPSession: async () => client };
+      },
+      async evaluate() { return null; },
+      async addInitScript() {},
+      async waitForTimeout() {},
+    };
+
+    const metricsCollector = await setupMetricsCollection(page, 'flaky');
+    await runMarkerMode(
+      page,
+      null,
+      {
+        id: 'flaky',
+        script: `
+          await page.raceStart('only');
+          page.raceEnd('only');
+        `,
+      },
+      null,
+      false,
+      { finishOrder: [] },
+      Date.now(),
+      true,
+      metricsCollector,
+      true
+    );
+
+    const profileMetrics = await metricsCollector.collect();
+
+    expect(profileMetrics.measured.scriptDuration).toBeNull();
+    expect(profileMetrics.measured.taskDuration).toBeNull();
+    expect(profileMetrics.measured.layoutDuration).toBeNull();
+    expect(profileMetrics.measured.recalcStyleDuration).toBeNull();
+  });
 });
