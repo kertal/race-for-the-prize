@@ -10,6 +10,11 @@ const fs = require('fs');
 const path = require('path');
 const { confinePath } = require('./runner-protocol.cjs');
 
+/** Zeroed CPU accumulators for the measured scope. */
+function newCpuTotals() {
+  return { scriptDuration: 0, layoutDuration: 0, recalcStyleDuration: 0, taskDuration: 0 };
+}
+
 /**
  * Set up CDP session for capturing network and performance metrics.
  * Tracks network transfer sizes, request counts, and prepares for Performance API collection.
@@ -25,12 +30,19 @@ async function setupMetricsCollection(page, id) {
     requestCount: 0
   };
 
-  // Snapshot taken at raceStart for computing deltas
-  let startSnapshot = null;
-
-  // Network activity during measurement period
+  // Network and CPU accumulated across every measurement window: the span from a
+  // raceStart with nothing else measuring to the raceEnd that closes it. A race
+  // with several sections has several windows, so the gaps between them — and
+  // the tail after the last raceEnd — stay out of the "measured" scope.
   let measuredNetwork = { transferSize: 0, requestCount: 0 };
+  let measuredCpu = newCpuTotals();
+  let windowStartCdp = null;
+  let hasMeasuredCpu = false;
   let isMeasuring = false;
+  // End-of-section snapshot the closing raceEnd already fetched, reused as the
+  // window's end so a section boundary costs one CDP round trip, not two.
+  let lastSectionEndCdp = null;
+  const pendingWindowEnds = [];
   const sectionMeasurements = new Map();
 
   let client = null;
@@ -80,6 +92,41 @@ async function setupMetricsCollection(page, id) {
     }
   }
 
+  /**
+   * Open a measurement window if none is open, reusing the caller's snapshot.
+   */
+  function openMeasurementWindow(startCdp) {
+    if (isMeasuring) return;
+    isMeasuring = true;
+    if (startCdp) hasMeasuredCpu = true;
+    windowStartCdp = startCdp;
+    lastSectionEndCdp = null;
+  }
+
+  /**
+   * Close the open measurement window and fold its CPU time into the totals.
+   * The end snapshot is asynchronous, so collect() awaits pendingWindowEnds.
+   */
+  function closeMeasurementWindow() {
+    if (!isMeasuring) return;
+    isMeasuring = false;
+    const startCdp = windowStartCdp;
+    windowStartCdp = null;
+    if (!startCdp) return;
+    pendingWindowEnds.push(
+      (lastSectionEndCdp || getCdpMetrics())
+        .then(endCdp => {
+          if (!endCdp) return;
+          for (const metric of Object.keys(measuredCpu)) {
+            const delta = endCdp[metric] - startCdp[metric];
+            if (delta < 0) console.warn(`[${id}] Negative delta for "${metric}" (${startCdp[metric]} → ${endCdp[metric]}), clamping to 0`);
+            measuredCpu[metric] += Math.max(0, delta);
+          }
+        })
+        .catch(() => {})
+    );
+  }
+
   function cloneNetworkTotals() {
     return {
       transferSize: networkTotals.transferSize,
@@ -89,20 +136,20 @@ async function setupMetricsCollection(page, id) {
 
   return {
     /**
-     * Take a snapshot at measurement start (raceStart).
-     * Call this to begin tracking measurement-scoped metrics.
+     * Reset the measured scope (first raceStart of the race). The window itself
+     * is opened by the section start that follows.
      */
-    async startMeasurement() {
-      startSnapshot = await getCdpMetrics();
+    startMeasurement() {
       measuredNetwork = { transferSize: 0, requestCount: 0 };
-      isMeasuring = true;
+      measuredCpu = newCpuTotals();
     },
 
     /**
-     * End measurement period (raceEnd).
+     * End the current measurement window (the raceEnd that closed the last
+     * open section). A later raceStart opens a new one.
      */
     stopMeasurement() {
-      isMeasuring = false;
+      closeMeasurementWindow();
     },
 
     async startSectionMeasurement(name = 'default') {
@@ -111,6 +158,7 @@ async function setupMetricsCollection(page, id) {
         console.warn(`[${id}] Section measurement "${sectionName}" started again before ending; previous measurement will be lost`);
       }
       const startCdp = await getCdpMetrics();
+      openMeasurementWindow(startCdp);
       sectionMeasurements.set(sectionName, {
         startCdp,
         endCdp: null,
@@ -125,9 +173,9 @@ async function setupMetricsCollection(page, id) {
       const section = sectionMeasurements.get(sectionName);
       if (!section) return;
       section.endNetwork = cloneNetworkTotals();
-      section.endCdpPromise = getCdpMetrics()
-        .then(metrics => { section.endCdp = metrics; })
-        .catch(() => { section.endCdp = null; });
+      lastSectionEndCdp = getCdpMetrics().catch(() => null);
+      section.endCdpPromise = lastSectionEndCdp
+        .then(metrics => { section.endCdp = metrics; });
     },
 
     /**
@@ -135,11 +183,13 @@ async function setupMetricsCollection(page, id) {
      * Returns both total session metrics and measurement-scoped metrics.
      */
     async collect() {
-      await Promise.all(
-        [...sectionMeasurements.values()]
-          .map(s => s.endCdpPromise)
-          .filter(Boolean)
-      );
+      // A script that threw between raceStart and raceEnd leaves a window open;
+      // close it here so the measured scope still covers what did run.
+      closeMeasurementWindow();
+      await Promise.all([
+        ...[...sectionMeasurements.values()].map(s => s.endCdpPromise).filter(Boolean),
+        ...pendingWindowEnds,
+      ]);
 
       const result = {
         total: {
@@ -160,10 +210,10 @@ async function setupMetricsCollection(page, id) {
         measured: {
           networkTransferSize: measuredNetwork.transferSize,
           networkRequestCount: measuredNetwork.requestCount,
-          scriptDuration: null,
-          layoutDuration: null,
-          recalcStyleDuration: null,
-          taskDuration: null
+          scriptDuration: hasMeasuredCpu ? measuredCpu.scriptDuration : null,
+          layoutDuration: hasMeasuredCpu ? measuredCpu.layoutDuration : null,
+          recalcStyleDuration: hasMeasuredCpu ? measuredCpu.recalcStyleDuration : null,
+          taskDuration: hasMeasuredCpu ? measuredCpu.taskDuration : null
         },
         measuredSections: Object.create(null)
       };
@@ -209,19 +259,6 @@ async function setupMetricsCollection(page, id) {
           result.total.layoutDuration = endMetrics.layoutDuration || null;
           result.total.recalcStyleDuration = endMetrics.recalcStyleDuration || null;
           result.total.taskDuration = endMetrics.taskDuration || null;
-
-          // Compute deltas for measurement period
-          if (startSnapshot) {
-            const computeDelta = (metric) => {
-              const delta = endMetrics[metric] - startSnapshot[metric];
-              if (delta < 0) console.warn(`[${id}] Negative delta for "${metric}" (${startSnapshot[metric]} → ${endMetrics[metric]}), clamping to 0`);
-              return Math.max(0, delta);
-            };
-            result.measured.scriptDuration = computeDelta('scriptDuration');
-            result.measured.layoutDuration = computeDelta('layoutDuration');
-            result.measured.recalcStyleDuration = computeDelta('recalcStyleDuration');
-            result.measured.taskDuration = computeDelta('taskDuration');
-          }
         }
       } catch (error) {
         console.error(`[${id}] Warning: failed to collect metrics: ${error.message}`);
