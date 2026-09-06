@@ -1,5 +1,51 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { formatTimestamp, buildResultsPaths, buildConditionIndexHtml, waitForEnter } from '../race.js';
+import { formatTimestamp, buildResultsPaths, buildConditionIndexHtml, waitForEnter, findMissingBrowser } from '../race.js';
+
+describe('findMissingBrowser', () => {
+  const playwright = executablePath => async () => ({ chromium: { executablePath: () => executablePath } });
+
+  it('passes when the Chromium executable is on disk', async () => {
+    const result = await findMissingBrowser({
+      importPlaywright: playwright('/browsers/chromium/chrome'),
+      exists: () => true,
+    });
+    expect(result).toBeNull();
+  });
+
+  it('names the chromium-only download when the browser is missing', async () => {
+    // Playwright's own error suggests the full-suite "npx playwright install";
+    // this project only ever launches Chromium.
+    const result = await findMissingBrowser({
+      importPlaywright: playwright('/browsers/chromium/chrome'),
+      exists: () => false,
+    });
+    expect(result).toContain('npx playwright install chromium');
+    expect(result).toContain('postinstall');
+  });
+
+  it('reports the package itself being absent', async () => {
+    const result = await findMissingBrowser({
+      importPlaywright: async () => { throw new Error('Cannot find module'); },
+      exists: () => true,
+    });
+    expect(result).toContain('Playwright is not installed');
+  });
+
+  it('stays quiet when Playwright will not name an executable', async () => {
+    // Custom channels and unusual layouts make executablePath() throw; there is
+    // nothing to check, so the runner should get its chance to report instead.
+    const result = await findMissingBrowser({
+      importPlaywright: async () => ({ chromium: { executablePath: () => { throw new Error('no path'); } } }),
+      exists: () => false,
+    });
+    expect(result).toBeNull();
+  });
+
+  it('stays quiet when the executable path is empty', async () => {
+    const result = await findMissingBrowser({ importPlaywright: playwright(''), exists: () => false });
+    expect(result).toBeNull();
+  });
+});
 
 describe('formatTimestamp', () => {
   it('formats date as YYYY-MM-DD_HH-MM-SS', () => {

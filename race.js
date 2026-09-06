@@ -541,6 +541,49 @@ export function buildRaceContext({ racerNames, scripts, settings, rootDir = __di
   return { racerNames, settings, executionMode, throttle, runnerConfig, rootDir, raceDir, racerFiles };
 }
 
+/**
+ * Check that the Chromium build Playwright launches is actually on disk.
+ *
+ * The postinstall hook downloads it, and package managers increasingly gate
+ * install scripts behind an approval step (npm's allowScripts, pnpm's
+ * onlyBuiltDependencies). When the hook has not run, the failure surfaces at
+ * launch instead — once per racer, from inside the runner, whose stderr this
+ * process consumes for race messages rather than forwarding. So the browser is
+ * checked here, before the setup script runs or a results directory exists,
+ * and the answer is one actionable line naming the lighter chromium-only
+ * download rather than Playwright's full-suite suggestion.
+ *
+ * Dependencies are injected so this is unit-testable without a real install.
+ *
+ * @param {object} [deps]
+ * @param {() => Promise<object>} [deps.importPlaywright]
+ * @param {(path: string) => boolean} [deps.exists]
+ * @returns {Promise<string|null>} error message, or null when the browser is present
+ */
+export async function findMissingBrowser({
+  importPlaywright = () => import('playwright'),
+  exists = fs.existsSync,
+} = {}) {
+  let chromium;
+  try {
+    ({ chromium } = await importPlaywright());
+  } catch {
+    return 'Playwright is not installed. Run "npm install" to install dependencies.';
+  }
+  let executable;
+  try {
+    executable = chromium.executablePath();
+  } catch {
+    // Playwright declined to name a path (custom channel, unusual install
+    // layout). Nothing reliable to check — let the runner try and report.
+    return null;
+  }
+  if (!executable || exists(executable)) return null;
+  return 'Chromium is not downloaded. Run "npx playwright install chromium" to fetch it.\n' +
+    "  Your package manager may have skipped this package's postinstall hook, " +
+    'which normally does it for you.';
+}
+
 // --- CLI entry point ---
 
 // Check if running as main module (not imported)
@@ -1157,6 +1200,12 @@ async function runSplitModeSeries() {
 }
 
 async function main() {
+  const missingBrowser = await findMissingBrowser();
+  if (missingBrowser) {
+    console.error(`\n  ${c.red}Error: ${missingBrowser}${c.reset}`);
+    process.exit(1);
+  }
+
   let setupCompleted = false;
 
   try {

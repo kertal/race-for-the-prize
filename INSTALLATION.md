@@ -55,6 +55,15 @@ PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install    # Playwright's standard opt-ou
 ```
 The download is also non-fatal: if it fails (e.g. offline), `npm install` still succeeds and you can run `npx playwright install chromium` later.
 
+Newer package managers gate install scripts behind an approval step, so you may see a warning like this and be asked whether to allow it:
+
+```text
+npm warn allow-scripts 1 package has install scripts not yet covered by allowScripts:
+npm warn allow-scripts   race-for-the-prize@0.9.0 (postinstall: node scripts/postinstall.cjs)
+```
+
+Approving it (`npm approve-scripts race-for-the-prize`) lets the download run as described above. Declining is fine too — nothing else depends on the hook, and `race.js` checks for the browser before it starts a race and tells you to run `npx playwright install chromium` if it is missing.
+
 ## 3. Install FFmpeg (optional)
 
 FFmpeg is **not required** for normal use. The HTML player handles video trimming and calibration entirely in the browser. FFmpeg is only needed if you want `--ffmpeg` for physical video trimming, `--format=gif` / `--format=mov` conversion, or server-side side-by-side merging.
