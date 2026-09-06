@@ -88,6 +88,18 @@ function loadFFmpeg() {
     });
 }
 
+/**
+ * Move the export progress bar. The width is the visible half; aria-valuenow on
+ * the enclosing role="progressbar" is the half a screen reader reads, so both
+ * are set together and neither can go stale.
+ */
+function setExportProgress(progressFill, pct) {
+  const clamped = Math.max(0, Math.min(100, pct));
+  progressFill.style.width = clamped.toFixed(1) + '%';
+  const bar = progressFill.closest('.export-progress-bar');
+  if (bar) bar.setAttribute('aria-valuenow', String(Math.round(clamped)));
+}
+
 let convertCounter = 0;
 
 function convertWithFFmpeg(blob, format, ui, downloadName, clipRange) {
@@ -108,14 +120,14 @@ function convertWithFFmpeg(blob, format, ui, downloadName, clipRange) {
   dismissBtn.addEventListener('click', () => { cancelled = true; revokeOutUrl(); overlay.remove(); });
   actionsEl.appendChild(dismissBtn);
   statusEl.textContent = 'Loading ffmpeg.wasm (~25 MB)...';
-  progressFill.style.width = '0%';
+  setExportProgress(progressFill, 0);
 
   window.addEventListener('pagehide', revokeOutUrl, { once: true });
 
   loadFFmpeg().then(ff => {
     if (cancelled) return;
     statusEl.textContent = 'Converting to ' + format.toUpperCase() + '...';
-    progressFill.style.width = '30%';
+    setExportProgress(progressFill, 30);
 
     return blob.arrayBuffer().then(buf => {
       if (cancelled) return;
@@ -134,12 +146,12 @@ function convertWithFFmpeg(blob, format, ui, downloadName, clipRange) {
       } else {
         args = trimArgs.concat(['-i', inFile, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', outFile]);
       }
-      progressFill.style.width = '50%';
+      setExportProgress(progressFill, 50);
       return ff.exec(args, 300000);
     }).then(exitCode => {
       if (cancelled) return;
       if (exitCode == null || exitCode !== 0) throw new Error('ffmpeg exited with code ' + exitCode + ' — conversion failed');
-      progressFill.style.width = '90%';
+      setExportProgress(progressFill, 90);
       return ff.readFile(outFile);
     }).then(data => {
       if (cancelled || !data) return;
@@ -148,7 +160,7 @@ function convertWithFFmpeg(blob, format, ui, downloadName, clipRange) {
       outUrl = URL.createObjectURL(outBlob);
 
       statusEl.textContent = 'Conversion complete! (' + (outBlob.size / (1024 * 1024)).toFixed(1) + ' MB)';
-      progressFill.style.width = '100%';
+      setExportProgress(progressFill, 100);
 
       const dlLink = document.createElement('a');
       dlLink.href = outUrl;
@@ -272,7 +284,7 @@ async function startExport() {
     const blob = new Blob(chunks, { type: mimeType });
     const url = URL.createObjectURL(blob);
     statusEl.textContent = 'Export complete!';
-    progressFill.style.width = '100%';
+    setExportProgress(progressFill, 100);
     const downloadLink = document.createElement('a');
     downloadLink.href = url;
     downloadLink.download = 'race-side-by-side.webm';
@@ -306,7 +318,7 @@ async function startExport() {
     const elapsed = cur - exportTimeOffset;
     drawExportFrame(ctx, layout, elapsed, visibleIndices);
     const progress = totalDur > 0 ? Math.min(1, elapsed / totalDur) : 0;
-    progressFill.style.width = (progress * 100).toFixed(1) + '%';
+    setExportProgress(progressFill, progress * 100);
     statusEl.textContent = 'Recording' + speedLabel + '... ' + Math.round(progress * 100) + '%';
     const allDone = visibleIndices.every((i, j) => {
       const v = raceVideos[i];

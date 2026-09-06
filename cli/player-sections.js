@@ -67,6 +67,8 @@ function buildMetricRowsHtml(ranking, winner) {
       color,
       name: escHtml(entry.name),
       barPct,
+      valueText: escHtml(entry.formatted),
+      barLabel: escHtml(`${entry.name}: ${entry.formatted}`),
       value: escHtml(entry.formatted) + delta,
       medal: winner === entry.name ? fill('profile-medal') : '',
     });
@@ -370,8 +372,9 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
     : '';
 
   /** Render one table (run rows + median/average rows) from a model entry. */
-  const buildTable = ({ runRows, medianRow, averageRow }) => fill('comparison-table', {
+  const buildTable = ({ runRows, medianRow, averageRow }, caption) => fill('comparison-table', {
     header,
+    caption: escHtml(`${caption} per run, by racer`),
     rows: runRows.map(row => fill('comparison-row', {
       label: row.label,
       cells: row.cells.map(cell => renderHtmlCell(cell, false)).join(''),
@@ -385,7 +388,7 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
   // --- Measurement comparisons ---
   for (const measurement of model.measurements) {
     body += fill('profile-heading', { title: escHtml(formatSectionTitle(measurement.name)) });
-    body += buildTable(measurement);
+    body += buildTable(measurement, formatSectionTitle(measurement.name));
   }
 
   // --- Performance metrics comparisons ---
@@ -394,7 +397,7 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
 
     for (const metric of scope.metrics) {
       body += fill('profile-subheading', { titleAttr: '', label: escHtml(metric.name) });
-      body += buildTable(metric);
+      body += buildTable(metric, `${metric.name} (${scope.title})`);
     }
   }
 

@@ -992,7 +992,7 @@ describe('buildPlayerHtml export', () => {
   });
 
   it('export modal canvas has max-height to keep buttons visible', () => {
-    expect(defaultHtml).toContain('max-height: 50vh');
+    expect(defaultHtml).toContain('max-height: 50dvh');
   });
 });
 
@@ -1407,5 +1407,96 @@ describe('buildPlayerHtml run-by-run comparison', () => {
   it('omits comparison section when no runSummaries provided', () => {
     const html = buildPlayerHtml(medianSummary, videoFiles);
     expect(html).not.toContain('Run-by-Run Comparison');
+  });
+});
+
+// --- Semantics & accessibility ---
+
+describe('buildPlayerHtml semantics', () => {
+  const multiRunHtml = withOptions({
+    runSummaries: [makeSummary(), huntWinsSummary(), makeSummary()],
+    runNavigation: { currentRun: 1, totalRuns: 3, pathPrefix: '../' },
+  });
+
+  it('wraps the report in landmarks and offers a skip link into it', () => {
+    expect(defaultHtml).toContain('<a class="skip-link" href="#main">');
+    expect(defaultHtml).toContain('<main id="main">');
+    expect(defaultHtml).toContain('</main>');
+    expect(defaultHtml).toMatch(/<header class="header-bar">/);
+    expect(defaultHtml).toMatch(/<footer>[\s\S]*checkered-bar[\s\S]*<\/footer>/);
+  });
+
+  it('hides the purely decorative ornaments from assistive tech', () => {
+    expect(defaultHtml).toContain('<div class="checkered-bar" aria-hidden="true">');
+    expect(defaultHtml).toContain('class="header-icon header-icon-left" aria-hidden="true"');
+  });
+
+  it('names the two navigation regions', () => {
+    expect(defaultHtml).toContain('<nav class="header-icon header-icon-right" aria-label="Player actions">');
+    expect(multiRunHtml).toContain('<nav class="run-nav" aria-label="Race runs">');
+  });
+
+  it('gives every button an explicit type so none can submit a form', () => {
+    const buttons = defaultHtml.match(/<button\b[^>]*>/g) || [];
+    expect(buttons.length).toBeGreaterThan(0);
+    expect(buttons.filter(b => !b.includes('type="button"'))).toEqual([]);
+  });
+
+  it('wires disclosure and toggle state onto the controls that own it', () => {
+    expect(defaultHtml).toContain('id="settingsToggle" title="Settings" aria-label="Toggle settings" aria-expanded="false" aria-controls="settingsPanel"');
+    expect(defaultHtml).toContain('id="shareToggle"');
+    expect(defaultHtml).toMatch(/id="shareToggle"[^>]*aria-expanded="false" aria-controls="shareMenu"/);
+    expect(defaultHtml).toMatch(/id="fullscreenBtn"[^>]*aria-pressed="false"/);
+    // …and the runtime keeps all three in sync as they are operated.
+    expect(defaultHtml).toContain("settingsToggle.setAttribute('aria-expanded', String(visible))");
+    expect(defaultHtml).toContain("shareToggle.setAttribute('aria-expanded', String(visible))");
+    expect(defaultHtml).toContain("fullscreenBtn.setAttribute('aria-pressed', String(fs))");
+    expect(defaultHtml).toContain("btn.setAttribute('aria-pressed', 'false')");
+  });
+
+  it('announces the scrubber as a time, not a percentage', () => {
+    expect(defaultHtml).toContain("scrubber.setAttribute('aria-valuetext', readout)");
+  });
+
+  it('exposes bar charts as progress bars carrying their measured value', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles);
+    expect(html).toMatch(/<span class="profile-bar-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="\d+"/);
+    expect(html).toMatch(/aria-valuetext="[^"]+" aria-label="lauda: [^"]+"/);
+  });
+
+  it('keeps the export progress bar value in step with its width', () => {
+    expect(defaultHtml).toContain('role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"');
+    expect(defaultHtml).toContain("bar.setAttribute('aria-valuenow', String(Math.round(clamped)))");
+    // The helper is the only thing that moves the fill, so the width and the
+    // announced value can never disagree.
+    expect(defaultHtml.match(/progressFill\.style\.width = /g)).toHaveLength(1);
+  });
+
+  it('interrupts with racer failures rather than leaving them unread', () => {
+    const html = withSummary({ errors: ['hunt crashed'] });
+    expect(html).toContain('<div class="errors" role="alert">');
+  });
+
+  it('captions comparison tables and scopes their header cells', () => {
+    expect(multiRunHtml).toContain('<caption class="sr-only">Race Section Load per run, by racer</caption>');
+    expect(multiRunHtml).toContain('<th scope="col">Run</th>');
+    expect(multiRunHtml).toMatch(/<th scope="col" style="--racer-color:[^"]+">lauda<\/th>/);
+  });
+
+  it('marks the video grid, the transport bar and the calibration panel', () => {
+    expect(defaultHtml).toContain('<section class="player-container" id="playerContainer" aria-label="Race recordings">');
+    expect(defaultHtml).toContain('<div class="controls" role="toolbar" aria-label="Playback controls">');
+    const clipTimes = [
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 2 },
+      { start: 1.2, end: 3.4, recordingOffset: 0.2, wallClockDuration: 2.2 },
+    ];
+    const debugHtml = withOptions({ clipTimes });
+    expect(debugHtml).toContain('<aside class="debug-panel" id="debugPanel" aria-label="Calibration">');
+    expect(debugHtml).toContain('<h4 class="debug-stats-header">VIDEO INFO</h4>');
+  });
+
+  it('treats the export overlay as a modal dialog', () => {
+    expect(defaultHtml).toContain('role="dialog" aria-modal="true" aria-labelledby="exportDialogTitle"');
+    expect(defaultHtml).toContain('<h3 id="exportDialogTitle">');
   });
 });

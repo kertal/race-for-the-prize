@@ -108,8 +108,10 @@ function clipDuration() {
 function updateTimeDisplay() {
   const d = clipDuration();
   const t = d > 0 ? (scrubber.value / 1000) * d : 0;
-  timeDisplay.textContent = fmt(Math.max(0, t)) + ' / ' + fmt(d);
+  const readout = fmt(Math.max(0, t)) + ' / ' + fmt(d);
+  timeDisplay.textContent = readout;
   frameDisplay.textContent = getTime(Math.max(0, t));
+  scrubber.setAttribute('aria-valuetext', readout);
 }
 
 // --- Debug mode: per-racer clip start calibration ---
@@ -360,6 +362,7 @@ if (settingsToggle && settingsPanel) {
   settingsToggle.addEventListener('click', () => {
     const visible = settingsPanel.classList.toggle('visible');
     settingsToggle.classList.toggle('active', visible);
+    settingsToggle.setAttribute('aria-expanded', String(visible));
   });
 }
 
@@ -370,12 +373,14 @@ if (shareToggle && shareMenu) {
   shareToggle.addEventListener('click', () => {
     const visible = shareMenu.classList.toggle('visible');
     shareToggle.classList.toggle('active', visible);
+    shareToggle.setAttribute('aria-expanded', String(visible));
   });
   // Close menu when clicking outside
   document.addEventListener('click', (e) => {
     if (!shareToggle.contains(e.target) && !shareMenu.contains(e.target)) {
       shareMenu.classList.remove('visible');
       shareToggle.classList.remove('active');
+      shareToggle.setAttribute('aria-expanded', 'false');
     }
   });
 }

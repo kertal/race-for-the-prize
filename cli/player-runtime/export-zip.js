@@ -175,7 +175,7 @@ async function embedVideos(videoPaths, ctx) {
     if (ui.abortCtrl.signal.aborted) return null;
     fetched++;
     ui.statusEl.textContent = 'Embedding ' + vPath + ' (' + fetched + '/' + total + ')';
-    ui.progressFill.style.width = (fetched / total * maxProgress).toFixed(0) + '%';
+    setExportProgress(ui.progressFill, fetched / total * maxProgress);
     try {
       const resp = await fetch(vPath, { signal: ui.abortCtrl.signal });
       if (resp.ok) pathOverrides[vPath] = await blobToDataUri(await resp.blob());
@@ -196,7 +196,7 @@ async function bundleOtherFiles(otherPaths, zipBuilder, ctx) {
     if (ui.abortCtrl.signal.aborted) return null;
     fetched++;
     ui.statusEl.textContent = 'Fetching ' + filePath + ' (' + fetched + '/' + total + ')';
-    ui.progressFill.style.width = (fetched / total * 80).toFixed(0) + '%';
+    setExportProgress(ui.progressFill, fetched / total * 80);
     try {
       const resp = await fetch(filePath, { signal: ui.abortCtrl.signal });
       if (resp.ok) zipBuilder.addFile(filePath, new Uint8Array(await resp.arrayBuffer()));
@@ -222,7 +222,7 @@ function offerDownload(ui, blob, filename, label, failedFiles) {
     statusMsg += '\nSkipped ' + failedFiles.length + ' file(s): ' + failedFiles.join(', ');
   }
   ui.statusEl.textContent = statusMsg;
-  ui.progressFill.style.width = '100%';
+  setExportProgress(ui.progressFill, 100);
   const dlLink = document.createElement('a');
   dlLink.href = url;
   dlLink.download = filename;
@@ -260,11 +260,11 @@ async function startHtmlExport() {
   if (afterOthers === null) return;
 
   ui.statusEl.textContent = 'Building HTML...';
-  ui.progressFill.style.width = '90%';
+  setExportProgress(ui.progressFill, 90);
   zipBuilder.addFile('index.html', new TextEncoder().encode(buildExportHtml(pathOverrides)));
 
   ui.statusEl.textContent = 'Creating ZIP...';
-  ui.progressFill.style.width = '95%';
+  setExportProgress(ui.progressFill, 95);
   offerDownload(ui, zipBuilder.toBlob(), exportBaseName() + '.zip', 'Download ZIP', failedFiles);
 }
 
@@ -285,7 +285,7 @@ async function startHtmlOnlyExport() {
   if (afterVideos === null) return;
 
   ui.statusEl.textContent = 'Building HTML...';
-  ui.progressFill.style.width = '95%';
+  setExportProgress(ui.progressFill, 95);
   const blob = new Blob([buildExportHtml(pathOverrides, { slim: true })], { type: 'text/html' });
   offerDownload(ui, blob, exportBaseName() + '.html', 'Download HTML', failedFiles);
 }

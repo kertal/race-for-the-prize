@@ -4,36 +4,41 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="{{themeColor}}">
+<meta name="description" content="Browser race results: timings, performance metrics and synchronized recordings.">
 <title>{{title}}</title>
 {{styles}}
 {{skinStyles}}
 </head>
 <body>
 
-<div class="checkered-bar"></div>
+<a class="skip-link" href="#main">Skip to the race</a>
+
+<div class="checkered-bar" aria-hidden="true"></div>
 {{runNav}}
-<div class="header-bar">
-  <span class="header-icon header-icon-left">🏆</span>
+<header class="header-bar">
+  <span class="header-icon header-icon-left" aria-hidden="true">🏆</span>
   <h1>Race for the Prize</h1>
-  <span class="header-icon header-icon-right">
-    <button class="header-action-btn" id="fullscreenBtn" title="Fullscreen (F)" aria-label="Toggle fullscreen">&#x26F6;</button>
+  <nav class="header-icon header-icon-right" aria-label="Player actions">
+    <button type="button" class="header-action-btn" id="fullscreenBtn" title="Fullscreen (F)" aria-label="Toggle fullscreen" aria-pressed="false">&#x26F6;</button>
     <span class="header-icon-group">
-      <button class="header-action-btn" id="shareToggle" title="Export / Share" aria-label="Export and share menu">&#x1F4E4;</button>
+      <button type="button" class="header-action-btn" id="shareToggle" title="Export / Share" aria-label="Export and share menu" aria-haspopup="true" aria-expanded="false" aria-controls="shareMenu">&#x1F4E4;</button>
       <div class="share-menu" id="shareMenu">
-        <button class="share-menu-item" id="exportBtn">Export Recording</button>
-        <button class="share-menu-item" id="exportHtmlBtn">Export Zip</button>
-        <button class="share-menu-item" id="exportHtmlOnlyBtn">Export HTML</button>
+        <button type="button" class="share-menu-item" id="exportBtn">Export Recording</button>
+        <button type="button" class="share-menu-item" id="exportHtmlBtn">Export Zip</button>
+        <button type="button" class="share-menu-item" id="exportHtmlOnlyBtn">Export HTML</button>
       </div>
     </span>
-    <button class="header-action-btn" id="settingsToggle" title="Settings" aria-label="Toggle settings">&#x2699;</button>
-  </span>
-</div>
-<div class="winner-banner">{{winnerBanner}}</div>
+    <button type="button" class="header-action-btn" id="settingsToggle" title="Settings" aria-label="Toggle settings" aria-expanded="false" aria-controls="settingsPanel">&#x2699;</button>
+  </nav>
+</header>
+
+<main id="main">
+<div class="winner-banner" role="status">{{winnerBanner}}</div>
 {{videoSourceNote}}
 {{errors}}
 <div class="settings-panel" id="settingsPanel">
   <div class="settings-left">
-    <div id="racerFilter" class="racer-filter"></div>
+    <div id="racerFilter" class="racer-filter" role="group" aria-label="Show or hide racers"></div>
   </div>
   <div class="settings-right">
     <select id="segmentNav" class="segment-nav" aria-label="Recording segment"></select>
@@ -75,8 +80,11 @@
     <textarea class="notes-textarea" id="notesTextarea" placeholder="Add notes about this race...">{{notesContent}}</textarea>
   </div>
 </details>
+</main>
 
-<div class="checkered-bar"></div>
+<footer>
+  <div class="checkered-bar" aria-hidden="true"></div>
+</footer>
 
 <script id="race-config" type="application/json">{{raceConfigJson}}</script>
 
@@ -85,7 +93,7 @@
 <template id="build-profile-row">
 <div class="profile-row" style="--racer-color: {{color}}">
   <span class="profile-racer">{{name}}</span>
-  <span class="profile-bar-track">
+  <span class="profile-bar-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{barPct}}" aria-valuetext="{{valueText}}" aria-label="{{barLabel}}">
     <span class="profile-bar-fill" style="width: {{barPct}}%"></span>
   </span>
   <span class="profile-value">{{value}}</span>
@@ -108,7 +116,7 @@
 </details></template>
 
 <!-- Run navigation across a multi-run race. -->
-<template id="build-run-nav"><div class="run-nav">{{items}}</div></template>
+<template id="build-run-nav"><nav class="run-nav" aria-label="Race runs">{{items}}</nav></template>
 <template id="build-run-nav-current"><span class="{{cls}}"{{style}} aria-current="page">{{label}}</span></template>
 <template id="build-run-nav-link"><a class="{{cls}}"{{style}} href="{{href}}">{{label}}</a></template>
 
@@ -116,12 +124,12 @@
 <template id="build-info-grid"><div class="{{cls}}">{{items}}</div></template>
 
 <!-- Racer failures reported by the runner. -->
-<template id="build-errors"><div class="errors"><ul>{{items}}</ul></div></template>
+<template id="build-errors"><div class="errors" role="alert"><ul>{{items}}</ul></div></template>
 <template id="build-error-item"><li>{{message}}</li></template>
 
 <!-- Profile fragments. -->
 <template id="build-profile-delta"><span class="profile-delta">(+{{delta}})</span></template>
-<template id="build-profile-medal"><span class="profile-medal">&#127942;</span></template>
+<template id="build-profile-medal"><span class="profile-medal" role="img" aria-label="fastest">&#127942;</span></template>
 <template id="build-profile-info-icon"> <span class="profile-info-icon">&#9432;</span></template>
 <template id="build-profile-metric-desc"><div class="profile-metric-desc">{{desc}}</div></template>
 <template id="build-profile-note"><p class="profile-note">Lower values are better for all metrics. Hover over metric names for details.</p>
@@ -148,8 +156,8 @@
 </details></template>
 
 <!-- Run-by-run comparison table. -->
-<template id="build-comparison-table"><table class="run-comparison-table"><thead><tr><th>Run</th>{{header}}</tr></thead><tbody>{{rows}}</tbody></table></template>
-<template id="build-comparison-header-cell"><th style="--racer-color:{{color}}">{{name}}</th></template>
+<template id="build-comparison-table"><table class="run-comparison-table"><caption class="sr-only">{{caption}}</caption><thead><tr><th scope="col">Run</th>{{header}}</tr></thead><tbody>{{rows}}</tbody></table></template>
+<template id="build-comparison-header-cell"><th scope="col" style="--racer-color:{{color}}">{{name}}</th></template>
 <template id="build-comparison-row"><tr><td>{{label}}</td>{{cells}}</tr></template>
 <template id="build-comparison-summary-row"><tr class="run-comparison-median"><td><strong>{{label}}</strong></td>{{cells}}</tr></template>
 <template id="build-comparison-cell"><td>{{content}}</td></template>
@@ -179,7 +187,7 @@
 
 <template id="build-mode-toggle">
   <div class="mode-toggle">
-    <button class="mode-btn" id="modeMerged" title="Side-by-side merged video">Merged</button>
+    <button type="button" class="mode-btn" id="modeMerged" title="Side-by-side merged video">Merged</button>
   </div></template>
 
 <template id="build-file-link"><a href="{{href}}" {{attrs}}>{{text}}</a></template>
@@ -188,18 +196,18 @@
 
 <template id="build-player-section">
 <div class="fullscreen-wrapper" id="fullscreenWrapper">
-<div class="player-container" id="playerContainer">
+<section class="player-container" id="playerContainer" aria-label="Race recordings">
 {{videoElements}}
-</div>
+</section>
 {{mergedVideoElement}}
 
-<div class="controls">
+<div class="controls" role="toolbar" aria-label="Playback controls">
   <div class="controls-row">
-    <button class="frame-btn" id="goStart" title="Go to start (Home)" aria-label="Go to start">&#x23EE;</button>
-    <button class="frame-btn" id="prevFrame" title="-0.1s (&larr;)" aria-label="Previous frame">&laquo;</button>
-    <button class="play-btn" id="playBtn" aria-label="Play">&#x25B6;</button>
-    <button class="frame-btn" id="nextFrame" title="+0.1s (&rarr;)" aria-label="Next frame">&raquo;</button>
-    <button class="frame-btn" id="goEnd" title="Go to end (End)" aria-label="Go to end">&#x23ED;</button>
+    <button type="button" class="frame-btn" id="goStart" title="Go to start (Home)" aria-label="Go to start">&#x23EE;</button>
+    <button type="button" class="frame-btn" id="prevFrame" title="-0.1s (&larr;)" aria-label="Previous frame">&laquo;</button>
+    <button type="button" class="play-btn" id="playBtn" aria-label="Play">&#x25B6;</button>
+    <button type="button" class="frame-btn" id="nextFrame" title="+0.1s (&rarr;)" aria-label="Next frame">&raquo;</button>
+    <button type="button" class="frame-btn" id="goEnd" title="Go to end (End)" aria-label="Go to end">&#x23ED;</button>
     <label for="scrubber" class="sr-only">Video position</label>
     <input type="range" class="scrubber" id="scrubber" min="0" max="1000" value="0" aria-label="Video position">
   </div>
@@ -212,7 +220,7 @@
     <option value="1" selected>🚙 1x</option>
     <option value="2">🏎️ 2x</option>
   </select>
-  <button class="frame-btn" id="modeDebug" title="Calibration" aria-label="Toggle calibration" style="display:none">🎛️</button>
+  <button type="button" class="frame-btn" id="modeDebug" title="Calibration" aria-label="Toggle calibration" style="display:none">🎛️</button>
 </div>
 </div>
 </template>
@@ -221,12 +229,12 @@
 <div class="debug-row" data-debug-idx="{{displayIdx}}">
   {{racerNameSpan}}
   <span class="start-info" id="debugStart{{displayIdx}}">start: {{startVal}}s (+0f)</span>
-  <button class="debug-frame-btn" data-idx="{{displayIdx}}" data-delta="-10">-10f</button>
-  <button class="debug-frame-btn" data-idx="{{displayIdx}}" data-delta="-5">-5f</button>
-  <button class="debug-frame-btn" data-idx="{{displayIdx}}" data-delta="-1">-1f</button>
-  <button class="debug-frame-btn" data-idx="{{displayIdx}}" data-delta="1">+1f</button>
-  <button class="debug-frame-btn" data-idx="{{displayIdx}}" data-delta="5">+5f</button>
-  <button class="debug-frame-btn" data-idx="{{displayIdx}}" data-delta="10">+10f</button>
+  <button type="button" class="debug-frame-btn" data-idx="{{displayIdx}}" data-delta="-10">-10f</button>
+  <button type="button" class="debug-frame-btn" data-idx="{{displayIdx}}" data-delta="-5">-5f</button>
+  <button type="button" class="debug-frame-btn" data-idx="{{displayIdx}}" data-delta="-1">-1f</button>
+  <button type="button" class="debug-frame-btn" data-idx="{{displayIdx}}" data-delta="1">+1f</button>
+  <button type="button" class="debug-frame-btn" data-idx="{{displayIdx}}" data-delta="5">+5f</button>
+  <button type="button" class="debug-frame-btn" data-idx="{{displayIdx}}" data-delta="10">+10f</button>
 </div>
 </template>
 
@@ -254,38 +262,38 @@
 </template>
 
 <template id="build-debug-panel">
-<div class="debug-panel" id="debugPanel">
+<aside class="debug-panel" id="debugPanel" aria-label="Calibration">
   <h3>Calibration</h3>
   <p class="calibration-note">Video recordings don't start at exactly the same moment &mdash; each browser context begins capturing slightly earlier or later. Use the frame offsets below to align the starting points so racers are visually synchronized during playback.</p>
   {{debugRows}}
   <div class="debug-stats" id="debugStats">
-    <div class="debug-stats-header">VIDEO INFO</div>
+    <h4 class="debug-stats-header">VIDEO INFO</h4>
 {{statsRows}}
   </div>
   <div class="debug-frames" id="debugFrames">
-    <div class="debug-stats-header">FRAME POSITIONS</div>
+    <h4 class="debug-stats-header">FRAME POSITIONS</h4>
 {{frameRows}}
   </div>
   <div class="debug-timing" id="debugTiming">
-    <div class="debug-stats-header">TIMING EVENTS</div>
+    <h4 class="debug-stats-header">TIMING EVENTS</h4>
 {{timingRows}}
   </div>
   <div class="debug-footer">
     <span>1 frame &asymp; 0.040s (assuming 25fps recording)</span>
-    <button class="debug-action-btn" id="debugCopyJson">Copy JSON</button>
-    <button class="debug-action-btn" id="debugResetAll">Reset All</button>
+    <button type="button" class="debug-action-btn" id="debugCopyJson">Copy JSON</button>
+    <button type="button" class="debug-action-btn" id="debugResetAll">Reset All</button>
   </div>
-</div>
+</aside>
 </template>
 
 <template id="tmpl-export-overlay">
-  <div class="export-overlay">
+  <div class="export-overlay" role="dialog" aria-modal="true" aria-labelledby="exportDialogTitle">
     <div class="export-modal">
-      <h3>Exporting Side-by-Side</h3>
+      <h3 id="exportDialogTitle">Exporting Side-by-Side</h3>
       <canvas class="export-canvas"></canvas>
-      <div class="export-progress-bar"><div class="export-progress-fill"></div></div>
-      <div class="export-status">Preparing...</div>
-      <div class="export-actions"><button class="export-cancel">Cancel</button></div>
+      <div class="export-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="export-progress-fill"></div></div>
+      <div class="export-status" aria-live="polite">Preparing...</div>
+      <div class="export-actions"><button type="button" class="export-cancel">Cancel</button></div>
     </div>
   </div>
 </template>
