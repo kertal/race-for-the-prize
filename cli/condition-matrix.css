@@ -80,6 +80,17 @@ td a:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .d { color: var(--text-ghost); font-variant-numeric: tabular-nums; white-space: nowrap;
      text-align: right; overflow: hidden; text-overflow: ellipsis; }
 p.tally { text-align: center; color: var(--text-subtle); font-size: var(--font-size-base); margin: 2rem 0 0; }
+/* The CSV export sits under the tally: the last thing you reach for once the
+   matrix has told you what happened. Dressed like the picker above the table. */
+p.actions { text-align: center; margin: 1rem 0 0; }
+p.actions button { font: inherit; font-size: var(--font-size-sm); font-weight: bold; letter-spacing: var(--tracking-tight);
+                   background: var(--surface); color: var(--accent);
+                   border: var(--border-width) solid var(--border-strong); border-radius: var(--radius);
+                   padding: 0.4rem 0.9rem; cursor: pointer;
+                   transition: border-color var(--duration), background-color var(--duration); }
+p.actions button:hover { border-color: var(--accent); background: var(--surface-raised); }
+p.actions button:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+p.actions button[hidden] { display: none; }
 /* A footnote to the table it explains, so it sits closer to it than the tally does. */
 p.legend { text-align: center; color: var(--text-ghost); font-size: var(--font-size-xs); margin: 0.9rem 0 0; }
 
@@ -89,6 +100,6 @@ p.legend { text-align: center; color: var(--text-ghost); font-size: var(--font-s
   td a { width: 250px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  td a { transition: none; }
+  td a, p.actions button { transition: none; }
   td a:hover { transform: none; }
 }

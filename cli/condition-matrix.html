@@ -22,10 +22,18 @@
     </table>
   </div>
 {{legend}}  <p class="tally">{{tallies}}</p>
-</div>
+{{download}}</div>
 <!-- Trailing whitespace up to one newline is trimmed, so the blank line below
      is what keeps this fragment's own line break before the tally that follows. -->
 <template id="build-legend">  <p class="legend">{{text}}</p>
+
+</template>
+
+<!-- The whole matrix — every condition, metric and racer — embedded as CSV so
+     the page stays a single self-contained file. The button turns it into a
+     download and stays hidden until the script that wires it up runs. -->
+<template id="build-download">  <p class="actions"><button type="button" id="download" data-filename="{{filename}}" hidden>⬇ Download all results (CSV)</button></p>
+  <script id="matrix-csv" type="application/json">{{csv}}</script>
 
 </template>
 
@@ -67,6 +75,26 @@
   // Browsers restore the previous selection on reload, so sync once at startup
   // rather than trusting the server-rendered default to still match.
   showSelectedMetric();
+
+  // The CSV is already in the page; downloading is just handing it to the
+  // browser as a file. The button only appears once that is possible.
+  var csvData = document.getElementById('matrix-csv');
+  var downloadBtn = document.getElementById('download');
+  if (csvData && downloadBtn && window.Blob && window.URL && window.URL.createObjectURL) {
+    downloadBtn.hidden = false;
+    downloadBtn.addEventListener('click', function () {
+      var blob = new Blob([JSON.parse(csvData.textContent)], { type: 'text/csv;charset=utf-8' });
+      var url = URL.createObjectURL(blob);
+      var link = document.createElement('a');
+      link.href = url;
+      link.download = downloadBtn.getAttribute('data-filename');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      // Revoking in the same tick can cancel the download before it starts.
+      setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+    });
+  }
 </script></template>
 
 {{scriptTag}}

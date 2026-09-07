@@ -17,8 +17,12 @@
  * grid, a one-dimensional race collapses to a single column, and entries that
  * carry no network/cpu (older callers, hand-built lists) fall back to one row
  * per condition. Rendering is split the same way the rest of the reports are:
- * buildConditionMatrix() computes a plain data model, and the terminal and HTML
- * emitters below only decorate it.
+ * buildConditionMatrix() computes a plain data model, and the terminal, CSV and
+ * HTML emitters below only decorate it.
+ *
+ * The overview summarises; buildMatrixCsv() hands over everything behind it —
+ * one row per condition × metric × racer — embedded in the page so the download
+ * button needs nothing but the single index.html file.
  */
 
 import fs from 'node:fs';
@@ -260,6 +264,74 @@ export function buildConditionMatrix(entries, profileMetrics = PROFILE_METRICS) 
 }
 
 // ---------------------------------------------------------------------------
+// CSV export
+// ---------------------------------------------------------------------------
+
+/**
+ * One row per condition × metric × racer — the whole matrix flattened, so a
+ * spreadsheet can hold every single result the overview only summarises.
+ * `value` is the raw number in the metric's own unit, `formatted` the same
+ * value as the page shows it.
+ */
+const CSV_COLUMNS = [
+  'condition', 'network', 'cpu', 'metric', 'metric_name', 'scope',
+  'racer', 'value', 'formatted', 'delta', 'outcome',
+];
+
+/** Quote a field only when it would otherwise break the row (RFC 4180). */
+function csvField(value) {
+  if (value == null) return '';
+  const text = String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+/** 'win' for the racer that took the metric, 'tie' for everyone in a tied cell. */
+function csvOutcome(series, racer) {
+  if (racer.isWinner) return 'win';
+  if (series.isTie && racer.value != null) return 'tie';
+  return '';
+}
+
+/**
+ * Flatten a matrix into CSV text: the header row, then every racer's value for
+ * every metric in every condition — including the metrics the picker hides and
+ * the racers that recorded nothing (an empty value, not a missing row).
+ *
+ * @param {Object} matrix - from buildConditionMatrix()
+ * @returns {string} CSV document, newline-terminated
+ */
+export function buildMatrixCsv(matrix) {
+  const rows = [CSV_COLUMNS];
+  for (const cell of matrix.cells) {
+    for (const metric of matrix.metrics) {
+      const series = cell.metrics[metric.key];
+      for (const racer of series.racers) {
+        rows.push([
+          cell.title,
+          cell.network,
+          cell.cpu,
+          metric.key,
+          metric.name,
+          SCOPE_LABELS[metric.scope] || metric.scope,
+          racer.name,
+          racer.value,
+          racer.formatted,
+          racer.delta,
+          csvOutcome(series, racer),
+        ]);
+      }
+    }
+  }
+  return rows.map(row => row.map(csvField).join(',')).join('\n') + '\n';
+}
+
+/** Download filename for a race's CSV, derived from its title. */
+export function matrixCsvFilename(raceTitle) {
+  const slug = String(raceTitle).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return `${slug || 'race'}-matrix.csv`;
+}
+
+// ---------------------------------------------------------------------------
 // Terminal rendering
 // ---------------------------------------------------------------------------
 
@@ -477,6 +549,12 @@ export function buildConditionIndexHtml(raceTitle, entries, options = {}) {
     tallies: metricBlocks(matrix.metrics, metric => {
       const tally = tallyLine(matrix, metric.key);
       return tally ? `Conditions won: ${escHtml(tally)}` : '';
+    }),
+    download: fill('download', {
+      filename: escHtml(matrixCsvFilename(raceTitle)),
+      // The CSV rides along as a JSON string: JSON.parse gives it back
+      // verbatim, and escaping '<' keeps any value from closing the script.
+      csv: JSON.stringify(buildMatrixCsv(matrix)).replaceAll('<', String.raw`\u003c`),
     }),
     scriptTag: fill('script'),
   });
