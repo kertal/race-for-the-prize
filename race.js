@@ -409,7 +409,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
   try {
     const result = await spawnRunner(raceCtx);
 
-    let results, summary, sideBySidePath = null, sideBySideName = null, clipTimes = null;
+    let results, summary, sideBySidePath = null, sideBySideName = null, clipTimes = null, videoFiles = null;
     const { raceScriptFiles, settingsFileCopied } = copyRaceAssets(ctx.raceDir, ctx.racerFiles, runDir);
     const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
 
@@ -472,7 +472,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
       // With --ffmpeg, videos are trimmed and separate full recordings exist.
       // Without --ffmpeg, the single video IS the full recording — the player handles
       // virtual trimming via clip times from recordingSegments.
-      let videoFiles, fullVideoFiles, altFiles;
+      let fullVideoFiles, altFiles;
       if (ffmpeg) {
         videoFiles = racerNames.map(name => racerRelative(name, raceVideoFile(name)));
         fullVideoFiles = racerNames.map(name => racerRelative(name, fullVideoFile(name)));
@@ -509,7 +509,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
       });
     }
 
-    return { summary, sideBySidePath, sideBySideName, clipTimes };
+    return { summary, sideBySidePath, sideBySideName, clipTimes, videoFiles };
   } finally {
     fs.rmSync(recordingsDir, { recursive: true, force: true });
   }
@@ -1095,13 +1095,17 @@ function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts
     raceDir: ctx.raceDir,
   });
 
-  return { summary, clipTimes };
+  return { summary, clipTimes, videoFiles };
 }
 
 /**
  * Run the full race series (all runs, all racers) for the current module-level
- * settings/ctx/resultsDir. Returns the series' top-level summary: the race
- * summary for single-run races, or the median summary for multi-run races.
+ * settings/ctx/resultsDir. Returns the series' top-level result: the race
+ * summary for single-run races, or the median summary for multi-run races,
+ * plus the recordings that summary is about (paths relative to resultsDir, in
+ * racer order) so a multi-condition overview can play them back.
+ *
+ * @returns {Promise<{summary: object, videoFiles: string[]|null, clipTimes: Array|null}>}
  */
 async function runRaceSeries() {
   // Split mode (all runs of one racer before the next) is required when
@@ -1114,14 +1118,14 @@ async function runRaceSeries() {
 /** Normal mode: all racers run together, once per run. */
 async function runNormalModeSeries() {
   if (totalRuns === 1) {
-    const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir);
+    const { summary, sideBySidePath, sideBySideName, clipTimes, videoFiles } = await runSingleRace(ctx, resultsDir);
     printSummary(summary);
     generateGeminiCommentary(summary, resultsDir);
     // Re-write summary.json with gemini commentary included
     fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(summary, null, 2));
     bakeNotesIntoHtml(resultsDir, summary.geminiCommentary);
     fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summary, sideBySidePath ? sideBySideName : null));
-    return summary;
+    return { summary, videoFiles, clipTimes };
   }
 
   fs.mkdirSync(resultsDir, { recursive: true });
@@ -1182,11 +1186,11 @@ async function runSplitModeSeries() {
     await runRacerRuns(ri, multiRun, rawResults[ri], movedResults[ri]);
   }
 
-  const summaries = [], allClipTimes = [];
+  const summaries = [], allClipTimes = [], allVideoFiles = [];
   for (let i = 0; i < totalRuns; i++) {
     const runDir = multiRun ? path.join(resultsDir, String(i + 1)) : resultsDir;
     const runNav = multiRun ? { currentRun: i + 1, totalRuns, pathPrefix: '../' } : null;
-    const { summary, clipTimes } = buildRunOutput(
+    const { summary, clipTimes, videoFiles } = buildRunOutput(
       runDir,
       racerNames.map((_, ri) => rawResults[ri][i]),
       racerNames.map((_, ri) => movedResults[ri][i]),
@@ -1196,11 +1200,12 @@ async function runSplitModeSeries() {
     printSummary(summary);
     summaries.push(summary);
     allClipTimes.push(clipTimes);
+    allVideoFiles.push(videoFiles);
   }
 
   if (!multiRun) {
     fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summaries[0], null));
-    return summaries[0];
+    return { summary: summaries[0], videoFiles: allVideoFiles[0], clipTimes: allClipTimes[0] };
   }
   updateRunNavColors(summaries);
   return buildMedianOutput(summaries, summaries.map(() => null), allClipTimes);
@@ -1242,7 +1247,8 @@ async function main() {
         resultsDir = path.join(baseResultsDir, label);
         console.error(`\n  ${c.bold}${c.magenta}══ ${title} ══${c.reset}`);
       }
-      conditionSummaries.push({ label, title, network, cpu, summary: await runRaceSeries() });
+      const { summary, videoFiles, clipTimes } = await runRaceSeries();
+      conditionSummaries.push({ label, title, network, cpu, summary, videoFiles, clipTimes });
     }
 
     if (multiCondition) {
@@ -1307,6 +1313,8 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
   const medianSummary = buildMedianSummary(summaries, resultsDir);
   generateGeminiCommentary(medianSummary, resultsDir);
   fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(medianSummary, null, 2));
+  // The recordings the median report plays, for a condition overview to reuse.
+  let seriesVideoFiles = null, seriesClipTimes = null;
 
   if (!settings.noRecording) {
     // For each racer independently, pick the run closest to their median
@@ -1348,12 +1356,14 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
       buildPlayerHtml(medianSummary, medianVideoFiles, ffmpeg && format !== 'webm' ? format : null, medianAltFiles, medianPlayerOptions)
     );
     if (!settings.noWasm) copyFFmpegFiles(resultsDir);
+    seriesVideoFiles = medianVideoFiles;
+    seriesClipTimes = medianClipTimes;
   }
 
   console.error(`\n  ${c.bold}${c.cyan}── Median Results (${totalRuns} runs) ──${c.reset}`);
   printSummary(medianSummary);
   fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMultiRunMarkdown(medianSummary, summaries));
-  return medianSummary;
+  return { summary: medianSummary, videoFiles: seriesVideoFiles, clipTimes: seriesClipTimes };
 }
 
 await main();

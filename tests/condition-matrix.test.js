@@ -654,6 +654,112 @@ describe('buildConditionIndexHtml matrix', () => {
   });
 });
 
+describe('buildConditionIndexHtml film', () => {
+  /** The film config the page embeds, parsed back out of it. */
+  const filmConfigOf = (html) => {
+    const match = /<script id="film-config" type="application\/json">([\s\S]*?)<\/script>/.exec(html);
+    return match ? JSON.parse(match[1]) : null;
+  };
+
+  /** A recorded condition: two racers, videos under the condition's own directory. */
+  const recorded = (label, cpu, winner) => ({
+    label,
+    title: `Network: none · CPU: ${cpu}x`,
+    network: 'none',
+    cpu,
+    summary: summaryOf({ lauda: cpu, hunt: cpu * 2 }, winner),
+    videoFiles: ['lauda/lauda.race.webm', 'hunt/hunt.race.webm'],
+    clipTimes: [
+      {
+        start: 0.5,
+        end: 2.5,
+        measurements: [{ name: 'Load', startTraceTs: 1 }],
+        traceCalibration: { recordingStartTs: 2_000_000, firstFrameTs: 1_000_000, extra: 'unused' },
+      },
+      null,
+    ],
+  });
+
+  it('offers no film when no condition recorded video', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', gridEntries(
+      ['none'], [1, 4], () => ({ lauda: 1, hunt: 2 }), () => 'lauda'
+    ));
+
+    expect(html).not.toContain('id="filmBtn"');
+    expect(html).not.toContain('id="film-config"');
+    expect(filmConfigOf(html)).toBeNull();
+  });
+
+  it('offers the film when the conditions recorded video', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', [recorded('none-cpu1x', 1, 'lauda')]);
+
+    expect(html).toContain('id="filmBtn"');
+    expect(html).toContain('id="filmOverlay"');
+    expect(html).toContain('buildFilmPlan');       // the runtime is inlined
+    expect(html).toContain('computeExportLayout'); // …including the shared layout math
+  });
+
+  it('points every racer at its own condition directory, in matrix order', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', [
+      recorded('none-cpu1x', 1, 'lauda'),
+      recorded('none-cpu4x', 4, 'hunt'),
+    ]);
+    const { conditions } = filmConfigOf(html);
+
+    expect(conditions.map(c => c.label)).toEqual(['none-cpu1x', 'none-cpu4x']);
+    expect(conditions[0].racers.map(r => r.src)).toEqual([
+      'none-cpu1x/lauda/lauda.race.webm',
+      'none-cpu1x/hunt/hunt.race.webm',
+    ]);
+    expect(conditions[1].racers[0].src).toBe('none-cpu4x/lauda/lauda.race.webm');
+    // Cards and video labels share the player's racer colours.
+    expect(conditions[0].racers.map(r => r.color)).toEqual(['#e74c3c', '#3498db']);
+  });
+
+  it('carries each condition\'s result for its card, per metric', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', [recorded('none-cpu4x', 4, 'hunt')]);
+    const card = filmConfigOf(html).conditions[0].metrics.duration;
+
+    expect(card.name).toBe('Total Time');
+    expect(card.verdict).toBe('🏆 hunt');
+    expect(card.rows).toEqual([
+      { name: 'lauda', color: '#e74c3c', value: '4.000s', delta: null, win: false },
+      { name: 'hunt', color: '#3498db', value: '8.000s', delta: '4.000s', win: true },
+    ]);
+  });
+
+  it('embeds only the clip data the film needs', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', [recorded('none-cpu1x', 1, 'lauda')]);
+    const [lauda, hunt] = filmConfigOf(html).conditions[0].racers;
+
+    // The measurements and the rest of the calibration block stay behind.
+    expect(lauda.clip).toEqual({
+      start: 0.5,
+      end: 2.5,
+      traceCalibration: { recordingStartTs: 2_000_000, firstFrameTs: 1_000_000 },
+    });
+    expect(hunt.clip).toBeNull();
+  });
+
+  it('skips a condition that raced without video but keeps the rest', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', [
+      { label: 'no-video', network: 'none', cpu: 1, summary: summaryOf({ lauda: 1, hunt: 2 }, 'lauda') },
+      recorded('none-cpu4x', 4, 'hunt'),
+    ]);
+
+    expect(filmConfigOf(html).conditions.map(c => c.label)).toEqual(['none-cpu4x']);
+  });
+
+  it('keeps a condition title from breaking out of the config block', () => {
+    const html = buildConditionIndexHtml('a vs b', [
+      { ...recorded('x', 1, 'lauda'), title: '</script><script>alert(1)</script>' },
+    ]);
+
+    expect(html).not.toContain('</script><script>alert(1)');
+    expect(filmConfigOf(html).conditions[0].title).toBe('</script><script>alert(1)</script>');
+  });
+});
+
 describe('buildConditionIndexHtml skinning', () => {
   const entries = [{ label: 'x', network: 'none', cpu: 1, summary: summaryOf({ a: 1, b: 2 }, 'a') }];
 

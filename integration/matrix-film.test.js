@@ -1,0 +1,161 @@
+/**
+ * Integration test for the condition-matrix film: the overview page assembling
+ * every condition into one downloadable video, each race behind an info card
+ * carrying that condition's result.
+ *
+ * Records the film in a real browser (canvas + MediaRecorder) and checks the
+ * download is a WebM long enough to hold both cards and both races.
+ *
+ * Requires: ffmpeg (to generate the recordings and to measure the film) and
+ * Playwright (chromium). Skips cleanly when either is unavailable.
+ */
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { execSync, spawnSync } from 'node:child_process';
+import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createStaticHandler } from '../race.js';
+import { buildConditionIndexHtml } from '../cli/condition-matrix.js';
+
+const RACERS = ['lauda', 'hunt'];
+const CONDITIONS = [
+  { label: 'none-cpu1x', title: 'Network: none · CPU: 1x', network: 'none', cpu: 1, winner: 'lauda' },
+  { label: 'none-cpu4x', title: 'Network: none · CPU: 4x', network: 'none', cpu: 4, winner: 'hunt' },
+];
+const VIDEO_SECONDS = 1;
+const CARD_SECONDS = 2.5; // matches cli/matrix-runtime/film-plan.cjs
+
+function hasFfmpeg() {
+  try { execSync('ffmpeg -version', { stdio: 'pipe', timeout: 5_000 }); return true; }
+  catch { return false; }
+}
+
+/**
+ * Decode a video end to end and report its length. MediaRecorder's WebM has no
+ * duration in its header, so the last progress line of a full decode — which
+ * ffmpeg prints on stderr — is the honest answer.
+ */
+function decodedSeconds(file) {
+  const { stderr } = spawnSync('ffmpeg', ['-i', file, '-f', 'null', '-'], {
+    encoding: 'utf-8', timeout: 60_000,
+  });
+  const times = [...(stderr || '').matchAll(/time=(\d+):(\d+):(\d+\.\d+)/g)]
+    .map(([, h, m, s]) => Number(h) * 3600 + Number(m) * 60 + Number(s));
+  return times.length > 0 ? Math.max(...times) : 0;
+}
+
+function summaryOf(durations, winner) {
+  const racers = Object.keys(durations);
+  return {
+    racers,
+    overallWinner: winner,
+    comparisons: [{
+      name: 'Race',
+      isSyntheticTotal: true,
+      winner,
+      racers: racers.map(name => ({ duration: durations[name] })),
+    }],
+  };
+}
+
+function startServer(dir) {
+  return new Promise(resolve => {
+    const srv = http.createServer(createStaticHandler(dir));
+    srv.listen(0, '127.0.0.1', () => resolve(srv));
+  });
+}
+
+let browser, context, page, server, tmpDir, setupError;
+
+beforeAll(async () => {
+  if (!hasFfmpeg()) {
+    setupError = 'ffmpeg not available';
+    return;
+  }
+
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'matrix-film-'));
+  const entries = CONDITIONS.map(({ label, title, network, cpu, winner }) => {
+    for (const name of RACERS) {
+      const dir = path.join(tmpDir, label, name);
+      fs.mkdirSync(dir, { recursive: true });
+      execSync(
+        `ffmpeg -y -f lavfi -i color=c=black:size=32x32:rate=10 -t ${VIDEO_SECONDS} ` +
+        `-c:v libvpx -b:v 20k -an "${path.join(dir, `${name}.race.webm`)}"`,
+        { stdio: 'pipe', timeout: 30_000 },
+      );
+    }
+    return {
+      label, title, network, cpu,
+      summary: summaryOf({ lauda: cpu, hunt: cpu * 2 }, winner),
+      videoFiles: RACERS.map(name => `${name}/${name}.race.webm`),
+      clipTimes: null, // recordings are already trimmed, so the film plays them whole
+    };
+  });
+
+  fs.writeFileSync(
+    path.join(tmpDir, 'index.html'),
+    buildConditionIndexHtml(RACERS.join(' vs '), entries),
+  );
+
+  try {
+    const pw = await import('playwright');
+    browser = await Promise.race([
+      pw.chromium.launch({ headless: true }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('Playwright launch timeout')), 20_000)),
+    ]);
+    context = await browser.newContext({ acceptDownloads: true });
+    page = await context.newPage();
+  } catch (e) {
+    setupError = `Playwright launch failed: ${e.message}`;
+  }
+
+  server = await startServer(tmpDir);
+}, 120_000);
+
+afterAll(async () => {
+  if (page) await page.close().catch(() => {});
+  if (context) await context.close().catch(() => {});
+  if (browser) await browser.close().catch(() => {});
+  if (server) await new Promise(resolve => server.close(resolve));
+  if (tmpDir && fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+describe('condition matrix film', () => {
+  it('records every condition into one downloadable video', async ({ skip }) => {
+    if (setupError) skip(setupError);
+
+    await page.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil: 'load' });
+    await page.click('#filmBtn');
+
+    // Both cards, both races, plus loading — generous room on a slow runner.
+    const link = await page.waitForSelector('.film-actions a[download]', { timeout: 120_000 });
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 30_000 }),
+      link.click(),
+    ]);
+    expect(download.suggestedFilename()).toBe('race-film.webm');
+
+    const filmPath = path.join(tmpDir, 'downloaded-film.webm');
+    await download.saveAs(filmPath);
+    const bytes = fs.readFileSync(filmPath);
+    expect(bytes.length).toBeGreaterThan(1_000);
+    // EBML magic — a real WebM container, not a stub blob.
+    expect([...bytes.subarray(0, 4)]).toEqual([0x1a, 0x45, 0xdf, 0xa3]);
+
+    // Long enough that both conditions are in there: two cards and two races.
+    expect(decodedSeconds(filmPath)).toBeGreaterThan(CONDITIONS.length * CARD_SECONDS);
+  }, 180_000);
+
+  it('sizes the canvas for a side-by-side race', async ({ skip }) => {
+    if (setupError) skip(setupError);
+
+    const size = await page.evaluate(() => {
+      const canvas = document.querySelector('.film-canvas');
+      return { width: canvas.width, height: canvas.height };
+    });
+    // computeExportLayout(2, 1) — two 640-wide cells plus the label strip.
+    expect(size.width).toBe(1280);
+    expect(size.height).toBe(670);
+  });
+});

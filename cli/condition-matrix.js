@@ -40,6 +40,15 @@ const { shell: SHELL, fill } = loadTemplates(path.join(__dirname, 'condition-mat
 const CSS = fs.readFileSync(path.join(__dirname, 'tokens.css'), 'utf-8') + '\n'
   + fs.readFileSync(path.join(__dirname, 'condition-matrix.css'), 'utf-8');
 
+// Browser-side film runtime, concatenated into one IIFE the way the player's
+// runtime is: the layout math the player exports with, then this page's own
+// planning and recording code.
+const FILM_RUNTIME = [
+  path.join(__dirname, 'player-runtime', 'export-layout.cjs'),
+  path.join(__dirname, 'matrix-runtime', 'film-plan.cjs'),
+  path.join(__dirname, 'matrix-runtime', 'film-export.js'),
+].map(file => fs.readFileSync(file, 'utf-8')).join('\n');
+
 const WIN_MEDAL = '🏆';
 const TIE_MEDAL = '🤝';
 // Same display width as the medals, so unmedalled lines stay aligned under them.
@@ -442,14 +451,114 @@ function pickerGroupsHtml(metrics) {
   })).join('');
 }
 
+// ---------------------------------------------------------------------------
+// Film: one video of every condition, each race behind its own result card
+// ---------------------------------------------------------------------------
+
+const FILM_HINT = 'One video of every condition, each race introduced by its result.';
+
+/** The verdict line an info card carries, as plain text for the canvas. */
+function filmVerdict(series) {
+  if (series.winner) return `${WIN_MEDAL} ${series.winner}`;
+  return series.isTie ? `${TIE_MEDAL} Tie` : NO_DATA;
+}
+
+/**
+ * The clip window of one recording, stripped to what the film needs. The full
+ * entry also carries every measurement and the whole trace calibration block;
+ * embedding those for every racer of every condition would dwarf the page.
+ */
+function filmClip(clip) {
+  if (!clip || !Number.isFinite(clip.start) || !Number.isFinite(clip.end)) return null;
+  const cal = clip.traceCalibration;
+  const calibrated = cal && Number.isFinite(cal.recordingStartTs) && Number.isFinite(cal.firstFrameTs);
+  return {
+    start: clip.start,
+    end: clip.end,
+    traceCalibration: calibrated ? { recordingStartTs: cal.recordingStartTs, firstFrameTs: cal.firstFrameTs } : null,
+  };
+}
+
+/**
+ * One condition's recordings, as page-relative sources. Entries carry their
+ * video paths relative to their own results directory, which is the condition's
+ * label — the same directory the cell links to.
+ */
+function filmRacers(entry, racers) {
+  const names = entry?.summary?.racers || [];
+  const files = entry?.videoFiles;
+  if (!Array.isArray(files)) return [];
+  return names.map((name, i) => {
+    const index = racers.indexOf(name);
+    return {
+      name,
+      color: racerColor(index >= 0 ? index : i),
+      src: files[i] ? `${entry.label}/${files[i]}` : null,
+      clip: filmClip(entry.clipTimes?.[i]),
+    };
+  }).filter(racer => racer.src);
+}
+
+/** Every metric's card content for one condition, keyed the way the picker is. */
+function filmMetrics(cell, metrics) {
+  return Object.fromEntries(metrics.map(metric => {
+    const series = cell.metrics[metric.key];
+    return [metric.key, {
+      name: metric.name,
+      verdict: filmVerdict(series),
+      rows: series.racers.map(racer => ({
+        name: racer.name,
+        color: racerColor(racer.index),
+        value: racer.formatted || NO_DATA,
+        delta: racer.delta ?? null,
+        win: racer.isWinner,
+      })),
+    }];
+  }));
+}
+
+/**
+ * The film config the page embeds: conditions in matrix reading order, each
+ * with its card content and its racers' recordings. Null when no condition
+ * recorded video — then the page offers no film at all.
+ */
+function buildFilmConfig(matrix, entries) {
+  const byLabel = new Map(entries.map(entry => [entry.label, entry]));
+  const conditions = [];
+  for (const row of matrix.rows) {
+    for (const cell of row.cells) {
+      if (!cell) continue;
+      const racers = filmRacers(byLabel.get(cell.label), matrix.racers);
+      if (racers.length === 0) continue;
+      conditions.push({
+        label: cell.label,
+        title: cell.title,
+        racers,
+        metrics: filmMetrics(cell, matrix.metrics),
+      });
+    }
+  }
+  return conditions.length > 0 ? { conditions } : null;
+}
+
+/** Escape '<' so a condition title can't break out of the </script> context. */
+function serializeFilmConfig(config) {
+  return JSON.stringify(config).replaceAll('<', String.raw`\u003c`);
+}
+
 /**
  * Build the top-level index.html for a multi-condition race: a performance
  * matrix of every throttling condition, each cell linking to that condition's
  * own results player, with a picker to switch which metric the matrix compares.
+ * When the conditions recorded video, the page can also assemble them into one
+ * film — every race behind an info card carrying that condition's result.
  *
  * @param {string} raceTitle - e.g. "lauda vs hunt"
  * @param {Array<{label: string, title?: string, network?: string, cpu?: number,
- *                summary: object|null}>} entries
+ *                summary: object|null, videoFiles?: string[]|null,
+ *                clipTimes?: Array<object|null>|null}>} entries
+ *   `videoFiles` and `clipTimes` are relative to the condition's own results
+ *   directory (its label), in that condition's racer order.
  * @param {object} [options]
  * @param {string} [options.skin] - skin name or .css path, as for the player
  * @param {string} [options.skinBaseDir] - directory a relative skin path resolves against
@@ -458,6 +567,7 @@ function pickerGroupsHtml(metrics) {
 export function buildConditionIndexHtml(raceTitle, entries, options = {}) {
   const skin = resolveSkin(options.skin, options.skinBaseDir);
   const matrix = buildConditionMatrix(entries);
+  const film = buildFilmConfig(matrix, entries);
 
   return render(SHELL, {
     title: escHtml(raceTitle),
@@ -467,6 +577,7 @@ export function buildConditionIndexHtml(raceTitle, entries, options = {}) {
     skinStyles: skin ? `<style id="rftp-skin">\n${skin.css}\n</style>` : '',
     pickerGroups: pickerGroupsHtml(matrix.metrics),
     descriptions: metricBlocks(matrix.metrics, metric => escHtml(metric.description || '')),
+    filmButton: film ? fill('film-button', { hint: escHtml(FILM_HINT) }) : '',
     rowHeader: escHtml(matrix.rowHeader),
     headerCells: matrix.columns.map(label => fill('header-cell', { label: escHtml(label) })).join(''),
     bodyRows: matrix.rows.map(row => fill('row', {
@@ -478,6 +589,7 @@ export function buildConditionIndexHtml(raceTitle, entries, options = {}) {
       const tally = tallyLine(matrix, metric.key);
       return tally ? `Conditions won: ${escHtml(tally)}` : '';
     }),
+    film: film ? fill('film', { config: serializeFilmConfig(film), runtime: FILM_RUNTIME }) : '',
     scriptTag: fill('script'),
   });
 }

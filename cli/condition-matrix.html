@@ -15,6 +15,7 @@
   <p class="sub">One race per throttling condition — pick a cell to view its results.</p>
   <p class="pick"><label for="metric">Compare</label> <select id="metric">{{pickerGroups}}</select></p>
   <p class="desc">{{descriptions}}</p>
+{{filmButton}}
   <div class="scroll">
     <table>
       <tr><th scope="col">{{rowHeader}}</th>{{headerCells}}</tr>
@@ -23,6 +24,7 @@
   </div>
 {{legend}}  <p class="tally">{{tallies}}</p>
 </div>
+{{film}}
 <!-- Trailing whitespace up to one newline is trimmed, so the blank line below
      is what keeps this fragment's own line break before the tally that follows. -->
 <template id="build-legend">  <p class="legend">{{text}}</p>
@@ -48,6 +50,32 @@
 <template id="build-series"><span class="verdict{{verdictClass}}"{{tint}}>{{verdict}}</span><span class="times">{{rows}}</span></template>
 
 <template id="build-series-row"><span class="r{{winClass}}" style="--racer-color:{{color}}"><span class="n">{{name}}</span><span class="bar"><i style="width:{{width}}%"></i></span><span class="t">{{value}}</span><span class="d">{{delta}}</span></span></template>
+
+<!-- Offered only when the conditions actually recorded video: one film of the
+     whole matrix, every race introduced by its own result card. -->
+<template id="build-film-button">  <p class="actions"><button type="button" id="filmBtn" class="film-btn">&#127916; Download film</button><span class="film-hint">{{hint}}</span></p>
+</template>
+
+<!-- The overlay ships hidden rather than as a <template> the runtime clones:
+     only one film is ever recorded at a time, and splitTemplates would stop at
+     a nested template's closing tag. -->
+<template id="build-film">
+<div class="film-overlay" id="filmOverlay" hidden>
+  <div class="film-modal">
+    <h2>Race Film</h2>
+    <canvas class="film-canvas"></canvas>
+    <div class="film-progress-bar"><div class="film-progress-fill"></div></div>
+    <p class="film-status">Preparing…</p>
+    <div class="film-actions"><button type="button" class="film-cancel">Cancel</button></div>
+  </div>
+</div>
+<script id="film-config" type="application/json">{{config}}</script>
+<script>
+(function() {
+{{runtime}}
+})();
+</script>
+</template>
 
 <template id="build-picker-group"><optgroup label="{{label}}">{{options}}</optgroup></template>
 

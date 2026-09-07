@@ -38,7 +38,8 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 - `animation.js` — live terminal race animation
 - `summary.js` — summary data model, terminal output, JSON/Markdown report generation
 - `race-utils.js` — overall-winner computation and `TIE_THRESHOLD_PERCENT`
-- `condition-matrix.js` — cross-condition overview for multi-condition races (network × CPU matrix model with a series per metric, terminal renderer, and the top-level `index.html` with its metric picker)
+- `condition-matrix.js` — cross-condition overview for multi-condition races (network × CPU matrix model with a series per metric, terminal renderer, and the top-level `index.html` with its metric picker and its film config)
+- `matrix-runtime/` — browser-side runtime of the condition overview, concatenated into one IIFE by `condition-matrix.js`: `film-plan.cjs` (pure, Node-testable: plan order, card content, clip windows) and `film-export.js` (canvas + MediaRecorder recording of the whole matrix as one video). It reuses the player's `export-layout.cjs` for the side-by-side geometry.
 - `profile-analysis.js` — CDP metric definitions (`PROFILE_METRICS`), comparison, terminal/Markdown rendering
 - `results.js` — moves recordings from temp dirs, video format conversion (WebM→MOV/GIF), ffmpeg.wasm asset copying
 - `sidebyside.js` — FFmpeg side-by-side video composition
@@ -65,6 +66,7 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 - The browser runtime builds DOM with `document.createElement`/`replaceChildren`, never `innerHTML`.
 - `tokens.css` holds the palette + semantic tokens shared by both reports; `player.css` and `condition-matrix.css` are component layers that inline it. A component layer must contain no literal colors/fonts/radii and must never reference a raw `--color-*` palette token — tests enforce both, on both stylesheets. Skins (`cli/skins/*.css`) only redefine tokens under `:root[data-theme="<name>"]`; see `docs/skinning.md`.
 - Per-racer colors reach the page as an inline `--racer-color` custom property, never as a hard-coded `color:` declaration.
+- The condition-matrix film paints on a canvas, where tokens cannot be referenced: it resolves them through a probe element at record time (`themeValue` in `matrix-runtime/film-export.js`), so a skin themes the film too. Cards paint on `--bg`, video frames on `--video-bg`.
 - Unit tests live in `tests/` (`vitest.config.js` excludes `races/`, `my-races/`, `integration/`). Integration tests live in `integration/` (`vitest.integration.config.js`) and skip themselves when Chromium or ffprobe is unavailable.
 
 ## Guidelines
