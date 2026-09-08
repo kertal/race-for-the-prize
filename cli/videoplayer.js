@@ -65,7 +65,8 @@ const RUNTIME_FILES = [
   'export-video.js',   // canvas side-by-side export + ffmpeg.wasm conversion
   'fullscreen.js',     // fullscreen mode
   'zip.cjs',           // pure CRC32/ZIP builder (Node-testable)
-  'export-zip.js',     // self-contained HTML/ZIP export flows
+  'metrics-csv.cjs',   // pure metrics.csv builder (Node-testable)
+  'export-zip.js',     // self-contained HTML/ZIP export flows + performance data export
 ];
 const RUNTIME = RUNTIME_FILES
   .map(f => fs.readFileSync(path.join(__dirname, 'player-runtime', f), 'utf-8'))
@@ -114,7 +115,7 @@ function trophyHtml(isWinner, isTie) {
 // Build the player section, debug panel, runtime script tag, and race-config
 // JSON for a race that has videos. Returns the render() slots it produces.
 function buildVideoPlayer(summary, videoFiles, opts) {
-  const { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, placementOrder, ffmpegDir } = opts;
+  const { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, placementOrder, ffmpegDir, traceFiles, harFiles } = opts;
   const isTie = summary.overallWinner === 'tie';
   const videoElements = placementOrder.map((origIdx, displayIdx) => {
     const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
@@ -142,6 +143,8 @@ function buildVideoPlayer(summary, videoFiles, opts) {
     clipTimes: clipTimes ? placementOrder.map(i => clipTimes[i] || null) : null,
     racerNames: placementOrder.map(i => racers[i]),
     racerColors: placementOrder.map(i => RACER_CSS_COLORS[i % RACER_CSS_COLORS.length]),
+    tracePaths: traceFiles ? placementOrder.map(i => traceFiles[i] || null) : null,
+    harPaths: harFiles ? placementOrder.map(i => harFiles[i] || null) : null,
     ffmpegDir,
   });
 
@@ -175,7 +178,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   const hasMergedVideo = !!mergedVideoFile;
 
   const { playerSection = '', scriptTag = '', raceConfigJson = '', debugPanelOut = '' } = hasVideos
-    ? buildVideoPlayer(summary, videoFiles, { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, placementOrder, ffmpegDir })
+    ? buildVideoPlayer(summary, videoFiles, { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, placementOrder, ffmpegDir, traceFiles, harFiles })
     : {};
 
   const modeToggle = hasMergedVideo ? fill('mode-toggle') : '';

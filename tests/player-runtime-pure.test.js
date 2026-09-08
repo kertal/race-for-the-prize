@@ -20,6 +20,7 @@ const {
 } = require('../cli/player-runtime/calibration.cjs');
 const { computeExportLayout } = require('../cli/player-runtime/export-layout.cjs');
 const { crc32, createZipBuilder } = require('../cli/player-runtime/zip.cjs');
+const { csvCell, buildMetricsCsv } = require('../cli/player-runtime/metrics-csv.cjs');
 
 // --- Calibration math -------------------------------------------------------
 
@@ -379,5 +380,58 @@ describe('createZipBuilder', () => {
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
+  });
+});
+
+// --- metrics.csv builder ----------------------------------------------------
+
+describe('metrics-csv csvCell', () => {
+  it('passes plain values through and quotes commas, quotes, and newlines', () => {
+    expect(csvCell('plain')).toBe('plain');
+    expect(csvCell(42)).toBe('42');
+    expect(csvCell(null)).toBe('');
+    expect(csvCell('a,b')).toBe('"a,b"');
+    expect(csvCell('say "hi"')).toBe('"say ""hi"""');
+    expect(csvCell('two\nlines')).toBe('"two\nlines"');
+  });
+});
+
+describe('metrics-csv buildMetricsCsv', () => {
+  const racers = ['lauda', 'hunt'];
+  const timing = { name: 'Load', racers: [{ duration: 1 }, { duration: 2 }], winner: 'lauda', diffPercent: 100 };
+
+  it('emits race timings and combined profile comparisons with their own scope', () => {
+    const csv = buildMetricsCsv({
+      racers,
+      comparisons: [timing],
+      profileComparison: {
+        comparisons: [
+          { scope: 'measured', category: 'computation', name: 'Script Execution', values: [40, 60], winner: 'lauda', diffPercent: 50 },
+          { scope: 'total', category: 'loading', name: 'FCP', values: [100, 150], winner: 'lauda', diffPercent: 50 },
+        ],
+      },
+    });
+    expect(csv).toContain('scope,category,metric,lauda,hunt,winner,diff_percent');
+    expect(csv).toContain('race,timing,Load (s),1,2,lauda,100.0');
+    expect(csv).toContain('measured,computation,Script Execution,40,60,lauda,50.0');
+    expect(csv).toContain('total,loading,FCP,100,150,lauda,50.0');
+  });
+
+  it('falls back to measured/total sections when no combined comparisons array exists', () => {
+    const csv = buildMetricsCsv({
+      racers,
+      profileComparison: {
+        measured: { comparisons: [{ category: 'computation', name: 'Script Execution', values: [40, 60], winner: 'lauda', diffPercent: 50 }] },
+        total: { comparisons: [{ category: 'loading', name: 'FCP', values: [100, 150], winner: 'lauda', diffPercent: 50 }] },
+      },
+    });
+    expect(csv).toContain('measured,computation,Script Execution,40,60,lauda,50.0');
+    expect(csv).toContain('total,loading,FCP,100,150,lauda,50.0');
+  });
+
+  it('uses fallback racer names and returns null when there are no metrics', () => {
+    const csv = buildMetricsCsv({ comparisons: [timing] }, racers);
+    expect(csv).toContain('scope,category,metric,lauda,hunt,winner,diff_percent');
+    expect(buildMetricsCsv({}, racers)).toBeNull();
   });
 });

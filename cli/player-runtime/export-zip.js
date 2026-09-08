@@ -62,7 +62,7 @@ function dedupeRacerCards(doc) {
 function stripExportChrome(doc) {
   removeEl(doc, '#debugPanel');
   removeEl(doc, '#modeDebug');
-  doc.querySelectorAll('#exportHtmlBtn, #exportBtn, #exportHtmlOnlyBtn').forEach(el => el.remove());
+  doc.querySelectorAll('#exportHtmlBtn, #exportBtn, #exportHtmlOnlyBtn, #exportAnalysisBtn').forEach(el => el.remove());
   doc.querySelectorAll('.run-nav').forEach(el => el.remove());
   doc.querySelectorAll('.export-overlay').forEach(el => el.remove());
 }
@@ -188,22 +188,30 @@ async function embedVideos(videoPaths, ctx) {
   return fetched;
 }
 
-// Fetch non-video assets and add them as separate ZIP entries. Returns null if aborted.
-async function bundleOtherFiles(otherPaths, zipBuilder, ctx) {
-  const { failedFiles, optionalPaths, ui, total } = ctx;
+// Fetch non-video assets and add them as separate ZIP entries. Each entry is a
+// plain path (zipped under the same name) or a { srcPath, zipPath, onAdded }
+// object for renamed entries. Returns the running fetched count, or null if aborted.
+async function bundleOtherFiles(entries, zipBuilder, ctx) {
+  const { failedFiles, optionalPaths, ui, total, maxProgress = 80 } = ctx;
   let fetched = ctx.fetched;
-  for (const filePath of otherPaths) {
+  for (const entry of entries) {
+    const srcPath = typeof entry === 'string' ? entry : entry.srcPath;
+    const zipPath = typeof entry === 'string' ? entry : entry.zipPath;
     if (ui.abortCtrl.signal.aborted) return null;
     fetched++;
-    ui.statusEl.textContent = 'Fetching ' + filePath + ' (' + fetched + '/' + total + ')';
-    ui.progressFill.style.width = (fetched / total * 80).toFixed(0) + '%';
+    ui.statusEl.textContent = 'Fetching ' + srcPath + ' (' + fetched + '/' + total + ')';
+    ui.progressFill.style.width = (fetched / total * maxProgress).toFixed(0) + '%';
     try {
-      const resp = await fetch(filePath, { signal: ui.abortCtrl.signal });
-      if (resp.ok) zipBuilder.addFile(filePath, new Uint8Array(await resp.arrayBuffer()));
-      else if (!optionalPaths.has(filePath)) failedFiles.push(filePath);
+      const resp = await fetch(srcPath, { signal: ui.abortCtrl.signal });
+      if (resp.ok) {
+        zipBuilder.addFile(zipPath, new Uint8Array(await resp.arrayBuffer()));
+        if (typeof entry !== 'string' && entry.onAdded) entry.onAdded();
+      } else if (!optionalPaths.has(srcPath)) {
+        failedFiles.push(srcPath);
+      }
     } catch (e) {
       if (e.name === 'AbortError') return null;
-      if (!optionalPaths.has(filePath)) failedFiles.push(filePath);
+      if (!optionalPaths.has(srcPath)) failedFiles.push(srcPath);
     }
   }
   return fetched;
@@ -293,4 +301,110 @@ async function startHtmlOnlyExport() {
 const exportHtmlOnlyBtn = document.getElementById('exportHtmlOnlyBtn');
 if (exportHtmlOnlyBtn) {
   exportHtmlOnlyBtn.addEventListener('click', startHtmlOnlyExport);
+}
+
+// --- Performance data export -------------------------------------------------
+// Bundles everything needed for deeper performance analysis in external tools:
+// per-racer DevTools traces, HAR files, summary.json, a flat metrics.csv
+// (built by metrics-csv.cjs), and a README explaining how to load each file.
+
+// Describe the bundle contents and how to load each file into external analysis tools.
+function buildAnalysisReadme(bundled) {
+  const lines = [
+    '# Performance Analysis Bundle',
+    '',
+    'Exported from the Race for the Prize player: ' + document.title,
+    '',
+    '## Contents',
+  ];
+  if (bundled.traces) lines.push('- `traces/<racer>.trace.json` — Chrome DevTools performance trace per racer');
+  if (bundled.hars) lines.push('- `har/<racer>.har` — HTTP Archive of network activity per racer');
+  if (bundled.summary) lines.push('- `summary.json` — full race results: timings, raw profile metrics, comparisons');
+  if (bundled.csv) lines.push('- `metrics.csv` — flat metric table, one row per metric, one raw-value column per racer');
+  lines.push(
+    '',
+    '## How to analyze',
+    '- **Traces**: drop a `.trace.json` into https://ui.perfetto.dev, or load it in the',
+    '  Chrome DevTools Performance panel ("Load profile…"). The `race:recording:*` and',
+    '  `race:measure:*` markers bracket the recorded and measured periods.',
+    '- **HAR**: import into the DevTools Network panel or any HAR viewer to inspect',
+    '  individual requests, timings, and headers.',
+    '- **metrics.csv**: open in a spreadsheet. All metrics are "lower is better";',
+    '  `scope` is `measured` (between raceStart/raceEnd) or `total` (whole session).',
+    '- **summary.json**: `profileMetrics` holds raw per-racer values;',
+    '  `profileComparison` holds computed winners, diffs, and rankings.',
+    ''
+  );
+  return lines.join('\n');
+}
+
+// Export a performance-analysis ZIP: DevTools traces, HARs, summary.json, metrics.csv, and a README.
+async function startAnalysisExport() {
+  const ui = setupExportOverlay('Exporting Performance Data');
+
+  // Per-racer analysis files, in the same (placement) order as racerNames
+  const bundled = { traces: false, hars: false, summary: false, csv: false };
+  const racerFiles = [];
+  const addRacerFiles = (paths, dir, ext, kind) => (paths || []).forEach((p, i) => {
+    if (p && !p.startsWith('data:')) {
+      racerFiles.push({
+        srcPath: p,
+        zipPath: dir + '/' + (racerNames[i] || 'racer' + i) + ext,
+        onAdded: () => { bundled[kind] = true; },
+      });
+    }
+  });
+  addRacerFiles(tracePaths, 'traces', '.trace.json', 'traces');
+  addRacerFiles(harPaths, 'har', '.har', 'hars');
+
+  const zipBuilder = createZipBuilder();
+  const failedFiles = [];
+  const total = racerFiles.length + 1; // +1 for summary.json
+
+  ui.statusEl.textContent = 'Fetching summary.json (1/' + total + ')';
+  try {
+    const resp = await fetch('summary.json', { signal: ui.abortCtrl.signal });
+    if (resp.ok) {
+      const text = await resp.text();
+      zipBuilder.addFile('summary.json', new TextEncoder().encode(text));
+      bundled.summary = true;
+      try {
+        const csv = buildMetricsCsv(JSON.parse(text), racerNames);
+        if (csv) {
+          zipBuilder.addFile('metrics.csv', new TextEncoder().encode(csv));
+          bundled.csv = true;
+        }
+      } catch { /* unparsable summary — raw file is still in the ZIP */ }
+    } else {
+      failedFiles.push('summary.json');
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') return;
+    failedFiles.push('summary.json');
+  }
+  ui.progressFill.style.width = (1 / total * 90).toFixed(0) + '%';
+
+  const afterRacerFiles = await bundleOtherFiles(racerFiles, zipBuilder,
+    { failedFiles, optionalPaths: new Set(), ui, total, maxProgress: 90, fetched: 1 });
+  if (afterRacerFiles === null) return;
+
+  if (!bundled.traces && !bundled.hars && !bundled.summary) {
+    ui.statusEl.textContent = 'No performance data could be loaded. If this page was opened from disk, serve the results directory over HTTP and retry.';
+    ui.progressFill.style.width = '100%';
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = 'Close';
+    closeBtn.addEventListener('click', () => ui.overlay.remove());
+    ui.actionsEl.replaceChildren(closeBtn);
+    return;
+  }
+
+  ui.statusEl.textContent = 'Creating ZIP...';
+  ui.progressFill.style.width = '95%';
+  zipBuilder.addFile('README.md', new TextEncoder().encode(buildAnalysisReadme(bundled)));
+  offerDownload(ui, zipBuilder.toBlob(), exportBaseName() + '-performance-data.zip', 'Download ZIP', failedFiles);
+}
+
+const exportAnalysisBtn = document.getElementById('exportAnalysisBtn');
+if (exportAnalysisBtn) {
+  exportAnalysisBtn.addEventListener('click', startAnalysisExport);
 }
