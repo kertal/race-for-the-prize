@@ -988,6 +988,9 @@ video {
   pointer-events: none;
   z-index: 10;
 }
+/* The calibration panel is rendered outside the fullscreen wrapper, so its
+   toggle has nothing to open while fullscreen — hide it with the racer labels. */
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .calibration-btn { display: none; }
 .fullscreen-wrapper.fs-controls-visible .controls {
   opacity: 1;
   pointer-events: auto;

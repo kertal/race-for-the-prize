@@ -823,6 +823,13 @@ describe('buildPlayerHtml debug mode', () => {
     expect(debugHtml).toContain('>Calibration<');
   });
 
+  it('hides the calibration button in fullscreen', () => {
+    // The calibration panel is rendered outside #fullscreenWrapper, so the
+    // toggle would open something the viewer cannot see.
+    expect(debugHtml).toContain('class="frame-btn calibration-btn" id="modeDebug"');
+    expect(debugHtml).toContain(':-webkit-full-screen) .calibration-btn { display: none; }');
+  });
+
   it('calibration button is always in template, hidden by default', () => {
     // Button is in the player template with display:none; runtime shows it when clip times exist
     expect(defaultHtml).toContain('id="modeDebug"');
