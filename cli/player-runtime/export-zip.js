@@ -19,6 +19,9 @@ function bakeRaceConfig(doc, pathOverrides, hasOverrides) {
 
   const adj = getAdjustedClipTimes();
   if (adj && clipTimes) {
+    // The exported clip times below already include the frame offsets, so the
+    // exported page must not apply its saved offsets on top of them.
+    cfg.calibrationBaked = true;
     cfg.clipTimes = adj.map((ct, i) => {
       if (!ct) return null;
       const orig = clipTimes[i] || {};

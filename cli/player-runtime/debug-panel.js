@@ -301,6 +301,7 @@ function adjustDebugOffset(idx, frameDelta) {
   if (newStart < 0) newOffset = -base.start;
   if (newStart >= base.end) return;
   debugOffsets[idx] = newOffset;
+  saveDebugOffsets();
   updateDebugDisplay();
   updateDebugStats();
   pausePlayback();
@@ -357,6 +358,7 @@ if (debugPanel) {
     }
     if (e.target.id === 'debugResetAll') {
       for (let i = 0; i < debugOffsets.length; i++) debugOffsets[i] = 0;
+      saveDebugOffsets();
       updateDebugDisplay();
       updateDebugStats();
       pausePlayback();

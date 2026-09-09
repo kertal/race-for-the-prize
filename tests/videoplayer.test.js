@@ -926,6 +926,76 @@ describe('buildPlayerHtml debug mode', () => {
   });
 });
 
+// --- Calibration persistence ---
+
+describe('buildPlayerHtml calibration persistence', () => {
+  const clipTimes = [{ start: 1.52, end: 3 }, { start: 1.2, end: 2.8 }];
+  const idOf = (summary, files = videoFiles) =>
+    getRaceConfig(buildPlayerHtml(summary, files, null, null, { clipTimes })).raceId;
+
+  it('stamps a race id into the race config', () => {
+    expect(idOf(makeSummary())).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it('gives the same race the same id across builds', () => {
+    expect(idOf(makeSummary())).toBe(idOf(makeSummary()));
+  });
+
+  it('gives a different id to a different run of the same race', () => {
+    // Two runs share racers and video filenames; the results dir and timestamp
+    // are what keep their saved calibration apart.
+    const a = idOf(makeSummary({ resultsDir: 'results-1', timestamp: '2025-01-15T12:00:00.000Z' }));
+    const b = idOf(makeSummary({ resultsDir: 'results-2', timestamp: '2025-01-15T12:05:00.000Z' }));
+    expect(a).not.toBe(b);
+  });
+
+  it('gives a different id to a different set of racers', () => {
+    expect(idOf(makeSummary())).not.toBe(idOf(makeSummary({ racers: ['senna', 'prost'] })));
+  });
+
+  it('gives a different id when the recordings differ', () => {
+    expect(idOf(makeSummary())).not.toBe(idOf(makeSummary(), abVideoFiles));
+  });
+
+  it('keys stored offsets on the race id, and stores nothing without one', () => {
+    const html = withOptions({ clipTimes });
+    expect(html).toContain("'race-calibration:'");
+    expect(html).toContain('function calibrationStorageKey');
+    expect(html).toContain('if (!raceId) return null;');
+  });
+
+  it('restores offsets on load and saves them on every change', () => {
+    const html = withOptions({ clipTimes });
+    expect(html).toContain('const debugOffsets = loadDebugOffsets();');
+    expect(html).toContain('function saveDebugOffsets');
+    // Both mutation paths persist: nudging a racer and Reset All.
+    const nudge = html.slice(html.indexOf('function adjustDebugOffset'), html.indexOf('function adjustDebugOffset') + 700);
+    expect(nudge).toContain('saveDebugOffsets();');
+    const reset = html.slice(html.indexOf("e.target.id === 'debugResetAll'"));
+    expect(reset.slice(0, 400)).toContain('saveDebugOffsets();');
+  });
+
+  it('ignores a stored value that does not fit this page', () => {
+    const html = withOptions({ clipTimes });
+    expect(html).toContain('stored.length === raceVideos.length');
+    expect(html).toContain('stored.every(Number.isFinite)');
+  });
+
+  it('flags exported clip times as baked so offsets are not applied twice', () => {
+    const html = withOptions({ clipTimes });
+    expect(html).toContain('cfg.calibrationBaked = true;');
+    // The exported page stores under its own key rather than the source page's.
+    expect(html).toContain("(calibrationBaked ? ':baked' : '')");
+  });
+
+  it('re-arms the clip seek after embedded videos become blob URLs', () => {
+    // Assigning src resets currentTime, so an exported page with embedded
+    // videos would otherwise open at 0 instead of its calibrated start.
+    const html = withOptions({ clipTimes });
+    expect(html).toContain('if (clipTimes) setPendingSeek(initialClipSeek);');
+  });
+});
+
 // --- Timing events in debug mode ---
 
 describe('buildPlayerHtml timing events', () => {
@@ -1217,13 +1287,12 @@ describe('buildPlayerHtml seekAllWithVerify', () => {
     expect(fn).toContain('ZERO_START_THRESHOLD');
   });
 
-  it('initSeek uses seekAllWithVerify not plain seekAll', () => {
+  it('initialClipSeek uses seekAllWithVerify not plain seekAll', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
-    const initSeekStart = html.indexOf('const initSeek = ()');
-    const initSeekEnd = html.indexOf('};', initSeekStart) + 2;
-    const initSeekFn = html.slice(initSeekStart, initSeekEnd);
-    expect(initSeekFn).toContain('seekAllWithVerify(');
-    expect(initSeekFn).not.toMatch(/(^|\W)seekAll\(/); // no plain seekAll call (only seekAllWithVerify)
+    const start = html.indexOf('function initialClipSeek()');
+    const fn = html.slice(start, html.indexOf('\n}', start) + 2);
+    expect(fn).toContain('seekAllWithVerify(');
+    expect(fn).not.toMatch(/(^|\W)seekAll\(/); // no plain seekAll call (only seekAllWithVerify)
   });
 
   it('onMeta recomputes activeSegmentClipTimes after calibration', () => {

@@ -114,7 +114,53 @@ function updateTimeDisplay() {
 
 // --- Debug mode: per-racer clip start calibration ---
 
-const debugOffsets = raceVideos.map(() => 0);
+// Calibration offsets survive a reload, keyed on the race id stamped into
+// #race-config at build time. That id is unique to one race run, so a second
+// race — or a re-run of the same one, whose recordings start elsewhere — can
+// never overwrite this page's calibration. Without an id (an older page, or a
+// config that failed to parse) nothing is stored rather than risking a
+// cross-race clash on a shared key.
+//
+// An exported page already carries its calibration inside clipTimes, so it
+// stores under its own ':baked' key: it must neither re-apply offsets that are
+// baked in nor write its own nudges back over the source page's.
+const CALIBRATION_KEY_PREFIX = 'race-calibration:';
+
+function calibrationStorageKey() {
+  if (!raceId) return null;
+  return CALIBRATION_KEY_PREFIX + raceId + (calibrationBaked ? ':baked' : '');
+}
+
+function zeroOffsets() {
+  return raceVideos.map(() => 0);
+}
+
+function loadDebugOffsets() {
+  const key = calibrationStorageKey();
+  if (!key) return zeroOffsets();
+  try {
+    const stored = JSON.parse(localStorage.getItem(key));
+    // Only take a value shaped for this page: a stale entry from a race with a
+    // different racer count must not half-apply.
+    if (Array.isArray(stored) && stored.length === raceVideos.length && stored.every(Number.isFinite)) {
+      return stored;
+    }
+  } catch (e) { /* storage unavailable (privacy mode / sandboxed) or corrupt */ }
+  return zeroOffsets();
+}
+
+const debugOffsets = loadDebugOffsets();
+
+// Persist the current offsets; an all-zero calibration drops the entry instead
+// of storing a no-op.
+function saveDebugOffsets() {
+  const key = calibrationStorageKey();
+  if (!key) return;
+  try {
+    if (debugOffsets.some(o => o !== 0)) localStorage.setItem(key, JSON.stringify(debugOffsets));
+    else localStorage.removeItem(key);
+  } catch (e) { /* storage unavailable */ }
+}
 
 function getAdjustedClipTimes() {
   const base = activeSegmentClipTimes || clipTimes;

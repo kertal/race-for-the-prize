@@ -15,6 +15,10 @@ const raceConfig = JSON.parse(_raceConfigEl?.textContent || '{}');
 const raceVideoPaths = raceConfig.raceVideoPaths;
 const fullVideoPaths = raceConfig.fullVideoPaths;
 const clipTimes = raceConfig.clipTimes;
+// Identity of this race run, and whether calibration offsets are already baked
+// into clipTimes (set by the HTML export). Both scope the saved calibration.
+const raceId = raceConfig.raceId || null;
+const calibrationBaked = !!raceConfig.calibrationBaked;
 const racerNames = raceConfig.racerNames;
 const racerColors = raceConfig.racerColors;
 const ffmpegDir = raceConfig.ffmpegDir;
@@ -54,6 +58,11 @@ async function resolveEmbeddedVideos() {
     if (resolved && resolved !== v.getAttribute('src')) v.src = resolved;
   });
   if (mergedIsData) mergedVideo.src = await toBlobUrl(mergedSrc);
+  // Assigning src resets currentTime, discarding the initial clip seek that
+  // already ran against the data: URI. Re-arm it so the next loadedmetadata
+  // pass puts every racer back on its calibrated first frame — without this an
+  // exported page with embedded videos opens at 0 instead of the clip start.
+  if (clipTimes) setPendingSeek(initialClipSeek);
 }
 resolveEmbeddedVideos();
 window.addEventListener('pagehide', () => { _embeddedBlobUrls.forEach(u => URL.revokeObjectURL(u)); });
