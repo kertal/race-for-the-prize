@@ -23,6 +23,7 @@ import {
   setTemplates,
   buildRunNavHtml,
   buildRaceInfoHtml,
+  buildRaceConfigHtml,
   buildMachineInfoHtml,
   buildErrorsHtml,
   buildResultsHtml,
@@ -158,7 +159,7 @@ function buildVideoPlayer(summary, videoFiles, opts) {
 // ---------------------------------------------------------------------------
 
 export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, options = {}) {
-  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, runNavigation, clipTimes, ffmpegPathPrefix, runSummaries, skin, skinBaseDir } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, raceConfig, raceConfigFile, runNavigation, clipTimes, ffmpegPathPrefix, runSummaries, skin, skinBaseDir } = options;
 
   const ffmpegDir = (ffmpegPathPrefix || './') + 'ffmpeg/';
   const racers = summary.racers;
@@ -193,6 +194,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     winnerBanner: '',
     videoSourceNote: '',
     raceInfo: buildRaceInfoHtml(summary),
+    raceConfig: buildRaceConfigHtml(raceConfig),
     machineInfo: buildMachineInfoHtml(summary.machineInfo),
     errors: buildErrorsHtml(summary.errors),
     modeToggle,
@@ -210,7 +212,8 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
       rawProfileMetrics: summary.profileMetrics || [],
     }, racers),
     files: buildFilesHtml(racers, videoFiles, {
-      fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, altFormat, altFiles, placementOrder,
+      fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, raceConfigFile,
+      altFormat, altFiles, placementOrder,
     }),
     notesContent: summary.geminiCommentary
       ? `🤖 Gemini Race Commentary\n${'─'.repeat(40)}\n${escHtml(summary.geminiCommentary)}`
