@@ -574,9 +574,22 @@ scrubber.addEventListener('input', () => {
   updateTimeDisplay();
 });
 
+// A native <select> keeps focus after a pick, and the shortcuts below stand
+// aside for a focused select (its own arrow keys move through the options) — so
+// choosing a speed silently killed frame stepping until something else took
+// focus. That bites hardest in fullscreen, where the controls fade out and
+// nothing shows what holds focus. Release focus after a pointer-driven pick;
+// a keyboard user is still walking the options with those same arrows, so leave
+// their focus where it is.
+let speedPickedByPointer = false;
+speedSelect.addEventListener('pointerdown', () => { speedPickedByPointer = true; });
+speedSelect.addEventListener('keydown', () => { speedPickedByPointer = false; });
+speedSelect.addEventListener('blur', () => { speedPickedByPointer = false; });
+
 speedSelect.addEventListener('change', () => {
   const rate = Number.parseFloat(speedSelect.value);
   videos.forEach(v => { if (v) v.playbackRate = rate; });
+  if (speedPickedByPointer) speedSelect.blur();
 });
 
 function stepFrame(delta) {

@@ -933,6 +933,33 @@ describe('buildPlayerHtml debug mode', () => {
   });
 });
 
+// --- Keyboard shortcuts ---
+
+describe('buildPlayerHtml keyboard shortcuts', () => {
+  const html = withOptions({ clipTimes: [{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }] });
+
+  it('binds the shortcuts on document so they reach fullscreen', () => {
+    // The fullscreen element is #fullscreenWrapper; a listener on document
+    // still sees keys bubbling from inside it.
+    expect(html).toContain("document.addEventListener('keydown'");
+    expect(html).toContain("if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-STEP); }");
+    expect(html).toContain("else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(STEP); }");
+  });
+
+  it('releases the speed select after a pointer pick so arrows keep stepping', () => {
+    // A focused <select> is deliberately skipped by the keydown handler, so a
+    // speed pick used to leave frame stepping dead — invisible in fullscreen,
+    // where the controls fade out.
+    expect(html).toContain("speedSelect.addEventListener('pointerdown'");
+    expect(html).toContain('if (speedPickedByPointer) speedSelect.blur();');
+  });
+
+  it('leaves focus alone when the speed is changed from the keyboard', () => {
+    // Arrow keys belong to the select while a keyboard user walks its options.
+    expect(html).toContain("speedSelect.addEventListener('keydown', () => { speedPickedByPointer = false; });");
+  });
+});
+
 // --- Calibration persistence ---
 
 describe('buildPlayerHtml calibration persistence', () => {
