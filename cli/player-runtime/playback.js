@@ -78,9 +78,19 @@ let activeSegmentClipTimes = null;
 let activeSegmentName = null;
 let segmentNavBuilt = false;
 const hiddenRacers = new Set();
-const STEP = 0.1;
 let loadedSrcSet = 'race';
 let pendingSeek = null;
+
+// The transport steps by exactly one frame — FRAME_STEP, the same unit the
+// calibration buttons nudge by and the frame badges count in. It is declared in
+// calibration.cjs, concatenated after this file, so it is only ever read from
+// inside a handler that runs once the whole runtime has been evaluated.
+//
+// stepFrame reads its position back off the scrubber (racers can be offset from
+// each other, so no single video holds the shared elapsed time). The scrubber
+// therefore carries `step="any"`: over its 1000 units one unit is 40ms once the
+// window passes 40s — coarser than a frame — and integer rounding would make
+// single-frame steps stall or jump two.
 
 // --- Formatting helpers ---
 
@@ -605,8 +615,8 @@ function stepFrame(delta) {
   updateTimeDisplay();
 }
 
-document.getElementById('prevFrame').addEventListener('click', () => stepFrame(-STEP));
-document.getElementById('nextFrame').addEventListener('click', () => stepFrame(STEP));
+document.getElementById('prevFrame').addEventListener('click', () => stepFrame(-FRAME_STEP));
+document.getElementById('nextFrame').addEventListener('click', () => stepFrame(FRAME_STEP));
 
 function goToStart() {
   pausePlayback();
@@ -627,8 +637,8 @@ document.getElementById('goEnd').addEventListener('click', goToEnd);
 
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
-  if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-STEP); }
-  else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(STEP); }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-FRAME_STEP); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(FRAME_STEP); }
   else if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
   else if (e.key === 'Home') { e.preventDefault(); goToStart(); }
   else if (e.key === 'End') { e.preventDefault(); goToEnd(); }

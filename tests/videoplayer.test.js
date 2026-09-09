@@ -942,8 +942,25 @@ describe('buildPlayerHtml keyboard shortcuts', () => {
     // The fullscreen element is #fullscreenWrapper; a listener on document
     // still sees keys bubbling from inside it.
     expect(html).toContain("document.addEventListener('keydown'");
-    expect(html).toContain("if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-STEP); }");
-    expect(html).toContain("else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(STEP); }");
+    expect(html).toContain("if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-FRAME_STEP); }");
+    expect(html).toContain("else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(FRAME_STEP); }");
+  });
+
+  it('steps by exactly one frame, not a fixed 0.1s', () => {
+    expect(html).toContain('stepFrame(-FRAME_STEP)');
+    expect(html).toContain('stepFrame(FRAME_STEP)');
+    expect(html).not.toMatch(/const STEP = /);
+    // The « / » buttons move the same single frame as the arrow keys.
+    expect(html).toContain("document.getElementById('prevFrame').addEventListener('click', () => stepFrame(-FRAME_STEP));");
+    expect(html).toContain("document.getElementById('nextFrame').addEventListener('click', () => stepFrame(FRAME_STEP));");
+    expect(html).toContain('title="Previous frame (&larr;)"');
+    expect(html).toContain('title="Next frame (&rarr;)"');
+  });
+
+  it('keeps the scrubber unquantized so single-frame steps do not round away', () => {
+    // stepFrame reads its position back off the scrubber; over 1000 integer
+    // units one unit is coarser than a frame once the window passes 40s.
+    expect(html).toContain('id="scrubber" min="0" max="1000" step="any"');
   });
 
   it('releases the speed select after a pointer pick so arrows keep stepping', () => {
