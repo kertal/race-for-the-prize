@@ -880,11 +880,46 @@ describe('buildPlayerHtml debug mode', () => {
     expect(debugHtml).toContain('id="debugFrameRow1"');
   });
 
+  it('reveals the Calibration button without depending on segment names', () => {
+    // Regression: the toggle used to be un-hidden inside buildSegmentNav(),
+    // which bails out for races whose specs never call raceStart()/raceEnd() —
+    // manual calibration was unreachable for them.
+    expect(debugHtml).toContain('revealCalibrationToggle');
+    const segmentNavBody = debugHtml.slice(
+      debugHtml.indexOf('function buildSegmentNav'),
+      debugHtml.indexOf('function buildRacerFilter')
+    );
+    expect(segmentNavBody).not.toContain('modeDebug');
+  });
+
+  it('clamps frame offsets against the active window, segment included', () => {
+    expect(debugHtml).toContain('function offsetBase');
+    expect(debugHtml).toContain('activeSegmentClipTimes || clipTimes');
+  });
+
+  it('renders a frame badge over every racer video', () => {
+    expect(debugHtml).toContain('id="frameBadge0"');
+    expect(debugHtml).toContain('id="frameBadge1"');
+    expect(debugHtml).toContain('class="frame-badge"');
+  });
+
+  it('shows frame badges only while calibration is open', () => {
+    expect(debugHtml).toContain('.frame-badge { display: none; }');
+    expect(debugHtml).toContain('.player-container.show-frame-badges .frame-badge');
+    expect(debugHtml).toContain("classList.toggle('show-frame-badges', on)");
+  });
+
+  it('script updates frame badges from the presented frame', () => {
+    expect(debugHtml).toContain('updateFrameBadges');
+    expect(debugHtml).toContain('requestVideoFrameCallback');
+    expect(debugHtml).toContain('presentedTimes');
+  });
+
   it('script includes frame position update showing clip, full, and range', () => {
     expect(debugHtml).toContain('updateFramePositions');
     expect(debugHtml).toContain('clipFrame');
-    expect(debugHtml).toContain('clipStartFrame');
-    expect(debugHtml).toContain('clipEndFrame');
+    expect(debugHtml).toContain('clipStart');
+    expect(debugHtml).toContain('clipEnd');
     expect(debugHtml).toContain("'clip: '");
     expect(debugHtml).toContain("'full: '");
     expect(debugHtml).toContain("'range: '");
@@ -943,7 +978,7 @@ describe('buildPlayerHtml timing events', () => {
 
   it('script includes frame number computation', () => {
     expect(timingHtml).toContain('toFrame');
-    expect(timingHtml).toContain('Math.round(pts / 0.04)');
+    expect(timingHtml).toContain('timeToFrame(pts)');
   });
 
   it('includes timingData in Copy JSON handler', () => {

@@ -114,7 +114,6 @@ function updateTimeDisplay() {
 
 // --- Debug mode: per-racer clip start calibration ---
 
-const FRAME_STEP = 0.04;
 const debugOffsets = raceVideos.map(() => 0);
 
 function getAdjustedClipTimes() {
@@ -257,6 +256,7 @@ function onMeta() {
     activeSegmentClipTimes = getSegmentClipTimes(activeSegmentName);
   }
   activeClip = resolveAdjustedClip();
+  revealCalibrationToggle();
   buildSegmentNav();
   updateTimeDisplay();
   updateDebugStats();
@@ -416,8 +416,7 @@ function switchMode(targetSrcSet, targetVideos, modeBtn, opts) {
 }
 
 function hideCalibration() {
-  if (debugPanel) debugPanel.style.display = 'none';
-  if (modeDebug) modeDebug.classList.remove('active');
+  setCalibrationVisible(false);
 }
 
 function resetSegmentState({ hide = false } = {}) {
@@ -489,14 +488,7 @@ function switchToMerged() {
 
 function toggleCalibration() {
   if (!debugPanel) return;
-  const visible = debugPanel.style.display === 'block';
-  debugPanel.style.display = visible ? 'none' : 'block';
-  modeDebug?.classList.toggle('active', !visible);
-  if (!visible) {
-    updateDebugDisplay();
-    updateDebugStats();
-    updateFramePositions();
-  }
+  setCalibrationVisible(debugPanel.style.display !== 'block');
 }
 
 // --- Mode button bindings ---

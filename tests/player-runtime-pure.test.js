@@ -17,6 +17,9 @@ const {
   applyCalibrationToClip,
   computeSegmentClipTimes,
   resolveClipWindow,
+  FRAME_STEP,
+  timeToFrame,
+  frameReadout,
 } = require('../cli/player-runtime/calibration.cjs');
 const { computeExportLayout } = require('../cli/player-runtime/export-layout.cjs');
 const { crc32, createZipBuilder } = require('../cli/player-runtime/zip.cjs');
@@ -197,6 +200,77 @@ describe('calibration resolveClipWindow', () => {
     expect(resolveClipWindow(null, new Set())).toBe(null);
     expect(resolveClipWindow([], new Set())).toBe(null);
     expect(resolveClipWindow([null, { start: NaN, end: 1 }], new Set())).toBe(null);
+  });
+});
+
+// --- Frame readouts ---------------------------------------------------------
+
+describe('calibration timeToFrame', () => {
+  it('counts frames in 40ms steps (25fps recordings)', () => {
+    expect(FRAME_STEP).toBe(0.04);
+    expect(timeToFrame(0)).toBe(0);
+    expect(timeToFrame(0.04)).toBe(1);
+    expect(timeToFrame(1)).toBe(25);
+    expect(timeToFrame(2.52)).toBe(63);
+  });
+
+  it('rounds to the nearest frame', () => {
+    expect(timeToFrame(0.049)).toBe(1);
+    expect(timeToFrame(0.061)).toBe(2);
+  });
+
+  it('never reports a negative frame', () => {
+    expect(timeToFrame(-0.5)).toBe(0);
+  });
+
+  it('rejects non-finite times and non-positive steps', () => {
+    expect(timeToFrame(NaN)).toBe(null);
+    expect(timeToFrame(Infinity)).toBe(null);
+    expect(timeToFrame(undefined)).toBe(null);
+    expect(timeToFrame(1, 0)).toBe(null);
+  });
+
+  it('honours a custom frame step', () => {
+    expect(timeToFrame(1, 0.1)).toBe(10);
+  });
+});
+
+describe('calibration frameReadout', () => {
+  const clip = { start: 1.2, end: 2.8 }; // frames 30..70
+
+  it('reports the absolute frame and its position inside the clip', () => {
+    expect(frameReadout(1.6, clip)).toEqual({
+      frame: 40, clipFrame: 10, clipTotal: 40, clipStart: 30, clipEnd: 70,
+    });
+  });
+
+  it('starts the clip count at zero on the clip start', () => {
+    expect(frameReadout(clip.start, clip).clipFrame).toBe(0);
+    expect(frameReadout(clip.end, clip).clipFrame).toBe(40);
+  });
+
+  it('reports a negative clip frame before the clip start', () => {
+    // Nudging a racer's start backwards is exactly what calibration does, so
+    // positions ahead of the clip must stay readable rather than clamp to 0.
+    expect(frameReadout(1.0, clip).clipFrame).toBe(-5);
+  });
+
+  it('omits clip figures when no usable clip window applies', () => {
+    expect(frameReadout(1.6, null)).toEqual({
+      frame: 40, clipFrame: null, clipTotal: null, clipStart: null, clipEnd: null,
+    });
+    expect(frameReadout(1.6, { start: NaN, end: 2 }).clipFrame).toBe(null);
+  });
+
+  it('returns null when the position is unknown', () => {
+    expect(frameReadout(NaN, clip)).toBe(null);
+  });
+
+  it('is independent of how many frames the element has presented', () => {
+    // The old readout scaled currentTime by VideoPlaybackQuality.totalVideoFrames,
+    // a counter that grows during playback — the same position reported a
+    // different frame each time. Frame numbers now come from time alone.
+    expect(frameReadout(1.6, clip).frame).toBe(frameReadout(1.6, clip).frame);
   });
 });
 

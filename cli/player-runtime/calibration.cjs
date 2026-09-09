@@ -10,6 +10,10 @@
 
 const US_PER_SECOND = 1e6; // trace timestamps are in microseconds
 
+// Playwright records at 25fps, so one frame is 40ms. This is the step the
+// calibration buttons nudge by and the unit every frame readout counts in.
+const FRAME_STEP = 0.04;
+
 function traceTsToClipPts(ct, traceTs) {
   if (!hasTraceCalibration(ct) || !Number.isFinite(traceTs)) return null;
   // Video PTS is measured from firstFrameTs (the first captured frame = PTS 0).
@@ -39,6 +43,27 @@ function applyCalibrationToClip(ct, ptsStart, videoDuration) {
   ct.start = ptsStart;
   ct.end = Number.isFinite(videoDuration) ? Math.min(ptsStart + segDuration, videoDuration) : ptsStart + segDuration;
   ct._converted = true;
+}
+
+// Frame index of a position in the recording. Frame numbers come from the
+// recording's fixed frame step, never from VideoPlaybackQuality.totalVideoFrames
+// — that counter reports frames presented since the <video> element was created
+// (it grows while you play and is ~0 before the first paint), so it can't stand
+// in for the file's frame count.
+function timeToFrame(t, frameStep = FRAME_STEP) {
+  if (!Number.isFinite(t) || !(frameStep > 0)) return null;
+  return Math.max(0, Math.round(t / frameStep));
+}
+
+// Frame readout for one racer: the absolute frame in the recording plus, when a
+// clip window applies, where that frame sits inside the clip.
+function frameReadout(currentTime, clipEntry, frameStep = FRAME_STEP) {
+  const frame = timeToFrame(currentTime, frameStep);
+  if (frame == null) return null;
+  if (!isValidClipEntry(clipEntry)) return { frame, clipFrame: null, clipTotal: null, clipStart: null, clipEnd: null };
+  const clipStart = timeToFrame(clipEntry.start, frameStep);
+  const clipEnd = timeToFrame(clipEntry.end, frameStep);
+  return { frame, clipFrame: frame - clipStart, clipTotal: clipEnd - clipStart, clipStart, clipEnd };
 }
 
 // Pure core of getSegmentClipTimes(name): maps each clip entry to the PTS
@@ -78,7 +103,10 @@ function resolveClipWindow(entries, hidden) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     US_PER_SECOND,
+    FRAME_STEP,
     isValidClipEntry,
+    timeToFrame,
+    frameReadout,
     hasTraceCalibration,
     canApplyTraceCalibration,
     traceTsToClipPts,

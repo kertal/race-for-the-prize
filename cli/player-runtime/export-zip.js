@@ -62,6 +62,7 @@ function dedupeRacerCards(doc) {
 function stripExportChrome(doc) {
   removeEl(doc, '#debugPanel');
   removeEl(doc, '#modeDebug');
+  doc.querySelectorAll('.frame-badge').forEach(el => el.remove());
   doc.querySelectorAll('#exportHtmlBtn, #exportBtn, #exportHtmlOnlyBtn').forEach(el => el.remove());
   doc.querySelectorAll('.run-nav').forEach(el => el.remove());
   doc.querySelectorAll('.export-overlay').forEach(el => el.remove());
