@@ -79,9 +79,10 @@ async function setOverlay(page, dot, right) {
  * Show, freeze, or remove the wall clock burned into the recording.
  *
  * The clock counts wall-clock time from `startEpochMs` — the runner's
- * recording start — so the digits in the video match the segment and
- * measurement times in the results, and all racers in a parallel race read
- * the same time in the same frame.
+ * recording start, the same origin the segment and measurement times use, so
+ * the digits track the reported times (which are calibrated from the trace
+ * afterwards) closely, and all racers in a parallel race read the same time in
+ * the same frame.
  *
  * Opt-in (`--wall-clock`): the ticking text costs a style recalc and a paint
  * ten times a second, which shows up in the profile metrics and keeps
@@ -218,17 +219,32 @@ class OverlayController {
     this.right = '\u{1F3C1}';
   }
 
-  async onStopRecording() {
+  /**
+   * @param {number|null} [finishSeconds] The racer's finish time in seconds
+   *   since the recording start, as the race API reports it. Falls back to the
+   *   current time when the caller has none.
+   */
+  async onStopRecording(finishSeconds = null) {
     if (this._disabled) return;
+    // Resolved before any page work: the medal and the overlay update are both
+    // awaited first, so reading the clock afterwards would freeze the video on
+    // a time later than the racer's actual finish.
+    const frozenAt = this._wallClock ? this._freezeTime(finishSeconds) : null;
     this.dot = false;
     await setOverlay(this._page, false, this.right);
     if (this._wallClock && this.clockRunning) {
       // Freeze on the finish time rather than removing the clock — the last
       // frames of the video keep showing how long the racer took.
       this.clockRunning = false;
-      this.clockFrozenAt = this._now();
-      await setClock(this._page, this._clockStart, this.clockFrozenAt);
+      this.clockFrozenAt = frozenAt;
+      await setClock(this._page, this._clockStart, frozenAt);
     }
+  }
+
+  /** Epoch ms to freeze the clock on, so the burned-in time is the reported finish time. */
+  _freezeTime(finishSeconds) {
+    if (finishSeconds === null) return this._now();
+    return this._clockStart + finishSeconds * 1000;
   }
 
   async onFinish(place) {

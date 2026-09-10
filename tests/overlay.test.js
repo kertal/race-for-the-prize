@@ -507,6 +507,37 @@ describe('OverlayController', () => {
     expect(globalThis.__raceClockTimer).toBeFalsy();
   });
 
+  it('freezes on the finish time reported by the race API, not on stop time', async () => {
+    const { ctrl, elements } = createCtrl({ wallClock: true, clockStart: 1000, now: () => 9999 });
+
+    await ctrl.onStartRecording();
+    await ctrl.onStopRecording(2.5); // seconds since the recording start
+
+    expect(ctrl.clockFrozenAt).toBe(3500);
+    expect(elements['__race_clock'].textContent).toBe('0:02.5');
+  });
+
+  it('does not let awaited overlay work push the frozen time past the finish', async () => {
+    // The medal (onFinish) and the overlay update are both awaited before the
+    // clock freezes — neither may advance the burned-in time.
+    const { doc, elements } = createMockDOM();
+    const page = createMockPage(doc);
+    let clock = 3500;
+    const slowPageWork = page.evaluate;
+    page.evaluate = vi.fn(async (...args) => {
+      clock += 400;
+      return slowPageWork(...args);
+    });
+    const ctrl = new OverlayController(page, { wallClock: true, clockStart: 1000, now: () => clock });
+
+    await ctrl.onStartRecording();
+    await ctrl.onFinish(1);
+    await ctrl.onStopRecording();
+
+    expect(ctrl.clockFrozenAt).toBe(3500 + 400 * 3); // start overlay + clock + medal
+    expect(elements['__race_clock'].textContent).toBe('0:03.7');
+  });
+
   it('does not run the clock when overlays are disabled', async () => {
     const { ctrl, page } = createCtrl({ wallClock: true, clockStart: 1000, noOverlay: true });
 

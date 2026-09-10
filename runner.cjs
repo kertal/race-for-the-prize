@@ -199,7 +199,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
         }
         await Promise.all([
           flashCues ? flashCue(page, CUE_COLOR_END) : null,
-          overlayCtrl.onStopRecording(),
+          overlayCtrl.onStopRecording(endTime),
         ]);
       },
       onMeasureStart: async (name) => {
