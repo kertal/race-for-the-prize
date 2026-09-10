@@ -375,6 +375,16 @@ describe('settings override', () => {
     expect(s.noRecording).toBe(false);
   });
 
+  it('CLI --wall-clock enables the recorded wall clock', () => {
+    const s = applyOverrides({}, new Set(['wall-clock']), {});
+    expect(s.wallClock).toBe(true);
+  });
+
+  it('kv boolean --wall-clock=false disables the recorded wall clock', () => {
+    const s = applyOverrides({ wallClock: true }, new Set(), { 'wall-clock': 'false' });
+    expect(s.wallClock).toBe(false);
+  });
+
   it('preserves settings when no overrides', () => {
     const orig = { parallel: true, network: 'fast-3g', cpuThrottle: 2 };
     const s = applyOverrides(orig, new Set(), {});

@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 
-const { flashCue, setOverlay, showMedal, OverlayController, CUE_DURATION_MS, CUE_SIZE } = require('../overlay.cjs');
+const { flashCue, setOverlay, setClock, showMedal, OverlayController, CUE_DURATION_MS, CUE_SIZE, CLOCK_TICK_MS } = require('../overlay.cjs');
 
 // --- Minimal DOM stub for page.evaluate ---
 // The overlay functions pass a callback + args to page.evaluate().
@@ -221,6 +221,122 @@ describe('flashCue', () => {
   });
 });
 
+// --- setClock tests ---
+
+describe('setClock', () => {
+  afterEach(() => {
+    if (globalThis.__raceClockTimer) {
+      clearInterval(globalThis.__raceClockTimer);
+      globalThis.__raceClockTimer = null;
+    }
+    vi.useRealTimers();
+  });
+
+  function atTime(epochMs) {
+    vi.useFakeTimers();
+    vi.setSystemTime(epochMs);
+  }
+
+  it('creates a clock element showing the elapsed time', async () => {
+    atTime(1000);
+    const { doc, elements } = createMockDOM();
+    const page = createMockPage(doc);
+
+    await setClock(page, 1000);
+
+    expect(elements['__race_clock']).toBeDefined();
+    expect(elements['__race_clock'].textContent).toBe('0:00.0');
+    expect(elements['__race_clock'].style.cssText).toContain('position:fixed');
+  });
+
+  it('ticks while running', async () => {
+    atTime(0);
+    const { doc, elements } = createMockDOM();
+    const page = createMockPage(doc);
+
+    await setClock(page, 0);
+    vi.advanceTimersByTime(3400);
+
+    expect(elements['__race_clock'].textContent).toBe('0:03.4');
+  });
+
+  it('rolls over into minutes', async () => {
+    atTime(0);
+    const { doc, elements } = createMockDOM();
+    const page = createMockPage(doc);
+
+    await setClock(page, 0);
+    vi.advanceTimersByTime(65_200);
+
+    expect(elements['__race_clock'].textContent).toBe('1:05.2');
+  });
+
+  it('truncates tenths instead of rounding up to 60 seconds', async () => {
+    atTime(59_970);
+    const { doc, elements } = createMockDOM();
+    const page = createMockPage(doc);
+
+    await setClock(page, 0);
+
+    expect(elements['__race_clock'].textContent).toBe('0:59.9');
+  });
+
+  it('freezes on the given time and stops ticking', async () => {
+    atTime(0);
+    const { doc, elements } = createMockDOM();
+    const page = createMockPage(doc);
+
+    await setClock(page, 0, 2500);
+    vi.advanceTimersByTime(5000);
+
+    expect(elements['__race_clock'].textContent).toBe('0:02.5');
+    expect(globalThis.__raceClockTimer).toBeFalsy();
+  });
+
+  it('reuses the existing element when re-injected', async () => {
+    atTime(0);
+    const { doc, elements } = createMockDOM();
+    const page = createMockPage(doc);
+
+    await setClock(page, 0);
+    const first = elements['__race_clock'];
+    await setClock(page, 0, 1000);
+
+    expect(elements['__race_clock']).toBe(first);
+  });
+
+  it('removes the clock when start is null', async () => {
+    atTime(0);
+    const { doc, elements } = createMockDOM();
+    const page = createMockPage(doc);
+
+    await setClock(page, 0);
+    await setClock(page, null);
+
+    expect(elements['__race_clock']).toBeUndefined();
+    expect(globalThis.__raceClockTimer).toBeFalsy();
+  });
+
+  it('never shows a negative time before the start epoch', async () => {
+    atTime(0);
+    const { doc, elements } = createMockDOM();
+    const page = createMockPage(doc);
+
+    await setClock(page, 5000);
+
+    expect(elements['__race_clock'].textContent).toBe('0:00.0');
+  });
+
+  it('passes the tick interval to the page', async () => {
+    atTime(0);
+    const page = { evaluate: vi.fn(async () => {}) };
+
+    await setClock(page, 0);
+
+    expect(page.evaluate.mock.calls[0][1]).toEqual({ start: 0, frozen: null, tick: CLOCK_TICK_MS });
+  });
+});
+
 // --- OverlayController tests ---
 
 describe('OverlayController', () => {
@@ -355,6 +471,72 @@ describe('OverlayController', () => {
     await ctrl.onFinish(1);
 
     expect(page.evaluate).not.toHaveBeenCalled();
+  });
+
+  it('does not show a clock unless wallClock is enabled', async () => {
+    const { ctrl, elements } = createCtrl();
+
+    await ctrl.onStartRecording();
+
+    expect(elements['__race_clock']).toBeUndefined();
+    expect(ctrl.clockRunning).toBe(false);
+  });
+
+  it('starts the clock at the recording start epoch', async () => {
+    const { ctrl, elements } = createCtrl({ wallClock: true, clockStart: 1000, now: () => 3500 });
+
+    await ctrl.onStartRecording();
+
+    expect(ctrl.clockRunning).toBe(true);
+    expect(elements['__race_clock']).toBeDefined();
+    // Rendered from the real clock inside the page, so only its presence is
+    // asserted here — the formatting is covered by the setClock tests.
+    clearInterval(globalThis.__raceClockTimer);
+    globalThis.__raceClockTimer = null;
+  });
+
+  it('freezes the clock on the finish time when recording stops', async () => {
+    const { ctrl, elements } = createCtrl({ wallClock: true, clockStart: 1000, now: () => 3500 });
+
+    await ctrl.onStartRecording();
+    await ctrl.onStopRecording();
+
+    expect(ctrl.clockRunning).toBe(false);
+    expect(ctrl.clockFrozenAt).toBe(3500);
+    expect(elements['__race_clock'].textContent).toBe('0:02.5');
+    expect(globalThis.__raceClockTimer).toBeFalsy();
+  });
+
+  it('does not run the clock when overlays are disabled', async () => {
+    const { ctrl, page } = createCtrl({ wallClock: true, clockStart: 1000, noOverlay: true });
+
+    await ctrl.onStartRecording();
+    await ctrl.onStopRecording();
+
+    expect(ctrl.clockRunning).toBe(false);
+    expect(page.evaluate).not.toHaveBeenCalled();
+  });
+
+  it('does not run the clock without a start epoch', async () => {
+    const { ctrl, elements } = createCtrl({ wallClock: true });
+
+    await ctrl.onStartRecording();
+
+    expect(ctrl.clockRunning).toBe(false);
+    expect(elements['__race_clock']).toBeUndefined();
+  });
+
+  it('re-injects the clock after a navigation', async () => {
+    const { ctrl, page, elements } = createCtrl({ wallClock: true, clockStart: 1000, now: () => 3500 });
+
+    await ctrl.onStartRecording();
+    await ctrl.onStopRecording();
+    elements['__race_clock'].remove(); // navigation wipes the overlay elements
+
+    const onLoad = page.on.mock.calls.find(([event]) => event === 'load')[1];
+    await onLoad();
+
+    expect(elements['__race_clock'].textContent).toBe('0:02.5');
   });
 
   it('registers load event listener when enabled', () => {

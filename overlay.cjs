@@ -10,6 +10,7 @@
 
 const CUE_DURATION_MS = 200; // Long enough to be captured even at ~5fps
 const CUE_SIZE = 4;          // Smallest size that survives VP8 compression
+const CLOCK_TICK_MS = 100;   // 10 Hz: tenths tick visibly without hammering the main thread
 
 
 /**
@@ -75,6 +76,57 @@ async function setOverlay(page, dot, right) {
 }
 
 /**
+ * Show, freeze, or remove the wall clock burned into the recording.
+ *
+ * The clock counts wall-clock time from `startEpochMs` — the runner's
+ * recording start — so the digits in the video match the segment and
+ * measurement times in the results, and all racers in a parallel race read
+ * the same time in the same frame.
+ *
+ * Opt-in (`--wall-clock`): the ticking text costs a style recalc and a paint
+ * ten times a second, which shows up in the profile metrics and keeps
+ * raceWaitForVisualStability from ever seeing the page settle.
+ *
+ * @param {Page} page - Playwright page
+ * @param {number|null} startEpochMs - Epoch ms the clock counts from (null → remove the clock)
+ * @param {number|null} [frozenAtEpochMs] - Epoch ms to freeze on (null → keep ticking)
+ */
+async function setClock(page, startEpochMs, frozenAtEpochMs = null) {
+  await page.evaluate(({ start, frozen, tick }) => {
+    if (globalThis.__raceClockTimer) {
+      clearInterval(globalThis.__raceClockTimer);
+      globalThis.__raceClockTimer = null;
+    }
+    let el = document.getElementById('__race_clock');
+    if (start === null) {
+      if (el) el.remove();
+      return;
+    }
+    if (!el) {
+      el = document.createElement('div');
+      el.id = '__race_clock';
+      // Sits to the right of the recording dot; tabular numerals stop the
+      // digits from jittering as they change.
+      el.style.cssText = 'position:fixed;top:6px;left:30px;z-index:2147483647;'
+        + 'font:bold 20px/1 ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums;'
+        + 'color:#fff;background:rgba(0,0,0,0.6);padding:5px 8px;border-radius:6px;pointer-events:none';
+      document.body.appendChild(el);
+    }
+    // Integer tenths, so 59.97s reads "0:59.9" instead of rounding to "0:60.0".
+    const render = (nowMs) => {
+      const tenths = Math.max(0, Math.floor((nowMs - start) / 100));
+      const mins = Math.floor(tenths / 600);
+      const secs = Math.floor(tenths / 10) % 60;
+      el.textContent = `${mins}:${String(secs).padStart(2, '0')}.${tenths % 10}`;
+    };
+    render(frozen === null ? Date.now() : frozen);
+    if (frozen === null) {
+      globalThis.__raceClockTimer = setInterval(() => render(Date.now()), tick);
+    }
+  }, { start: startEpochMs ?? null, frozen: frozenAtEpochMs ?? null, tick: CLOCK_TICK_MS });
+}
+
+/**
  * Show the placement medal (parallel mode) or finish flag (sequential mode).
  * Pure presentation — caller handles finish order tracking and placement calculation.
  *
@@ -118,16 +170,27 @@ async function showMedal(page, place) {
  * interaction out of runner.cjs.
  */
 class OverlayController {
-  constructor(page, { noOverlay = false, noRecording = false } = {}) {
+  constructor(page, { noOverlay = false, noRecording = false, wallClock = false, clockStart = null, now = Date.now } = {}) {
     this._page = page;
     this._disabled = noOverlay || noRecording;
+    this._now = now;
+    // The clock counts from the runner's recording start so its digits line up
+    // with the segment/measurement times in the results.
+    this._clockStart = clockStart;
+    this._wallClock = wallClock && !this._disabled && clockStart !== null;
     this.dot = false;
     this.right = null;
+    this.clockRunning = false;
+    this.clockFrozenAt = null;
 
     if (!this._disabled) {
       page.on('load', () => {
         if (this.dot || this.right) {
           setOverlay(page, this.dot, this.right).catch(() => {});
+        }
+        // A navigation wipes the clock element and its timer — put them back.
+        if (this.clockRunning || this.clockFrozenAt !== null) {
+          setClock(page, this._clockStart, this.clockFrozenAt).catch(() => {});
         }
       });
     }
@@ -137,6 +200,11 @@ class OverlayController {
     if (this._disabled) return;
     this.dot = true;
     await setOverlay(this._page, true, this.right);
+    if (this._wallClock) {
+      this.clockRunning = true;
+      this.clockFrozenAt = null;
+      await setClock(this._page, this._clockStart, null);
+    }
   }
 
   async onMeasureStart() {
@@ -154,6 +222,13 @@ class OverlayController {
     if (this._disabled) return;
     this.dot = false;
     await setOverlay(this._page, false, this.right);
+    if (this._wallClock && this.clockRunning) {
+      // Freeze on the finish time rather than removing the clock — the last
+      // frames of the video keep showing how long the racer took.
+      this.clockRunning = false;
+      this.clockFrozenAt = this._now();
+      await setClock(this._page, this._clockStart, this.clockFrozenAt);
+    }
   }
 
   async onFinish(place) {
@@ -165,9 +240,10 @@ class OverlayController {
 module.exports = {
   flashCue,
   setOverlay,
+  setClock,
   showMedal,
   OverlayController,
   CUE_DURATION_MS,
   CUE_SIZE,
-
+  CLOCK_TICK_MS,
 };
