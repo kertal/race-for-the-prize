@@ -1290,6 +1290,19 @@ describe('buildPlayerHtml clip alignment', () => {
     expect(stepFn).toContain('scrubber.value');
   });
 
+  it('quantizes a frame step onto the frame grid instead of adding to the scrubber', () => {
+    // Regression: the scrubber returns 0.079999 for 0.080, so `cur + delta`
+    // seeked a microsecond before the frame boundary and showed the previous
+    // frame — leaving racers whose clip starts on a boundary one frame behind
+    // racers whose clip starts mid-frame.
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    expect(html).toContain('function stepFrameTime');
+    const stepStart = html.indexOf('function stepFrame(');
+    const stepFn = html.slice(stepStart, stepStart + 500);
+    expect(stepFn).toContain('stepFrameTime(cur, delta, minT, maxT)');
+    expect(stepFn).not.toContain('cur + delta');
+  });
+
   it('export seek code uses elapsed-based alignment', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
     const exportSection = html.slice(html.indexOf('seekPromises'));

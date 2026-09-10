@@ -612,7 +612,7 @@ function stepFrame(delta) {
   const maxT = activeClip ? activeClip.end : duration;
   const d = clipDuration();
   const cur = d > 0 ? minT + (scrubber.value / 1000) * d : (primary.currentTime || 0);
-  const t = Math.max(minT, Math.min(maxT, cur + delta));
+  const t = stepFrameTime(cur, delta, minT, maxT);
   seekAll(t);
   const newElapsed = t - minT;
   scrubber.value = d > 0 ? (newElapsed / d) * 1000 : 0;

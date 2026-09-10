@@ -151,6 +151,22 @@ function planOffsetNudge(windows, offsets, idx, frameDelta, frameStep = FRAME_ST
   return next;
 }
 
+// Pure core of stepFrame(): where a step of `frameDelta` frames lands, given the
+// transport's current position `cur` and the active window [minT, maxT].
+//
+// The result is quantized to the recording's frame grid anchored at minT rather
+// than derived by adding to `cur`. stepFrame() reads `cur` back off the
+// scrubber, whose value round-trips through a DOM string and returns a
+// microsecond short (0.080s comes back as 0.079999) — and a seek that lands a
+// hair before a frame boundary presents the frame BEFORE it. Racers whose clip
+// starts exactly on a boundary then displayed one frame behind racers whose
+// clip starts mid-frame, so a single instant looked like two different frames
+// across the videos. Re-quantizing keeps every racer on the same frame.
+function stepFrameTime(cur, frameDelta, minT, maxT, frameStep = FRAME_STEP) {
+  const frames = Math.round((cur - minT) / frameStep) + Math.round(frameDelta / frameStep);
+  return Math.max(minT, Math.min(maxT, minT + frames * frameStep));
+}
+
 // Node export for unit tests — a no-op in the browser build, where `module` is undefined.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -167,5 +183,6 @@ if (typeof module !== 'undefined' && module.exports) {
     resolveClipWindow,
     offsetRoom,
     planOffsetNudge,
+    stepFrameTime,
   };
 }

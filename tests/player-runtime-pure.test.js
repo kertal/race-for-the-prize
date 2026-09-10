@@ -22,6 +22,7 @@ const {
   frameReadout,
   offsetRoom,
   planOffsetNudge,
+  stepFrameTime,
 } = require('../cli/player-runtime/calibration.cjs');
 const { computeExportLayout } = require('../cli/player-runtime/export-layout.cjs');
 const { crc32, createZipBuilder } = require('../cli/player-runtime/zip.cjs');
@@ -370,6 +371,55 @@ describe('calibration planOffsetNudge', () => {
   });
 });
 
+
+describe('calibration stepFrameTime', () => {
+  it('advances exactly one frame from an on-grid position', () => {
+    expect(stepFrameTime(0.08, FRAME_STEP, 0, 5)).toBeCloseTo(0.12, 10);
+    expect(stepFrameTime(0.08, -FRAME_STEP, 0, 5)).toBeCloseTo(0.04, 10);
+  });
+
+  it('lands on the frame boundary even when the position comes back short', () => {
+    // Regression: the scrubber round-trips through a DOM string and returns
+    // 0.079999 for 0.080. The old code added the step to that, so the seek
+    // landed a microsecond before the boundary and the video showed the
+    // PREVIOUS frame — permanently one frame behind any racer whose clip
+    // starts mid-frame.
+    expect(stepFrameTime(0.079999, FRAME_STEP, 0, 5)).toBeCloseTo(0.12, 10);
+    expect(stepFrameTime(0.039999, FRAME_STEP, 0, 5)).toBeCloseTo(0.08, 10);
+  });
+
+  it('does not accumulate drift over many steps', () => {
+    let t = 0;
+    for (let i = 0; i < 250; i++) {
+      // Feed each result back through the scrubber's precision loss.
+      t = stepFrameTime(t - 1e-6, FRAME_STEP, 0, 60);
+    }
+    expect(t).toBeCloseTo(250 * FRAME_STEP, 9);
+  });
+
+  it('snaps an off-grid scrub onto the frame grid', () => {
+    expect(stepFrameTime(0.1234, FRAME_STEP, 0, 5)).toBeCloseTo(0.16, 10);
+  });
+
+  it('anchors the grid at the clip start, not at zero', () => {
+    // A clip starting mid-frame keeps its own offset; steps stay whole frames
+    // from it, which is what keeps racers on matching frames.
+    expect(stepFrameTime(1.0105, FRAME_STEP, 1.0105, 5)).toBeCloseTo(1.0505, 10);
+    expect(stepFrameTime(1.0505, FRAME_STEP, 1.0105, 5)).toBeCloseTo(1.0905, 10);
+  });
+
+  it('clamps to the window at both ends', () => {
+    expect(stepFrameTime(0, -FRAME_STEP, 0, 5)).toBe(0);
+    expect(stepFrameTime(1.2, -FRAME_STEP, 1.2, 5)).toBe(1.2);
+    expect(stepFrameTime(5, FRAME_STEP, 0, 5)).toBe(5);
+  });
+
+  it('steps back onto the grid after a clamp at the end', () => {
+    // maxT need not sit on the grid; stepping away from it re-quantizes.
+    const end = 5.017;
+    expect(stepFrameTime(end, -FRAME_STEP, 0, end)).toBeCloseTo(4.96, 10);
+  });
+});
 
 describe('computeExportLayout', () => {
   const ASPECT = 9 / 16; // 640x360 / 480x270 cells
