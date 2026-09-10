@@ -284,23 +284,27 @@ function clipStartTarget(ct, i) {
   return activeClip ? activeClip.start : 0;
 }
 
-// The window an offset shifts: a selected segment when one is active, else the
-// race clip. Offsets are applied on top of this base, so the bounds below have
-// to come from it too — clamping against the raw clip entry let an offset push
-// a selected segment past its own end, freezing that racer on a blank frame.
+// The windows an offset shifts within: a selected segment when one is active,
+// else the race clip. Offsets are applied on top of these, so the bounds have
+// to come from them too — clamping against the raw clip entry let an offset
+// push a selected segment past its own end, freezing that racer on a blank
+// frame.
+function offsetWindows() {
+  return activeSegmentClipTimes || clipTimes;
+}
+
 function offsetBase(idx) {
-  const base = activeSegmentClipTimes || clipTimes;
+  const base = offsetWindows();
   return base ? base[idx] : null;
 }
 
+// Nudge one racer relative to the others. planOffsetNudge() decides how much of
+// the move the clicked racer can absorb itself and how much the others have to
+// give, so a button only does nothing when no racer has any room left at all.
 function adjustDebugOffset(idx, frameDelta) {
-  const base = offsetBase(idx);
-  if (!isValidClipEntry(base)) return;
-  let newOffset = debugOffsets[idx] + frameDelta * FRAME_STEP;
-  const newStart = base.start + newOffset;
-  if (newStart < 0) newOffset = -base.start;
-  if (newStart >= base.end) return;
-  debugOffsets[idx] = newOffset;
+  const next = planOffsetNudge(offsetWindows(), debugOffsets, idx, frameDelta);
+  if (!next) return;
+  for (let i = 0; i < debugOffsets.length; i++) debugOffsets[i] = next[i];
   saveDebugOffsets();
   updateDebugDisplay();
   updateDebugStats();

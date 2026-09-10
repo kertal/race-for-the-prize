@@ -99,6 +99,58 @@ function resolveClipWindow(entries, hidden) {
   return found ? { start: minStart, end: minStart + maxDuration } : null;
 }
 
+// How far one racer can still slide inside its own window, in seconds.
+// `later` stops a frame short of the window end so a clip always keeps at
+// least one frame; `earlier` stops at the racer's first recorded frame, since
+// there is no footage before it. A racer without a valid window is not
+// constrained by one and never limits a nudge.
+function offsetRoom(win, offset, frameStep = FRAME_STEP) {
+  if (!isValidClipEntry(win)) return { earlier: Infinity, later: Infinity };
+  const start = win.start + offset;
+  return { earlier: Math.max(0, start), later: Math.max(0, win.end - frameStep - start) };
+}
+
+// Pure core of adjustDebugOffset(): plan a calibration nudge of `frameDelta`
+// frames on racer `idx` over `windows` (the race clips, or the selected
+// segment) and the current `offsets`.
+//
+// Aligning racers is a *relative* act, so a nudge has two ways to spend
+// itself. The clicked racer slides inside its own window first; whatever is
+// left over is made up by sliding every other racer the opposite way, which
+// looks exactly the same on screen. The fallback is what makes "earlier" work
+// at all: a recording's clip begins at its first captured frame, so almost
+// every racer starts with zero room to move earlier and used to sit there with
+// dead "-" buttons.
+//
+// Returns the new offsets array, or null when nothing can move.
+function planOffsetNudge(windows, offsets, idx, frameDelta, frameStep = FRAME_STEP) {
+  if (!windows || !offsets || !isValidClipEntry(windows[idx]) || !frameDelta) return null;
+  const sign = frameDelta < 0 ? -1 : 1;
+  const own = Math.min(
+    Math.abs(frameDelta) * frameStep,
+    offsetRoom(windows[idx], offsets[idx], frameStep)[sign < 0 ? 'earlier' : 'later']
+  );
+  // What the clicked racer could not absorb, the others move the other way —
+  // limited by whichever of them has the least room left.
+  let shared = Infinity, others = 0;
+  for (let i = 0; i < offsets.length; i++) {
+    if (i === idx) continue;
+    others++;
+    shared = Math.min(shared, offsetRoom(windows[i], offsets[i], frameStep)[sign < 0 ? 'later' : 'earlier']);
+  }
+  const rest = others ? Math.min(Math.abs(frameDelta) * frameStep - own, shared) : 0;
+  if (own <= 0 && rest <= 0) return null;
+
+  const next = offsets.slice();
+  next[idx] += sign * own;
+  if (rest > 0) {
+    for (let i = 0; i < next.length; i++) {
+      if (i !== idx) next[i] -= sign * rest;
+    }
+  }
+  return next;
+}
+
 // Node export for unit tests — a no-op in the browser build, where `module` is undefined.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -113,5 +165,7 @@ if (typeof module !== 'undefined' && module.exports) {
     applyCalibrationToClip,
     computeSegmentClipTimes,
     resolveClipWindow,
+    offsetRoom,
+    planOffsetNudge,
   };
 }

@@ -900,8 +900,21 @@ describe('buildPlayerHtml debug mode', () => {
   });
 
   it('clamps frame offsets against the active window, segment included', () => {
-    expect(debugHtml).toContain('function offsetBase');
+    expect(debugHtml).toContain('function offsetWindows');
     expect(debugHtml).toContain('activeSegmentClipTimes || clipTimes');
+  });
+
+  it('nudges a racer relative to the others so no direction is dead', () => {
+    // Regression: adjustDebugOffset() moved only the clicked racer and gave up
+    // when it had no room, so "-" did nothing on any racer whose clip starts at
+    // its first recorded frame — which is nearly all of them.
+    expect(debugHtml).toContain('function planOffsetNudge');
+    const nudge = debugHtml.slice(
+      debugHtml.indexOf('function adjustDebugOffset'),
+      debugHtml.indexOf('// Start following presented frames')
+    );
+    expect(nudge).toContain('planOffsetNudge(offsetWindows(), debugOffsets, idx, frameDelta)');
+    expect(nudge).not.toContain('newStart >= base.end');
   });
 
   it('renders a frame badge over every racer video', () => {

@@ -47,10 +47,14 @@ function loadVideoSet(srcSet, applySrc, seekCallback) {
   pendingSeek = seekCallback;
 }
 
-// Set the active segment and its resolved clip times.
+// Set the active segment and its resolved clip times. The calibration panel
+// reads its rows off the active window, so it has to be repainted here — it
+// used to keep showing the previous segment's starts until the next nudge.
 function setActiveSegment(name, clip) {
   activeSegmentName = name;
   activeSegmentClipTimes = clip;
+  updateDebugDisplay();
+  updateDebugStats();
 }
 
 // Queue a seek to run once metadata/calibration is ready.
