@@ -162,7 +162,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
 
   const encodeMeasureName = (name) => encodeURIComponent(String(name ?? 'default'));
 
-  const overlayCtrl = new OverlayController(page, { noOverlay, noRecording, wallClock, clockStart: recordingStartTime });
+  const overlayCtrl = new OverlayController(page, { noOverlay, noRecording, wallClock, timeBase: recordingStartTime });
 
   // The state machine lives in race-api.cjs; everything runner-specific
   // (trace marks, overlays, cues, CDP metrics, barriers, stderr protocol)

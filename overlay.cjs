@@ -171,14 +171,18 @@ async function showMedal(page, place) {
  * interaction out of runner.cjs.
  */
 class OverlayController {
-  constructor(page, { noOverlay = false, noRecording = false, wallClock = false, clockStart = null, now = Date.now } = {}) {
+  constructor(page, { noOverlay = false, noRecording = false, wallClock = false, timeBase = null, now = Date.now } = {}) {
     this._page = page;
     this._disabled = noOverlay || noRecording;
     this._now = now;
-    // The clock counts from the runner's recording start so its digits line up
-    // with the segment/measurement times in the results.
-    this._clockStart = clockStart;
-    this._wallClock = wallClock && !this._disabled && clockStart !== null;
+    // Epoch the race API counts its seconds from (context creation). Only used
+    // to turn a reported finish time back into an epoch — never as the clock's
+    // zero, which is set in onStartRecording().
+    this._timeBase = timeBase;
+    // The clock's zero, captured when recording actually starts. See
+    // onStartRecording() for why it cannot be the context-creation epoch.
+    this._clockStart = null;
+    this._wallClock = wallClock && !this._disabled && timeBase !== null;
     this.dot = false;
     this.right = null;
     this.clockRunning = false;
@@ -199,6 +203,14 @@ class OverlayController {
 
   async onStartRecording() {
     if (this._disabled) return;
+    // Zero the clock on the moment recording starts, before any awaited page
+    // work can push it later. This is the moment the player aligns every
+    // racer's video on, so a clock counting from anything else reads a
+    // different value on each racer at the same playback position. It used to
+    // count from context creation, which sits a variable distance earlier —
+    // page creation, navigation and whatever the spec does before
+    // raceRecordingStart() all land in that gap.
+    if (this._wallClock) this._clockStart = this._now();
     this.dot = true;
     await setOverlay(this._page, true, this.right);
     if (this._wallClock) {
@@ -241,10 +253,14 @@ class OverlayController {
     }
   }
 
-  /** Epoch ms to freeze the clock on, so the burned-in time is the reported finish time. */
+  /**
+   * Epoch ms to freeze the clock on, so the burned-in time is the reported
+   * finish time. finishSeconds is counted from the race API's own base, so it
+   * converts against that — the clock then renders it relative to its own zero.
+   */
   _freezeTime(finishSeconds) {
-    if (finishSeconds === null) return this._now();
-    return this._clockStart + finishSeconds * 1000;
+    if (finishSeconds === null || this._timeBase === null) return this._now();
+    return this._timeBase + finishSeconds * 1000;
   }
 
   async onFinish(place) {

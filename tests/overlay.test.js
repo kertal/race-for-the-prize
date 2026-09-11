@@ -482,12 +482,18 @@ describe('OverlayController', () => {
     expect(ctrl.clockRunning).toBe(false);
   });
 
-  it('starts the clock at the recording start epoch', async () => {
-    const { ctrl, elements } = createCtrl({ wallClock: true, clockStart: 1000, now: () => 3500 });
+  it('zeroes the clock when recording starts, not at the API time base', async () => {
+    // Regression: the clock counted from context creation (the API's time
+    // base), which sits a variable distance before raceRecordingStart — page
+    // creation, navigation, and whatever the spec does first all land in that
+    // gap. The player aligns every racer's video on raceRecordingStart, so the
+    // burned-in clocks disagreed across racers at the same playback position.
+    const { ctrl, elements } = createCtrl({ wallClock: true, timeBase: 1000, now: () => 3500 });
 
     await ctrl.onStartRecording();
 
     expect(ctrl.clockRunning).toBe(true);
+    expect(ctrl._clockStart).toBe(3500); // recording start, not the 1000 base
     expect(elements['__race_clock']).toBeDefined();
     // Rendered from the real clock inside the page, so only its presence is
     // asserted here — the formatting is covered by the setClock tests.
@@ -495,26 +501,51 @@ describe('OverlayController', () => {
     globalThis.__raceClockTimer = null;
   });
 
+  it('reads the same regardless of how long setup took before recording', async () => {
+    // Two racers with very different setup times must burn in the same value
+    // once the same amount of recording has elapsed.
+    const mk = (startEpoch) => {
+      let t = startEpoch;
+      const { doc, elements } = createMockDOM();
+      const page = createMockPage(doc);
+      const ctrl = new OverlayController(page, { wallClock: true, timeBase: 1000, now: () => t });
+      return { ctrl, elements, finish: () => { t = startEpoch + 2500; } };
+    };
+    const quick = mk(1100); // recording started 0.1s after context creation
+    const slow = mk(1900);  // ... and 0.9s after, for the other racer
+
+    for (const r of [quick, slow]) {
+      await r.ctrl.onStartRecording();
+      r.finish();
+      await r.ctrl.onStopRecording();
+    }
+
+    expect(quick.elements['__race_clock'].textContent).toBe('0:02.5');
+    expect(slow.elements['__race_clock'].textContent).toBe('0:02.5');
+  });
+
   it('freezes the clock on the finish time when recording stops', async () => {
-    const { ctrl, elements } = createCtrl({ wallClock: true, clockStart: 1000, now: () => 3500 });
+    const { ctrl, elements } = createCtrl({ wallClock: true, timeBase: 1000, now: () => 3500 });
 
     await ctrl.onStartRecording();
     await ctrl.onStopRecording();
 
     expect(ctrl.clockRunning).toBe(false);
     expect(ctrl.clockFrozenAt).toBe(3500);
-    expect(elements['__race_clock'].textContent).toBe('0:02.5');
+    expect(elements['__race_clock'].textContent).toBe('0:00.0');
     expect(globalThis.__raceClockTimer).toBeFalsy();
   });
 
-  it('freezes on the finish time reported by the race API, not on stop time', async () => {
-    const { ctrl, elements } = createCtrl({ wallClock: true, clockStart: 1000, now: () => 9999 });
+  it('renders the API finish time relative to the recording start', async () => {
+    // finishSeconds counts from the API's base (1000), but the clock's zero is
+    // the recording start (1400) — so 2.5s reported burns in as 2.1s.
+    const { ctrl, elements } = createCtrl({ wallClock: true, timeBase: 1000, now: () => 1400 });
 
     await ctrl.onStartRecording();
-    await ctrl.onStopRecording(2.5); // seconds since the recording start
+    await ctrl.onStopRecording(2.5);
 
-    expect(ctrl.clockFrozenAt).toBe(3500);
-    expect(elements['__race_clock'].textContent).toBe('0:02.5');
+    expect(ctrl.clockFrozenAt).toBe(3500); // timeBase + 2.5s, an absolute epoch
+    expect(elements['__race_clock'].textContent).toBe('0:02.1');
   });
 
   it('does not let awaited overlay work push the frozen time past the finish', async () => {
@@ -528,18 +559,19 @@ describe('OverlayController', () => {
       clock += 400;
       return slowPageWork(...args);
     });
-    const ctrl = new OverlayController(page, { wallClock: true, clockStart: 1000, now: () => clock });
+    const ctrl = new OverlayController(page, { wallClock: true, timeBase: 1000, now: () => clock });
 
     await ctrl.onStartRecording();
     await ctrl.onFinish(1);
     await ctrl.onStopRecording();
 
     expect(ctrl.clockFrozenAt).toBe(3500 + 400 * 3); // start overlay + clock + medal
-    expect(elements['__race_clock'].textContent).toBe('0:03.7');
+    // Zeroed before that page work ran, so only the work itself is on the clock.
+    expect(elements['__race_clock'].textContent).toBe('0:01.2');
   });
 
   it('does not run the clock when overlays are disabled', async () => {
-    const { ctrl, page } = createCtrl({ wallClock: true, clockStart: 1000, noOverlay: true });
+    const { ctrl, page } = createCtrl({ wallClock: true, timeBase: 1000, noOverlay: true });
 
     await ctrl.onStartRecording();
     await ctrl.onStopRecording();
@@ -548,7 +580,7 @@ describe('OverlayController', () => {
     expect(page.evaluate).not.toHaveBeenCalled();
   });
 
-  it('does not run the clock without a start epoch', async () => {
+  it('does not run the clock without an API time base', async () => {
     const { ctrl, elements } = createCtrl({ wallClock: true });
 
     await ctrl.onStartRecording();
@@ -558,16 +590,21 @@ describe('OverlayController', () => {
   });
 
   it('re-injects the clock after a navigation', async () => {
-    const { ctrl, page, elements } = createCtrl({ wallClock: true, clockStart: 1000, now: () => 3500 });
+    const { doc, elements } = createMockDOM();
+    const page = createMockPage(doc);
+    let t = 1400;
+    const ctrl = new OverlayController(page, { wallClock: true, timeBase: 1000, now: () => t });
 
     await ctrl.onStartRecording();
+    t = 3500;
     await ctrl.onStopRecording();
     elements['__race_clock'].remove(); // navigation wipes the overlay elements
 
     const onLoad = page.on.mock.calls.find(([event]) => event === 'load')[1];
     await onLoad();
 
-    expect(elements['__race_clock'].textContent).toBe('0:02.5');
+    // Re-injected against the same zero, so the frozen time survives the reload.
+    expect(elements['__race_clock'].textContent).toBe('0:02.1');
   });
 
   it('registers load event listener when enabled', () => {
