@@ -174,9 +174,13 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
         ? () => barriers.recordingStart.wait(`${id} startRecording`)
         : null,
       onRecordingStart: async () => {
+        // The clock's zero, read before the trace mark's page round-trip so a
+        // slow evaluate can't shift it. race-api timestamps the segment start
+        // immediately before calling this hook, so the two agree.
+        const startEpochMs = Date.now();
         await markTrace(`${traceMarkPrefix}recording:start`);
         await Promise.all([
-          overlayCtrl.onStartRecording(),
+          overlayCtrl.onStartRecording(startEpochMs),
           flashCues ? flashCue(page, CUE_COLOR_START) : null,
         ]);
       },

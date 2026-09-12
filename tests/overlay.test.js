@@ -501,6 +501,19 @@ describe('OverlayController', () => {
     globalThis.__raceClockTimer = null;
   });
 
+  it('zeroes on the supplied recording-start epoch, not on when the call lands', async () => {
+    // runner.cjs awaits a trace mark between the recording start and this call,
+    // so the caller passes the moment it happened; reading the clock here would
+    // shift the zero by that page round-trip, by a different amount per racer.
+    const { ctrl } = createCtrl({ wallClock: true, timeBase: 1000, now: () => 3500 });
+
+    await ctrl.onStartRecording(3100);
+
+    expect(ctrl._clockStart).toBe(3100);
+    clearInterval(globalThis.__raceClockTimer);
+    globalThis.__raceClockTimer = null;
+  });
+
   it('reads the same regardless of how long setup took before recording', async () => {
     // Two racers with very different setup times must burn in the same value
     // once the same amount of recording has elapsed.

@@ -201,7 +201,12 @@ class OverlayController {
     }
   }
 
-  async onStartRecording() {
+  /**
+   * @param {number} [startEpochMs] Epoch ms the clock counts from. Pass the
+   *   recording-start moment whenever page work (the trace mark) sits between
+   *   it and this call; defaults to now.
+   */
+  async onStartRecording(startEpochMs = this._now()) {
     if (this._disabled) return;
     // Zero the clock on the moment recording starts, before any awaited page
     // work can push it later. This is the moment the player aligns every
@@ -210,7 +215,7 @@ class OverlayController {
     // count from context creation, which sits a variable distance earlier —
     // page creation, navigation and whatever the spec does before
     // raceRecordingStart() all land in that gap.
-    if (this._wallClock) this._clockStart = this._now();
+    if (this._wallClock) this._clockStart = startEpochMs;
     this.dot = true;
     await setOverlay(this._page, true, this.right);
     if (this._wallClock) {
