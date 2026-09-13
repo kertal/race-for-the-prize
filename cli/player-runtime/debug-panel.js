@@ -211,36 +211,39 @@ function trackPresentedFrames() {
     if (!v || typeof v.requestVideoFrameCallback !== 'function') return;
     const onFrame = (_now, metadata) => {
       presentedTimes[i] = metadata.mediaTime;
-      if (calibrationVisible()) updateFrameBadges();
+      if (calibrationVisible()) renderFrameBadge(i, getAdjustedClipTimes() || clipTimes);
       v.requestVideoFrameCallback(onFrame);
     };
     v.requestVideoFrameCallback(onFrame);
   });
 }
 
-// The frame number painted over each racer's video while calibration is open.
-// Nothing to draw when the panel is closed — the badges are hidden and get a
-// fresh pass from setCalibrationVisible() the moment it reopens.
+// The frame number painted over one racer's video.
+function renderFrameBadge(i, ct) {
+  const badge = document.getElementById('frameBadge' + i);
+  if (!badge) return;
+  const v = raceVideos[i];
+  const readout = v ? frameReadout(displayedTime(v, i), ct ? ct[i] : null) : null;
+  badge.replaceChildren();
+  if (!readout) { badge.textContent = '\u2014'; return; }
+  const frameEl = document.createElement('span');
+  frameEl.className = 'frame-badge-num';
+  frameEl.textContent = 'f ' + readout.frame;
+  badge.appendChild(frameEl);
+  if (readout.clipFrame == null) return;
+  const clipEl = document.createElement('span');
+  clipEl.className = 'frame-badge-clip';
+  clipEl.textContent = 'clip ' + readout.clipFrame + '/' + readout.clipTotal;
+  badge.appendChild(clipEl);
+}
+
+// Every badge, while calibration is open. Nothing to draw when the panel is
+// closed — the badges are hidden and get a fresh pass from
+// setCalibrationVisible() the moment it reopens.
 function updateFrameBadges() {
   if (!calibrationVisible()) return;
   const ct = getAdjustedClipTimes() || clipTimes;
-  for (let i = 0; i < raceVideos.length; i++) {
-    const badge = document.getElementById('frameBadge' + i);
-    if (!badge) continue;
-    const v = raceVideos[i];
-    const readout = v ? frameReadout(displayedTime(v, i), ct ? ct[i] : null) : null;
-    badge.replaceChildren();
-    if (!readout) { badge.textContent = '\u2014'; continue; }
-    const frameEl = document.createElement('span');
-    frameEl.className = 'frame-badge-num';
-    frameEl.textContent = 'f ' + readout.frame;
-    badge.appendChild(frameEl);
-    if (readout.clipFrame == null) continue;
-    const clipEl = document.createElement('span');
-    clipEl.className = 'frame-badge-clip';
-    clipEl.textContent = 'clip ' + readout.clipFrame + '/' + readout.clipTotal;
-    badge.appendChild(clipEl);
-  }
+  for (let i = 0; i < raceVideos.length; i++) renderFrameBadge(i, ct);
 }
 
 // --- Debug panel: frame positions ---

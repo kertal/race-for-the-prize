@@ -1025,7 +1025,7 @@ describe('buildPlayerHtml calibration persistence', () => {
     const html = withOptions({ clipTimes });
     expect(html).toContain("'race-calibration:'");
     expect(html).toContain('function calibrationStorageKey');
-    expect(html).toContain('if (!raceId) return null;');
+    expect(html).toContain('if (!raceId || calibrationBaked) return null;');
   });
 
   it('restores offsets on load and saves them on every change', () => {
@@ -1048,15 +1048,23 @@ describe('buildPlayerHtml calibration persistence', () => {
   it('flags exported clip times as baked so offsets are not applied twice', () => {
     const html = withOptions({ clipTimes });
     expect(html).toContain('cfg.calibrationBaked = true;');
-    // The exported page stores under its own key rather than the source page's.
-    expect(html).toContain("(calibrationBaked ? ':baked' : '')");
+    // A baked page shares the source page's race id; it must not read (or
+    // write) that key, or the same offsets would land twice.
+    expect(html).toContain('if (!raceId || calibrationBaked) return null;');
   });
 
-  it('re-arms the clip seek after embedded videos become blob URLs', () => {
+  it('re-arms the clip seek before embedded videos become blob URLs', () => {
     // Assigning src resets currentTime, so an exported page with embedded
-    // videos would otherwise open at 0 instead of its calibrated start.
+    // videos would otherwise open at 0 instead of its calibrated start. The
+    // seek is armed before the swap: loadedmetadata can fire during the
+    // merged-video await, and a seek armed after it would never run.
     const html = withOptions({ clipTimes });
-    expect(html).toContain('if (clipTimes) setPendingSeek(initialClipSeek);');
+    const fn = html.slice(html.indexOf('async function resolveEmbeddedVideos'), html.indexOf('resolveEmbeddedVideos();'));
+    const arm = fn.indexOf('setPendingSeek(initialClipSeek)');
+    const swap = fn.indexOf('v.src = resolved');
+    expect(arm).toBeGreaterThan(-1);
+    expect(swap).toBeGreaterThan(-1);
+    expect(arm).toBeLessThan(swap);
   });
 });
 

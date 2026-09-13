@@ -135,14 +135,15 @@ function updateTimeDisplay() {
 // config that failed to parse) nothing is stored rather than risking a
 // cross-race clash on a shared key.
 //
-// An exported page already carries its calibration inside clipTimes, so it
-// stores under its own ':baked' key: it must neither re-apply offsets that are
-// baked in nor write its own nudges back over the source page's.
+// An exported page already carries its calibration inside clipTimes and ships
+// without the calibration panel, so it neither restores nor stores anything:
+// it shares the source page's race id, and reading that key would apply the
+// same offsets a second time.
 const CALIBRATION_KEY_PREFIX = 'race-calibration:';
 
 function calibrationStorageKey() {
-  if (!raceId) return null;
-  return CALIBRATION_KEY_PREFIX + raceId + (calibrationBaked ? ':baked' : '');
+  if (!raceId || calibrationBaked) return null;
+  return CALIBRATION_KEY_PREFIX + raceId;
 }
 
 function zeroOffsets() {

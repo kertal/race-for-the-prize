@@ -51,6 +51,13 @@ async function resolveEmbeddedVideos() {
     raceVideoPaths ? Promise.all(raceVideoPaths.map(toBlobUrl)) : Promise.resolve(raceVideoPaths),
     fullVideoPaths ? Promise.all(fullVideoPaths.map(toBlobUrl)) : Promise.resolve(fullVideoPaths),
   ]);
+  // Assigning src resets currentTime, discarding the initial clip seek that
+  // already ran against the data: URI. Re-arm it so the loadedmetadata pass for
+  // the new source puts every racer back on its calibrated first frame —
+  // without this an exported page with embedded videos opens at 0 instead of
+  // the clip start. Armed *before* the swap: that event can fire during the
+  // merged-video await below, and a seek armed after it would never run.
+  if (clipTimes) setPendingSeek(initialClipSeek);
   // Update video src attributes with seekable blob: URLs
   raceVideos.forEach((v, i) => {
     if (!v) return;
@@ -58,11 +65,6 @@ async function resolveEmbeddedVideos() {
     if (resolved && resolved !== v.getAttribute('src')) v.src = resolved;
   });
   if (mergedIsData) mergedVideo.src = await toBlobUrl(mergedSrc);
-  // Assigning src resets currentTime, discarding the initial clip seek that
-  // already ran against the data: URI. Re-arm it so the next loadedmetadata
-  // pass puts every racer back on its calibrated first frame — without this an
-  // exported page with embedded videos opens at 0 instead of the clip start.
-  if (clipTimes) setPendingSeek(initialClipSeek);
 }
 resolveEmbeddedVideos();
 window.addEventListener('pagehide', () => { _embeddedBlobUrls.forEach(u => URL.revokeObjectURL(u)); });
