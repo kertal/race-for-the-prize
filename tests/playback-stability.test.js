@@ -8,7 +8,11 @@ function video(time) {
   const listeners = new Map();
   return { currentTime: time, duration: 20, seeking: false, ended: false,
     pause: vi.fn(),
-    addEventListener(name, fn) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(fn); },
+    addEventListener(name, fn) {
+      const fns = listeners.get(name) || new Set();
+      listeners.set(name, fns);
+      fns.add(fn);
+    },
     removeEventListener(name, fn) { listeners.get(name)?.delete(fn); },
     emit(name) { const callbacks = [...(listeners.get(name) || [])]; listeners.delete(name); callbacks.forEach(fn => fn()); },
     listeners,
