@@ -359,9 +359,26 @@ h1 {
   justify-content: center;
 }
 .racer {
+  position: relative;
   flex: 1;
   min-width: 280px;
   text-align: center;
+}
+.finish-result {
+  position: absolute;
+  bottom: 0.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.2rem 0.45rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--racer-color, var(--border));
+  border-radius: var(--radius);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-sm);
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
 }
 .racer-label {
   font-family: var(--font-display);

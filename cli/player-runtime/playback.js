@@ -110,6 +110,7 @@ function updateTimeDisplay() {
   const t = d > 0 ? (scrubber.value / 1000) * d : 0;
   timeDisplay.textContent = fmt(Math.max(0, t)) + ' / ' + fmt(d);
   frameDisplay.textContent = getTime(Math.max(0, t));
+  updateFinishDisplays();
 }
 
 // --- Debug mode: per-racer clip start calibration ---

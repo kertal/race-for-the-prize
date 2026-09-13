@@ -195,10 +195,9 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
           if (existing) existing.endTime = endTime;
           else sharedState.finishOrder.push({ id, endTime });
           if (!noOverlay && !noRecording) {
-            // Calculate placement from finish order for the medal display
-            const sorted = [...sharedState.finishOrder].sort((a, b) => a.endTime - b.endTime);
-            const place = isParallel ? sorted.findIndex(f => f.id === id) + 1 : null;
-            await overlayCtrl.onFinish(place);
+            // Recording completion order includes post-race delays and is not
+            // a ranking. The player adds medals from the final measurements.
+            await overlayCtrl.onFinish(null);
           }
         }
         await Promise.all([

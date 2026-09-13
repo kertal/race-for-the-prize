@@ -60,6 +60,8 @@ const RUNTIME_FILES = [
   'calibration.cjs',   // pure clip-calibration math (Node-testable)
   'debug-panel.js',    // calibration/debug panel UI
   'segments.js',       // segment navigation + racer filter UI
+  'finish-results.cjs', // final per-section placements, independent of recording order
+  'finish-display.js', // show each placement at that racer's own finish
   'main.js',           // startup: initial verified seek + metadata pass
   'export-layout.cjs', // pure side-by-side export layout math (Node-testable)
   'export-video.js',   // canvas side-by-side export + ffmpeg.wasm conversion
@@ -141,6 +143,11 @@ function buildVideoPlayer(summary, videoFiles, opts) {
     fullVideoPaths: fullVideoFiles ? placementOrder.map(i => fullVideoFiles[i]) : null,
     clipTimes: clipTimes ? placementOrder.map(i => clipTimes[i] || null) : null,
     racerNames: placementOrder.map(i => racers[i]),
+    finishResults: (summary.comparisons || []).map(c => ({
+      name: c.name,
+      isSyntheticTotal: !!c.isSyntheticTotal,
+      durations: placementOrder.map(i => c.racers?.[i]?.duration ?? null),
+    })),
     racerColors: placementOrder.map(i => RACER_CSS_COLORS[i % RACER_CSS_COLORS.length]),
     ffmpegDir,
   });
