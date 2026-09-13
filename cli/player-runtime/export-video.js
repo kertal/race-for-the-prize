@@ -186,6 +186,9 @@ async function startExport() {
     return;
   }
   pausePlayback();
+  // The export owns all seeking from here; leftover startup verifications
+  // must not re-seek or nudge videos once the recorder is rolling.
+  cancelSeekVerifications();
 
   // Respect the racer filter: hidden racers must not be baked into the export.
   const visibleIndices = raceVideos.map((_, i) => i).filter(i => raceVideos[i] && !hiddenRacers.has(i));
