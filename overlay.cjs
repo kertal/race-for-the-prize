@@ -208,7 +208,6 @@ class OverlayController {
    */
   async onStartRecording(startEpochMs = this._now()) {
     if (this._disabled) return;
-    await this._clearFinish();
     // Zero the clock on the moment recording starts, before any awaited page
     // work can push it later. This is the moment the player aligns every
     // racer's video on, so a clock counting from anything else reads a
@@ -228,7 +227,6 @@ class OverlayController {
 
   async onMeasureStart() {
     if (this._disabled) return;
-    await this._clearFinish();
     // A later section resumes the same recording clock, retaining its zero.
     if (this._wallClock && this.dot && this.clockFrozenAt !== null) {
       this.clockRunning = true;
@@ -239,29 +237,22 @@ class OverlayController {
     await setOverlay(this._page, this.dot, this.right);
   }
 
+  /**
+   * @param {number|null} [finishSeconds] The measurement's end, in seconds
+   *   since the race API's time base.
+   * @param {number} [activeCount] Measurements still open; the finish is the
+   *   last one to close.
+   */
   async onMeasureEnd(finishSeconds = null, activeCount = 0) {
     if (this._disabled) return;
     if (activeCount > 0) return;
     this.right = '\u{1F3C1}';
-    const updates = [];
     if (this._wallClock && this.clockRunning) {
+      // Freeze at the measured finish, before the spec's post-race wait.
       this.clockRunning = false;
       this.clockFrozenAt = this._freezeTime(finishSeconds);
-      updates.push(setClock(this._page, this._clockStart, this.clockFrozenAt));
+      await setClock(this._page, this._clockStart, this.clockFrozenAt);
     }
-    // Publish both flags at the measured finish, while the recording dot
-    // remains visible through any post-race footage. Placement comes later.
-    updates.push(setOverlay(this._page, this.dot, this.right));
-    updates.push(showMedal(this._page, null));
-    await Promise.all(updates);
-  }
-
-  async _clearFinish() {
-    if (this.right !== '\u{1F3C1}') return;
-    this.right = null;
-    await this._page.evaluate(() => {
-      document.getElementById('__race_medal')?.remove();
-    });
   }
 
   /**

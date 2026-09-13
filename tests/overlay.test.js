@@ -361,14 +361,12 @@ describe('OverlayController', () => {
       await freeze;
       expect(ctrl.clockRunning).toBe(true);
       expect(elements.__race_or.textContent).toBe('⏱️');
-      expect(elements.__race_medal).toBeUndefined();
       await vi.advanceTimersByTimeAsync(6000);
       api.endMeasure('outer');
       await freeze;
       expect(elements.__race_clock.textContent).toBe('0:07.5');
       expect(ctrl.clockRunning).toBe(false);
-      expect(elements.__race_or.textContent).toBe('🏁');
-      expect(elements.__race_medal.textContent).toBe('🏁');
+      expect(ctrl.right).toBe('🏁');
       await vi.advanceTimersByTimeAsync(1500);
       expect(elements.__race_clock.textContent).toBe('0:07.5');
       await api.stopRecording();
@@ -395,7 +393,6 @@ describe('OverlayController', () => {
       await vi.advanceTimersByTimeAsync(1500);
       expect(elements.__race_clock.textContent).toBe('0:02.0');
       await ctrl.onMeasureStart();
-      expect(elements.__race_medal).toBeUndefined();
       expect(elements.__race_or.textContent).toBe('⏱️');
       await vi.advanceTimersByTimeAsync(500);
       expect(elements.__race_clock.textContent).toBe('0:04.0');
@@ -439,16 +436,17 @@ describe('OverlayController', () => {
     expect(elements['__race_or'].textContent).toBe('⏱️');
   });
 
-  it('onMeasureEnd displays both flags before recording stops', async () => {
-    const { ctrl, elements } = createCtrl();
+  it('onMeasureEnd updates state to flag without calling setOverlay', async () => {
+    const { ctrl, page } = createCtrl();
 
     await ctrl.onStartRecording();
     await ctrl.onMeasureStart();
+    const callCount = page.evaluate.mock.calls.length;
+
     await ctrl.onMeasureEnd();
 
-    expect(elements.__race_or.textContent).toBe('🏁');
-    expect(elements.__race_medal.textContent).toBe('🏁');
-    expect(elements.__race_ol).toBeDefined();
+    expect(ctrl.right).toBe('🏁');
+    expect(page.evaluate.mock.calls.length).toBe(callCount);
   });
 
   it('onStopRecording removes dot and keeps flag', async () => {
@@ -464,7 +462,7 @@ describe('OverlayController', () => {
     expect(elements['__race_or'].textContent).toBe('🏁');
   });
 
-  it('recording stop preserves the displayed finish flags', async () => {
+  it('full lifecycle: 3 setOverlay calls (start, measure, stop)', async () => {
     const { ctrl, page } = createCtrl();
 
     await ctrl.onStartRecording();
@@ -472,7 +470,8 @@ describe('OverlayController', () => {
     await ctrl.onMeasureEnd();
     await ctrl.onStopRecording();
 
-    expect(page.evaluate).toHaveBeenCalledTimes(5);
+    // onStartRecording → 1, onMeasureStart → 1, onStopRecording → 1
+    expect(page.evaluate).toHaveBeenCalledTimes(3);
   });
 
   it('dot stays true between onMeasureEnd and onStopRecording', async () => {

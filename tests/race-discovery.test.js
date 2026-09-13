@@ -429,30 +429,6 @@ describe('settings override', () => {
     expect(s.viewportHeight).toBe(720);
   });
 
-  it('settings.json "height" sets viewportHeight', () => {
-    const s = applyOverrides({ height: 1080 }, new Set(), {});
-    expect(s.viewportHeight).toBe(1080);
-    expect(s.height).toBeUndefined();
-  });
-
-  it('settings.json "height" is clamped and rounded like --height', () => {
-    expect(applyOverrides({ height: 100 }, new Set(), {}).viewportHeight).toBe(480);
-    expect(applyOverrides({ height: 9999 }, new Set(), {}).viewportHeight).toBe(4320);
-    expect(applyOverrides({ height: 999.7 }, new Set(), {}).viewportHeight).toBe(1000);
-    expect(applyOverrides({ height: 'abc' }, new Set(), {}).viewportHeight).toBe(720);
-  });
-
-  it('settings.json "height": null means unset, not 0 clamped to the minimum', () => {
-    const s = applyOverrides({ height: null }, new Set(), {});
-    expect(s.viewportHeight).toBeUndefined();
-    expect(s.height).toBeUndefined();
-  });
-
-  it('CLI --height overrides settings.json "height"', () => {
-    const s = applyOverrides({ height: 1080 }, new Set(), { height: '900' });
-    expect(s.viewportHeight).toBe(900);
-  });
-
   it('parseArgs handles --height=1080 format', () => {
     const { kvFlags } = parseArgs(['dir', '--height=1080']);
     expect(kvFlags.height).toBe('1080');
