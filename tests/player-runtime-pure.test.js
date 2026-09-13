@@ -17,6 +17,12 @@ const {
   applyCalibrationToClip,
   computeSegmentClipTimes,
   resolveClipWindow,
+  FRAME_STEP,
+  timeToFrame,
+  frameReadout,
+  offsetRoom,
+  planOffsetNudge,
+  stepFrameTime,
 } = require('../cli/player-runtime/calibration.cjs');
 const { computeExportLayout } = require('../cli/player-runtime/export-layout.cjs');
 const { crc32, createZipBuilder } = require('../cli/player-runtime/zip.cjs');
@@ -200,7 +206,220 @@ describe('calibration resolveClipWindow', () => {
   });
 });
 
+// --- Frame readouts ---------------------------------------------------------
+
+describe('calibration timeToFrame', () => {
+  it('counts frames in 40ms steps (25fps recordings)', () => {
+    expect(FRAME_STEP).toBe(0.04);
+    expect(timeToFrame(0)).toBe(0);
+    expect(timeToFrame(0.04)).toBe(1);
+    expect(timeToFrame(1)).toBe(25);
+    expect(timeToFrame(2.52)).toBe(63);
+  });
+
+  it('rounds to the nearest frame', () => {
+    expect(timeToFrame(0.049)).toBe(1);
+    expect(timeToFrame(0.061)).toBe(2);
+  });
+
+  it('never reports a negative frame', () => {
+    expect(timeToFrame(-0.5)).toBe(0);
+  });
+
+  it('rejects non-finite times and non-positive steps', () => {
+    expect(timeToFrame(NaN)).toBe(null);
+    expect(timeToFrame(Infinity)).toBe(null);
+    expect(timeToFrame(undefined)).toBe(null);
+    expect(timeToFrame(1, 0)).toBe(null);
+  });
+
+  it('honours a custom frame step', () => {
+    expect(timeToFrame(1, 0.1)).toBe(10);
+  });
+});
+
+describe('calibration frameReadout', () => {
+  const clip = { start: 1.2, end: 2.8 }; // frames 30..70
+
+  it('reports the absolute frame and its position inside the clip', () => {
+    expect(frameReadout(1.6, clip)).toEqual({
+      frame: 40, clipFrame: 10, clipTotal: 40, clipStart: 30, clipEnd: 70,
+    });
+  });
+
+  it('starts the clip count at zero on the clip start', () => {
+    expect(frameReadout(clip.start, clip).clipFrame).toBe(0);
+    expect(frameReadout(clip.end, clip).clipFrame).toBe(40);
+  });
+
+  it('reports a negative clip frame before the clip start', () => {
+    // Nudging a racer's start backwards is exactly what calibration does, so
+    // positions ahead of the clip must stay readable rather than clamp to 0.
+    expect(frameReadout(1.0, clip).clipFrame).toBe(-5);
+  });
+
+  it('omits clip figures when no usable clip window applies', () => {
+    expect(frameReadout(1.6, null)).toEqual({
+      frame: 40, clipFrame: null, clipTotal: null, clipStart: null, clipEnd: null,
+    });
+    expect(frameReadout(1.6, { start: NaN, end: 2 }).clipFrame).toBe(null);
+  });
+
+  it('returns null when the position is unknown', () => {
+    expect(frameReadout(NaN, clip)).toBe(null);
+  });
+
+  it('is independent of how many frames the element has presented', () => {
+    // The old readout scaled currentTime by VideoPlaybackQuality.totalVideoFrames,
+    // a counter that grows during playback — the same position reported a
+    // different frame each time. Frame numbers now come from time alone.
+    expect(frameReadout(1.6, clip).frame).toBe(frameReadout(1.6, clip).frame);
+  });
+});
+
 // --- Export layout ----------------------------------------------------------
+
+describe('calibration offsetRoom', () => {
+  it('measures room in both directions from the adjusted start', () => {
+    // start 1.0, end 3.0 → 1.0s of footage before, 3.0 - 0.04 - 1.0 after.
+    expect(offsetRoom({ start: 1, end: 3 }, 0)).toEqual({ earlier: 1, later: 1.96 });
+  });
+
+  it('counts the current offset as already spent', () => {
+    const room = offsetRoom({ start: 1, end: 3 }, 0.5);
+    expect(room.earlier).toBeCloseTo(1.5, 10);
+    expect(room.later).toBeCloseTo(1.46, 10);
+  });
+
+  it('never reports negative room', () => {
+    expect(offsetRoom({ start: 0, end: 0.02 }, 0).later).toBe(0);
+    expect(offsetRoom({ start: 0, end: 5 }, 0).earlier).toBe(0);
+  });
+
+  it('treats a racer without a window as unconstrained', () => {
+    expect(offsetRoom(null, 0)).toEqual({ earlier: Infinity, later: Infinity });
+  });
+});
+
+describe('calibration planOffsetNudge', () => {
+  // The shape a real race produces: trace calibration puts every clip at (or a
+  // hair after) its first captured frame, so nobody has room to move earlier.
+  const windows = [{ start: 0, end: 4.8 }, { start: 0, end: 4.6 }, { start: 0.0105, end: 5.35 }];
+
+  it('moves the clicked racer later out of its own room', () => {
+    expect(planOffsetNudge(windows, [0, 0, 0], 2, 1)).toEqual([0, 0, 0.04]);
+  });
+
+  it('moves every other racer later when the clicked one cannot go earlier', () => {
+    // Regression: "-" was dead on a racer whose clip starts at its first frame.
+    // Racer 2 gives back the 0.0105s it has, the other two make up the rest —
+    // a full frame of relative movement either way.
+    const next = planOffsetNudge(windows, [0, 0, 0], 2, -1);
+    expect(next[2]).toBeCloseTo(-0.0105, 10);
+    expect(next[0]).toBeCloseTo(0.0295, 10);
+    expect(next[1]).toBeCloseTo(0.0295, 10);
+    expect(next[0] - next[2]).toBeCloseTo(FRAME_STEP, 10);
+  });
+
+  it('shifts the others by the whole nudge when the clicked racer has no room at all', () => {
+    const flat = [{ start: 0, end: 4.8 }, { start: 0, end: 4.6 }];
+    expect(planOffsetNudge(flat, [0, 0], 0, -2)).toEqual([0, 0.08]);
+  });
+
+  it('spends the clicked racer first and only then the others', () => {
+    // Racer 0 sits 0.2s in, so a 10-frame (0.4s) move earlier takes 0.2s from
+    // it and 0.2s from everyone else.
+    const next = planOffsetNudge(windows, [0.2, 0, 0], 0, -10);
+    expect(next[0]).toBeCloseTo(0, 10);
+    expect(next[1]).toBeCloseTo(0.2, 10);
+    expect(next[2]).toBeCloseTo(0.2, 10);
+  });
+
+  it('clamps an oversized nudge to the room that is left instead of refusing it', () => {
+    // Regression: a 4-frame segment used to ignore +5/+10 entirely rather than
+    // moving as far as it could. Racer 0 absorbs the 3 frames it has left and
+    // racer 1 gives up the other 2 by moving earlier, so the requested 5 frames
+    // of *relative* shift still happen — which is all alignment cares about.
+    const shortSeg = [{ start: 3.2, end: 3.36 }, { start: 2.5, end: 2.66 }];
+    const next = planOffsetNudge(shortSeg, [0, 0], 0, 5);
+    expect(next[0]).toBeCloseTo(0.12, 10); // 3 frames: end - one frame - start
+    expect(next[1]).toBeCloseTo(-0.08, 10);
+    expect(next[0] - next[1]).toBeCloseTo(5 * FRAME_STEP, 10);
+  });
+
+  it('returns null when no racer has any room left', () => {
+    const pinned = [{ start: 0, end: 0.04 }, { start: 0, end: 0.04 }];
+    expect(planOffsetNudge(pinned, [0, 0], 0, 1)).toBe(null);
+    expect(planOffsetNudge(pinned, [0, 0], 0, -1)).toBe(null);
+  });
+
+  it('rejects a nudge on a racer without a valid window, and a zero delta', () => {
+    expect(planOffsetNudge([null, { start: 0, end: 5 }], [0, 0], 0, 1)).toBe(null);
+    expect(planOffsetNudge(windows, [0, 0, 0], 1, 0)).toBe(null);
+    expect(planOffsetNudge(null, [0], 0, 1)).toBe(null);
+  });
+
+  it('leaves the caller\'s offsets untouched', () => {
+    const offsets = [0, 0, 0];
+    planOffsetNudge(windows, offsets, 2, -1);
+    expect(offsets).toEqual([0, 0, 0]);
+  });
+
+  it('keeps a lone racer inside its own window', () => {
+    expect(planOffsetNudge([{ start: 0, end: 5 }], [0], 0, -1)).toBe(null);
+    expect(planOffsetNudge([{ start: 0, end: 5 }], [0], 0, 1)).toEqual([0.04]);
+  });
+});
+
+
+describe('calibration stepFrameTime', () => {
+  it('advances exactly one frame from an on-grid position', () => {
+    expect(stepFrameTime(0.08, FRAME_STEP, 0, 5)).toBeCloseTo(0.12, 10);
+    expect(stepFrameTime(0.08, -FRAME_STEP, 0, 5)).toBeCloseTo(0.04, 10);
+  });
+
+  it('lands on the frame boundary even when the position comes back short', () => {
+    // Regression: the scrubber round-trips through a DOM string and returns
+    // 0.079999 for 0.080. The old code added the step to that, so the seek
+    // landed a microsecond before the boundary and the video showed the
+    // PREVIOUS frame — permanently one frame behind any racer whose clip
+    // starts mid-frame.
+    expect(stepFrameTime(0.079999, FRAME_STEP, 0, 5)).toBeCloseTo(0.12, 10);
+    expect(stepFrameTime(0.039999, FRAME_STEP, 0, 5)).toBeCloseTo(0.08, 10);
+  });
+
+  it('does not accumulate drift over many steps', () => {
+    let t = 0;
+    for (let i = 0; i < 250; i++) {
+      // Feed each result back through the scrubber's precision loss.
+      t = stepFrameTime(t - 1e-6, FRAME_STEP, 0, 60);
+    }
+    expect(t).toBeCloseTo(250 * FRAME_STEP, 9);
+  });
+
+  it('snaps an off-grid scrub onto the frame grid', () => {
+    expect(stepFrameTime(0.1234, FRAME_STEP, 0, 5)).toBeCloseTo(0.16, 10);
+  });
+
+  it('anchors the grid at the clip start, not at zero', () => {
+    // A clip starting mid-frame keeps its own offset; steps stay whole frames
+    // from it, which is what keeps racers on matching frames.
+    expect(stepFrameTime(1.0105, FRAME_STEP, 1.0105, 5)).toBeCloseTo(1.0505, 10);
+    expect(stepFrameTime(1.0505, FRAME_STEP, 1.0105, 5)).toBeCloseTo(1.0905, 10);
+  });
+
+  it('clamps to the window at both ends', () => {
+    expect(stepFrameTime(0, -FRAME_STEP, 0, 5)).toBe(0);
+    expect(stepFrameTime(1.2, -FRAME_STEP, 1.2, 5)).toBe(1.2);
+    expect(stepFrameTime(5, FRAME_STEP, 0, 5)).toBe(5);
+  });
+
+  it('steps back onto the grid after a clamp at the end', () => {
+    // maxT need not sit on the grid; stepping away from it re-quantizes.
+    const end = 5.017;
+    expect(stepFrameTime(end, -FRAME_STEP, 0, end)).toBeCloseTo(4.96, 10);
+  });
+});
 
 describe('computeExportLayout', () => {
   const ASPECT = 9 / 16; // 640x360 / 480x270 cells
