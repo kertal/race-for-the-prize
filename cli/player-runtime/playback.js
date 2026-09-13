@@ -88,6 +88,12 @@ function cancelSeekVerifications() {
   pendingSeekVerifications.clear();
 }
 
+// hiddenRacers indexes raceVideos. In merged mode `videos` is [mergedVideo],
+// which must not inherit racer 0's hidden state.
+function isHiddenRacer(i) {
+  return videos === raceVideos && hiddenRacers.has(i);
+}
+
 // --- Formatting helpers ---
 
 function fmt(s) {
@@ -287,7 +293,7 @@ function maxClipElapsed(ct) {
   let elapsed = 0;
   for (let i = 0; i < videos.length; i++) {
     const v = videos[i];
-    if (!v || hiddenRacers.has(i)) continue;
+    if (!v || isHiddenRacer(i)) continue;
     const vidClip = activeClip && ct && isValidClipEntry(ct[i]) ? ct[i] : null;
     const e = videoClipElapsed(v, vidClip);
     if (e > elapsed) elapsed = e;
@@ -297,11 +303,13 @@ function maxClipElapsed(ct) {
 
 function allClipsFinished(ct) {
   return videos.every((v, i) => {
-    if (!v || hiddenRacers.has(i)) return true;
-    if (v.seeking) return false;
+    // Hidden racers and racers with no clip in this window are not on the
+    // track — the same entries resolveClipWindow leaves out of activeClip.
+    if (!v || isHiddenRacer(i)) return true;
     const clip = ct?.[i];
-    const end = isValidClipEntry(clip) ? clip.end : v.duration;
-    return v.ended || (Number.isFinite(end) && v.currentTime >= Math.min(end, v.duration || end));
+    if (!isValidClipEntry(clip)) return true;
+    if (v.seeking) return false;
+    return v.ended || v.currentTime >= Math.min(clip.end, v.duration || clip.end);
   });
 }
 

@@ -60,8 +60,11 @@ function seekAllWithVerify(targetStart) {
     };
     const reseek = () => {
       if (pendingSeekVerifications.get(v) !== cancel) return;
-      if (Math.abs(v.currentTime - expected) <= SEEK_SNAP_TOLERANCE || seeks >= MAX_SEEK_RETRIES) {
-        nudgePaint(v);
+      const settled = Math.abs(v.currentTime - expected) <= SEEK_SNAP_TOLERANCE;
+      if (settled || seeks >= MAX_SEEK_RETRIES) {
+        // Only a verified position gets the repaint nudge; an exhausted retry
+        // budget is left where it landed rather than moved another frame off.
+        if (settled) nudgePaint(v);
         cancel();
         return;
       }

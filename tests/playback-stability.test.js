@@ -6,7 +6,7 @@ const main = fs.readFileSync(new URL('../cli/player-runtime/main.js', import.met
 const block = (s, a, b) => s.slice(s.indexOf(a), s.indexOf(b, s.indexOf(a)));
 function video(time) {
   const listeners = new Map();
-  return { currentTime: time, duration: 20, seeking: false, ended: false,
+  return { currentTime: time, duration: 20, seeking: false, ended: false, paused: true,
     pause: vi.fn(),
     addEventListener(name, fn) {
       const fns = listeners.get(name) || new Set();
@@ -81,6 +81,39 @@ describe('playback stability', () => {
     ctx.videos[1].seeking = true;
     expect(ctx.allClipsFinished(ctx.clipTimes)).toBe(false);
     ctx.videos[1].seeking = false;
+    expect(ctx.allClipsFinished(ctx.clipTimes)).toBe(true);
+  });
+  it('repaints a paused video after a verified seek, and leaves a playing one alone', () => {
+    const ctx = harness(); const v = ctx.videos[0];
+    ctx.seekAllWithVerify(2);
+    v.emit('seeked');
+    expect(v.currentTime).toBeCloseTo(1.999, 6);
+
+    const playing = harness(); const p = playing.videos[0];
+    p.paused = false;
+    playing.seekAllWithVerify(2);
+    p.emit('seeked');
+    expect(p.currentTime).toBe(2);
+  });
+  it('does not nudge a seek that exhausted its retries off-target', () => {
+    const ctx = harness(); const v = ctx.videos[0];
+    ctx.seekAllWithVerify(2);
+    for (let i = 0; i < 12; i++) { v.currentTime = 1; v.emit('seeked'); }
+    expect(v.currentTime).toBe(1);
+    expect(ctx.pendingSeekVerifications.size).toBe(0);
+  });
+  it('treats a racer with no clip in this segment as not on the track', () => {
+    // computeSegmentClipTimes yields null for a racer that lacks the named
+    // measurement; resolveClipWindow leaves it out, so completion must too.
+    const ctx = harness([12, 3]);
+    ctx.clipTimes[1] = null;
+    expect(ctx.allClipsFinished(ctx.clipTimes)).toBe(true);
+  });
+  it('ignores the hidden set in merged mode, where videos is not raceVideos', () => {
+    const ctx = harness([12]);
+    ctx.hiddenRacers.add(0);
+    ctx.videos = [ctx.raceVideos[0]];
+    expect(ctx.maxClipElapsed(ctx.clipTimes)).toBe(10);
     expect(ctx.allClipsFinished(ctx.clipTimes)).toBe(true);
   });
 });
