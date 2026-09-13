@@ -19,6 +19,15 @@ const MAX_SEEK_RETRIES = 10;
 // Positions within 1ms of zero are treated as "start of video" — no seek needed.
 const ZERO_START_THRESHOLD = 0.001;
 
+// Chrome/WebM: after a verified seek, a paused video can keep painting a stale
+// frame (e.g. left over from the 1e10 duration-probe seek). A 1ms re-seek
+// forces a fresh decode+paint. Deliberately not play()/pause(): its async
+// pause can land mid-export or mid-playback and freeze a running video.
+function nudgePaint(video) {
+  if (!video.paused || !(video.currentTime > 0)) return;
+  video.currentTime = Math.max(0, video.currentTime - 0.001);
+}
+
 // seekAllWithVerify handles two distinct Chrome/WebM seeking failure modes:
 //
 //  1. Seek snaps back (seeked fires but currentTime < expected − tolerance):
@@ -52,14 +61,13 @@ function seekAllWithVerify(targetStart) {
     const reseek = () => {
       if (pendingSeekVerifications.get(v) !== cancel) return;
       if (Math.abs(v.currentTime - expected) <= SEEK_SNAP_TOLERANCE || seeks >= MAX_SEEK_RETRIES) {
+        nudgePaint(v);
         cancel();
         return;
       }
-      if (Math.abs(v.currentTime - expected) > SEEK_SNAP_TOLERANCE && seeks < MAX_SEEK_RETRIES) {
-        seeks++;
-        v.currentTime = Math.min(expected, Number.isFinite(v.duration) ? v.duration : expected);
-        v.addEventListener('seeked', reseek, { once: true });
-      }
+      seeks++;
+      v.currentTime = Math.min(expected, Number.isFinite(v.duration) ? v.duration : expected);
+      v.addEventListener('seeked', reseek, { once: true });
     };
     pendingSeekVerifications.set(v, cancel);
     v.addEventListener('seeked', reseek, { once: true });

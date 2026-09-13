@@ -29,6 +29,7 @@ function harness(times = [2]) {
   vm.runInContext(block(playback, 'function cancelSeekVerifications()', '\n// --- Formatting'), ctx);
   vm.runInContext(block(playback, 'function seekAll(t)', '\n// --- Metadata'), ctx);
   vm.runInContext(block(playback, 'function videoClipElapsed(', '\nfunction onEnded()'), ctx);
+  vm.runInContext(block(main, 'function nudgePaint(', '\nfunction seekAllWithVerify('), ctx);
   vm.runInContext(block(main, 'function seekAllWithVerify(', '\nif (clipTimes)'), ctx);
   return ctx;
 }
