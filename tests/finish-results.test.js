@@ -37,4 +37,17 @@ describe('independent finish placements', () => {
     expect(racerFinishResult(clips, results, 0, 4.9)).toBeNull();
     expect(racerFinishResult(clips, results, 0, 5).place).toBe(2);
   });
+  it('calls totals within 10ms of the fastest joint first, like the summary, and ranks the rest', () => {
+    const three = [0, 1, 2].map(() => structuredClone(entries[0]));
+    const ranks = [{ name: 'A', durations: [0.5, 0.5, 1] }, { name: 'B', durations: [0.5, 0.505, 1] }];
+    expect(racerFinishResult(three, ranks, 0, 5).label).toBe('🥇 Joint 1st · 1.000s total');
+    expect(racerFinishResult(three, ranks, 1, 5).label).toBe('🥇 Joint 1st · 1.005s total');
+    expect(racerFinishResult(three, ranks, 2, 5).label).toBe('🥉 3rd · 2.000s total');
+  });
+  it('keeps the keycap medals for 4th and 5th place', () => {
+    const five = [0, 1, 2, 3, 4].map(() => structuredClone(entries[0]));
+    const ranks = [{ name: 'A', durations: [1, 2, 3, 4, 5] }];
+    expect(racerFinishResult(five, ranks, 3, 5).label).toBe('4\uFE0F\u20E3 4th · 4.000s total');
+    expect(racerFinishResult(five, ranks, 4, 5).label).toBe('5\uFE0F\u20E3 5th · 5.000s total');
+  });
 });

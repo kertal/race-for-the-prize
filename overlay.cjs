@@ -187,6 +187,8 @@ class OverlayController {
     this.right = null;
     this.clockRunning = false;
     this.clockFrozenAt = null;
+    this.finishShown = false;
+    this.finishPlace = null;
 
     if (!this._disabled) {
       page.on('load', () => {
@@ -196,6 +198,10 @@ class OverlayController {
         // A navigation wipes the clock element and its timer — put them back.
         if (this.clockRunning || this.clockFrozenAt !== null) {
           setClock(page, this._clockStart, this.clockFrozenAt).catch(() => {});
+        }
+        // So does the finish flag, which lives in its own element.
+        if (this.finishShown) {
+          showMedal(page, this.finishPlace).catch(() => {});
         }
       });
     }
@@ -252,13 +258,19 @@ class OverlayController {
     // Publish both flags at the measured finish, while the recording dot
     // remains visible through any post-race footage. Placement comes later.
     updates.push(setOverlay(this._page, this.dot, this.right));
+    this.finishShown = true;
+    this.finishPlace = null;
     updates.push(showMedal(this._page, null));
     await Promise.all(updates);
   }
 
   async _clearFinish() {
-    if (this.right !== '\u{1F3C1}') return;
-    this.right = null;
+    // A flag can also come from onFinish at a recording stop with no measured
+    // finish, while `right` is still null or the stopwatch — clear on either.
+    if (!this.finishShown && this.right !== '\u{1F3C1}') return;
+    this.finishShown = false;
+    this.finishPlace = null;
+    if (this.right === '\u{1F3C1}') this.right = null;
     await this._page.evaluate(() => {
       document.getElementById('__race_medal')?.remove();
     });
@@ -298,6 +310,8 @@ class OverlayController {
 
   async onFinish(place) {
     if (this._disabled) return;
+    this.finishShown = true;
+    this.finishPlace = place;
     await showMedal(this._page, place);
   }
 }

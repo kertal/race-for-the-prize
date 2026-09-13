@@ -27,11 +27,14 @@ function racerFinishResult(entries, results, racerIndex, videoTime) {
   const durations = Array.from({ length: count }, (_, i) => sections.reduce((sum, r) => sum + r.durations[i], 0));
   const duration = durations[racerIndex];
   if (!Number.isFinite(duration)) return null;
-  // Match the summary's 10ms tolerance for a multi-section total tie.
-  const totalTie = sections.length > 1 && Math.max(...durations) - Math.min(...durations) <= 0.01;
-  const place = totalTie ? 1 : 1 + durations.filter(d => d < duration).length;
-  const tied = totalTie || durations.filter(d => d === duration).length > 1;
-  const medal = ['🥇', '🥈', '🥉'][place - 1] || '🏁';
+  // Match the summary's overall winner: summed totals within 10ms of the
+  // fastest are joint first (sub-frame noise); everyone else ranks below them.
+  const fastest = Math.min(...durations);
+  const inFastest = sections.length > 1 && duration - fastest <= 0.01;
+  const jointFirst = inFastest && durations.filter(d => d - fastest <= 0.01).length > 1;
+  const place = inFastest ? 1 : 1 + durations.filter(d => d < duration).length;
+  const tied = jointFirst || durations.filter(d => d === duration).length > 1;
+  const medal = ['🥇', '🥈', '🥉', '4\uFE0F\u20E3', '5\uFE0F\u20E3'][place - 1] || `${place}`;
   const ordinal = ['1st', '2nd', '3rd'][place - 1] || `${place}th`;
   return { place, duration, name: 'Total race',
     label: `${medal} ${tied ? 'Joint ' : ''}${ordinal} · ${duration.toFixed(3)}s total` };

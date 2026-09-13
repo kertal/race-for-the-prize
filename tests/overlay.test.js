@@ -687,6 +687,33 @@ describe('OverlayController', () => {
     expect(elements['__race_clock'].textContent).toBe('0:02.1');
   });
 
+  it('re-injects the finish flag after a navigation', async () => {
+    const { ctrl, page, elements } = createCtrl();
+
+    await ctrl.onStartRecording();
+    await ctrl.onMeasureEnd();
+    expect(elements.__race_medal.textContent).toBe('🏁');
+    elements.__race_medal.remove(); // navigation wipes the overlay elements
+
+    const onLoad = page.on.mock.calls.find(([event]) => event === 'load')[1];
+    onLoad();
+
+    expect(elements.__race_medal.textContent).toBe('🏁');
+  });
+
+  it('clears a flag shown at a recording stop with no measured finish when the next segment starts', async () => {
+    const { ctrl, elements } = createCtrl();
+
+    await ctrl.onStartRecording();
+    await ctrl.onFinish(null); // the runner's recording stop, nothing measured
+    await ctrl.onStopRecording();
+    expect(elements.__race_medal).toBeDefined();
+
+    await ctrl.onStartRecording();
+
+    expect(elements.__race_medal).toBeUndefined();
+  });
+
   it('registers load event listener when enabled', () => {
     const { page } = createCtrl();
     expect(page.on).toHaveBeenCalledWith('load', expect.any(Function));
