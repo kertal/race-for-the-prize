@@ -438,6 +438,13 @@ describe('settings override', () => {
     expect(applyOverrides({ height: { px: 900 } }, new Set(), {}).viewportHeight).toBe(720);
   });
 
+  it('settings.json "viewportHeight" is validated like the alias', () => {
+    expect(applyOverrides({ viewportHeight: 100 }, new Set(), {}).viewportHeight).toBe(480);
+    expect(applyOverrides({ viewportHeight: '900' }, new Set(), {}).viewportHeight).toBe(900);
+    expect(applyOverrides({ viewportHeight: true }, new Set(), {}).viewportHeight).toBe(720);
+    expect(applyOverrides({ viewportHeight: null }, new Set(), {}).viewportHeight).toBeNull();
+  });
+
   it('CLI --height overrides settings.json "height"', () => {
     const s = applyOverrides({ height: 1080 }, new Set(), { height: '900' });
     expect(s.viewportHeight).toBe(900);

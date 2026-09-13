@@ -467,6 +467,11 @@ function resolveViewportHeight(rawValue, label) {
  */
 export function applyOverrides(settings, boolFlags, kvFlags) {
   const s = { ...settings };
+  // settings.json values reach the runner as they are, so the canonical key
+  // gets the same clamp, rounding and fallback as the alias and the flag.
+  if (s.viewportHeight != null) {
+    s.viewportHeight = resolveViewportHeight(s.viewportHeight, '"viewportHeight" in settings.json');
+  }
   // `height` is the settings.json alias for `viewportHeight`, mirroring the
   // --height CLI flag. A null value means "not set", as for every other key —
   // applyDefaults strips nulls, but it runs after this, so guard here too.
