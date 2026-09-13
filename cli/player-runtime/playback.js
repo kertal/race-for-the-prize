@@ -299,7 +299,8 @@ function allClipsFinished(ct) {
   return videos.every((v, i) => {
     if (!v || hiddenRacers.has(i)) return true;
     if (v.seeking) return false;
-    const end = isValidClipEntry(ct?.[i]) ? ct[i].end : v.duration;
+    const clip = ct?.[i];
+    const end = isValidClipEntry(clip) ? clip.end : v.duration;
     return v.ended || (Number.isFinite(end) && v.currentTime >= Math.min(end, v.duration || end));
   });
 }
