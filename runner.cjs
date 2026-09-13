@@ -195,10 +195,9 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
           if (existing) existing.endTime = endTime;
           else sharedState.finishOrder.push({ id, endTime });
           if (!noOverlay && !noRecording) {
-            // Calculate placement from finish order for the medal display
-            const sorted = [...sharedState.finishOrder].sort((a, b) => a.endTime - b.endTime);
-            const place = isParallel ? sorted.findIndex(f => f.id === id) + 1 : null;
-            await overlayCtrl.onFinish(place);
+            // Recording completion order includes post-race delays and is not
+            // a ranking. The player adds medals from the final measurements.
+            await overlayCtrl.onFinish(null);
           }
         }
         await Promise.all([
@@ -210,9 +209,11 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
         await markTrace(`${traceMarkPrefix}measure:start:${encodeMeasureName(name)}`);
         await overlayCtrl.onMeasureStart();
       },
-      onMeasureEnd: (name) => {
+      onMeasureEnd: (name, endTime, activeCount) => {
         queueTraceMark(`${traceMarkPrefix}measure:end:${encodeMeasureName(name)}`);
-        overlayCtrl.onMeasureEnd();
+        // raceEnd stays synchronous; dispatch the freeze immediately, before
+        // the spec's post-race wait or the recording-stop medal work.
+        overlayCtrl.onMeasureEnd(endTime, activeCount).catch(() => {});
       },
       onUnmatchedMeasureEnd: (name) => {
         console.error(`[${id}] Warning: raceEnd(${JSON.stringify(name)}) called with no matching raceStart — measurement ignored.`);

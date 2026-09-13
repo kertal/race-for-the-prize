@@ -81,6 +81,12 @@ const hiddenRacers = new Set();
 const STEP = 0.1;
 let loadedSrcSet = 'race';
 let pendingSeek = null;
+const pendingSeekVerifications = new Map();
+
+function cancelSeekVerifications() {
+  for (const cancel of pendingSeekVerifications.values()) cancel();
+  pendingSeekVerifications.clear();
+}
 
 // --- Formatting helpers ---
 
@@ -110,6 +116,7 @@ function updateTimeDisplay() {
   const t = d > 0 ? (scrubber.value / 1000) * d : 0;
   timeDisplay.textContent = fmt(Math.max(0, t)) + ' / ' + fmt(d);
   frameDisplay.textContent = getTime(Math.max(0, t));
+  updateFinishDisplays();
 }
 
 // --- Debug mode: per-racer clip start calibration ---
@@ -141,6 +148,7 @@ function resolveAdjustedClip() {
 }
 
 function seekAll(t) {
+  cancelSeekVerifications();
   const adj = getAdjustedClipTimes();
   const ct = adj || clipTimes;
   videos.forEach((v, i) => {
@@ -280,7 +288,7 @@ function maxClipElapsed(ct) {
   let elapsed = 0;
   for (let i = 0; i < videos.length; i++) {
     const v = videos[i];
-    if (!v) continue;
+    if (!v || hiddenRacers.has(i)) continue;
     const vidClip = activeClip && ct && isValidClipEntry(ct[i]) ? ct[i] : null;
     const e = videoClipElapsed(v, vidClip);
     if (e > elapsed) elapsed = e;
@@ -288,13 +296,21 @@ function maxClipElapsed(ct) {
   return elapsed;
 }
 
+function allClipsFinished(ct) {
+  return videos.every((v, i) => {
+    if (!v || hiddenRacers.has(i)) return true;
+    if (v.seeking) return false;
+    const end = isValidClipEntry(ct?.[i]) ? ct[i].end : v.duration;
+    return v.ended || (Number.isFinite(end) && v.currentTime >= Math.min(end, v.duration || end));
+  });
+}
+
 function onTimeUpdate() {
   const adj = getAdjustedClipTimes();
   const ct = adj || clipTimes;
   const elapsed = maxClipElapsed(ct);
-  if (activeClip && elapsed >= clipDuration()) {
+  if (activeClip && allClipsFinished(ct)) {
     videos.forEach(v => v?.pause());
-    seekAll(activeClip.end);
     playing = false;
     setPlayState(false);
     scrubber.value = 1000;
@@ -319,6 +335,7 @@ function onEnded() {
 // --- Listener management ---
 
 function detachVideoListeners() {
+  cancelSeekVerifications();
   raceVideos.forEach(v => {
     if (v) {
       v.removeEventListener('loadedmetadata', onMeta);
@@ -515,11 +532,12 @@ if (mergedVideo) mergedVideo.addEventListener('loadedmetadata', () => {
 // --- Playback controls ---
 
 playBtn.addEventListener('click', () => {
+  cancelSeekVerifications();
   if (playing) {
     videos.forEach(v => v?.pause());
     setPlayState(false);
   } else {
-    if (activeClip && Number(scrubber.value) >= 999) {
+    if (activeClip && allClipsFinished(getAdjustedClipTimes() || clipTimes)) {
       seekAll(activeClip.start);
       scrubber.value = 0;
     }

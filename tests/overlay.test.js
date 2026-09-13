@@ -340,6 +340,75 @@ describe('setClock', () => {
 // --- OverlayController tests ---
 
 describe('OverlayController', () => {
+  it('holds the measured finish through the post-race delay and recording stop', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    const { ctrl, elements } = createCtrl({ wallClock: true, timeBase: 1000 });
+    const { createRaceApi } = require('../race-api.cjs');
+    let freeze;
+    const api = createRaceApi({ recordingStartTime: 1000, hooks: {
+      onRecordingStart: () => ctrl.onStartRecording(),
+      onMeasureStart: () => ctrl.onMeasureStart(),
+      onMeasureEnd: (_name, end, count) => { freeze = ctrl.onMeasureEnd(end, count); },
+      onRecordingStop: ({ endTime }) => ctrl.onStopRecording(endTime),
+    } });
+    try {
+      await api.startRecording();
+      await api.startMeasure('outer');
+      await api.startMeasure('inner');
+      await vi.advanceTimersByTimeAsync(1500);
+      api.endMeasure('inner');
+      await freeze;
+      expect(ctrl.clockRunning).toBe(true);
+      expect(elements.__race_or.textContent).toBe('⏱️');
+      expect(elements.__race_medal).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(6000);
+      api.endMeasure('outer');
+      await freeze;
+      expect(elements.__race_clock.textContent).toBe('0:07.5');
+      expect(ctrl.clockRunning).toBe(false);
+      expect(elements.__race_or.textContent).toBe('🏁');
+      expect(elements.__race_medal.textContent).toBe('🏁');
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(elements.__race_clock.textContent).toBe('0:07.5');
+      await api.stopRecording();
+      expect(elements.__race_clock.textContent).toBe('0:07.5');
+      expect(globalThis.__raceClockTimer).toBeFalsy();
+    } finally {
+      clearInterval(globalThis.__raceClockTimer);
+      globalThis.__raceClockTimer = null;
+      vi.useRealTimers();
+    }
+  });
+
+  it('resumes the recording clock for a later measurement and preserves a frozen clock on navigation', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    const { ctrl, elements, page } = createCtrl({ wallClock: true, timeBase: 1000 });
+    try {
+      await ctrl.onStartRecording();
+      await vi.advanceTimersByTimeAsync(2000);
+      await ctrl.onMeasureEnd(2);
+      elements.__race_clock.remove();
+      const onLoad = page.on.mock.calls.find(([event]) => event === 'load')[1];
+      onLoad();
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(elements.__race_clock.textContent).toBe('0:02.0');
+      await ctrl.onMeasureStart();
+      expect(elements.__race_medal).toBeUndefined();
+      expect(elements.__race_or.textContent).toBe('⏱️');
+      await vi.advanceTimersByTimeAsync(500);
+      expect(elements.__race_clock.textContent).toBe('0:04.0');
+      await ctrl.onMeasureEnd(4);
+      await ctrl.onStopRecording(4);
+      expect(elements.__race_clock.textContent).toBe('0:04.0');
+    } finally {
+      clearInterval(globalThis.__raceClockTimer);
+      globalThis.__raceClockTimer = null;
+      vi.useRealTimers();
+    }
+  });
+
   function createCtrl(opts = {}) {
     const { doc, elements } = createMockDOM();
     const page = createMockPage(doc);
@@ -370,17 +439,16 @@ describe('OverlayController', () => {
     expect(elements['__race_or'].textContent).toBe('⏱️');
   });
 
-  it('onMeasureEnd updates state to flag without calling setOverlay', async () => {
-    const { ctrl, page } = createCtrl();
+  it('onMeasureEnd displays both flags before recording stops', async () => {
+    const { ctrl, elements } = createCtrl();
 
     await ctrl.onStartRecording();
     await ctrl.onMeasureStart();
-    const callCount = page.evaluate.mock.calls.length;
+    await ctrl.onMeasureEnd();
 
-    ctrl.onMeasureEnd();
-
-    expect(ctrl.right).toBe('🏁');
-    expect(page.evaluate.mock.calls.length).toBe(callCount);
+    expect(elements.__race_or.textContent).toBe('🏁');
+    expect(elements.__race_medal.textContent).toBe('🏁');
+    expect(elements.__race_ol).toBeDefined();
   });
 
   it('onStopRecording removes dot and keeps flag', async () => {
@@ -388,7 +456,7 @@ describe('OverlayController', () => {
 
     await ctrl.onStartRecording();
     await ctrl.onMeasureStart();
-    ctrl.onMeasureEnd();
+    await ctrl.onMeasureEnd();
     await ctrl.onStopRecording();
 
     expect(ctrl.dot).toBe(false);
@@ -396,23 +464,22 @@ describe('OverlayController', () => {
     expect(elements['__race_or'].textContent).toBe('🏁');
   });
 
-  it('full lifecycle: 3 setOverlay calls (start, measure, stop)', async () => {
+  it('recording stop preserves the displayed finish flags', async () => {
     const { ctrl, page } = createCtrl();
 
     await ctrl.onStartRecording();
     await ctrl.onMeasureStart();
-    ctrl.onMeasureEnd();
+    await ctrl.onMeasureEnd();
     await ctrl.onStopRecording();
 
-    // onStartRecording → 1, onMeasureStart → 1, onStopRecording → 1
-    expect(page.evaluate).toHaveBeenCalledTimes(3);
+    expect(page.evaluate).toHaveBeenCalledTimes(5);
   });
 
   it('dot stays true between onMeasureEnd and onStopRecording', async () => {
     const { ctrl } = createCtrl();
 
     await ctrl.onStartRecording();
-    ctrl.onMeasureEnd();
+    await ctrl.onMeasureEnd();
 
     expect(ctrl.dot).toBe(true);
     expect(ctrl.right).toBe('🏁');
@@ -422,7 +489,7 @@ describe('OverlayController', () => {
     const { ctrl, page } = createCtrl();
 
     await ctrl.onStartRecording();
-    ctrl.onMeasureEnd();
+    await ctrl.onMeasureEnd();
 
     // Simulate navigation: the load handler checks state
     expect(ctrl.dot || ctrl.right).toBeTruthy();
@@ -436,7 +503,7 @@ describe('OverlayController', () => {
 
     await ctrl.onStartRecording();
     await ctrl.onMeasureStart();
-    ctrl.onMeasureEnd();
+    await ctrl.onMeasureEnd();
     await ctrl.onStopRecording();
 
     expect(ctrl.dot).toBe(false);
@@ -450,7 +517,7 @@ describe('OverlayController', () => {
 
     await ctrl.onStartRecording();
     await ctrl.onMeasureStart();
-    ctrl.onMeasureEnd();
+    await ctrl.onMeasureEnd();
     await ctrl.onStopRecording();
 
     expect(page.evaluate).not.toHaveBeenCalled();

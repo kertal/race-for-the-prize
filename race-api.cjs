@@ -34,7 +34,7 @@
  *   Deferred stop effects (finish overlay, end cue); endTime is the racer's finish
  *   time in seconds (last measurement end, or now).
  * @param {(name: string) => Promise<void>} [options.hooks.onMeasureStart]
- * @param {(name: string) => void} [options.hooks.onMeasureEnd]
+ * @param {(name: string, endTime: number, activeCount: number) => void} [options.hooks.onMeasureEnd]
  * @param {(name: string) => void} [options.hooks.onUnmatchedMeasureEnd] raceEnd
  *   was called with a name that has no open raceStart (usually a typo).
  * @param {() => Promise<void>} [options.hooks.onFirstRaceStart] Once, on the first
@@ -115,7 +115,7 @@ function createRaceApi({ recordingStartTime = Date.now(), now = Date.now, hooks 
     const duration = end - start;
     measurements.push({ name, startTime: start, endTime: end, duration });
     delete activeMeasurements[name];
-    if (onMeasureEnd) onMeasureEnd(name);
+    if (onMeasureEnd) onMeasureEnd(name, end, Object.keys(activeMeasurements).length);
     return duration;
   };
 

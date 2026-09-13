@@ -433,6 +433,29 @@ export class InvalidSettingError extends Error {
   }
 }
 
+const VIEWPORT_HEIGHT_MIN = 480;
+const VIEWPORT_HEIGHT_MAX = 4320;
+const VIEWPORT_HEIGHT_DEFAULT = 720;
+
+/** Coerce a raw height value (CLI --height flag or settings.json `height`) to a valid viewportHeight. */
+function resolveViewportHeight(rawValue, label) {
+  const height = Number(rawValue);
+  if (!Number.isFinite(height)) {
+    console.error(`Warning: ${label} "${rawValue}" is not numeric, using default ${VIEWPORT_HEIGHT_DEFAULT}`);
+    return VIEWPORT_HEIGHT_DEFAULT;
+  }
+  const rounded = Math.round(height);
+  if (rounded < VIEWPORT_HEIGHT_MIN) {
+    console.error(`Warning: ${label} clamped from ${rounded} to ${VIEWPORT_HEIGHT_MIN} (minimum)`);
+    return VIEWPORT_HEIGHT_MIN;
+  }
+  if (rounded > VIEWPORT_HEIGHT_MAX) {
+    console.error(`Warning: ${label} clamped from ${rounded} to ${VIEWPORT_HEIGHT_MAX} (maximum)`);
+    return VIEWPORT_HEIGHT_MAX;
+  }
+  return rounded;
+}
+
 /**
  * Apply CLI overrides to settings. Mutates neither input.
  * Throws InvalidSettingError for unrecoverable errors (for example, bad enum values
@@ -441,6 +464,11 @@ export class InvalidSettingError extends Error {
  */
 export function applyOverrides(settings, boolFlags, kvFlags) {
   const s = { ...settings };
+  // `height` is the settings.json alias for `viewportHeight`, mirroring the --height CLI flag.
+  if (s.height !== undefined) {
+    s.viewportHeight = resolveViewportHeight(s.height, '"height" in settings.json');
+    delete s.height;
+  }
   if (boolFlags.has('parallel')) s.parallel = true;
   if (boolFlags.has('headless')) s.headless = true;
   if (boolFlags.has('overlay')) s.noOverlay = false;
@@ -521,22 +549,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
     }
   }
   if (kvFlags.height !== undefined) {
-    const height = Number(kvFlags.height);
-    if (!Number.isFinite(height)) {
-      console.error(`Warning: --height "${kvFlags.height}" is not numeric, using default 720`);
-      s.viewportHeight = 720;
-    } else {
-      const rounded = Math.round(height);
-      if (rounded < 480) {
-        console.error(`Warning: --height clamped from ${rounded} to 480 (minimum)`);
-        s.viewportHeight = 480;
-      } else if (rounded > 4320) {
-        console.error(`Warning: --height clamped from ${rounded} to 4320 (maximum)`);
-        s.viewportHeight = 4320;
-      } else {
-        s.viewportHeight = rounded;
-      }
-    }
+    s.viewportHeight = resolveViewportHeight(kvFlags.height, '--height');
   }
   return s;
 }

@@ -208,6 +208,7 @@ class OverlayController {
    */
   async onStartRecording(startEpochMs = this._now()) {
     if (this._disabled) return;
+    await this._clearFinish();
     // Zero the clock on the moment recording starts, before any awaited page
     // work can push it later. This is the moment the player aligns every
     // racer's video on, so a clock counting from anything else reads a
@@ -227,18 +228,45 @@ class OverlayController {
 
   async onMeasureStart() {
     if (this._disabled) return;
+    await this._clearFinish();
+    // A later section resumes the same recording clock, retaining its zero.
+    if (this._wallClock && this.dot && this.clockFrozenAt !== null) {
+      this.clockRunning = true;
+      this.clockFrozenAt = null;
+      await setClock(this._page, this._clockStart, null);
+    }
     this.right = '\u23F1\uFE0F';
     await setOverlay(this._page, this.dot, this.right);
   }
 
-  onMeasureEnd() {
+  async onMeasureEnd(finishSeconds = null, activeCount = 0) {
     if (this._disabled) return;
+    if (activeCount > 0) return;
     this.right = '\u{1F3C1}';
+    const updates = [];
+    if (this._wallClock && this.clockRunning) {
+      this.clockRunning = false;
+      this.clockFrozenAt = this._freezeTime(finishSeconds);
+      updates.push(setClock(this._page, this._clockStart, this.clockFrozenAt));
+    }
+    // Publish both flags at the measured finish, while the recording dot
+    // remains visible through any post-race footage. Placement comes later.
+    updates.push(setOverlay(this._page, this.dot, this.right));
+    updates.push(showMedal(this._page, null));
+    await Promise.all(updates);
+  }
+
+  async _clearFinish() {
+    if (this.right !== '\u{1F3C1}') return;
+    this.right = null;
+    await this._page.evaluate(() => {
+      document.getElementById('__race_medal')?.remove();
+    });
   }
 
   /**
    * @param {number|null} [finishSeconds] The racer's finish time in seconds
-   *   since the recording start, as the race API reports it. Falls back to the
+   *   since the race API's time base. Falls back to the
    *   current time when the caller has none.
    */
   async onStopRecording(finishSeconds = null) {
@@ -250,8 +278,8 @@ class OverlayController {
     this.dot = false;
     await setOverlay(this._page, false, this.right);
     if (this._wallClock && this.clockRunning) {
-      // Freeze on the finish time rather than removing the clock — the last
-      // frames of the video keep showing how long the racer took.
+      // Fallback for recordings without a measurement. A measured finish has
+      // already frozen the clock in onMeasureEnd, before any post-race wait.
       this.clockRunning = false;
       this.clockFrozenAt = frozenAt;
       await setClock(this._page, this._clockStart, frozenAt);

@@ -44,13 +44,24 @@ function seekAllWithVerify(targetStart) {
     const expected = ct && isValidClipEntry(ct[i]) ? ct[i].start : targetStart;
     if (expected <= ZERO_START_THRESHOLD) return; // nothing to verify at start of video
     let seeks = 0;
+    const cancel = () => {
+      v.removeEventListener('seeked', reseek);
+      v.removeEventListener('canplay', reseek);
+      pendingSeekVerifications.delete(v);
+    };
     const reseek = () => {
+      if (pendingSeekVerifications.get(v) !== cancel) return;
+      if (Math.abs(v.currentTime - expected) <= SEEK_SNAP_TOLERANCE || seeks >= MAX_SEEK_RETRIES) {
+        cancel();
+        return;
+      }
       if (Math.abs(v.currentTime - expected) > SEEK_SNAP_TOLERANCE && seeks < MAX_SEEK_RETRIES) {
         seeks++;
         v.currentTime = Math.min(expected, Number.isFinite(v.duration) ? v.duration : expected);
         v.addEventListener('seeked', reseek, { once: true });
       }
     };
+    pendingSeekVerifications.set(v, cancel);
     v.addEventListener('seeked', reseek, { once: true });
     // Case 2 fallback: once data is available (canplay = readyState ≥ 3), make a
     // fresh attempt if still off — within the same shared budget.
