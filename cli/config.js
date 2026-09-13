@@ -464,11 +464,13 @@ function resolveViewportHeight(rawValue, label) {
  */
 export function applyOverrides(settings, boolFlags, kvFlags) {
   const s = { ...settings };
-  // `height` is the settings.json alias for `viewportHeight`, mirroring the --height CLI flag.
-  if (s.height !== undefined) {
+  // `height` is the settings.json alias for `viewportHeight`, mirroring the
+  // --height CLI flag. A null value means "not set", as for every other key —
+  // applyDefaults strips nulls, but it runs after this, so guard here too.
+  if (s.height != null) {
     s.viewportHeight = resolveViewportHeight(s.height, '"height" in settings.json');
-    delete s.height;
   }
+  delete s.height;
   if (boolFlags.has('parallel')) s.parallel = true;
   if (boolFlags.has('headless')) s.headless = true;
   if (boolFlags.has('overlay')) s.noOverlay = false;

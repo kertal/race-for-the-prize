@@ -3,15 +3,16 @@ function racerFinishResult(entries, results, racerIndex, videoTime) {
   const ct = entries?.[racerIndex];
   if (!ct || !Number.isFinite(videoTime)) return null;
   const measurements = ct.measurements || [];
+  // Video time of a measurement boundary: from the trace when the clip is
+  // calibrated, else from wall-clock time against the clip's wall-clock start.
+  const firstFrameTs = ct.traceCalibration?.firstFrameTs;
+  const toPts = (trace, wall) => {
+    if (Number.isFinite(trace) && Number.isFinite(firstFrameTs)) return (trace - firstFrameTs) / 1e6;
+    if (!Number.isFinite(wall) || !Number.isFinite(ct._wcStart)) return null;
+    return ct.start + wall - ct._wcStart;
+  };
   let endPts = -Infinity;
   for (const m of measurements) {
-    const toPts = (trace, wall) => {
-      if (Number.isFinite(trace) && Number.isFinite(ct.traceCalibration?.firstFrameTs)) {
-        return (trace - ct.traceCalibration.firstFrameTs) / 1e6;
-      }
-      if (!Number.isFinite(wall) || !Number.isFinite(ct._wcStart)) return null;
-      return ct.start + wall - ct._wcStart;
-    };
     const end = toPts(m.endTraceTs, m.endTime);
     if (end === null) return null;
     endPts = Math.max(endPts, end);
@@ -20,11 +21,12 @@ function racerFinishResult(entries, results, racerIndex, videoTime) {
   const sections = results?.filter(r => !r.isSyntheticTotal);
   if (!sections?.length) return null;
   const count = sections[0].durations?.length;
-  if (!count || sections.some(r => r.durations?.length !== count || r.durations.some(d => !Number.isFinite(d)))) return null;
-  const durations = Array.from({ length: count }, (_, i) => sections.reduce((sum, r) => sum + r.durations[i], 0));
-  const duration = durations?.[racerIndex];
   // Missing/error results must not turn an incomplete race into a winner.
-  if (!durations || durations.some(d => !Number.isFinite(d)) || !Number.isFinite(duration)) return null;
+  const complete = (r) => Array.isArray(r.durations) && r.durations.length === count && r.durations.every(Number.isFinite);
+  if (!count || !sections.every(complete)) return null;
+  const durations = Array.from({ length: count }, (_, i) => sections.reduce((sum, r) => sum + r.durations[i], 0));
+  const duration = durations[racerIndex];
+  if (!Number.isFinite(duration)) return null;
   // Match the summary's 10ms tolerance for a multi-section total tie.
   const totalTie = sections.length > 1 && Math.max(...durations) - Math.min(...durations) <= 0.01;
   const place = totalTie ? 1 : 1 + durations.filter(d => d < duration).length;

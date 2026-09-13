@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { discoverRacers, resolveSharedRacerNames, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown, findValuelessKvFlags, parseNetworkList, parseCpuList, buildRaceConditions, InvalidSettingError } from '../cli/config.js';
+import { discoverRacers, resolveSharedRacerNames, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown, findValuelessKvFlags, findUnknownFlags, parseNetworkList, parseCpuList, buildRaceConditions, InvalidSettingError } from '../cli/config.js';
 
 let tmpDir;
 
@@ -385,6 +385,13 @@ describe('settings override', () => {
     expect(s.wallClock).toBe(false);
   });
 
+  it('parseArgs recognises --wall-clock as a boolean-valued flag', () => {
+    expect(parseArgs(['dir', '--wall-clock']).boolFlags.has('wall-clock')).toBe(true);
+    expect(parseArgs(['dir', '--wall-clock', 'false']).kvFlags['wall-clock']).toBe('false');
+    expect(parseArgs(['dir', '--wall-clock=0']).kvFlags['wall-clock']).toBe('0');
+    expect(findUnknownFlags(new Set(['wall-clock']), {})).toEqual([]);
+  });
+
   it('preserves settings when no overrides', () => {
     const orig = { parallel: true, network: 'fast-3g', cpuThrottle: 2 };
     const s = applyOverrides(orig, new Set(), {});
@@ -433,6 +440,12 @@ describe('settings override', () => {
     expect(applyOverrides({ height: 9999 }, new Set(), {}).viewportHeight).toBe(4320);
     expect(applyOverrides({ height: 999.7 }, new Set(), {}).viewportHeight).toBe(1000);
     expect(applyOverrides({ height: 'abc' }, new Set(), {}).viewportHeight).toBe(720);
+  });
+
+  it('settings.json "height": null means unset, not 0 clamped to the minimum', () => {
+    const s = applyOverrides({ height: null }, new Set(), {});
+    expect(s.viewportHeight).toBeUndefined();
+    expect(s.height).toBeUndefined();
   });
 
   it('CLI --height overrides settings.json "height"', () => {
