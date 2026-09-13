@@ -431,6 +431,13 @@ describe('settings override', () => {
     expect(s.height).toBeUndefined();
   });
 
+  it('settings.json "height" that is neither string nor number falls back to 720 like --height', () => {
+    expect(applyOverrides({ height: true }, new Set(), {}).viewportHeight).toBe(720);
+    expect(applyOverrides({ height: false }, new Set(), {}).viewportHeight).toBe(720);
+    expect(applyOverrides({ height: [900] }, new Set(), {}).viewportHeight).toBe(720);
+    expect(applyOverrides({ height: { px: 900 } }, new Set(), {}).viewportHeight).toBe(720);
+  });
+
   it('CLI --height overrides settings.json "height"', () => {
     const s = applyOverrides({ height: 1080 }, new Set(), { height: '900' });
     expect(s.viewportHeight).toBe(900);

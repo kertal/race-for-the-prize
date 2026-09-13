@@ -437,7 +437,12 @@ const VIEWPORT_HEIGHT_DEFAULT = 720;
 
 /** Coerce a raw height value (CLI --height flag or settings.json `height`) to a valid viewportHeight. */
 function resolveViewportHeight(rawValue, label) {
-  const height = Number(rawValue);
+  // Only strings and numbers can be a height. settings.json keeps JSON types,
+  // and Number(true) is 1 and Number([900]) is 900 — a boolean or array would
+  // otherwise clamp or pass instead of taking the same non-numeric fallback the
+  // CLI's "true" gets.
+  const coercible = typeof rawValue === 'number' || typeof rawValue === 'string';
+  const height = coercible ? Number(rawValue) : NaN;
   if (!Number.isFinite(height)) {
     console.error(`Warning: ${label} "${rawValue}" is not numeric, using default ${VIEWPORT_HEIGHT_DEFAULT}`);
     return VIEWPORT_HEIGHT_DEFAULT;
