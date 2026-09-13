@@ -114,14 +114,14 @@ function convertWithFFmpeg(blob, format, ui, opts = {}) {
   window.addEventListener('pagehide', revokeOutUrl, { once: true });
 
   let activeFF = null;
-  // ffmpeg's own `progress` ratio is always 0 for our input (MediaRecorder
-  // webm has no Duration header), so derive the percentage from `time` (µs of
-  // output encoded so far) against the wall-clock duration measured while
-  // recording. Without this the bar sits frozen for the whole encode.
-  const encodeDurationUs = (clipRange ? clipRange.end - clipRange.start : durationS) * 1e6;
+  // ffmpeg's own progress ratio is useless for our input (see
+  // export-progress.cjs), so the bar follows `time` against the duration
+  // measured while recording. Without this it sits frozen for the whole encode.
+  const totalUs = encodeDurationUs(clipRange, durationS);
   const onProgress = ({ time }) => {
-    if (cancelled || !Number.isFinite(time) || !(encodeDurationUs > 0)) return;
-    const pct = Math.min(1, Math.max(0, time / encodeDurationUs));
+    if (cancelled) return;
+    const pct = conversionProgress(time, totalUs);
+    if (pct === null) return;
     progressFill.style.width = (50 + pct * 40).toFixed(1) + '%';
     statusEl.textContent = 'Converting to ' + format.toUpperCase() + '... ' + Math.round(pct * 100) + '%';
   };
