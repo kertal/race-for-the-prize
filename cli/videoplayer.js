@@ -64,6 +64,7 @@ const RUNTIME_FILES = [
   'finish-display.js', // show each placement at that racer's own finish
   'main.js',           // startup: initial verified seek + metadata pass
   'export-layout.cjs', // pure side-by-side export layout math (Node-testable)
+  'export-progress.cjs', // pure export-conversion progress math (Node-testable)
   'export-video.js',   // canvas side-by-side export + ffmpeg.wasm conversion
   'fullscreen.js',     // fullscreen mode
   'zip.cjs',           // pure CRC32/ZIP builder (Node-testable)
