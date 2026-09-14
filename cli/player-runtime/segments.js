@@ -99,7 +99,9 @@ function buildRacerFilter() {
   const racerDivs = playerContainer ? playerContainer.querySelectorAll('.racer') : [];
   for (let i = 0; i < raceVideos.length; i++) {
     const btn = document.createElement('button');
+    btn.type = 'button';
     btn.className = 'racer-filter-btn active';
+    btn.setAttribute('aria-pressed', 'true');
     btn.style.setProperty('--racer-color', racerColors[i]);
     btn.textContent = racerNames[i];
     btn.dataset.idx = i;
@@ -116,10 +118,12 @@ function buildRacerFilter() {
     if (isHidden) {
       hiddenRacers.delete(idx);
       btn.classList.add('active');
+      btn.setAttribute('aria-pressed', 'true');
       if (racerDivs[idx]) racerDivs[idx].style.display = '';
     } else {
       hiddenRacers.add(idx);
       btn.classList.remove('active');
+      btn.setAttribute('aria-pressed', 'false');
       if (racerDivs[idx]) racerDivs[idx].style.display = 'none';
     }
     recalcActiveClip();

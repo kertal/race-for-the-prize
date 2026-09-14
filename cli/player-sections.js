@@ -67,6 +67,8 @@ function buildMetricRowsHtml(ranking, winner) {
       color,
       name: escHtml(entry.name),
       barPct,
+      valueText: escHtml(entry.formatted),
+      barLabel: escHtml(`${entry.name}: ${entry.formatted}`),
       value: escHtml(entry.formatted) + delta,
       medal: winner === entry.name ? fill('profile-medal') : '',
     });
@@ -370,8 +372,9 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
     : '';
 
   /** Render one table (run rows + median/average rows) from a model entry. */
-  const buildTable = ({ runRows, medianRow, averageRow }) => fill('comparison-table', {
+  const buildTable = ({ runRows, medianRow, averageRow }, caption) => fill('comparison-table', {
     header,
+    caption: escHtml(`${caption} per run, by racer`),
     rows: runRows.map(row => fill('comparison-row', {
       label: row.label,
       cells: row.cells.map(cell => renderHtmlCell(cell, false)).join(''),
@@ -385,7 +388,7 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
   // --- Measurement comparisons ---
   for (const measurement of model.measurements) {
     body += fill('profile-heading', { title: escHtml(formatSectionTitle(measurement.name)) });
-    body += buildTable(measurement);
+    body += buildTable(measurement, formatSectionTitle(measurement.name));
   }
 
   // --- Performance metrics comparisons ---
@@ -394,7 +397,7 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
 
     for (const metric of scope.metrics) {
       body += fill('profile-subheading', { titleAttr: '', label: escHtml(metric.name) });
-      body += buildTable(metric);
+      body += buildTable(metric, `${metric.name} (${scope.title})`);
     }
   }
 
@@ -402,9 +405,9 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
 }
 
 export function buildFilesHtml(racers, videoFiles, options) {
-  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, altFormat, altFiles, placementOrder } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, altFormat, altFiles, displayOrder } = options;
   const links = [];
-  const order = placementOrder || racers.map((_, i) => i);
+  const order = displayOrder || racers.map((_, i) => i);
 
   order.forEach(i => {
     if (videoFiles[i]) links.push(render(T['file-link'], { href: escHtml(videoFiles[i]), attrs: '', text: `${escHtml(racers[i])} (race)` }));
@@ -450,24 +453,24 @@ export function buildFilesHtml(racers, videoFiles, options) {
   });
 }
 
-export function buildDebugPanelHtml(racers, placementOrder, clipTimes) {
-  const orderedClipTimes = placementOrder.map(i => clipTimes[i] || null);
+export function buildDebugPanelHtml(racers, displayOrder, clipTimes) {
+  const orderedClipTimes = displayOrder.map(i => clipTimes[i] || null);
 
-  const debugRows = placementOrder.map((origIdx, displayIdx) => {
+  const debugRows = displayOrder.map((origIdx, displayIdx) => {
     const clip = orderedClipTimes[displayIdx];
     const startVal = clip && Number.isFinite(clip.start) ? clip.start.toFixed(3) : '0.000';
     return render(T['debug-row'], { displayIdx, racerNameSpan: racerName(racers, origIdx), startVal });
   }).join('');
 
-  const statsRows = placementOrder.map((origIdx, displayIdx) =>
+  const statsRows = displayOrder.map((origIdx, displayIdx) =>
     render(T['debug-stats-row'], { displayIdx, racerNameSpan: racerName(racers, origIdx) })
   ).join('\n');
 
-  const frameRows = placementOrder.map((origIdx, displayIdx) =>
+  const frameRows = displayOrder.map((origIdx, displayIdx) =>
     render(T['debug-frame-row'], { displayIdx, racerNameSpan: racerName(racers, origIdx) })
   ).join('\n');
 
-  const timingRows = placementOrder.map((origIdx, displayIdx) =>
+  const timingRows = displayOrder.map((origIdx, displayIdx) =>
     render(T['debug-timing-racer'], { displayIdx, racerNameSpan: racerName(racers, origIdx) })
   ).join('\n');
 

@@ -44,6 +44,8 @@ function onFullscreenChange() {
   if (fullscreenBtn) {
     fullscreenBtn.textContent = fs ? '\u2716' : '\u26F6';
     fullscreenBtn.title = fs ? 'Exit fullscreen (Esc)' : 'Fullscreen (F)';
+    fullscreenBtn.setAttribute('aria-pressed', String(fs));
+    fullscreenBtn.setAttribute('aria-label', fs ? 'Exit fullscreen' : 'Toggle fullscreen');
   }
   if (fs) {
     // Compute optimal grid columns: ceil(sqrt(visibleCount))
