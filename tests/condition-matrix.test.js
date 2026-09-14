@@ -7,6 +7,7 @@ import {
   buildConditionIndexHtml,
   buildMatrixCsv,
   matrixCsvFilename,
+  matrixBundleFilename,
   TOTAL_TIME_METRIC,
 } from '../cli/condition-matrix.js';
 import { SKINS_DIR } from '../cli/skins.js';
@@ -811,8 +812,8 @@ describe('buildConditionIndexHtml CSV download', () => {
     // file, so a dead button would be worse than none.
     const html = buildConditionIndexHtml('lauda vs hunt', entries);
 
-    expect(html).toMatch(/<button [^>]*id="download"[^>]* hidden>/);
-    expect(html).toContain('downloadBtn.hidden = false;');
+    expect(html).toMatch(/<button [^>]*id="download-csv"[^>]* hidden>/);
+    expect(html).toContain('csvBtn.hidden = false;');
   });
 
   it('embeds the very CSV buildMatrixCsv produces', () => {
@@ -831,6 +832,62 @@ describe('buildConditionIndexHtml CSV download', () => {
     expect(embeddedCsv(html)).toContain('</script><script>alert(1)</script>');
     expect(html).not.toContain('<script>alert(1)');
     expect(html.match(/<script>/g)).toHaveLength(1);
+  });
+});
+
+describe('buildConditionIndexHtml report bundle', () => {
+  const entries = [
+    { label: 'none-cpu1x', network: 'none', cpu: 1, summary: summaryOf({ lauda: 1, hunt: 2 }, 'lauda') },
+    { label: 'slow-3g cpu4x', network: 'slow-3g', cpu: 4, summary: summaryOf({ lauda: 4, hunt: 3 }, 'hunt') },
+  ];
+
+  it('offers a ZIP button named after the race', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', entries);
+
+    expect(html).toContain('data-filename="lauda-vs-hunt-report.zip"');
+    expect(html).toContain('Download full report (ZIP)');
+  });
+
+  it('hides the button until the runtime wires it up', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', entries);
+
+    expect(html).toMatch(/<button [^>]*id="download-zip"[^>]* hidden>/);
+    expect(html).toContain('bundleBtn.hidden = false;');
+  });
+
+  it('ships the ZIP builder and the bundler with the page', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', entries);
+
+    // The runtime is inlined, so the page needs no network for its own code.
+    expect(html).toContain('function createZipBuilder()');
+    expect(html).toContain('function collectReport(');
+    expect(html).toContain('function isBundleablePath(');
+  });
+
+  it('leaves the cell links as the bundler\'s source of truth', () => {
+    // The runtime discovers what to fetch from the matrix itself, so every
+    // condition must stay reachable as a link with its directory in the href.
+    const html = buildConditionIndexHtml('lauda vs hunt', entries);
+
+    expect(html).toContain('href="none-cpu1x/index.html"');
+    expect(html).toContain(`href="${encodeURIComponent('slow-3g cpu4x')}/index.html"`);
+  });
+
+  it('wraps the whole runtime in one script element', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', entries);
+
+    expect(html.match(/<script>/g)).toHaveLength(1);
+    expect(html).toContain('(function() {');
+  });
+});
+
+describe('matrixBundleFilename', () => {
+  it('slugifies the race title', () => {
+    expect(matrixBundleFilename('lauda vs hunt')).toBe('lauda-vs-hunt-report.zip');
+  });
+
+  it('falls back to a generic name when the title slugifies to nothing', () => {
+    expect(matrixBundleFilename('🏆')).toBe('race-report.zip');
   });
 });
 

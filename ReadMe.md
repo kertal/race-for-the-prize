@@ -332,7 +332,10 @@ One race per condition tells you who won each; the matrix tells you how the fiel
 
 The HTML matrix also has a **Compare** picker: switch the whole grid from total time to any performance-profile metric that was captured — network transfer, request count, script execution, layout time, TTFB, FCP, LCP, CLS, DOM timings, JS heap — for the measured section or the total recording. Bars rescale to the chosen metric, and a cell is only called a win when the difference clears that metric's significance threshold; anything smaller shows as a tie.
 
-Under the matrix sits **Download all results (CSV)**: the whole thing flattened to one row per condition × metric × racer — condition, network, CPU, metric, racer, raw value, formatted value, delta and outcome (`win`/`tie`) — including the metrics the picker is currently hiding. The CSV is embedded in `index.html`, so the download works straight from disk, with no server and no other files.
+Under the matrix sit two downloads:
+
+- **Download all results (CSV)** — the whole matrix flattened to one row per condition × metric × racer: condition, network, CPU, metric, racer, raw value, formatted value, delta and outcome (`win`/`tie`), including the metrics the picker is currently hiding. The CSV is embedded in `index.html`, so this one works straight from disk, with no server and no other files.
+- **Download full report (ZIP)** — the entire report in one archive: this page, every condition's own results page under its own folder, and every file those pages link (race and full videos, the side-by-side cut, traces, HARs, race scripts, `settings.json`). Entries keep their relative paths, so unzipping gives you a working copy of the results directory — open `index.html`, click through to a condition, play the videos. It fetches as it goes, showing progress and turning into a **Cancel** button; a file it can't reach is skipped and named rather than sinking the archive. This one needs the results served over HTTP, which is what a finished race does — opened from a `file://` path the browser blocks reading the sibling pages, and the button says so.
 
 The `--runs` flag takes the median, smoothing out noise and giving you a number you can trust. In multi-run mode, each racer independently picks the run closest to their own median — so if Racer A performed best in Run 2 and Racer B in Run 4, each gets their own representative video. The results page shows which runs were selected (e.g., "Runs 2, 4").
 
@@ -587,6 +590,7 @@ RaceForThePrize/
 │   ├── condition-matrix.js # Cross-condition performance matrix (terminal + HTML)
 │   ├── condition-matrix.html # Condition matrix markup + build-time templates
 │   ├── condition-matrix.css  # Condition matrix component styles
+│   ├── matrix-runtime/     # Condition matrix client-side runtime (metric picker, CSV + ZIP downloads)
 │   ├── skins.js            # Skin resolution for --skin
 │   ├── skins/              # Built-in player skins (light, neon)
 │   ├── summary.js          # Results formatting & markdown reports

@@ -22,7 +22,9 @@
  *
  * The overview summarises; buildMatrixCsv() hands over everything behind it —
  * one row per condition × metric × racer — embedded in the page so the download
- * button needs nothing but the single index.html file.
+ * button needs nothing but the single index.html file. Taking the whole report
+ * instead is the page runtime's job (matrix-runtime/bundle.js): it walks the
+ * links this file emits and zips up every page and file they lead to.
  */
 
 import fs from 'node:fs';
@@ -43,6 +45,17 @@ const { shell: SHELL, fill } = loadTemplates(path.join(__dirname, 'condition-mat
 /** Shared palette first, then this page's own component rules. */
 const CSS = fs.readFileSync(path.join(__dirname, 'tokens.css'), 'utf-8') + '\n'
   + fs.readFileSync(path.join(__dirname, 'condition-matrix.css'), 'utf-8');
+
+// Browser-side page runtime, split into concern-scoped files under
+// matrix-runtime/ and concatenated in dependency order into the single IIFE the
+// page ships — the same arrangement videoplayer.js uses for player-runtime/.
+// The .cjs files are pure and Node-requirable for tests; zip.cjs is the
+// player's ZIP builder, reused here rather than written twice.
+const RUNTIME = [
+  path.join(__dirname, 'player-runtime', 'zip.cjs'),  // pure CRC32/ZIP builder
+  ...['bundle-paths.cjs', 'picker.js', 'download.js', 'bundle.js']
+    .map(file => path.join(__dirname, 'matrix-runtime', file)),
+].map(file => fs.readFileSync(file, 'utf-8')).join('\n');
 
 const WIN_MEDAL = '🏆';
 const TIE_MEDAL = '🤝';
@@ -325,10 +338,19 @@ export function buildMatrixCsv(matrix) {
   return rows.map(row => row.map(csvField).join(',')).join('\n') + '\n';
 }
 
+/** The download filenames' shared stem, derived from the race title. */
+function raceSlug(raceTitle) {
+  return String(raceTitle).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'race';
+}
+
 /** Download filename for a race's CSV, derived from its title. */
 export function matrixCsvFilename(raceTitle) {
-  const slug = String(raceTitle).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  return `${slug || 'race'}-matrix.csv`;
+  return `${raceSlug(raceTitle)}-matrix.csv`;
+}
+
+/** Download filename for the whole report bundle, derived from its title. */
+export function matrixBundleFilename(raceTitle) {
+  return `${raceSlug(raceTitle)}-report.zip`;
 }
 
 // ---------------------------------------------------------------------------
@@ -550,12 +572,13 @@ export function buildConditionIndexHtml(raceTitle, entries, options = {}) {
       const tally = tallyLine(matrix, metric.key);
       return tally ? `Conditions won: ${escHtml(tally)}` : '';
     }),
-    download: fill('download', {
-      filename: escHtml(matrixCsvFilename(raceTitle)),
+    actions: fill('actions', {
+      csvFilename: escHtml(matrixCsvFilename(raceTitle)),
+      zipFilename: escHtml(matrixBundleFilename(raceTitle)),
       // The CSV rides along as a JSON string: JSON.parse gives it back
       // verbatim, and escaping '<' keeps any value from closing the script.
       csv: JSON.stringify(buildMatrixCsv(matrix)).replaceAll('<', String.raw`\u003c`),
     }),
-    scriptTag: fill('script'),
+    scriptTag: fill('script', { runtime: RUNTIME }),
   });
 }
