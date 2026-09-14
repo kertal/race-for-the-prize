@@ -1,7 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildConditionMatrix, printConditionMatrix, buildConditionIndexHtml, TOTAL_TIME_METRIC } from '../cli/condition-matrix.js';
+import {
+  buildConditionMatrix,
+  printConditionMatrix,
+  buildConditionIndexHtml,
+  buildMatrixCsv,
+  matrixCsvFilename,
+  matrixBundleFilename,
+  TOTAL_TIME_METRIC,
+} from '../cli/condition-matrix.js';
 import { SKINS_DIR } from '../cli/skins.js';
 
 const DURATION = TOTAL_TIME_METRIC.key;
@@ -390,6 +398,124 @@ describe('buildConditionMatrix profile metrics', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// CSV export
+// ---------------------------------------------------------------------------
+
+describe('buildMatrixCsv', () => {
+  /** Split one CSV line back into its fields, unquoting as it goes. */
+  const fieldsOf = (line) => {
+    const fields = [];
+    let field = '';
+    let quoted = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (quoted && ch === '"' && line[i + 1] === '"') { field += '"'; i++; }
+      else if (ch === '"') quoted = !quoted;
+      else if (ch === ',' && !quoted) { fields.push(field); field = ''; }
+      else field += ch;
+    }
+    fields.push(field);
+    return fields;
+  };
+
+  /** Parse the CSV back into rows of fields (no field here spans a newline). */
+  const rowsOf = (csv) => csv.trimEnd().split('\n').map(fieldsOf);
+
+  const withProfiles = () => buildConditionMatrix([
+    {
+      label: 'none-cpu1x',
+      title: 'Network: none · CPU: 1x',
+      network: 'none',
+      cpu: 1,
+      summary: summaryOf({ lauda: 1, hunt: 2 }, 'lauda', profilesOf(
+        { total: { lcp: 900 } },
+        { total: { lcp: 1800 } },
+      )),
+    },
+    {
+      label: 'slow-3g-cpu4x',
+      title: 'Network: slow-3g · CPU: 4x',
+      network: 'slow-3g',
+      cpu: 4,
+      summary: summaryOf({ lauda: 4, hunt: 4 }, 'tie', profilesOf(
+        { total: { lcp: 2400 } },
+        { total: { lcp: 2410 } },
+      )),
+    },
+  ]);
+
+  it('writes one row per condition, metric and racer under a header', () => {
+    const rows = rowsOf(buildMatrixCsv(withProfiles()));
+
+    expect(rows[0]).toEqual([
+      'condition', 'network', 'cpu', 'metric', 'metric_name', 'scope',
+      'racer', 'value', 'formatted', 'delta', 'outcome',
+    ]);
+    // 2 conditions x 2 metrics x 2 racers.
+    expect(rows).toHaveLength(1 + 8);
+  });
+
+  it('carries the raw value beside the value as the page formats it', () => {
+    const [, first] = rowsOf(buildMatrixCsv(withProfiles()));
+
+    expect(first).toEqual([
+      'Network: none · CPU: 1x', 'none', '1', 'duration', 'Total Time', 'Race Time',
+      'lauda', '1', '1.000s', '', 'win',
+    ]);
+  });
+
+  it('includes the metrics the picker hides, not just the visible one', () => {
+    const rows = rowsOf(buildMatrixCsv(withProfiles()));
+    const lcp = rows.filter(row => row[3] === 'total.lcp');
+
+    expect(lcp).toHaveLength(4);
+    expect(lcp[0].slice(4, 9)).toEqual(['Largest Contentful Paint (LCP)', 'Total Recording', 'lauda', '900', '900.0ms']);
+  });
+
+  it('marks every racer in a tied cell as a tie', () => {
+    const tied = rowsOf(buildMatrixCsv(withProfiles()))
+      .filter(row => row[0].includes('slow-3g') && row[3] === 'duration');
+
+    expect(tied.map(row => row[10])).toEqual(['tie', 'tie']);
+  });
+
+  it('keeps a row for a racer that recorded nothing, with empty values', () => {
+    const rows = rowsOf(buildMatrixCsv(buildConditionMatrix([
+      { label: 'a', title: 'A', network: 'none', cpu: 1, summary: summaryOf({ lauda: 1, hunt: null }, 'lauda') },
+    ])));
+
+    expect(rows).toHaveLength(3);
+    expect(rows[2].slice(6)).toEqual(['hunt', '', '', '', '']);
+  });
+
+  it('quotes fields that would otherwise break the row', () => {
+    const csv = buildMatrixCsv(buildConditionMatrix([
+      { label: 'a', title: 'Comma, "quoted"', network: 'none', cpu: 1, summary: summaryOf({ 'hunt, james': 1 }, 'hunt, james') },
+    ]));
+
+    expect(csv).toContain('"Comma, ""quoted"""');
+    expect(csv).toContain('"hunt, james"');
+    // One header row plus the single result, and nothing split across lines.
+    expect(csv.trimEnd().split('\n')).toHaveLength(2);
+  });
+
+  it('writes only a header for a race with no conditions', () => {
+    expect(buildMatrixCsv(buildConditionMatrix([])).trimEnd().split('\n')).toHaveLength(1);
+  });
+});
+
+describe('matrixCsvFilename', () => {
+  it('slugifies the race title', () => {
+    expect(matrixCsvFilename('lauda vs hunt')).toBe('lauda-vs-hunt-matrix.csv');
+    expect(matrixCsvFilename('Cache: on / off!')).toBe('cache-on-off-matrix.csv');
+  });
+
+  it('falls back to a generic name when the title slugifies to nothing', () => {
+    expect(matrixCsvFilename('🏆')).toBe('race-matrix.csv');
+  });
+});
+
 describe('printConditionMatrix', () => {
   const twoByTwo = () => buildConditionMatrix(gridEntries(
     ['none', 'slow-3g'], [1, 4],
@@ -651,6 +777,117 @@ describe('buildConditionIndexHtml matrix', () => {
       .split('\n')
       .filter(line => !line.includes('svg') && /#[0-9a-fA-F]{3,8}\b|\brgba?\(|var\(\s*--color-/.test(line));
     expect(offenders).toEqual([]);
+  });
+});
+
+describe('buildConditionIndexHtml CSV download', () => {
+  const entries = [
+    {
+      label: 'x',
+      title: 'Network: none · CPU: 1x',
+      network: 'none',
+      cpu: 1,
+      summary: summaryOf({ lauda: 1, hunt: 2 }, 'lauda', profilesOf(
+        { total: { lcp: 100 } },
+        { total: { lcp: 200 } },
+      )),
+    },
+  ];
+
+  /** The CSV the page carries, read back the way its runtime reads it. */
+  const embeddedCsv = (html) => {
+    const [, json] = html.match(/<script id="matrix-csv" type="application\/json">([\s\S]*?)<\/script>/);
+    return JSON.parse(json);
+  };
+
+  it('offers a download button named after the race', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', entries);
+
+    expect(html).toContain('data-filename="lauda-vs-hunt-matrix.csv"');
+    expect(html).toContain('Download all results (CSV)');
+  });
+
+  it('hides the button until the runtime wires it up', () => {
+    // Without JavaScript there is nothing to turn the embedded CSV into a
+    // file, so a dead button would be worse than none.
+    const html = buildConditionIndexHtml('lauda vs hunt', entries);
+
+    expect(html).toMatch(/<button [^>]*id="download-csv"[^>]* hidden>/);
+    expect(html).toContain('csvBtn.hidden = false;');
+  });
+
+  it('embeds the very CSV buildMatrixCsv produces', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', entries);
+
+    expect(embeddedCsv(html)).toBe(buildMatrixCsv(buildConditionMatrix(entries)));
+  });
+
+  it('keeps a hostile name from breaking out of the embedded block', () => {
+    const html = buildConditionIndexHtml('a vs b', [
+      { label: 'x', title: '</script><script>alert(1)</script>', summary: summaryOf({ '<img>': 1 }, '<img>') },
+    ]);
+
+    // The payload survives intact inside the data, but never as markup: the
+    // page still has exactly one real script element, its own runtime.
+    expect(embeddedCsv(html)).toContain('</script><script>alert(1)</script>');
+    expect(html).not.toContain('<script>alert(1)');
+    expect(html.match(/<script>/g)).toHaveLength(1);
+  });
+});
+
+describe('buildConditionIndexHtml report bundle', () => {
+  const entries = [
+    { label: 'none-cpu1x', network: 'none', cpu: 1, summary: summaryOf({ lauda: 1, hunt: 2 }, 'lauda') },
+    { label: 'slow-3g cpu4x', network: 'slow-3g', cpu: 4, summary: summaryOf({ lauda: 4, hunt: 3 }, 'hunt') },
+  ];
+
+  it('offers a ZIP button named after the race', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', entries);
+
+    expect(html).toContain('data-filename="lauda-vs-hunt-report.zip"');
+    expect(html).toContain('Download full report (ZIP)');
+  });
+
+  it('hides the button until the runtime wires it up', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', entries);
+
+    expect(html).toMatch(/<button [^>]*id="download-zip"[^>]* hidden>/);
+    expect(html).toContain('bundleBtn.hidden = false;');
+  });
+
+  it('ships the ZIP builder and the bundler with the page', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', entries);
+
+    // The runtime is inlined, so the page needs no network for its own code.
+    expect(html).toContain('function createZipBuilder()');
+    expect(html).toContain('function collectReport(');
+    expect(html).toContain('function isBundleablePath(');
+  });
+
+  it('leaves the cell links as the bundler\'s source of truth', () => {
+    // The runtime discovers what to fetch from the matrix itself, so every
+    // condition must stay reachable as a link with its directory in the href.
+    const html = buildConditionIndexHtml('lauda vs hunt', entries);
+
+    expect(html).toContain('href="none-cpu1x/index.html"');
+    expect(html).toContain(`href="${encodeURIComponent('slow-3g cpu4x')}/index.html"`);
+  });
+
+  it('wraps the whole runtime in one script element', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', entries);
+
+    expect(html.match(/<script>/g)).toHaveLength(1);
+    expect(html).toContain('(function() {');
+  });
+});
+
+describe('matrixBundleFilename', () => {
+  it('slugifies the race title', () => {
+    expect(matrixBundleFilename('lauda vs hunt')).toBe('lauda-vs-hunt-report.zip');
+  });
+
+  it('falls back to a generic name when the title slugifies to nothing', () => {
+    expect(matrixBundleFilename('🏆')).toBe('race-report.zip');
   });
 });
 

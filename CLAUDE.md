@@ -38,14 +38,15 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 - `animation.js` — live terminal race animation
 - `summary.js` — summary data model, terminal output, JSON/Markdown report generation
 - `race-utils.js` — overall-winner computation and `TIE_THRESHOLD_PERCENT`
-- `condition-matrix.js` — cross-condition overview for multi-condition races (network × CPU matrix model with a series per metric, terminal renderer, and the top-level `index.html` with its metric picker)
+- `condition-matrix.js` — cross-condition overview for multi-condition races (network × CPU matrix model with a series per metric, terminal renderer, CSV export of every single result, and the top-level `index.html` with its metric picker and downloads)
+- `matrix-runtime/` — browser-side runtime of that overview page (metric picker, CSV download, and the ZIP bundler that fetches every condition page and the files they link), concatenated into one IIFE by `condition-matrix.js` alongside `player-runtime/zip.cjs`, which both reports share
 - `profile-analysis.js` — CDP metric definitions (`PROFILE_METRICS`), comparison, terminal/Markdown rendering
 - `results.js` — moves recordings from temp dirs, video format conversion (WebM→MOV/GIF), ffmpeg.wasm asset copying
 - `sidebyside.js` — FFmpeg side-by-side video composition
 - `videoplayer.js` — assembles the HTML player from `player.html`/`player.css`/`player-runtime/`
 - `html-templates.js` — shared markup plumbing: `escHtml`, `{{placeholder}}` `render`, and `loadTemplates()`, which splits a `.html` file into its page shell and its `<template id="build-*">` fragments
 - `player-sections.js` — build-time HTML section builders (results table, comparisons, profile tables)
-- `player-runtime/` — browser-side player runtime split into concern-scoped files (playback, calibration, debug panel, export, ZIP) concatenated by `videoplayer.js` into one IIFE; the pure `.cjs` cores (calibration, export layout, ZIP/CRC32) are also requirable from Node for tests
+- `player-runtime/` — browser-side player runtime split into concern-scoped files (playback, calibration, debug panel, export, ZIP) concatenated by `videoplayer.js` into one IIFE; the pure `.cjs` cores (calibration, export layout, ZIP/CRC32) are also requirable from Node for tests, and `zip.cjs` is reused by the condition matrix page
 - `skins.js` — resolves `--skin` (built-in name or `.css` path) to inlinable CSS; built-in skins live in `skins/`
 - `gemini-summary.js` — optional Gemini CLI integration (post-race commentary, spec generation)
 - `colors.js` — ANSI color codes (media constants re-exported for compatibility; import them from `media-config.js`)

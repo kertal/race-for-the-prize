@@ -22,10 +22,23 @@
     </table>
   </div>
 {{legend}}  <p class="tally">{{tallies}}</p>
-</div>
+{{actions}}</div>
 <!-- Trailing whitespace up to one newline is trimmed, so the blank line below
      is what keeps this fragment's own line break before the tally that follows. -->
 <template id="build-legend">  <p class="legend">{{text}}</p>
+
+</template>
+
+<!-- Two ways to take the report with you: the whole matrix as CSV, embedded
+     right here so it needs nothing but this file, and the full report as a ZIP,
+     which the runtime fetches page by page. Both buttons stay hidden until that
+     runtime reveals them — without it neither can produce a file. -->
+<template id="build-actions">  <p class="actions">
+    <button type="button" id="download-csv" data-filename="{{csvFilename}}" hidden>⬇ Download all results (CSV)</button>
+    <button type="button" id="download-zip" data-filename="{{zipFilename}}" hidden>⬇ Download full report (ZIP)</button>
+    <span class="status" id="bundle-status" role="status"></span>
+  </p>
+  <script id="matrix-csv" type="application/json">{{csv}}</script>
 
 </template>
 
@@ -53,20 +66,13 @@
 
 <template id="build-picker-option"><option value="{{key}}">{{name}}</option></template>
 
+<!-- The page runtime: cli/matrix-runtime/*, concatenated into this one IIFE
+     the way the results player assembles cli/player-runtime/*. -->
 <template id="build-script">
 <script>
-  // Every metric is already rendered; switching just flips which one shows.
-  var picker = document.getElementById('metric');
-  function showSelectedMetric() {
-    var blocks = document.querySelectorAll('.m[data-metric]');
-    for (var i = 0; i < blocks.length; i++) {
-      blocks[i].hidden = blocks[i].getAttribute('data-metric') !== picker.value;
-    }
-  }
-  picker.addEventListener('change', showSelectedMetric);
-  // Browsers restore the previous selection on reload, so sync once at startup
-  // rather than trusting the server-rendered default to still match.
-  showSelectedMetric();
+(function() {
+{{runtime}}
+})();
 </script></template>
 
 {{scriptTag}}
