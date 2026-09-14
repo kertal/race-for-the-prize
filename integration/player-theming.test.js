@@ -141,9 +141,11 @@ describeMaybe('player theming integration', () => {
     });
 
     it('leaves a tie-run button on the neutral resting colours', async () => {
+      // Two runs: a series of one has no run buttons to navigate.
+      const tie = { ...summary, overallWinner: 'tie' };
       const url = writePlayer('tie-run', {
-        runNavigation: { currentRun: 'median', totalRuns: 1, pathPrefix: '' },
-        runSummaries: [{ ...summary, overallWinner: 'tie' }],
+        runNavigation: { currentRun: 'median', totalRuns: 2, pathPrefix: '' },
+        runSummaries: [tie, tie],
       });
       const buttons = await runNavStyles(url);
       const run1 = buttons.find(b => b.label === 'Run 1');

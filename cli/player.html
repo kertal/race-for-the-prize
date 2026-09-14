@@ -107,10 +107,11 @@
   <div class="section-body">{{body}}</div>
 </details></template>
 
-<!-- Run navigation across a multi-run race. -->
+<!-- Navigation across a multi-run race and back to a multi-condition overview. -->
 <template id="build-run-nav"><div class="run-nav">{{items}}</div></template>
 <template id="build-run-nav-current"><span class="{{cls}}"{{style}} aria-current="page">{{label}}</span></template>
 <template id="build-run-nav-link"><a class="{{cls}}"{{style}} href="{{href}}">{{label}}</a></template>
+<template id="build-run-nav-title"><span class="run-nav-title">{{label}}</span></template>
 
 <!-- Key/value grids under Run Info. -->
 <template id="build-info-grid"><div class="{{cls}}">{{items}}</div></template>

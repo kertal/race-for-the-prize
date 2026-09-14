@@ -112,10 +112,39 @@ function buildSectionMeasuredComparisons(rawProfileMetrics, racers) {
 // Section Builders
 // ---------------------------------------------------------------------------
 
+/**
+ * The navigation bar above the header: the way back to the condition overview
+ * when this report is one cell of a multi-condition race, and the Median/Run
+ * buttons when it is one report of a multi-run race. Either half may be absent;
+ * with neither, no bar is rendered at all.
+ *
+ * @param {object|null} runNav
+ * @param {number|'median'} runNav.currentRun - which report this is
+ * @param {number} runNav.totalRuns - run buttons appear only when above 1
+ * @param {string} runNav.pathPrefix - relative path from this report to the series root
+ * @param {{title: string}} [runNav.overview] - the condition this report was
+ *   raced under; links back to the performance matrix one level above the series
+ */
 export function buildRunNavHtml(runNav, racers, runSummaries) {
   if (!runNav) return '';
-  const { currentRun, totalRuns, pathPrefix } = runNav;
+  const { currentRun, totalRuns, pathPrefix, overview } = runNav;
 
+  let items = overview ? buildOverviewNavItems(overview, pathPrefix) : '';
+  if (totalRuns > 1) items += buildRunNavItems(currentRun, totalRuns, pathPrefix, racers, runSummaries);
+  return items ? fill('run-nav', { items }) : '';
+}
+
+/** "All conditions" link plus the current condition's title as inert text. */
+function buildOverviewNavItems(overview, pathPrefix) {
+  return fill('run-nav-link', {
+    cls: 'run-nav-btn run-nav-back',
+    style: '',
+    href: `${escHtml(pathPrefix)}../index.html`,
+    label: '&larr; All conditions',
+  }) + fill('run-nav-title', { label: escHtml(overview.title) });
+}
+
+function buildRunNavItems(currentRun, totalRuns, pathPrefix, racers, runSummaries) {
   // Map each run's overall winner to a CSS color
   const winnerColors = [];
   if (runSummaries && racers) {
@@ -149,7 +178,7 @@ export function buildRunNavHtml(runNav, racers, runSummaries) {
       `Run ${i}`
     );
   }
-  return fill('run-nav', { items });
+  return items;
 }
 
 export function buildRaceInfoHtml(summary) {

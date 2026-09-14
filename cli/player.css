@@ -173,6 +173,16 @@ h1 {
 .run-nav-btn.has-winner { border-color: var(--racer-color, var(--border)); }
 .run-nav-btn.has-winner:not(.active) { color: var(--text-bright); }
 .run-nav-btn.active { cursor: default; }
+/* One cell of a multi-condition race: the way back to the matrix, then the
+   condition this report was raced under. The title is plain text so it never
+   reads as a third button, and a gap sets it off from the run buttons. */
+.run-nav-title {
+  color: var(--text-dim);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-base);
+  padding: 0.3rem 0;
+  margin-right: 0.8rem;
+}
 
 /* --- Header -------------------------------------------------------------- */
 .header-bar {

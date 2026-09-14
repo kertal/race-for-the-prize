@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { formatTimestamp, buildResultsPaths, buildConditionIndexHtml, waitForEnter, findMissingBrowser } from '../race.js';
+import { formatTimestamp, buildResultsPaths, reportStorageScope, buildConditionIndexHtml, waitForEnter, findMissingBrowser } from '../race.js';
 
 describe('findMissingBrowser', () => {
   const playwright = executablePath => async () => ({ chromium: { executablePath: () => executablePath } });
@@ -80,6 +80,38 @@ describe('buildResultsPaths', () => {
     const { relResults, relHtml } = buildResultsPaths('/project/results', '/project/results');
     expect(relResults).toBe('');
     expect(relHtml).toBe('index.html');
+  });
+});
+
+describe('reportStorageScope', () => {
+  it('names a report by its race directory and results path', () => {
+    expect(reportStorageScope('/r/lauda-vs-hunt/results-2024', '/r/lauda-vs-hunt')).toBe('lauda-vs-hunt/results-2024');
+  });
+
+  it('keeps every run and condition of one race apart', () => {
+    const race = '/r/lauda-vs-hunt';
+    const scopes = [
+      reportStorageScope(`${race}/results-2024/slow-3g`, race),
+      reportStorageScope(`${race}/results-2024/slow-3g/1`, race),
+      reportStorageScope(`${race}/results-2024/slow-3g/2`, race),
+      reportStorageScope(`${race}/results-2024/4g`, race),
+    ];
+    expect(scopes).toEqual([
+      'lauda-vs-hunt/results-2024/slow-3g',
+      'lauda-vs-hunt/results-2024/slow-3g/1',
+      'lauda-vs-hunt/results-2024/slow-3g/2',
+      'lauda-vs-hunt/results-2024/4g',
+    ]);
+    expect(new Set(scopes).size).toBe(scopes.length);
+  });
+
+  it('keeps two races that reuse a results name apart', () => {
+    expect(reportStorageScope('/r/a-vs-b/results-2024', '/r/a-vs-b'))
+      .not.toBe(reportStorageScope('/r/c-vs-d/results-2024', '/r/c-vs-d'));
+  });
+
+  it('uses the full path when no race directory is known', () => {
+    expect(reportStorageScope('/tmp/results-2024/1')).toBe('/tmp/results-2024/1');
   });
 });
 

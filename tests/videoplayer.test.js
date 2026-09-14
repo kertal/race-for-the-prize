@@ -627,6 +627,63 @@ describe('buildRunNavHtml winner colors', () => {
   });
 });
 
+// --- Run nav: the way back from one condition's report to the matrix ---
+
+describe('buildRunNavHtml condition overview', () => {
+  const racers = ['lauda', 'hunt'];
+  const overview = { title: 'Network: slow-3g · CPU: 4x' };
+
+  it('links a single-run condition report back to the matrix one level up', () => {
+    const html = buildRunNavHtml({ currentRun: 1, totalRuns: 1, pathPrefix: '', overview }, racers, null);
+    expect(html).toContain('<div class="run-nav">');
+    expect(html).toMatch(/<a class="run-nav-btn run-nav-back" href="\.\.\/index\.html">&larr; All conditions<\/a>/);
+    expect(html).toContain('<span class="run-nav-title">Network: slow-3g · CPU: 4x</span>');
+    // A single run has no series to navigate
+    expect(html).not.toContain('Median');
+    expect(html).not.toContain('Run 1');
+  });
+
+  it('climbs past the run directory from a per-run report', () => {
+    const html = buildRunNavHtml({ currentRun: 2, totalRuns: 3, pathPrefix: '../', overview }, racers, null);
+    expect(html).toContain('href="../../index.html">&larr; All conditions');
+    // …and the run buttons still resolve against the series root as before
+    expect(html).toContain('href="../index.html">Median');
+    expect(html).toContain('href="../1/index.html">Run 1');
+  });
+
+  it('puts the back link before the run buttons on the median report', () => {
+    const html = buildRunNavHtml({ currentRun: 'median', totalRuns: 2, pathPrefix: '', overview }, racers, null);
+    expect(html.indexOf('All conditions')).toBeLessThan(html.indexOf('Median'));
+    expect(html).toContain('href="../index.html">&larr; All conditions');
+  });
+
+  it('escapes the condition title', () => {
+    const html = buildRunNavHtml({ currentRun: 1, totalRuns: 1, pathPrefix: '', overview: { title: '<b>&' } }, racers, null);
+    expect(html).toContain('<span class="run-nav-title">&lt;b&gt;&amp;</span>');
+  });
+
+  it('renders no bar at all for a single-run race outside a matrix', () => {
+    expect(buildRunNavHtml({ currentRun: 1, totalRuns: 1, pathPrefix: '' }, racers, null)).toBe('');
+  });
+});
+
+// --- localStorage scoping ---
+
+describe('buildPlayerHtml storage scope', () => {
+  it('stamps the report with its storage scope', () => {
+    const html = withOptions({ storageScope: 'results-2025-06-01/slow-3g/2' });
+    expect(getRaceConfig(html).storageScope).toBe('results-2025-06-01/slow-3g/2');
+  });
+
+  it('records a null scope when none was given', () => {
+    expect(getRaceConfig(defaultHtml).storageScope).toBeNull();
+  });
+
+  it('keys the notes on the scope, falling back to the page path', () => {
+    expect(defaultHtml).toContain("'race-notes:' + (raceConfig.storageScope || location.pathname)");
+  });
+});
+
 // --- Clip times (default mode, without --ffmpeg) ---
 
 describe('buildPlayerHtml clipTimes', () => {

@@ -227,6 +227,17 @@ function buildClipTimes(racerNames, getBrowserData, ffmpeg) {
 }
 
 /**
+ * The localStorage namespace of one report: the race directory's name plus the
+ * report's results path within it ("lauda-vs-hunt/results-…/slow-3g/2"), so a
+ * run, a condition and a whole race each keep their own notes even when served
+ * from the same origin.
+ */
+export function reportStorageScope(runDir, raceDir = null) {
+  const scope = raceDir ? path.join(path.basename(raceDir), path.relative(raceDir, runDir)) : runDir;
+  return scope.split(path.sep).join('/');
+}
+
+/**
  * Write the player HTML and optionally copy FFmpeg files into runDir.
  *
  * @param {object} options
@@ -248,6 +259,7 @@ function writePlayerAndAssets({ runDir, summary, settings, videoFiles, playerExt
     ffmpegPathPrefix: raceOptions.ffmpegPathPrefix || './',
     skin: settings.skin,
     skinBaseDir: raceDir,
+    storageScope: reportStorageScope(runDir, raceDir),
   };
   fs.writeFileSync(
     path.join(runDir, 'index.html'),
@@ -965,6 +977,14 @@ const multiCondition = raceConditions.length > 1;
 const baseResultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}-${crypto.randomBytes(3).toString('hex')}`);
 // In multi-condition mode this is reassigned per condition (baseResultsDir/<label>).
 let resultsDir = baseResultsDir;
+// In multi-condition mode, the condition currently being raced — every report
+// written under it links back to the performance matrix in baseResultsDir.
+let conditionOverview = null;
+
+/** Navigation for one report: its place in the run series, plus the way back to the matrix. */
+function makeRunNav(currentRun, totalRuns, pathPrefix) {
+  return { currentRun, totalRuns, pathPrefix, ...(conditionOverview && { overview: conditionOverview }) };
+}
 
 // --- Main ---
 
@@ -1056,7 +1076,7 @@ function updateRunNavColors(summaries) {
     let html = fs.readFileSync(htmlPath, 'utf-8');
     const oldNavMatch = html.match(/<div class="run-nav">[\s\S]*?<\/div>/);
     if (!oldNavMatch) continue;
-    const runNav = { currentRun: i + 1, totalRuns: summaries.length, pathPrefix: '../' };
+    const runNav = makeRunNav(i + 1, summaries.length, '../');
     const newNav = buildRunNavHtml(runNav, racerNames, summaries);
     html = html.replace(oldNavMatch[0], newNav);
     fs.writeFileSync(htmlPath, html);
@@ -1114,7 +1134,7 @@ async function runRaceSeries() {
 /** Normal mode: all racers run together, once per run. */
 async function runNormalModeSeries() {
   if (totalRuns === 1) {
-    const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir);
+    const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir, makeRunNav(1, 1, ''));
     printSummary(summary);
     generateGeminiCommentary(summary, resultsDir);
     // Re-write summary.json with gemini commentary included
@@ -1129,7 +1149,7 @@ async function runNormalModeSeries() {
 
   for (let i = 0; i < totalRuns; i++) {
     console.error(`\n  ${c.bold}${c.cyan}── Run ${i + 1} of ${totalRuns} ──${c.reset}`);
-    const runNav = { currentRun: i + 1, totalRuns, pathPrefix: '../' };
+    const runNav = makeRunNav(i + 1, totalRuns, '../');
     const { summary, sideBySidePath, sideBySideName, clipTimes: runClipTimes } = await runSingleRace(ctx, path.join(resultsDir, String(i + 1)), runNav, { skipCopyFFmpeg: true, ffmpegPathPrefix: '../' });
     printSummary(summary);
     summaries.push(summary);
@@ -1185,7 +1205,7 @@ async function runSplitModeSeries() {
   const summaries = [], allClipTimes = [];
   for (let i = 0; i < totalRuns; i++) {
     const runDir = multiRun ? path.join(resultsDir, String(i + 1)) : resultsDir;
-    const runNav = multiRun ? { currentRun: i + 1, totalRuns, pathPrefix: '../' } : null;
+    const runNav = multiRun ? makeRunNav(i + 1, totalRuns, '../') : makeRunNav(1, 1, '');
     const { summary, clipTimes } = buildRunOutput(
       runDir,
       racerNames.map((_, ri) => rawResults[ri][i]),
@@ -1240,6 +1260,7 @@ async function main() {
       ctx = { ...baseCtx, settings, throttle, runnerConfig: { ...baseCtx.runnerConfig, throttle } };
       if (multiCondition) {
         resultsDir = path.join(baseResultsDir, label);
+        conditionOverview = { title };
         console.error(`\n  ${c.bold}${c.magenta}══ ${title} ══${c.reset}`);
       }
       conditionSummaries.push({ label, title, network, cpu, summary: await runRaceSeries() });
@@ -1330,7 +1351,7 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
       ? `Run ${uniqueRunNums[0]}`
       : `Runs ${uniqueRunNums.join(', ')}`;
 
-    const medianNav = { currentRun: 'median', totalRuns, pathPrefix: '' };
+    const medianNav = makeRunNav('median', totalRuns, '');
     const medianPlayerOptions = {
       fullVideoFiles: medianFullVideoFiles,
       mergedVideoFile: medianMergedFile,
@@ -1342,6 +1363,7 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
       runSummaries: summaries,
       skin: settings.skin,
       skinBaseDir: ctx.raceDir,
+      storageScope: reportStorageScope(resultsDir, ctx.raceDir),
     };
     fs.writeFileSync(
       path.join(resultsDir, 'index.html'),

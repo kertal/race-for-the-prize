@@ -315,7 +315,7 @@ node race.js ./races/my-race --cpu=1,4              # cpu1x/, cpu4x/
 node race.js ./races/my-race --network=slow-3g,4g --cpu=1,4  # slow-3g-cpu1x/, slow-3g-cpu4x/, 4g-cpu1x/, 4g-cpu4x/
 ```
 
-Afterwards you get a **performance matrix** — network presets down the side, CPU rates across the top, every racer's total time in each cell — printed to the terminal and rendered as the top-level `index.html`, where each cell links to that condition's own results:
+Afterwards you get a **performance matrix** — network presets down the side, CPU rates across the top, every racer's total time in each cell — printed to the terminal and rendered as the top-level `index.html`, where each cell links to that condition's own results page (and every results page links back to the matrix):
 
 ```text
   ⚡ Performance Matrix
