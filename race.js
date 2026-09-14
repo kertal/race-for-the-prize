@@ -986,6 +986,17 @@ function makeRunNav(currentRun, totalRuns, pathPrefix) {
   return { currentRun, totalRuns, pathPrefix, ...(conditionOverview && { overview: conditionOverview }) };
 }
 
+/**
+ * Where the report `pathPrefix` below the series root finds ffmpeg.wasm. The
+ * assets weigh ~30 MB, so they are written once per results tree: beside a
+ * single race's index.html, at the series root of a multi-run race, and at the
+ * matrix root of a multi-condition race — every report below reaches up to it.
+ */
+function ffmpegOptions(pathPrefix) {
+  const prefix = pathPrefix + (multiCondition ? '../' : '');
+  return { skipCopyFFmpeg: prefix !== '', ffmpegPathPrefix: prefix || './' };
+}
+
 // --- Main ---
 
 /**
@@ -1134,7 +1145,7 @@ async function runRaceSeries() {
 /** Normal mode: all racers run together, once per run. */
 async function runNormalModeSeries() {
   if (totalRuns === 1) {
-    const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir, makeRunNav(1, 1, ''));
+    const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir, makeRunNav(1, 1, ''), ffmpegOptions(''));
     printSummary(summary);
     generateGeminiCommentary(summary, resultsDir);
     // Re-write summary.json with gemini commentary included
@@ -1150,7 +1161,7 @@ async function runNormalModeSeries() {
   for (let i = 0; i < totalRuns; i++) {
     console.error(`\n  ${c.bold}${c.cyan}── Run ${i + 1} of ${totalRuns} ──${c.reset}`);
     const runNav = makeRunNav(i + 1, totalRuns, '../');
-    const { summary, sideBySidePath, sideBySideName, clipTimes: runClipTimes } = await runSingleRace(ctx, path.join(resultsDir, String(i + 1)), runNav, { skipCopyFFmpeg: true, ffmpegPathPrefix: '../' });
+    const { summary, sideBySidePath, sideBySideName, clipTimes: runClipTimes } = await runSingleRace(ctx, path.join(resultsDir, String(i + 1)), runNav, ffmpegOptions('../'));
     printSummary(summary);
     summaries.push(summary);
     sideBySideNames.push(sideBySidePath ? sideBySideName : null);
@@ -1211,7 +1222,7 @@ async function runSplitModeSeries() {
       racerNames.map((_, ri) => rawResults[ri][i]),
       racerNames.map((_, ri) => movedResults[ri][i]),
       runNav,
-      { skipCopyFFmpeg: multiRun, ffmpegPathPrefix: multiRun ? '../' : './' }
+      ffmpegOptions(multiRun ? '../' : '')
     );
     printSummary(summary);
     summaries.push(summary);
@@ -1280,6 +1291,8 @@ async function main() {
             skinBaseDir: ctx.raceDir,
           })
         );
+        // One shared copy of ffmpeg.wasm for every condition's reports (see ffmpegOptions).
+        if (!settings.noWasm) copyFFmpegFiles(baseResultsDir);
       }
     }
 
@@ -1352,7 +1365,9 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
       : `Runs ${uniqueRunNums.join(', ')}`;
 
     const medianNav = makeRunNav('median', totalRuns, '');
+    const { skipCopyFFmpeg, ffmpegPathPrefix } = ffmpegOptions('');
     const medianPlayerOptions = {
+      ffmpegPathPrefix,
       fullVideoFiles: medianFullVideoFiles,
       mergedVideoFile: medianMergedFile,
       raceScriptFiles: ctx.racerFiles ? ctx.racerFiles.map(f => `${overallMedianRunDir}/${f}`) : null,
@@ -1369,7 +1384,7 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
       path.join(resultsDir, 'index.html'),
       buildPlayerHtml(medianSummary, medianVideoFiles, ffmpeg && format !== 'webm' ? format : null, medianAltFiles, medianPlayerOptions)
     );
-    if (!settings.noWasm) copyFFmpegFiles(resultsDir);
+    if (!skipCopyFFmpeg && !settings.noWasm) copyFFmpegFiles(resultsDir);
   }
 
   console.error(`\n  ${c.bold}${c.cyan}── Median Results (${totalRuns} runs) ──${c.reset}`);
