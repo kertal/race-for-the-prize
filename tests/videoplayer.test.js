@@ -520,6 +520,77 @@ describe('buildPlayerHtml race info', () => {
   });
 });
 
+// --- Command & Configuration section ---
+
+describe('buildPlayerHtml command and configuration', () => {
+  const raceConfig = {
+    command: "node race.js ./races/duel --runs=2 --network 'slow-3g'",
+    version: '9.9.9',
+    mode: 'directory',
+    raceDir: 'races/duel',
+    racers: [{ name: 'a', script: 'a.spec.js' }, { name: 'b', script: 'b.spec.js' }],
+    settings: { runs: 2, headless: true, network: 'slow-3g' },
+    sources: { runs: 'cli', headless: 'settings.json', network: 'cli' },
+  };
+  const configHtml = (overrides = {}) =>
+    buildPlayerHtml(abSummary(), abVideoFiles, null, null, { raceConfig: { ...raceConfig, ...overrides } });
+
+  it('shows the command that ran the race', () => {
+    const html = configHtml();
+    expect(html).toContain('Command &amp; Configuration');
+    expect(html).toContain('node race.js ./races/duel --runs=2 --network &#39;slow-3g&#39;');
+  });
+
+  it('names the race directory, mode, version and each racer script', () => {
+    const html = configHtml();
+    expect(html).toContain('races/duel');
+    expect(html).toContain('directory');
+    expect(html).toContain('9.9.9');
+    expect(html).toContain('a.spec.js');
+    expect(html).toContain('b.spec.js');
+  });
+
+  it('lists every setting with its value and where it came from', () => {
+    const html = configHtml();
+    const section = html.slice(html.indexOf('Command &amp; Configuration'));
+    expect(section).toContain('<td class="config-key">runs</td><td class="config-value">2</td>');
+    expect(section).toContain('config-source-cli">CLI flag');
+    expect(section).toContain('config-source-settingsjson">settings.json');
+  });
+
+  it('falls back to "default" for a setting with no recorded source', () => {
+    const html = configHtml({ settings: { format: 'webm' }, sources: {} });
+    expect(html).toContain('config-source-default">default');
+  });
+
+  it('orders the settings a racer reads first before the rest', () => {
+    const html = configHtml({
+      settings: { format: 'mov', runs: 2, headless: true },
+      sources: {},
+    });
+    const section = html.slice(html.indexOf('Command &amp; Configuration'));
+    expect(section.indexOf('>runs<')).toBeLessThan(section.indexOf('>headless<'));
+    expect(section.indexOf('>headless<')).toBeLessThan(section.indexOf('>format<'));
+  });
+
+  it('escapes a value that came in from settings.json', () => {
+    const html = configHtml({ settings: { skin: '<script>x</script>' }, sources: {} });
+    expect(html).toContain('&lt;script&gt;x&lt;/script&gt;');
+  });
+
+  it('links the stored record from the files section', () => {
+    const html = buildPlayerHtml(abSummary(), abVideoFiles, null, null, { raceConfig, raceConfigFile: 'config.json' });
+    expect(html).toContain('href="config.json"');
+  });
+
+  it('omits the section entirely for a report built without a record', () => {
+    const html = buildPlayerHtml(abSummary(), abVideoFiles);
+    expect(html).not.toContain('Command &amp; Configuration');
+    // The stylesheet still carries the section's rules; the markup must not.
+    expect(html).not.toContain('<table class="config-table">');
+  });
+});
+
 // --- Machine Info section ---
 
 describe('buildPlayerHtml machine info', () => {

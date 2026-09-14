@@ -35,6 +35,7 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 
 **CLI modules (`cli/`):**
 - `config.js` — arg parsing, racer/`.spec.js` discovery, settings defaults/validation/override logic
+- `race-config.js` — the race record: the command line, the merged settings, and where each value came from (CLI flag / `settings.json` / default); written as `config.json` into every results directory and shown in the player
 - `animation.js` — live terminal race animation
 - `summary.js` — summary data model, terminal output, JSON/Markdown report generation
 - `race-utils.js` — overall-winner computation and `TIE_THRESHOLD_PERCENT`
@@ -61,6 +62,7 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 - Timing and video calibration come from the Playwright trace (`trace-calibration.cjs`): the HTML player virtually trims via `traceCalibration`/clip times, and `--ffmpeg` physically trims using trace-derived PTS segments. The colored cue flashes are opt-in (`--cue-markers`) and exist only as ground truth for the ffprobe integration tests — they perturb metrics, so they're off by default.
 - CLI flags override `settings.json` values (CLI takes priority). See `config.js` `applyOverrides()`.
 - Per-racer setup scripts (e.g. `racer-a.setup.sh`) trigger split execution: each racer's setup runs right before that racer's runs, not all upfront. Without per-racer setups, all racers run together per run.
+- Every results directory stores the configuration it actually ran with (`config.json`, from `race-config.js`). `cli/config.js` `FLAG_SETTING_KEYS` maps each CLI flag to the settings key it writes, which is what lets the record attribute a value to a flag, the file, or a default; a test cross-checks it against `applyOverrides()`.
 - Generated markup lives in `.html` files, never in JS string literals: each page has a shell plus one `<template id="build-*">` per repeated fragment, loaded by `html-templates.js` and filled with `{{placeholder}}` data. Tests reject classed markup or CSS rules written inline in `player-sections.js`, `videoplayer.js` or `condition-matrix.js`, and flag fragments that are unused or missing.
 - The browser runtime builds DOM with `document.createElement`/`replaceChildren`, never `innerHTML`.
 - `tokens.css` holds the palette + semantic tokens shared by both reports; `player.css` and `condition-matrix.css` are component layers that inline it. A component layer must contain no literal colors/fonts/radii and must never reference a raw `--color-*` palette token — tests enforce both, on both stylesheets. Skins (`cli/skins/*.css`) only redefine tokens under `:root[data-theme="<name>"]`; see `docs/skinning.md`.

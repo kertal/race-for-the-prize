@@ -396,8 +396,15 @@ races/my-race/results-2026-01-31_14-30-00/
   contender-a-vs-contender-b.webm   # Side-by-side broadcast replay (--ffmpeg only)
   index.html                          # Interactive HTML player with video replay
   summary.json                        # Official race classification
+  config.json                         # The command and the settings this race ran with
   README.md                           # Race report card
 ```
+
+Every results folder keeps its own `config.json`: the exact command line, the
+race mode and scripts, and every effective setting alongside where it came from
+(a CLI flag, `settings.json`, or the built-in default). The HTML player shows
+the same thing under **Command & Configuration**, so a report read a month later
+says how to reproduce the race, not just who won.
 
 By default, the HTML player handles virtual trimming via clip times and uses CDP screencast metadata or canvas-based calibration for frame-accurate playback — no external dependencies needed. When neither calibration source is available, it falls back to linear time-mapping which is less precise. With `--ffmpeg`, videos are physically trimmed, a side-by-side merged video is created, and format conversion (mov/gif) is available.
 

@@ -349,6 +349,63 @@ h1 {
   margin-right: 0.4rem;
 }
 
+/* --- Command & configuration --------------------------------------------
+   The invocation reads as a shell line, the settings as a plain table: value
+   plus a badge saying which layer (CLI, settings.json, default) supplied it. */
+.config-command {
+  background: var(--surface-inset);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.7rem;
+  margin-bottom: 0.8rem;
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+  overflow-x: auto;
+}
+.config-command code {
+  font-family: var(--font-ui);
+  white-space: pre;
+}
+.config-command-label {
+  color: var(--accent);
+  user-select: none;
+}
+.config-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-md);
+  margin-top: 0.8rem;
+}
+.config-table th,
+.config-table td {
+  padding: 0.3rem 0.6rem;
+  text-align: left;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  vertical-align: top;
+}
+.config-table th {
+  color: var(--text-subtle);
+  font-size: var(--font-size-sm);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-tight);
+}
+.config-key { color: var(--text-dim); }
+.config-value {
+  color: var(--text-bright);
+  word-break: break-word;
+}
+/* A value that came from somewhere the user chose is worth spotting at a
+   glance; a default is background noise, so it stays dim. */
+.config-source {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-tight);
+  color: var(--text-ghost);
+  white-space: nowrap;
+}
+.config-source-cli { color: var(--accent); }
+.config-source-settingsjson { color: var(--text-muted); }
+
 /* --- Video stage --------------------------------------------------------- */
 .player-container {
   display: flex;
