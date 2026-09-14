@@ -145,7 +145,8 @@ function setExportProgress(progressFill, pct) {
 
 let convertCounter = 0;
 
-function convertWithFFmpeg(blob, format, ui, downloadName, clipRange) {
+function convertWithFFmpeg(blob, format, ui, opts = {}) {
+  const { downloadName, clipRange, durationS } = opts;
   const { statusEl, progressFill, actionsEl, overlay } = ui;
   const runId = ++convertCounter;
   const inFile = 'input_' + runId + '.webm';
@@ -167,7 +168,21 @@ function convertWithFFmpeg(blob, format, ui, downloadName, clipRange) {
 
   window.addEventListener('pagehide', revokeOutUrl, { once: true });
 
+  let activeFF = null;
+  // ffmpeg's own progress ratio is useless for our input (see
+  // export-progress.cjs), so the bar follows `time` against the duration
+  // measured while recording. Without this it sits frozen for the whole encode.
+  const totalUs = encodeDurationUs(clipRange, durationS);
+  const onProgress = ({ time }) => {
+    if (cancelled) return;
+    const pct = conversionProgress(time, totalUs);
+    if (pct === null) return;
+    setExportProgress(progressFill, 50 + pct * 40);
+    statusEl.textContent = 'Converting to ' + format.toUpperCase() + '... ' + Math.round(pct * 100) + '%';
+  };
+
   loadFFmpeg().then(ff => {
+    activeFF = ff;
     if (cancelled) return;
     statusEl.textContent = 'Converting to ' + format.toUpperCase() + '...';
     setExportProgress(progressFill, 30);
@@ -190,8 +205,10 @@ function convertWithFFmpeg(blob, format, ui, downloadName, clipRange) {
         args = trimArgs.concat(['-i', inFile, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', outFile]);
       }
       setExportProgress(progressFill, 50);
+      ff.on('progress', onProgress);
       return ff.exec(args, 300000);
     }).then(exitCode => {
+      ff.off('progress', onProgress);
       if (cancelled) return;
       if (exitCode == null || exitCode !== 0) throw new Error('ffmpeg exited with code ' + exitCode + ' — conversion failed');
       setExportProgress(progressFill, 90);
@@ -220,6 +237,7 @@ function convertWithFFmpeg(blob, format, ui, downloadName, clipRange) {
       ff.deleteFile(outFile).catch(e => { console.warn('ffmpeg cleanup:', e.message); });
     });
   }).catch(err => {
+    if (activeFF) activeFF.off('progress', onProgress);
     revokeOutUrl();
     // Terminate the ffmpeg worker on failure/timeout so it doesn't stay hung.
     // Setting ffmpegInstance to null forces a fresh load on the next attempt.
@@ -321,9 +339,13 @@ async function startExport() {
   const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm';
   recorder = new MediaRecorder(stream, { mimeType });
   const chunks = [];
+  const recordingStartedAt = Date.now();
   recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
   recorder.onstop = () => {
     if (cancelled) return;
+    // The recorded webm has no Duration header, so measure real wall-clock
+    // time instead — used later to compute MOV/GIF conversion progress.
+    const recordedDurationS = (Date.now() - recordingStartedAt) / 1000;
     const blob = new Blob(chunks, { type: mimeType });
     const url = URL.createObjectURL(blob);
     statusEl.textContent = 'Export complete!';
@@ -339,10 +361,10 @@ async function startExport() {
     convertRow.className = 'export-convert-row';
     const gifBtn = document.createElement('button');
     gifBtn.textContent = 'Convert to GIF';
-    gifBtn.addEventListener('click', () => { convertWithFFmpeg(blob, 'gif', { statusEl, progressFill, actionsEl, overlay }); });
+    gifBtn.addEventListener('click', () => { convertWithFFmpeg(blob, 'gif', { statusEl, progressFill, actionsEl, overlay }, { durationS: recordedDurationS }); });
     const movBtn = document.createElement('button');
     movBtn.textContent = 'Convert to MOV';
-    movBtn.addEventListener('click', () => { convertWithFFmpeg(blob, 'mov', { statusEl, progressFill, actionsEl, overlay }); });
+    movBtn.addEventListener('click', () => { convertWithFFmpeg(blob, 'mov', { statusEl, progressFill, actionsEl, overlay }, { durationS: recordedDurationS }); });
     convertRow.appendChild(gifBtn);
     convertRow.appendChild(movBtn);
     actionsEl.replaceChildren(downloadLink, convertRow, closeBtn);
