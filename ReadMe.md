@@ -617,6 +617,19 @@ Generate slides with Marp:
 npx @marp-team/marp-cli presentation/slides.md --html -o presentation/slides.html
 ```
 
+## GitHub Pages: Published Test Races
+
+The `Deploy test races to GitHub Pages` workflow (`.github/workflows/deploy-pages.yml`) runs every race in `races/` headless on CI and publishes the results to GitHub Pages: an index page listing all test races, each linking to its interactive HTML race player (videos included). It runs on every push to `main` and can be triggered manually from the Actions tab.
+
+**PR previews:** every same-repo pull request also gets its own deployment under `pr-preview/pr-<N>/` on the Pages site, without touching the main deployment at the root. The site content is kept on the `gh-pages` branch — main deploys replace the root but preserve `pr-preview/`, PR deploys only replace their own folder. A sticky PR comment links to the preview, the preview's index shows a banner marking it as such, and the folder is removed automatically when the PR closes.
+
+To build the same site locally:
+
+```bash
+node race.js ./races/lauda-vs-hunt --headless --serve=0 --wasm=0   # repeat per race
+node scripts/build-pages.js --out=site                              # collects latest results + builds site/index.html
+```
+
 ## Running Tests
 
 ```bash
