@@ -361,10 +361,17 @@ node race.js <dir> --serve=false          # Don't start local results server or 
 node race.js <dir> --pause                # Pause between racers — run all laps for each racer, then press Enter for the next
 node race.js <dir> --height=900           # Set viewport/recording height in pixels (480–4320, default 720)
 node race.js <dir> --ignore-https-errors  # Accept invalid/self-signed TLS certificates
+node race.js <dir> --wall-clock           # Burn a ticking wall clock into the recording
 node race.js <dir> --skin=light           # Skin the results player (light, neon, or a path to a .css file)
 ```
 
 CLI flags always override `settings.json`. For boolean flags, you can pass explicit values like `--parallel=false` or `--ffmpeg=true`.
+
+### The Recorded Wall Clock
+
+`--wall-clock` burns a ticking `M:SS.T` readout into the top-left corner of every recording, next to the red recording dot. It counts wall-clock time from the moment recording starts — the same origin the segment and measurement times use, so the digits track the reported numbers closely (the results themselves are calibrated from the Playwright trace afterwards, which can shift them by a tenth or so). In `--parallel` mode, where all racers leave the line together, the same frame reads the same time for everyone. When a racer finishes, its clock freezes on the recorded finish time instead of disappearing, so the last frames show how long the lap took.
+
+It's off by default because it isn't free: repainting the digits ten times a second adds style recalculations and paints to the very metrics you're measuring, and the constant activity keeps `page.raceWaitForVisualStability()` from ever seeing the page settle. Turn it on for a video you want to show people, not for a run whose numbers you want to trust. It follows the other overlays, so `--overlay=false` and `--recording=false` switch it off too.
 
 ### Network Throttling Presets
 
@@ -455,6 +462,7 @@ The terminal delivers the verdict in style:
   "noServe": false,
   "pauseBetweenRuns": false,
   "ignoreHTTPSErrors": false,
+  "wallClock": false,
   "viewportHeight": 720,
   "skin": "light"
 }
@@ -477,6 +485,7 @@ The terminal delivers the verdict in style:
 | `noServe` | `--serve` | `true` / `false` (inverted: `serve=false` => `noServe=true`) | `false` |
 | `pauseBetweenRuns` | `--pause` | `true` / `false` | `false` |
 | `ignoreHTTPSErrors` | `--ignore-https-errors` | `true` / `false` | `false` |
+| `wallClock` | `--wall-clock` | `true` / `false` | `false` |
 | `viewportHeight` | `--height=<px>` | integer, 480–4320 (also accepted as `height` in settings.json) | `720` |
 | `skin` | `--skin=<name\|path>` | `light`, `neon`, or a path to a `.css` file — see [Skinning the player](docs/skinning.md) | not set (built-in dark theme) |
 | `racers` | — | optional object keyed by racer name | not present by default |

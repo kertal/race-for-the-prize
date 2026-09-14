@@ -32,9 +32,10 @@
  *   segment closes, before deferred effects (trace mark).
  * @param {(info: {endTime: number}) => Promise<void>} [options.hooks.onRecordingStop]
  *   Deferred stop effects (finish overlay, end cue); endTime is the racer's finish
- *   time in seconds (last measurement end, or now).
+ *   time in seconds (the last measurement that ended in this segment, else the
+ *   segment's end).
  * @param {(name: string) => Promise<void>} [options.hooks.onMeasureStart]
- * @param {(name: string) => void} [options.hooks.onMeasureEnd]
+ * @param {(name: string, endTime: number, activeCount: number) => void} [options.hooks.onMeasureEnd]
  * @param {(name: string) => void} [options.hooks.onUnmatchedMeasureEnd] raceEnd
  *   was called with a name that has no open raceStart (usually a typo).
  * @param {() => Promise<void>} [options.hooks.onFirstRaceStart] Once, on the first
@@ -86,12 +87,20 @@ function createRaceApi({ recordingStartTime = Date.now(), now = Date.now, hooks 
 
   const stopRecording = async () => {
     if (currentSegmentStart === null) return stopPromise;
-    segments.push({ start: currentSegmentStart, end: elapsed() });
+    const segmentStart = currentSegmentStart;
+    const segmentEnd = elapsed();
+    segments.push({ start: segmentStart, end: segmentEnd });
     if (markRecordingEnd) await markRecordingEnd();
     currentSegmentStart = null;
     stopPromise = (async () => {
+      // The finish is the last measurement that ended inside this segment. An
+      // earlier segment's measurement must not leak into a later one, and a
+      // segment with no measurement of its own finishes when it closed — not
+      // some later instant after the trace mark's round-trip.
       const lastMeasurement = measurements[measurements.length - 1];
-      const endTime = lastMeasurement ? lastMeasurement.endTime : elapsed();
+      const endTime = lastMeasurement && lastMeasurement.endTime >= segmentStart
+        ? lastMeasurement.endTime
+        : segmentEnd;
       if (onRecordingStop) await onRecordingStop({ endTime });
     })();
     return stopPromise;
@@ -115,7 +124,7 @@ function createRaceApi({ recordingStartTime = Date.now(), now = Date.now, hooks 
     const duration = end - start;
     measurements.push({ name, startTime: start, endTime: end, duration });
     delete activeMeasurements[name];
-    if (onMeasureEnd) onMeasureEnd(name);
+    if (onMeasureEnd) onMeasureEnd(name, end, Object.keys(activeMeasurements).length);
     return duration;
   };
 
