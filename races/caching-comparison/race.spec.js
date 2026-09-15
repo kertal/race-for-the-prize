@@ -14,26 +14,27 @@
 // Both visits are measured, because encryption is not free on either side of the
 // cache:
 //
-//   Fetch and store  — download, then encrypt and write. The app renders only
-//                      after the write finishes, so this is the price of
-//                      caching, paid up front.
-//   Navigate to data — leave for the app's start page, pause, then come back to
-//                      the result URL. A fresh document boots against whatever
-//                      the first visit stored: the two cache modes read it back
-//                      (decrypting on the way) and render on their own, while
-//                      no-cache boots to an empty start line and has to press
-//                      Fetch and download it all again. This is the payback,
-//                      and it includes the real navigation the cache is there
-//                      to survive.
+//   Fetch and store — download, then encrypt and write. The app renders only
+//                     after the write finishes, so this is the price of
+//                     caching, paid up front.
+//   Return to data  — leave through the app's own "← Back to start" link, pause
+//                     on the start screen, then press Start Demo. That reopens
+//                     the mode against whatever the first visit stored: the two
+//                     cache modes read it back (decrypting on the way) and
+//                     render on their own, while no-cache comes up empty and
+//                     downloads the dataset all over again. This is the
+//                     payback.
+//
+// Neither step reloads the document. The app is a single page: the back link
+// and Start Demo swap screens with history.pushState, so the tab, its
+// sessionStorage (where encrypted-cache keeps its key) and the app's own
+// network counters all stay alive across the round trip. A real reload would
+// prove the same thing only in hindsight — see the app's rerenderView() notes.
 //
 // The cold page load ahead of them is deliberately untimed: it is the same app
 // shell for all three racers, and measuring it only added variance (under
 // slow-3g the three came within 3% of each other while swinging by whole
 // tenths of a second between runs).
-//
-// The round trip stays in one tab, which matters for encrypted-cache: its key
-// lives in sessionStorage, and a same-tab navigation keeps that while a new tab
-// would not.
 //
 // Race it across the matrix in settings.json and the two axes tell different
 // stories.
@@ -52,8 +53,7 @@
 // (~1 MB) if you want the run over faster, or one of the live API sources
 // ("usgs-week", "open-meteo", "randomuser") to race against a real backend.
 
-const root = 'https://kertal.github.io/hush-hush-db/';
-const url = `${root}?mode=${race.vars.MODE}&source=${race.vars.SOURCE}`;
+const url = `https://kertal.github.io/hush-hush-db/?mode=${race.vars.MODE}&source=${race.vars.SOURCE}`;
 
 // The app's status line ends with a " · rendered in N ms total" tail that just
 // restates the numbers before it. Dropping it keeps the message short enough to
@@ -84,15 +84,29 @@ const measure = async (name, work) => {
 //   anti-flicker grace — so on its own it cannot tell "done" from "not started
 //   yet", and an unthrottled cache read is well under that.
 //
-//   Rows in #records-body. Both phases start from a document that has never
-//   rendered a result — the first one is a cold page, the second a fresh
-//   navigation — so the rows appearing at all is what says the load happened.
-//   (An in-place reload could not use this: the previous result's rows stay in
-//   the DOM, dimmed, until the new ones replace them.)
+//   A re-render of #records-body, watched from before the click. This is what
+//   says the load happened at all. Waiting on the rows themselves would not:
+//   the previous result's rows stay in the DOM — the app hides the card on the
+//   way out rather than emptying the table — so they would match instantly.
+//
+// Arm the observer before raceStart so the watching is not part of the phase.
+const watchRender = () =>
+  page.evaluate(() => {
+    window.__raceWatch?.disconnect();
+    window.__raceRendered = false;
+    window.__raceWatch = new MutationObserver(() => {
+      window.__raceRendered = true;
+    });
+    window.__raceWatch.observe(document.getElementById('records-body'), { childList: true });
+  });
+
+// Rows present as well as re-rendered, so a load that empties the table on its
+// way through cannot be mistaken for one that finished.
 const rendered = () =>
   page.waitForFunction(() => {
     const panel = document.getElementById('dataset-panel');
     return (
+      window.__raceRendered &&
       !panel.hidden &&
       panel.dataset.loadingState === 'idle' &&
       document.querySelectorAll('#records-body tr').length > 0
@@ -106,6 +120,7 @@ try {
   await page.waitForSelector('#fetch-button');
   await page.waitForTimeout(1000);
 
+  await watchRender();
   await measure('Fetch and store', async () => {
     await page.click('#fetch-button');
     await rendered();
@@ -114,20 +129,23 @@ try {
   page.raceMessage(await status());
   await page.waitForTimeout(1000);
 
-  // Leave the result behind: the start page without ?mode= or ?source= is the
-  // app's front door. The pause is untimed, like the cold load — it is only
-  // there so the departure is visible in the video.
-  await page.goto(root, { waitUntil: 'load' });
+  // Leave the result behind through the app's own back link. It swaps to the
+  // start screen in place — no document load — and leaves the mode's radio
+  // pointing at the mode that is still running underneath. The pause is
+  // untimed, like the cold load: it is only there so the departure is visible
+  // in the video.
+  await page.click('#back-button');
+  await page.waitForSelector('#setup-screen');
   await page.waitForTimeout(2000);
 
-  // Back to the same URL. The cache modes boot straight into their stored
-  // result; no-cache boots to the empty start line and must press Fetch again,
-  // and that press is part of its price.
-  await measure('Navigate to data', async () => {
-    await page.goto(url, { waitUntil: 'load' });
-    if (race.vars.MODE === 'nocache') {
-      await page.click('#fetch-button');
-    }
+  // Start Demo reopens the selected mode and restores from its cache; when the
+  // cache turns out empty (no-cache, always) the app fetches by itself, so
+  // there is no extra click to make and the download is part of that racer's
+  // price. Two Start Demo buttons share one handler — the first is the one at
+  // the top of the screen, in view without scrolling.
+  await watchRender();
+  await measure('Return to data', async () => {
+    await page.locator('.start-demo').first().click();
     await rendered();
   });
 

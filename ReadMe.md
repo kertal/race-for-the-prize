@@ -55,16 +55,16 @@ node race.js ./races/react-vs-angular
 
 ## 🤫 Encrypted cache vs plain cache vs no cache
 
-What does caching cost, and when does it pay back? [HushHushDB](https://kertal.github.io/hush-hush-db/) downloads a dataset and can keep it in IndexedDB — encrypted with a key in `sessionStorage`, stored as plaintext, or not kept at all. Three racers boot the same app into a different cache handling mode, fetch the dataset, leave for the app's start page, and navigate back to it.
+What does caching cost, and when does it pay back? [HushHushDB](https://kertal.github.io/hush-hush-db/) downloads a dataset and can keep it in IndexedDB — encrypted with a key in `sessionStorage`, stored as plaintext, or not kept at all. Three racers boot the same app into a different cache handling mode, fetch the dataset, step back to the start screen through the app's own back link, and start the demo again.
 
 ```bash
 node race.js ./races/caching-comparison
 ```
 
-Both halves are timed, because encryption is not free on either side of the cache. **Fetch and store** is the price paid up front — the app renders only once the write finishes. **Navigate to data** is the payback — a real navigation back to the result URL, booting a fresh document against the warm cache — and it separates the two costs cleanly: decrypting is a CPU cost that ignores the network, refetching is a network cost that ignores the CPU.
+Both halves are timed, because encryption is not free on either side of the cache. **Fetch and store** is the price paid up front — the app renders only once the write finishes. **Return to data** is the payback — the app reopens the mode against the warm cache without reloading the page — and it separates the two costs cleanly: decrypting is a CPU cost that ignores the network, refetching is a network cost that ignores the CPU.
 
 ```text
-  ⏱ Navigate to data   encrypted   plain   no-cache
+  ⏱ Return to data     encrypted   plain   no-cache
   none    · CPU 1x       0.190s   0.133s     0.068s
   slow-3g · CPU 1x       0.189s   0.150s     4.332s   ← same CPU, 25x slower link
   none    · CPU 4x       0.496s   0.306s     0.127s   ← same link, 4x slower CPU
