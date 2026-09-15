@@ -170,7 +170,7 @@
   <div class="racer" style="--racer-color: {{color}}">
     <div class="racer-label">{{trophy}}{{name}}</div>
     <video id="v{{idx}}"{{src}} preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Race recording for {{name}}" data-racer-name="{{name}}"></video>
-    <div id="finishResult{{idx}}" class="finish-result" hidden></div>
+    <div id="finishResult{{idx}}" class="finish-result" role="status" aria-atomic="true" hidden></div>
   </div></template>
 
 <template id="build-merged-container">
