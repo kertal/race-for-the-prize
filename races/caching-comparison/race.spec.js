@@ -17,22 +17,24 @@
 //   Fetch and store — download, then encrypt and write. The app renders only
 //                     after the write finishes, so this is the price of
 //                     caching, paid up front.
-//   Reload to data  — the app's own "Reload Page" button: it re-reads the cache,
-//                     decrypting on the way, and refetches by itself when there
-//                     is nothing stored. The card keeps the old result on screen
-//                     while it does, dimmed. This is the payback.
+//   Return to data  — leave through the app's own "← Back to start" link, pause
+//                     on the start screen, then press Start Demo. That reopens
+//                     the mode against whatever the first visit stored: the two
+//                     cache modes read it back (decrypting on the way) and
+//                     render on their own, while no-cache comes up empty and
+//                     downloads the dataset all over again. This is the
+//                     payback.
+//
+// Neither step reloads the document. The app is a single page: the back link
+// and Start Demo swap screens with history.pushState, so the tab, its
+// sessionStorage (where encrypted-cache keeps its key) and the app's own
+// network counters all stay alive across the round trip. A real reload would
+// prove the same thing only in hindsight — see the app's rerenderView() notes.
 //
 // The cold page load ahead of them is deliberately untimed: it is the same app
 // shell for all three racers, and measuring it only added variance (under
 // slow-3g the three came within 3% of each other while swinging by whole
 // tenths of a second between runs).
-//
-// Note that the second section re-renders in place rather than reloading the
-// document, so it times the cache read cleanly but does not exercise the
-// survives-a-real-reload half of the story. Swap the click for
-// `page.reload({ waitUntil: 'load' })` to test that instead — the no-cache
-// racer then needs its own `#fetch-button` click, since only this button
-// refetches on its own.
 //
 // Race it across the matrix in settings.json and the two axes tell different
 // stories.
@@ -84,8 +86,8 @@ const measure = async (name, work) => {
 //
 //   A re-render of #records-body, watched from before the click. This is what
 //   says the load happened at all. Waiting on the rows themselves would not:
-//   the previous render's rows stay in the DOM (a reload dims the card rather
-//   than blanking it), so they match instantly.
+//   the previous result's rows stay in the DOM — the app hides the card on the
+//   way out rather than emptying the table — so they would match instantly.
 //
 // Arm the observer before raceStart so the watching is not part of the phase.
 const watchRender = () =>
@@ -127,9 +129,23 @@ try {
   page.raceMessage(await status());
   await page.waitForTimeout(1000);
 
+  // Leave the result behind through the app's own back link. It swaps to the
+  // start screen in place — no document load — and leaves the mode's radio
+  // pointing at the mode that is still running underneath. The pause is
+  // untimed, like the cold load: it is only there so the departure is visible
+  // in the video.
+  await page.click('#back-button');
+  await page.waitForSelector('#setup-screen');
+  await page.waitForTimeout(2000);
+
+  // Start Demo reopens the selected mode and restores from its cache; when the
+  // cache turns out empty (no-cache, always) the app fetches by itself, so
+  // there is no extra click to make and the download is part of that racer's
+  // price. Two Start Demo buttons share one handler — the first is the one at
+  // the top of the screen, in view without scrolling.
   await watchRender();
-  await measure('Reload to data', async () => {
-    await page.click('#reload-page-button');
+  await measure('Return to data', async () => {
+    await page.locator('.start-demo').first().click();
     await rendered();
   });
 
