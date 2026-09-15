@@ -2,7 +2,7 @@
  * overlay.cjs — Visual overlay helpers for RaceForThePrize runner.
  *
  * Pure presentation functions that inject CSS/HTML into browser pages
- * for visual cues, recording indicators, finish times, and medals.
+ * for visual cues, recording indicators, finish times, and the finish flag.
  *
  * Extracted from runner.cjs runMarkerMode() to improve readability.
  * CommonJS to match runner.cjs.
@@ -128,41 +128,24 @@ async function setClock(page, startEpochMs, frozenAtEpochMs = null) {
 }
 
 /**
- * Show the placement medal (parallel mode) or finish flag (sequential mode).
- * Pure presentation — caller handles finish order tracking and placement calculation.
+ * Show the centered finish flag. Placement is not known in the page — the
+ * player works it out from the final measurements — so the recording only
+ * ever marks the moment a racer finished.
  *
  * @param {Page} page - Playwright page
- * @param {number|null} place - 1-based placement (null → sequential mode, shows finish flag)
  */
-async function showMedal(page, place) {
+async function showFinishFlag(page) {
   const style = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483647;'
     + 'pointer-events:none;background:rgba(0,0,0,0.6);color:#fff;padding:24px 48px;border-radius:16px;';
-
-  if (place) {
-    const medals = ['\u{1F947}', '\u{1F948}', '\u{1F949}', '4\uFE0F\u20E3', '5\uFE0F\u20E3'];
-    const ordinals = ['1st', '2nd', '3rd', '4th', '5th'];
-    const medal = medals[place - 1] || `${place}`;
-    const ordinal = ordinals[place - 1] || `${place}th`;
-    await page.evaluate(({ medal, ordinal, style }) => {
-      const existing = document.getElementById('__race_medal');
-      if (existing) existing.remove();
-      const el = document.createElement('div');
-      el.id = '__race_medal';
-      el.textContent = medal + ' ' + ordinal;
-      el.style.cssText = style + 'font:bold 64px/1 system-ui,sans-serif';
-      document.body.appendChild(el);
-    }, { medal, ordinal, style });
-  } else {
-    await page.evaluate((style) => {
-      const existing = document.getElementById('__race_medal');
-      if (existing) existing.remove();
-      const el = document.createElement('div');
-      el.id = '__race_medal';
-      el.textContent = '\u{1F3C1}';
-      el.style.cssText = style + 'font:bold 80px/1 system-ui,sans-serif';
-      document.body.appendChild(el);
-    }, style);
-  }
+  await page.evaluate((style) => {
+    const existing = document.getElementById('__race_medal');
+    if (existing) existing.remove();
+    const el = document.createElement('div');
+    el.id = '__race_medal';
+    el.textContent = '\u{1F3C1}';
+    el.style.cssText = style + 'font:bold 80px/1 system-ui,sans-serif';
+    document.body.appendChild(el);
+  }, style);
 }
 
 /**
@@ -187,6 +170,7 @@ class OverlayController {
     this.right = null;
     this.clockRunning = false;
     this.clockFrozenAt = null;
+    this.finishShown = false;
 
     if (!this._disabled) {
       page.on('load', () => {
@@ -196,6 +180,10 @@ class OverlayController {
         // A navigation wipes the clock element and its timer — put them back.
         if (this.clockRunning || this.clockFrozenAt !== null) {
           setClock(page, this._clockStart, this.clockFrozenAt).catch(() => {});
+        }
+        // So does the finish flag, which lives in its own element.
+        if (this.finishShown) {
+          showFinishFlag(page).catch(() => {});
         }
       });
     }
@@ -208,6 +196,7 @@ class OverlayController {
    */
   async onStartRecording(startEpochMs = this._now()) {
     if (this._disabled) return;
+    await this._clearFinish();
     // Zero the clock on the moment recording starts, before any awaited page
     // work can push it later. This is the moment the player aligns every
     // racer's video on, so a clock counting from anything else reads a
@@ -227,6 +216,7 @@ class OverlayController {
 
   async onMeasureStart() {
     if (this._disabled) return;
+    await this._clearFinish();
     // A later section resumes the same recording clock, retaining its zero.
     if (this._wallClock && this.dot && this.clockFrozenAt !== null) {
       this.clockRunning = true;
@@ -237,22 +227,33 @@ class OverlayController {
     await setOverlay(this._page, this.dot, this.right);
   }
 
-  /**
-   * @param {number|null} [finishSeconds] The measurement's end, in seconds
-   *   since the race API's time base.
-   * @param {number} [activeCount] Measurements still open; the finish is the
-   *   last one to close.
-   */
   async onMeasureEnd(finishSeconds = null, activeCount = 0) {
     if (this._disabled) return;
     if (activeCount > 0) return;
     this.right = '\u{1F3C1}';
+    const updates = [];
     if (this._wallClock && this.clockRunning) {
-      // Freeze at the measured finish, before the spec's post-race wait.
       this.clockRunning = false;
       this.clockFrozenAt = this._freezeTime(finishSeconds);
-      await setClock(this._page, this._clockStart, this.clockFrozenAt);
+      updates.push(setClock(this._page, this._clockStart, this.clockFrozenAt));
     }
+    // Publish both flags at the measured finish, while the recording dot
+    // remains visible through any post-race footage. Placement comes later.
+    updates.push(setOverlay(this._page, this.dot, this.right));
+    this.finishShown = true;
+    updates.push(showFinishFlag(this._page));
+    await Promise.all(updates);
+  }
+
+  async _clearFinish() {
+    // A flag can also come from onFinish at a recording stop with no measured
+    // finish, while `right` is still null or the stopwatch — clear on either.
+    if (!this.finishShown && this.right !== '\u{1F3C1}') return;
+    this.finishShown = false;
+    if (this.right === '\u{1F3C1}') this.right = null;
+    await this._page.evaluate(() => {
+      document.getElementById('__race_medal')?.remove();
+    });
   }
 
   /**
@@ -262,9 +263,9 @@ class OverlayController {
    */
   async onStopRecording(finishSeconds = null) {
     if (this._disabled) return;
-    // Resolved before any page work: the medal and the overlay update are both
-    // awaited first, so reading the clock afterwards would freeze the video on
-    // a time later than the racer's actual finish.
+    // Resolved before any page work: the finish flag and the overlay update are
+    // both awaited first, so reading the clock afterwards would freeze the
+    // video on a time later than the racer's actual finish.
     const frozenAt = this._wallClock ? this._freezeTime(finishSeconds) : null;
     this.dot = false;
     await setOverlay(this._page, false, this.right);
@@ -287,9 +288,14 @@ class OverlayController {
     return this._timeBase + finishSeconds * 1000;
   }
 
-  async onFinish(place) {
+  /**
+   * Fallback flag at a recording stop, for a segment that closed without a
+   * measured finish (onMeasureEnd has already shown it otherwise).
+   */
+  async onFinish() {
     if (this._disabled) return;
-    await showMedal(this._page, place);
+    this.finishShown = true;
+    await showFinishFlag(this._page);
   }
 }
 
@@ -297,7 +303,7 @@ module.exports = {
   flashCue,
   setOverlay,
   setClock,
-  showMedal,
+  showFinishFlag,
   OverlayController,
   CUE_DURATION_MS,
   CUE_SIZE,

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
-const { flashCue, setOverlay, setClock, showMedal, OverlayController, CUE_DURATION_MS, CUE_SIZE, CLOCK_TICK_MS } = require('../overlay.cjs');
+const { flashCue, setOverlay, setClock, showFinishFlag, OverlayController, CUE_DURATION_MS, CUE_SIZE, CLOCK_TICK_MS } = require('../overlay.cjs');
 
 // --- Minimal DOM stub for page.evaluate ---
 // The overlay functions pass a callback + args to page.evaluate().
@@ -140,61 +140,29 @@ describe('setOverlay', () => {
   });
 });
 
-// --- showMedal tests ---
+// --- showFinishFlag tests ---
 
-describe('showMedal', () => {
-  it('shows 1st place medal', async () => {
+describe('showFinishFlag', () => {
+  it('shows the finish flag', async () => {
     const { doc, elements } = createMockDOM();
     const page = createMockPage(doc);
 
-    await showMedal(page, 1);
+    await showFinishFlag(page);
 
     expect(elements['__race_medal']).toBeDefined();
-    expect(elements['__race_medal'].textContent).toBe('🥇 1st');
-  });
-
-  it('shows 2nd place medal', async () => {
-    const { doc, elements } = createMockDOM();
-    const page = createMockPage(doc);
-
-    await showMedal(page, 2);
-    expect(elements['__race_medal'].textContent).toBe('🥈 2nd');
-  });
-
-  it('shows 3rd place medal', async () => {
-    const { doc, elements } = createMockDOM();
-    const page = createMockPage(doc);
-
-    await showMedal(page, 3);
-    expect(elements['__race_medal'].textContent).toBe('🥉 3rd');
-  });
-
-  it('shows finish flag for sequential mode (place=null)', async () => {
-    const { doc, elements } = createMockDOM();
-    const page = createMockPage(doc);
-
-    await showMedal(page, null);
     expect(elements['__race_medal'].textContent).toBe('🏁');
   });
 
-  it('replaces existing medal element', async () => {
+  it('replaces an existing flag element', async () => {
     const { doc, elements } = createMockDOM();
     const page = createMockPage(doc);
 
-    await showMedal(page, 1);
+    await showFinishFlag(page);
     const first = elements['__race_medal'];
-    await showMedal(page, 2);
+    await showFinishFlag(page);
 
     expect(elements['__race_medal']).not.toBe(first);
-    expect(elements['__race_medal'].textContent).toBe('🥈 2nd');
-  });
-
-  it('falls back to number for places > 5', async () => {
-    const { doc, elements } = createMockDOM();
-    const page = createMockPage(doc);
-
-    await showMedal(page, 7);
-    expect(elements['__race_medal'].textContent).toBe('7 7th');
+    expect(elements['__race_medal'].textContent).toBe('🏁');
   });
 });
 
@@ -361,12 +329,14 @@ describe('OverlayController', () => {
       await freeze;
       expect(ctrl.clockRunning).toBe(true);
       expect(elements.__race_or.textContent).toBe('⏱️');
+      expect(elements.__race_medal).toBeUndefined();
       await vi.advanceTimersByTimeAsync(6000);
       api.endMeasure('outer');
       await freeze;
       expect(elements.__race_clock.textContent).toBe('0:07.5');
       expect(ctrl.clockRunning).toBe(false);
-      expect(ctrl.right).toBe('🏁');
+      expect(elements.__race_or.textContent).toBe('🏁');
+      expect(elements.__race_medal.textContent).toBe('🏁');
       await vi.advanceTimersByTimeAsync(1500);
       expect(elements.__race_clock.textContent).toBe('0:07.5');
       await api.stopRecording();
@@ -393,6 +363,7 @@ describe('OverlayController', () => {
       await vi.advanceTimersByTimeAsync(1500);
       expect(elements.__race_clock.textContent).toBe('0:02.0');
       await ctrl.onMeasureStart();
+      expect(elements.__race_medal).toBeUndefined();
       expect(elements.__race_or.textContent).toBe('⏱️');
       await vi.advanceTimersByTimeAsync(500);
       expect(elements.__race_clock.textContent).toBe('0:04.0');
@@ -436,17 +407,16 @@ describe('OverlayController', () => {
     expect(elements['__race_or'].textContent).toBe('⏱️');
   });
 
-  it('onMeasureEnd updates state to flag without calling setOverlay', async () => {
-    const { ctrl, page } = createCtrl();
+  it('onMeasureEnd displays both flags before recording stops', async () => {
+    const { ctrl, elements } = createCtrl();
 
     await ctrl.onStartRecording();
     await ctrl.onMeasureStart();
-    const callCount = page.evaluate.mock.calls.length;
-
     await ctrl.onMeasureEnd();
 
-    expect(ctrl.right).toBe('🏁');
-    expect(page.evaluate.mock.calls.length).toBe(callCount);
+    expect(elements.__race_or.textContent).toBe('🏁');
+    expect(elements.__race_medal.textContent).toBe('🏁');
+    expect(elements.__race_ol).toBeDefined();
   });
 
   it('onStopRecording removes dot and keeps flag', async () => {
@@ -462,7 +432,7 @@ describe('OverlayController', () => {
     expect(elements['__race_or'].textContent).toBe('🏁');
   });
 
-  it('full lifecycle: 3 setOverlay calls (start, measure, stop)', async () => {
+  it('recording stop preserves the displayed finish flags', async () => {
     const { ctrl, page } = createCtrl();
 
     await ctrl.onStartRecording();
@@ -470,8 +440,7 @@ describe('OverlayController', () => {
     await ctrl.onMeasureEnd();
     await ctrl.onStopRecording();
 
-    // onStartRecording → 1, onMeasureStart → 1, onStopRecording → 1
-    expect(page.evaluate).toHaveBeenCalledTimes(3);
+    expect(page.evaluate).toHaveBeenCalledTimes(5);
   });
 
   it('dot stays true between onMeasureEnd and onStopRecording', async () => {
@@ -522,19 +491,19 @@ describe('OverlayController', () => {
     expect(page.evaluate).not.toHaveBeenCalled();
   });
 
-  it('onFinish calls showMedal with placement', async () => {
+  it('onFinish shows the finish flag', async () => {
     const { ctrl, elements } = createCtrl();
 
-    await ctrl.onFinish(1);
+    await ctrl.onFinish();
 
     expect(elements['__race_medal']).toBeDefined();
-    expect(elements['__race_medal'].textContent).toBe('🥇 1st');
+    expect(elements['__race_medal'].textContent).toBe('🏁');
   });
 
   it('onFinish is a no-op when disabled', async () => {
     const { ctrl, page } = createCtrl({ noOverlay: true });
 
-    await ctrl.onFinish(1);
+    await ctrl.onFinish();
 
     expect(page.evaluate).not.toHaveBeenCalled();
   });
@@ -628,8 +597,8 @@ describe('OverlayController', () => {
   });
 
   it('does not let awaited overlay work push the frozen time past the finish', async () => {
-    // The medal (onFinish) and the overlay update are both awaited before the
-    // clock freezes — neither may advance the burned-in time.
+    // The finish flag (onFinish) and the overlay update are both awaited before
+    // the clock freezes — neither may advance the burned-in time.
     const { doc, elements } = createMockDOM();
     const page = createMockPage(doc);
     let clock = 3500;
@@ -641,10 +610,10 @@ describe('OverlayController', () => {
     const ctrl = new OverlayController(page, { wallClock: true, timeBase: 1000, now: () => clock });
 
     await ctrl.onStartRecording();
-    await ctrl.onFinish(1);
+    await ctrl.onFinish();
     await ctrl.onStopRecording();
 
-    expect(ctrl.clockFrozenAt).toBe(3500 + 400 * 3); // start overlay + clock + medal
+    expect(ctrl.clockFrozenAt).toBe(3500 + 400 * 3); // start overlay + clock + flag
     // Zeroed before that page work ran, so only the work itself is on the clock.
     expect(elements['__race_clock'].textContent).toBe('0:01.2');
   });
@@ -684,6 +653,33 @@ describe('OverlayController', () => {
 
     // Re-injected against the same zero, so the frozen time survives the reload.
     expect(elements['__race_clock'].textContent).toBe('0:02.1');
+  });
+
+  it('re-injects the finish flag after a navigation', async () => {
+    const { ctrl, page, elements } = createCtrl();
+
+    await ctrl.onStartRecording();
+    await ctrl.onMeasureEnd();
+    expect(elements.__race_medal.textContent).toBe('🏁');
+    elements.__race_medal.remove(); // navigation wipes the overlay elements
+
+    const onLoad = page.on.mock.calls.find(([event]) => event === 'load')[1];
+    onLoad();
+
+    expect(elements.__race_medal.textContent).toBe('🏁');
+  });
+
+  it('clears a flag shown at a recording stop with no measured finish when the next segment starts', async () => {
+    const { ctrl, elements } = createCtrl();
+
+    await ctrl.onStartRecording();
+    await ctrl.onFinish(); // the runner's recording stop, nothing measured
+    await ctrl.onStopRecording();
+    expect(elements.__race_medal).toBeDefined();
+
+    await ctrl.onStartRecording();
+
+    expect(elements.__race_medal).toBeUndefined();
   });
 
   it('registers load event listener when enabled', () => {
