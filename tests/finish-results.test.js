@@ -13,6 +13,10 @@ describe('independent finish placements', () => {
     expect(racerFinishResult(entries, results, 1, 6)).toMatchObject({ place: 1 });
     expect(racerFinishResult(entries, results, 0, 2)).toBeNull();
   });
+  it('shows nothing in ffmpeg mode, where clip times are null', () => {
+    expect(racerFinishResult(null, results, 0, 5)).toBeNull();
+    expect(racerFinishResult([null, null], results, 0, 5)).toBeNull();
+  });
   it('handles ties and incomplete results without inventing winners', () => {
     expect(racerFinishResult(entries, [{ name: 'Race', durations: [2, 2] }], 0, 5).label).toBe('🥇 Joint 1st · 2.000s total');
     expect(racerFinishResult(entries, [{ name: 'Race', durations: [null, 2] }], 1, 6)).toBeNull();

@@ -1,5 +1,8 @@
-/* Placement is computed from final results, including sequential recordings. */
+/* Placement is computed from final results, including sequential recordings.
+   With --ffmpeg the videos are physically trimmed and clipTimes is null, so
+   no badge is shown in that mode — by design, not a gap. */
 function finishResultForVideo(i) {
+  if (!clipTimes) return null;
   if (videos !== raceVideos || (fullVideoPaths && loadedSrcSet === 'full')) return null;
   return racerFinishResult(clipTimes, raceConfig.finishResults, i, raceVideos[i]?.currentTime);
 }
