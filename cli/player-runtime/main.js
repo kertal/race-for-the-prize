@@ -24,7 +24,7 @@ const ZERO_START_THRESHOLD = 0.001;
 // forces a fresh decode+paint. Deliberately not play()/pause(): its async
 // pause can land mid-export or mid-playback and freeze a running video.
 function nudgePaint(video) {
-  if (!video.paused || !(video.currentTime > 0)) return;
+  if (!video.paused || video.currentTime <= 0) return;
   video.currentTime = Math.max(0, video.currentTime - 0.001);
 }
 
@@ -72,7 +72,7 @@ function seekAllWithVerify(targetStart) {
       v.currentTime = Math.min(expected, Number.isFinite(v.duration) ? v.duration : expected);
       v.addEventListener('seeked', reseek, { once: true });
     };
-    pendingSeekVerifications.set(v, cancel);
+    trackSeekVerification(v, cancel);
     v.addEventListener('seeked', reseek, { once: true });
     // Case 2 fallback: once data is available (canplay = readyState ≥ 3), make a
     // fresh attempt if still off — within the same shared budget.

@@ -88,6 +88,12 @@ function cancelSeekVerifications() {
   pendingSeekVerifications.clear();
 }
 
+// seekAllWithVerify (main.js) registers one cancel per video it is still
+// verifying; any later seek, play, export or listener detach calls them all.
+function trackSeekVerification(video, cancel) {
+  pendingSeekVerifications.set(video, cancel);
+}
+
 // hiddenRacers indexes raceVideos. In merged mode `videos` is [mergedVideo],
 // which must not inherit racer 0's hidden state.
 function isHiddenRacer(i) {
