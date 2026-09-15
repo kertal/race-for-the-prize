@@ -29,7 +29,7 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 - `runner-throttling.cjs` — network presets and CPU throttling via CDP.
 - `runner-layout.cjs` — pure window-geometry math for 2–5 parallel browser windows.
 - `sync-barrier.cjs` — synchronization barrier for parallel mode, with a timeout so a hung racer can't deadlock the run.
-- `overlay.cjs` — in-page status overlays, medals, the opt-in wall clock, and the opt-in cue flashes.
+- `overlay.cjs` — in-page status overlays, the finish flag, the opt-in wall clock, and the opt-in cue flashes.
 - `trace-calibration.cjs` — pure transform from Playwright trace JSON to recording segments, measurements, and video calibration data.
 - `visual-stability.cjs` — `raceWaitForVisualStability` polling logic (dependency-injected, Playwright-free).
 

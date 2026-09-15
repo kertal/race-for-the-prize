@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
-const { flashCue, setOverlay, setClock, showMedal, OverlayController, CUE_DURATION_MS, CUE_SIZE, CLOCK_TICK_MS } = require('../overlay.cjs');
+const { flashCue, setOverlay, setClock, showFinishFlag, OverlayController, CUE_DURATION_MS, CUE_SIZE, CLOCK_TICK_MS } = require('../overlay.cjs');
 
 // --- Minimal DOM stub for page.evaluate ---
 // The overlay functions pass a callback + args to page.evaluate().
@@ -140,61 +140,29 @@ describe('setOverlay', () => {
   });
 });
 
-// --- showMedal tests ---
+// --- showFinishFlag tests ---
 
-describe('showMedal', () => {
-  it('shows 1st place medal', async () => {
+describe('showFinishFlag', () => {
+  it('shows the finish flag', async () => {
     const { doc, elements } = createMockDOM();
     const page = createMockPage(doc);
 
-    await showMedal(page, 1);
+    await showFinishFlag(page);
 
     expect(elements['__race_medal']).toBeDefined();
-    expect(elements['__race_medal'].textContent).toBe('🥇 1st');
-  });
-
-  it('shows 2nd place medal', async () => {
-    const { doc, elements } = createMockDOM();
-    const page = createMockPage(doc);
-
-    await showMedal(page, 2);
-    expect(elements['__race_medal'].textContent).toBe('🥈 2nd');
-  });
-
-  it('shows 3rd place medal', async () => {
-    const { doc, elements } = createMockDOM();
-    const page = createMockPage(doc);
-
-    await showMedal(page, 3);
-    expect(elements['__race_medal'].textContent).toBe('🥉 3rd');
-  });
-
-  it('shows finish flag for sequential mode (place=null)', async () => {
-    const { doc, elements } = createMockDOM();
-    const page = createMockPage(doc);
-
-    await showMedal(page, null);
     expect(elements['__race_medal'].textContent).toBe('🏁');
   });
 
-  it('replaces existing medal element', async () => {
+  it('replaces an existing flag element', async () => {
     const { doc, elements } = createMockDOM();
     const page = createMockPage(doc);
 
-    await showMedal(page, 1);
+    await showFinishFlag(page);
     const first = elements['__race_medal'];
-    await showMedal(page, 2);
+    await showFinishFlag(page);
 
     expect(elements['__race_medal']).not.toBe(first);
-    expect(elements['__race_medal'].textContent).toBe('🥈 2nd');
-  });
-
-  it('falls back to number for places > 5', async () => {
-    const { doc, elements } = createMockDOM();
-    const page = createMockPage(doc);
-
-    await showMedal(page, 7);
-    expect(elements['__race_medal'].textContent).toBe('7 7th');
+    expect(elements['__race_medal'].textContent).toBe('🏁');
   });
 });
 
@@ -523,19 +491,19 @@ describe('OverlayController', () => {
     expect(page.evaluate).not.toHaveBeenCalled();
   });
 
-  it('onFinish calls showMedal with placement', async () => {
+  it('onFinish shows the finish flag', async () => {
     const { ctrl, elements } = createCtrl();
 
-    await ctrl.onFinish(1);
+    await ctrl.onFinish();
 
     expect(elements['__race_medal']).toBeDefined();
-    expect(elements['__race_medal'].textContent).toBe('🥇 1st');
+    expect(elements['__race_medal'].textContent).toBe('🏁');
   });
 
   it('onFinish is a no-op when disabled', async () => {
     const { ctrl, page } = createCtrl({ noOverlay: true });
 
-    await ctrl.onFinish(1);
+    await ctrl.onFinish();
 
     expect(page.evaluate).not.toHaveBeenCalled();
   });
@@ -629,8 +597,8 @@ describe('OverlayController', () => {
   });
 
   it('does not let awaited overlay work push the frozen time past the finish', async () => {
-    // The medal (onFinish) and the overlay update are both awaited before the
-    // clock freezes — neither may advance the burned-in time.
+    // The finish flag (onFinish) and the overlay update are both awaited before
+    // the clock freezes — neither may advance the burned-in time.
     const { doc, elements } = createMockDOM();
     const page = createMockPage(doc);
     let clock = 3500;
@@ -642,10 +610,10 @@ describe('OverlayController', () => {
     const ctrl = new OverlayController(page, { wallClock: true, timeBase: 1000, now: () => clock });
 
     await ctrl.onStartRecording();
-    await ctrl.onFinish(1);
+    await ctrl.onFinish();
     await ctrl.onStopRecording();
 
-    expect(ctrl.clockFrozenAt).toBe(3500 + 400 * 3); // start overlay + clock + medal
+    expect(ctrl.clockFrozenAt).toBe(3500 + 400 * 3); // start overlay + clock + flag
     // Zeroed before that page work ran, so only the work itself is on the clock.
     expect(elements['__race_clock'].textContent).toBe('0:01.2');
   });
@@ -705,7 +673,7 @@ describe('OverlayController', () => {
     const { ctrl, elements } = createCtrl();
 
     await ctrl.onStartRecording();
-    await ctrl.onFinish(null); // the runner's recording stop, nothing measured
+    await ctrl.onFinish(); // the runner's recording stop, nothing measured
     await ctrl.onStopRecording();
     expect(elements.__race_medal).toBeDefined();
 

@@ -186,20 +186,10 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
       },
       markRecordingEnd: () => markTrace(`${traceMarkPrefix}recording:end`),
       onRecordingStop: async ({ endTime }) => {
-        if (sharedState) {
-          // Record one finish entry per racer, not per recording segment. A racer
-          // with several raceRecordingStart/End segments would otherwise appear
-          // multiple times and corrupt the medal-placement index (which assumes
-          // one entry per racer).
-          const existing = sharedState.finishOrder.find(f => f.id === id);
-          if (existing) existing.endTime = endTime;
-          else sharedState.finishOrder.push({ id, endTime });
-          if (!noOverlay && !noRecording) {
-            // Recording completion order includes post-race delays and is not
-            // a ranking. The player adds medals from the final measurements.
-            await overlayCtrl.onFinish(null);
-          }
-        }
+        // Recording completion order includes post-race delays and is not a
+        // ranking, so the page only gets a finish flag; the player adds the
+        // placement from the final measurements.
+        await overlayCtrl.onFinish();
         await Promise.all([
           flashCues ? flashCue(page, CUE_COLOR_END) : null,
           overlayCtrl.onStopRecording(endTime),
@@ -212,7 +202,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
       onMeasureEnd: (name, endTime, activeCount) => {
         queueTraceMark(`${traceMarkPrefix}measure:end:${encodeMeasureName(name)}`);
         // raceEnd stays synchronous; dispatch the freeze immediately, before
-        // the spec's post-race wait or the recording-stop medal work.
+        // the spec's post-race wait or the recording-stop overlay work.
         overlayCtrl.onMeasureEnd(endTime, activeCount).catch(() => {});
       },
       onUnmatchedMeasureEnd: (name) => {
@@ -518,7 +508,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
 
 async function runParallel(browserConfigs, opts = {}) {
   const count = browserConfigs.length;
-  const sharedState = { hasError: false, errorMessage: null, finishOrder: [] };
+  const sharedState = { hasError: false, errorMessage: null };
   const barriers = {
     ready: new SyncBarrier(count, sharedState, { timeoutMs: BARRIER_TIMEOUT_MS }),
     recordingStart: new SyncBarrier(count, sharedState, { timeoutMs: BARRIER_TIMEOUT_MS }),
@@ -538,7 +528,7 @@ async function runParallel(browserConfigs, opts = {}) {
 }
 
 async function runSequential(browserConfigs, opts = {}) {
-  const sharedState = { hasError: false, errorMessage: null, finishOrder: [] };
+  const sharedState = { hasError: false, errorMessage: null };
   const results = [];
   for (let i = 0; i < browserConfigs.length; i++) {
     const result = await runBrowserRecording(browserConfigs[i], null, false, sharedState, { ...opts, browserIndex: i, totalBrowsers: browserConfigs.length });
