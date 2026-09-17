@@ -331,7 +331,7 @@ describe('page.race* API (race-api.cjs)', () => {
       expect(ends).toEqual([['inner', 1], ['outer', 0]]);
     });
 
-    it('passes the last measurement end time to onRecordingStop', async () => {
+    it('passes both the last measurement end and the segment close to onRecordingStop', async () => {
       let stopInfo = null;
       const now = vi.fn().mockReturnValue(1000);
       const { api, page } = createTestApi({
@@ -346,8 +346,9 @@ describe('page.race* API (race-api.cjs)', () => {
       now.mockReturnValue(9000);
       await api.finalize();
 
-      // Finish time is the measurement's end (3s), not the segment close (8s)
-      expect(stopInfo).toEqual({ endTime: 3 });
+      // The finish is the measurement's end (3s); the recording ran on to 8s.
+      // The medal and the placement use the first, the wall clock the second.
+      expect(stopInfo).toEqual({ endTime: 3, segmentEnd: 8 });
     });
   });
 
