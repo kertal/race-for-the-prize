@@ -30,10 +30,11 @@
 // Slower network is worse for no-cache, which re-downloads every visit; slower
 // CPU is worse for encrypted-cache, which pays for crypto on every visit.
 //
-// SOURCE is the "x8" dataset: ~220 KB down, inflated to ~9 MB in the browser —
-// short on the network axis, big enough for the crypto to show. Swap in
-// "bundled" (~1 MB) to go faster, or a live API source ("usgs-week",
-// "open-meteo", "randomuser") to race a real backend.
+// SOURCE is "bundled-9" for all three racers: ~1.16 MB down, expanded ×8 to
+// ~9 MB in the browser — enough traffic to separate the modes on the network
+// axis, and enough data for the crypto to show on the CPU one. Swap in
+// "bundled" (~1 MB, no expansion) to go faster, or a live API source
+// ("usgs-week", "open-meteo", "randomuser") to race a real backend.
 
 const url = 'https://kertal.github.io/hush-hush-db/';
 
