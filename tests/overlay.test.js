@@ -308,17 +308,17 @@ describe('setClock', () => {
 // --- OverlayController tests ---
 
 describe('OverlayController', () => {
-  it('holds the measured finish through the post-race delay and recording stop', async () => {
+  it('runs on through the post-race delay and stops when the recording does', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1000);
     const { ctrl, elements } = createCtrl({ wallClock: true, timeBase: 1000 });
     const { createRaceApi } = require('../race-api.cjs');
-    let freeze;
+    let flag;
     const api = createRaceApi({ recordingStartTime: 1000, hooks: {
       onRecordingStart: () => ctrl.onStartRecording(),
       onMeasureStart: () => ctrl.onMeasureStart(),
-      onMeasureEnd: (_name, end, count) => { freeze = ctrl.onMeasureEnd(end, count); },
-      onRecordingStop: ({ endTime }) => ctrl.onStopRecording(endTime),
+      onMeasureEnd: (_name, _end, count) => { flag = ctrl.onMeasureEnd(count); },
+      onRecordingStop: ({ segmentEnd }) => ctrl.onStopRecording(segmentEnd),
     } });
     try {
       await api.startRecording();
@@ -326,21 +326,22 @@ describe('OverlayController', () => {
       await api.startMeasure('inner');
       await vi.advanceTimersByTimeAsync(1500);
       api.endMeasure('inner');
-      await freeze;
+      await flag;
       expect(ctrl.clockRunning).toBe(true);
       expect(elements.__race_or.textContent).toBe('⏱️');
       expect(elements.__race_medal).toBeUndefined();
       await vi.advanceTimersByTimeAsync(6000);
       api.endMeasure('outer');
-      await freeze;
+      await flag;
       expect(elements.__race_clock.textContent).toBe('0:07.5');
-      expect(ctrl.clockRunning).toBe(false);
+      expect(ctrl.clockRunning).toBe(true);
       expect(elements.__race_or.textContent).toBe('🏁');
       expect(elements.__race_medal.textContent).toBe('🏁');
       await vi.advanceTimersByTimeAsync(1500);
-      expect(elements.__race_clock.textContent).toBe('0:07.5');
+      expect(elements.__race_clock.textContent).toBe('0:09.0');
       await api.stopRecording();
-      expect(elements.__race_clock.textContent).toBe('0:07.5');
+      expect(ctrl.clockRunning).toBe(false);
+      expect(elements.__race_clock.textContent).toBe('0:09.0');
       expect(globalThis.__raceClockTimer).toBeFalsy();
     } finally {
       clearInterval(globalThis.__raceClockTimer);
@@ -349,25 +350,29 @@ describe('OverlayController', () => {
     }
   });
 
-  it('resumes the recording clock for a later measurement and preserves a frozen clock on navigation', async () => {
+  it('ticks through the untimed gap between two sections instead of jumping it', async () => {
+    // Regression: the clock used to freeze on the closing measurement and
+    // resume against its unmoved zero, so the digits stood still through the
+    // spec's untimed wait and then jumped the whole gap in one step.
     vi.useFakeTimers();
     vi.setSystemTime(1000);
     const { ctrl, elements, page } = createCtrl({ wallClock: true, timeBase: 1000 });
     try {
       await ctrl.onStartRecording();
       await vi.advanceTimersByTimeAsync(2000);
-      await ctrl.onMeasureEnd(2);
+      await ctrl.onMeasureEnd(0);
       elements.__race_clock.remove();
       const onLoad = page.on.mock.calls.find(([event]) => event === 'load')[1];
       onLoad();
+      // Re-injected mid-gap by the navigation, and still counting.
       await vi.advanceTimersByTimeAsync(1500);
-      expect(elements.__race_clock.textContent).toBe('0:02.0');
+      expect(elements.__race_clock.textContent).toBe('0:03.5');
       await ctrl.onMeasureStart();
       expect(elements.__race_medal).toBeUndefined();
       expect(elements.__race_or.textContent).toBe('⏱️');
       await vi.advanceTimersByTimeAsync(500);
       expect(elements.__race_clock.textContent).toBe('0:04.0');
-      await ctrl.onMeasureEnd(4);
+      await ctrl.onMeasureEnd(0);
       await ctrl.onStopRecording(4);
       expect(elements.__race_clock.textContent).toBe('0:04.0');
     } finally {
@@ -572,7 +577,7 @@ describe('OverlayController', () => {
     expect(slow.elements['__race_clock'].textContent).toBe('0:02.5');
   });
 
-  it('freezes the clock on the finish time when recording stops', async () => {
+  it('freezes the clock when recording stops', async () => {
     const { ctrl, elements } = createCtrl({ wallClock: true, timeBase: 1000, now: () => 3500 });
 
     await ctrl.onStartRecording();
@@ -584,9 +589,9 @@ describe('OverlayController', () => {
     expect(globalThis.__raceClockTimer).toBeFalsy();
   });
 
-  it('renders the API finish time relative to the recording start', async () => {
-    // finishSeconds counts from the API's base (1000), but the clock's zero is
-    // the recording start (1400) — so 2.5s reported burns in as 2.1s.
+  it('renders the API recording end relative to the recording start', async () => {
+    // The end counts from the API's base (1000), but the clock's zero is the
+    // recording start (1400) — so 2.5s reported burns in as 2.1s.
     const { ctrl, elements } = createCtrl({ wallClock: true, timeBase: 1000, now: () => 1400 });
 
     await ctrl.onStartRecording();

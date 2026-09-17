@@ -82,7 +82,9 @@ async function setOverlay(page, dot, right) {
  * recording start, the same origin the segment and measurement times use, so
  * the digits track the reported times (which are calibrated from the trace
  * afterwards) closely, and all racers in a parallel race read the same time in
- * the same frame.
+ * the same frame. It runs for the whole recording and stops only when the
+ * recording does: a spec's untimed waits between sections are time the video
+ * spends, so the clock spends it too.
  *
  * Opt-in (`--wall-clock`): the ticking text costs a style recalc and a paint
  * ten times a second, which shows up in the profile metrics and keeps
@@ -217,32 +219,30 @@ class OverlayController {
   async onMeasureStart() {
     if (this._disabled) return;
     await this._clearFinish();
-    // A later section resumes the same recording clock, retaining its zero.
-    if (this._wallClock && this.dot && this.clockFrozenAt !== null) {
-      this.clockRunning = true;
-      this.clockFrozenAt = null;
-      await setClock(this._page, this._clockStart, null);
-    }
     this.right = '\u23F1\uFE0F';
     await setOverlay(this._page, this.dot, this.right);
   }
 
-  async onMeasureEnd(finishSeconds = null, activeCount = 0) {
+  /**
+   * Raises the flag. The clock keeps running: it is a wall clock, and the
+   * untimed gap before the next section is time the video spends too. Pausing
+   * it here and resuming there would leave the digits to jump that gap in one
+   * step, since the clock's zero never moves.
+   *
+   * @param {number} [activeCount] Measurements still open; the finish is the
+   *   last one to close.
+   */
+  async onMeasureEnd(activeCount = 0) {
     if (this._disabled) return;
     if (activeCount > 0) return;
     this.right = '\u{1F3C1}';
-    const updates = [];
-    if (this._wallClock && this.clockRunning) {
-      this.clockRunning = false;
-      this.clockFrozenAt = this._freezeTime(finishSeconds);
-      updates.push(setClock(this._page, this._clockStart, this.clockFrozenAt));
-    }
     // Publish both flags at the measured finish, while the recording dot
     // remains visible through any post-race footage. Placement comes later.
-    updates.push(setOverlay(this._page, this.dot, this.right));
     this.finishShown = true;
-    updates.push(showFinishFlag(this._page));
-    await Promise.all(updates);
+    await Promise.all([
+      setOverlay(this._page, this.dot, this.right),
+      showFinishFlag(this._page),
+    ]);
   }
 
   async _clearFinish() {
@@ -257,21 +257,20 @@ class OverlayController {
   }
 
   /**
-   * @param {number|null} [finishSeconds] The racer's finish time in seconds
-   *   since the race API's time base. Falls back to the
+   * @param {number|null} [recordingEndSeconds] When the recording segment
+   *   closed, in seconds since the race API's time base. Falls back to the
    *   current time when the caller has none.
    */
-  async onStopRecording(finishSeconds = null) {
+  async onStopRecording(recordingEndSeconds = null) {
     if (this._disabled) return;
     // Resolved before any page work: the finish flag and the overlay update are
     // both awaited first, so reading the clock afterwards would freeze the
-    // video on a time later than the racer's actual finish.
-    const frozenAt = this._wallClock ? this._freezeTime(finishSeconds) : null;
+    // video on a time later than the recording's own end.
+    const frozenAt = this._wallClock ? this._freezeTime(recordingEndSeconds) : null;
     this.dot = false;
     await setOverlay(this._page, false, this.right);
     if (this._wallClock && this.clockRunning) {
-      // Fallback for recordings without a measurement. A measured finish has
-      // already frozen the clock in onMeasureEnd, before any post-race wait.
+      // The clock's one and only stop: it runs from raceRecordingStart to here.
       this.clockRunning = false;
       this.clockFrozenAt = frozenAt;
       await setClock(this._page, this._clockStart, frozenAt);
@@ -279,13 +278,14 @@ class OverlayController {
   }
 
   /**
-   * Epoch ms to freeze the clock on, so the burned-in time is the reported
-   * finish time. finishSeconds is counted from the race API's own base, so it
-   * converts against that — the clock then renders it relative to its own zero.
+   * Epoch ms to freeze the clock on, so the burned-in time is the recording's
+   * own end as the results report it. finishSeconds is counted from the race
+   * API's own base, so it converts against that — the clock then renders it
+   * relative to its own zero.
    */
-  _freezeTime(finishSeconds) {
-    if (finishSeconds === null || this._timeBase === null) return this._now();
-    return this._timeBase + finishSeconds * 1000;
+  _freezeTime(seconds) {
+    if (seconds === null || this._timeBase === null) return this._now();
+    return this._timeBase + seconds * 1000;
   }
 
   /**

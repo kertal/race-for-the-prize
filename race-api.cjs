@@ -30,10 +30,11 @@
  *   (trace mark, overlay, start cue).
  * @param {() => Promise<void>} [options.hooks.markRecordingEnd] Immediately when a
  *   segment closes, before deferred effects (trace mark).
- * @param {(info: {endTime: number}) => Promise<void>} [options.hooks.onRecordingStop]
+ * @param {(info: {endTime: number, segmentEnd: number}) => Promise<void>} [options.hooks.onRecordingStop]
  *   Deferred stop effects (finish overlay, end cue); endTime is the racer's finish
  *   time in seconds (the last measurement that ended in this segment, else the
- *   segment's end).
+ *   segment's end), and segmentEnd is when the segment itself closed — the two
+ *   differ by whatever untimed outro the spec recorded after its last raceEnd.
  * @param {(name: string) => Promise<void>} [options.hooks.onMeasureStart]
  * @param {(name: string, endTime: number, activeCount: number) => void} [options.hooks.onMeasureEnd]
  * @param {(name: string) => void} [options.hooks.onUnmatchedMeasureEnd] raceEnd
@@ -101,7 +102,7 @@ function createRaceApi({ recordingStartTime = Date.now(), now = Date.now, hooks 
       const endTime = lastMeasurement && lastMeasurement.endTime >= segmentStart
         ? lastMeasurement.endTime
         : segmentEnd;
-      if (onRecordingStop) await onRecordingStop({ endTime });
+      if (onRecordingStop) await onRecordingStop({ endTime, segmentEnd });
     })();
     return stopPromise;
   };

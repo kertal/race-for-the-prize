@@ -185,14 +185,16 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
         ]);
       },
       markRecordingEnd: () => markTrace(`${traceMarkPrefix}recording:end`),
-      onRecordingStop: async ({ endTime }) => {
+      onRecordingStop: async ({ segmentEnd }) => {
         // Recording completion order includes post-race delays and is not a
         // ranking, so the page only gets a finish flag; the player adds the
         // placement from the final measurements.
         await overlayCtrl.onFinish();
         await Promise.all([
           flashCues ? flashCue(page, CUE_COLOR_END) : null,
-          overlayCtrl.onStopRecording(endTime),
+          // The clock stops with the recording, not on the finish: it ran
+          // through the spec's untimed waits, so it counts the outro too.
+          overlayCtrl.onStopRecording(segmentEnd),
         ]);
       },
       onMeasureStart: async (name) => {
@@ -201,9 +203,8 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
       },
       onMeasureEnd: (name, endTime, activeCount) => {
         queueTraceMark(`${traceMarkPrefix}measure:end:${encodeMeasureName(name)}`);
-        // raceEnd stays synchronous; dispatch the freeze immediately, before
-        // the spec's post-race wait or the recording-stop overlay work.
-        overlayCtrl.onMeasureEnd(endTime, activeCount).catch(() => {});
+        // raceEnd stays synchronous; raise the flag without waiting on it.
+        overlayCtrl.onMeasureEnd(activeCount).catch(() => {});
       },
       onUnmatchedMeasureEnd: (name) => {
         console.error(`[${id}] Warning: raceEnd(${JSON.stringify(name)}) called with no matching raceStart — measurement ignored.`);
