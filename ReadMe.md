@@ -55,16 +55,16 @@ node race.js ./races/react-vs-angular
 
 ## 🤫 Encrypted cache vs plain cache vs no cache
 
-What does caching cost, and when does it pay back? [HushHushDB](https://kertal.github.io/hush-hush-db/) downloads a dataset and can keep it in IndexedDB — encrypted with a key in `sessionStorage`, stored as plaintext, or not kept at all. Three racers boot the same app into a different cache handling mode, fetch the dataset, then ask for it a second time.
+What does caching cost, and when does it pay back? [HushHushDB](https://kertal.github.io/hush-hush-db/) downloads a dataset and can keep it in IndexedDB — encrypted with a key in `sessionStorage`, stored as plaintext, or not kept at all. Three racers boot the same app into a different cache handling mode, fetch the dataset, step back to the start screen through the app's own back link, and start the demo again.
 
 ```bash
 node race.js ./races/caching-comparison
 ```
 
-Both halves are timed, because encryption is not free on either side of the cache. **Fetch and store** is the price paid up front — the app renders only once the write finishes. **Reload to data** is the payback, and it separates the two costs cleanly: decrypting is a CPU cost that ignores the network, refetching is a network cost that ignores the CPU.
+Both halves are timed, because encryption is not free on either side of the cache. **Fetch and store** is the price paid up front — the app renders only once the write finishes. **Return to data** is the payback — the app reopens the mode against the warm cache without reloading the page — and it separates the two costs cleanly: decrypting is a CPU cost that ignores the network, refetching is a network cost that ignores the CPU.
 
 ```text
-  ⏱ Reload to data     encrypted   plain   no-cache
+  ⏱ Return to data     encrypted   plain   no-cache
   none    · CPU 1x       0.190s   0.133s     0.068s
   slow-3g · CPU 1x       0.189s   0.150s     4.332s   ← same CPU, 25x slower link
   none    · CPU 4x       0.496s   0.306s     0.127s   ← same link, 4x slower CPU
@@ -477,7 +477,7 @@ The terminal delivers the verdict in style:
 | `noServe` | `--serve` | `true` / `false` (inverted: `serve=false` => `noServe=true`) | `false` |
 | `pauseBetweenRuns` | `--pause` | `true` / `false` | `false` |
 | `ignoreHTTPSErrors` | `--ignore-https-errors` | `true` / `false` | `false` |
-| `viewportHeight` | `--height=<px>` | integer, 480–4320 | `720` |
+| `viewportHeight` | `--height=<px>` | integer, 480–4320 (also accepted as `height` in settings.json) | `720` |
 | `skin` | `--skin=<name\|path>` | `light`, `neon`, or a path to a `.css` file — see [Skinning the player](docs/skinning.md) | not set (built-in dark theme) |
 | `racers` | — | optional object keyed by racer name | not present by default |
 
