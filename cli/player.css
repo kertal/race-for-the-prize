@@ -363,8 +363,12 @@ h1 {
   flex: 1;
   min-width: 280px;
   text-align: center;
-  /* Anchors the calibration frame badge over this racer's video. */
-  position: relative;
+  /* Anchors the calibration frame badge and the finish result over this
+     racer's video. The label sits above the video at a height fixed by
+     design (see .racer-label), so overlays that hang off the top of the
+     video clear it with --racer-label-height rather than guessing. */
+  --racer-label-pad: 0.5rem;
+  --racer-label-height: calc(var(--font-size-2xl) * var(--leading) + var(--racer-label-pad) * 2);
 }
 .finish-result {
   position: absolute;
@@ -391,7 +395,7 @@ h1 {
   line-height: var(--leading);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
-  padding: 0.5rem 0;
+  padding: var(--racer-label-pad) 0;
 }
 video {
   width: 100%;
@@ -410,10 +414,11 @@ video {
 .player-container.show-frame-badges .frame-badge {
   display: flex;
   position: absolute;
-  left: 0.6rem;
-  bottom: 0.6rem;
+  top: calc(var(--racer-label-height) + 0.6rem);
+  left: 50%;
+  transform: translateX(-50%);
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.1rem;
   padding: 0.25rem 0.5rem;
   background: var(--scrim);

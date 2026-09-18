@@ -943,6 +943,23 @@ describe('buildPlayerHtml debug mode', () => {
     expect(debugHtml).toContain('class="frame-badge"');
   });
 
+  it('centres the frame badge at the top of the video, clear of the racer label', () => {
+    const rule = debugHtml.slice(
+      debugHtml.indexOf('.player-container.show-frame-badges .frame-badge'),
+      debugHtml.indexOf('.frame-badge-num')
+    );
+    // Anchored to .racer, whose top edge is the racer name — the badge has to
+    // clear that label's height or it lands on the name instead of the video.
+    expect(rule).toContain('top: calc(var(--racer-label-height) + 0.6rem)');
+    expect(rule).toContain('left: 50%');
+    expect(rule).toContain('transform: translateX(-50%)');
+    expect(rule).toContain('align-items: center');
+    expect(rule).not.toContain('bottom:');
+    // The label's padding and the height calc must stay in step.
+    expect(debugHtml).toContain('--racer-label-pad: 0.5rem');
+    expect(debugHtml).toContain('padding: var(--racer-label-pad) 0');
+  });
+
   it('shows frame badges only while calibration is open', () => {
     expect(debugHtml).toContain('.frame-badge { display: none; }');
     expect(debugHtml).toContain('.player-container.show-frame-badges .frame-badge');
