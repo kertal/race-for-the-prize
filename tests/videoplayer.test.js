@@ -1319,6 +1319,26 @@ describe('buildPlayerHtml onMeta _durationForced (Chrome WebM Infinity duration)
     // The wait is capped, so a genuinely truncated recording still calibrates.
     expect(settled).toContain('DURATION_SETTLE_MS');
   });
+
+  it('holds off resolving the clip window and the pending seek while a clip waits on its duration', () => {
+    // Regression: a clip still waiting on its duration has raw coordinates
+    // while the others are calibrated. onMeta used to resolve activeClip and
+    // let finalizeCalibration consume pendingSeek anyway, seeking that racer
+    // to the wrong frame until the retry converted it.
+    const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
+    const convert = sliceFn(html, 'function convertClipEntry(');
+    expect(convert).toContain("return 'pending'");
+    const calibrate = sliceFn(html, 'function calibrateClipTimes(');
+    expect(calibrate).toContain("status === 'pending'");
+    expect(calibrate).toContain('return { convertedAny, pending }');
+    const onMeta = sliceFn(html, 'function onMeta(');
+    const pendingIdx = onMeta.indexOf('if (pending) return;');
+    const clipIdx = onMeta.indexOf('activeClip = resolveAdjustedClip()');
+    const finalizeIdx = onMeta.indexOf('finalizeCalibration(');
+    expect(pendingIdx).toBeGreaterThan(-1);
+    expect(clipIdx).toBeGreaterThan(pendingIdx);
+    expect(finalizeIdx).toBeGreaterThan(pendingIdx);
+  });
 });
 
 // --- convertVideos scale filter for MOV ---

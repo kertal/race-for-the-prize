@@ -167,7 +167,12 @@ class OverlayController {
     this._clockStart = null;
     this._wallClock = wallClock && !this._disabled && timeBase !== null;
     this.dot = false;
+    // `right` is the corner as the race state has it; a measured finish arms
+    // it to the flag before anything is painted. `_shownRight` is what the page
+    // was last told to show, and is what a navigation must restore — the armed
+    // flag stays unseen until onFinish() paints it.
     this.right = null;
+    this._shownRight = null;
     this.clockRunning = false;
     this.clockFrozenAt = null;
     this.finishShown = false;
@@ -176,8 +181,8 @@ class OverlayController {
       page.on('load', () => {
         // A navigation wipes the overlay elements — put them back in one go,
         // the finish flag included, so corner and centre reappear together.
-        if (this.dot || this.right || this.finishShown) {
-          setOverlay(page, this.dot, this.right, this.finishShown ? true : null).catch(() => {});
+        if (this.dot || this._shownRight || this.finishShown) {
+          setOverlay(page, this.dot, this._shownRight, this.finishShown ? true : null).catch(() => {});
         }
         // So does the clock element and its timer.
         if (this.clockRunning || this.clockFrozenAt !== null) {
@@ -204,7 +209,7 @@ class OverlayController {
     // raceRecordingStart() all land in that gap.
     if (this._wallClock) this._clockStart = startEpochMs;
     this.dot = true;
-    await setOverlay(this._page, true, this.right, dropFlag ? false : null);
+    await this._paint(dropFlag ? false : null);
     if (this._wallClock) {
       this.clockRunning = true;
       this.clockFrozenAt = null;
@@ -216,7 +221,13 @@ class OverlayController {
     if (this._disabled) return;
     const dropFlag = this._clearFinish();
     this.right = '\u23F1\uFE0F';
-    await setOverlay(this._page, this.dot, this.right, dropFlag ? false : null);
+    await this._paint(dropFlag ? false : null);
+  }
+
+  /** One page update for dot, corner and (optionally) the centre flag. */
+  async _paint(flag = null) {
+    this._shownRight = this.right;
+    await setOverlay(this._page, this.dot, this.right, flag);
   }
 
   /**
@@ -261,7 +272,7 @@ class OverlayController {
     // video on a time later than the recording's own end.
     const frozenAt = this._wallClock ? this._freezeTime(recordingEndSeconds) : null;
     this.dot = false;
-    await setOverlay(this._page, false, this.right);
+    await this._paint();
     if (this._wallClock && this.clockRunning) {
       // The clock's one and only stop: it runs from raceRecordingStart to here.
       this.clockRunning = false;
@@ -294,7 +305,7 @@ class OverlayController {
   async onFinish() {
     if (this._disabled || this.right !== '\u{1F3C1}') return false;
     this.finishShown = true;
-    await setOverlay(this._page, this.dot, this.right, true);
+    await this._paint(true);
     return true;
   }
 }

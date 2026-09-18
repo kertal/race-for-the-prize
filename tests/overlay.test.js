@@ -774,6 +774,32 @@ describe('OverlayController', () => {
     expect(elements.__race_or.textContent).toBe('🏁');
   });
 
+  it('restores the painted corner after a navigation, not the armed flag', async () => {
+    // A measured finish arms the corner without painting it. A navigation in
+    // the post-race wait must bring back the stopwatch the page was showing,
+    // not fly the flag early — that stays for onFinish at the recording end.
+    const { ctrl, page, elements } = createCtrl();
+
+    await ctrl.onStartRecording();
+    await ctrl.onMeasureStart();
+    await ctrl.onMeasureEnd();
+    expect(ctrl.right).toBe('🏁'); // armed
+    expect(elements.__race_or.textContent).toBe('⏱️'); // still painted
+    elements.__race_or.remove();
+    elements.__race_ol.remove();
+
+    const onLoad = page.on.mock.calls.find(([event]) => event === 'load')[1];
+    onLoad();
+
+    expect(elements.__race_or.textContent).toBe('⏱️');
+    expect(elements.__race_ol).toBeDefined();
+    expect(elements.__race_medal).toBeUndefined();
+
+    await ctrl.onFinish();
+    expect(elements.__race_or.textContent).toBe('🏁');
+    expect(elements.__race_medal.textContent).toBe('🏁');
+  });
+
   it('flies no flag for a segment recorded without a measured finish', async () => {
     // A bare raceRecordingStart/End pair (b-roll) has no finish to mark, so the
     // recording stop must not invent one.

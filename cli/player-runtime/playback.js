@@ -247,14 +247,16 @@ function durationSettled(clipEntry, ptsStart, video) {
 }
 
 // Convert a single clip entry using trace calibration. Returns true if the
-// entry transitioned to converted during this call.
+// entry's status: 'converted' when it transitioned during this call,
+// 'pending' while it waits for its video's duration to settle, else
+// 'unchanged'.
 function convertClipEntry(clipEntry, video) {
-  if (clipEntry._converted) return false;
+  if (clipEntry._converted) return 'unchanged';
   if (clipEntry._wcStart == null) { clipEntry._wcStart = clipEntry.start; clipEntry._wcEnd = clipEntry.end; }
   if (!canApplyTraceCalibration(clipEntry)) {
     // No trace calibration metadata — use raw clip times as-is (e.g. URL mode races)
     clipEntry._converted = true;
-    return true;
+    return 'converted';
   }
   // recordingStartTs − firstFrameTs gives the PTS offset (µs) where recording
   // started relative to the first captured frame; divide to get seconds.
@@ -262,22 +264,26 @@ function convertClipEntry(clipEntry, video) {
   if (!Number.isFinite(tracePtsStart) || tracePtsStart < 0) {
     // Invalid trace timestamps — use raw clip times as-is
     clipEntry._converted = true;
-    return true;
+    return 'converted';
   }
-  if (!durationSettled(clipEntry, tracePtsStart, video)) return false;
+  if (!durationSettled(clipEntry, tracePtsStart, video)) return 'pending';
   applyCalibrationToClip(clipEntry, tracePtsStart, video.duration);
-  return !!clipEntry._converted;
+  return 'converted';
 }
 
-// Calibrate all clip entries; returns true if any entry was converted.
+// Calibrate all clip entries. Reports whether any entry was converted, and
+// whether any is still pending — waiting on its duration, with a retry already
+// scheduled through onMeta.
 function calibrateClipTimes() {
-  if (!clipTimes) return false;
   let convertedAny = false;
-  for (let i = 0; i < clipTimes.length; i++) {
+  let pending = false;
+  for (let i = 0; clipTimes && i < clipTimes.length; i++) {
     if (!isValidClipEntry(clipTimes[i]) || !videos[i] || (videos[i].readyState < 1)) continue;
-    if (convertClipEntry(clipTimes[i], videos[i])) convertedAny = true;
+    const status = convertClipEntry(clipTimes[i], videos[i]);
+    if (status === 'converted') convertedAny = true;
+    if (status === 'pending') pending = true;
   }
-  return convertedAny;
+  return { convertedAny, pending };
 }
 
 // After calibration converts clip entries, seek to the calibrated start and
@@ -311,7 +317,12 @@ function onMeta() {
   if (!ensureFiniteDurations()) return;
 
   duration = Math.max(...videos.filter(Boolean).map(v => v.duration || 0));
-  const convertedAny = calibrateClipTimes();
+  const { convertedAny, pending } = calibrateClipTimes();
+  // A clip still waiting on its duration has raw coordinates while the others
+  // are calibrated; resolving the window or consuming the pending seek now
+  // would seek that racer to the wrong frame. durationSettled has already
+  // scheduled the retry, so wait for it.
+  if (pending) return;
   // Recompute segment clip times after calibration (they depend on traceTsToClipPts
   // which uses the now-calibrated traceCalibration data on clipTimes entries).
   // Skip for __all__ (uses base clipTimes) and __full__ (intentionally null).
