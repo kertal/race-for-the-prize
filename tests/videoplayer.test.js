@@ -96,6 +96,18 @@ describe('buildPlayerHtml', () => {
     expect(defaultHtml).toContain('max-width: 680px');
   });
 
+  it('keeps the racer name on screen in fullscreen', () => {
+    // Fullscreen gives each grid row the viewport, so the label rides on top of
+    // its video rather than taking a line of its own — but it stays visible:
+    // with the page chrome gone, it is the only thing naming each racer.
+    const rule = defaultHtml.match(
+      /:is\(:fullscreen, :-webkit-full-screen\) \.racer-label \{[^}]*\}/
+    );
+    expect(rule).not.toBeNull();
+    expect(rule[0]).toContain('position: absolute');
+    expect(rule[0]).not.toContain('display: none');
+  });
+
   it('embeds racer names and video sources', () => {
     expect(defaultHtml).toContain('lauda');
     expect(defaultHtml).toContain('hunt');

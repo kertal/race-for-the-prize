@@ -81,6 +81,24 @@ const hiddenRacers = new Set();
 const STEP = 0.1;
 let loadedSrcSet = 'race';
 let pendingSeek = null;
+const pendingSeekVerifications = new Map();
+
+function cancelSeekVerifications() {
+  for (const cancel of pendingSeekVerifications.values()) cancel();
+  pendingSeekVerifications.clear();
+}
+
+// seekAllWithVerify (main.js) registers one cancel per video it is still
+// verifying; any later seek, play, export or listener detach calls them all.
+function trackSeekVerification(video, cancel) {
+  pendingSeekVerifications.set(video, cancel);
+}
+
+// hiddenRacers indexes raceVideos. In merged mode `videos` is [mergedVideo],
+// which must not inherit racer 0's hidden state.
+function isHiddenRacer(i) {
+  return videos === raceVideos && hiddenRacers.has(i);
+}
 
 // --- Formatting helpers ---
 
@@ -142,6 +160,7 @@ function resolveAdjustedClip() {
 }
 
 function seekAll(t) {
+  cancelSeekVerifications();
   const adj = getAdjustedClipTimes();
   const ct = adj || clipTimes;
   videos.forEach((v, i) => {
@@ -281,7 +300,7 @@ function maxClipElapsed(ct) {
   let elapsed = 0;
   for (let i = 0; i < videos.length; i++) {
     const v = videos[i];
-    if (!v) continue;
+    if (!v || isHiddenRacer(i)) continue;
     const vidClip = activeClip && ct && isValidClipEntry(ct[i]) ? ct[i] : null;
     const e = videoClipElapsed(v, vidClip);
     if (e > elapsed) elapsed = e;
@@ -289,13 +308,24 @@ function maxClipElapsed(ct) {
   return elapsed;
 }
 
+function allClipsFinished(ct) {
+  return videos.every((v, i) => {
+    // Hidden racers and racers with no clip in this window are not on the
+    // track — the same entries resolveClipWindow leaves out of activeClip.
+    if (!v || isHiddenRacer(i)) return true;
+    const clip = ct?.[i];
+    if (!isValidClipEntry(clip)) return true;
+    if (v.seeking) return false;
+    return v.ended || v.currentTime >= Math.min(clip.end, v.duration || clip.end);
+  });
+}
+
 function onTimeUpdate() {
   const adj = getAdjustedClipTimes();
   const ct = adj || clipTimes;
   const elapsed = maxClipElapsed(ct);
-  if (activeClip && elapsed >= clipDuration()) {
+  if (activeClip && allClipsFinished(ct)) {
     videos.forEach(v => v?.pause());
-    seekAll(activeClip.end);
     playing = false;
     setPlayState(false);
     scrubber.value = 1000;
@@ -320,6 +350,7 @@ function onEnded() {
 // --- Listener management ---
 
 function detachVideoListeners() {
+  cancelSeekVerifications();
   raceVideos.forEach(v => {
     if (v) {
       v.removeEventListener('loadedmetadata', onMeta);
@@ -516,11 +547,12 @@ if (mergedVideo) mergedVideo.addEventListener('loadedmetadata', () => {
 // --- Playback controls ---
 
 playBtn.addEventListener('click', () => {
+  cancelSeekVerifications();
   if (playing) {
     videos.forEach(v => v?.pause());
     setPlayState(false);
   } else {
-    if (activeClip && Number(scrubber.value) >= 999) {
+    if (activeClip && allClipsFinished(getAdjustedClipTimes() || clipTimes)) {
       seekAll(activeClip.start);
       scrubber.value = 0;
     }
