@@ -187,22 +187,63 @@ function seekAll(t) {
 // sources (e.g. race clip → full recording) re-triggers the scan if needed.
 const _durationForced = new WeakMap();
 
+// Trigger the 1e10 scan for this video unless it already ran for this src.
+// Returns true if the scan was started (the caller must then wait).
+function forceDurationScan(v) {
+  const srcKey = v.currentSrc || v.src || '';
+  if (_durationForced.get(v) === srcKey) return false;
+  _durationForced.set(v, srcKey);
+  v.addEventListener('durationchange', onMeta, { once: true });
+  v.currentTime = 1e10; // seek past end → Chrome scans file → durationchange fires
+  return true;
+}
+
 // Ensure every video has a finite duration, triggering the 1e10 scan when
 // needed. Returns true once all videos report finite durations.
 function ensureFiniteDurations() {
   for (const v of videos) {
     if (!v || v.readyState < 1) continue; // readyState 1 = HAVE_METADATA
     if (!Number.isFinite(v.duration)) {
-      const srcKey = v.currentSrc || v.src || '';
-      if (_durationForced.get(v) !== srcKey) {
-        _durationForced.set(v, srcKey);
-        v.addEventListener('durationchange', onMeta, { once: true });
-        v.currentTime = 1e10; // seek past end → Chrome scans file → durationchange fires
-      }
+      forceDurationScan(v);
       return false; // always wait — do not proceed until durationchange fires
     }
   }
   return true;
+}
+
+// How long to keep waiting for a duration that can still hold the clip before
+// accepting the one on offer.
+const DURATION_SETTLE_MS = 2000;
+// video → { srcKey, at }: when we first found this src's duration too short.
+const _durationWait = new WeakMap();
+
+// A finite duration is not necessarily the final one: Chrome reports a WebM's
+// duration as it parses clusters, so a video whose metadata has just landed can
+// report 0 (or any partial value) before settling on the real length. Calibrate
+// against that and the clip is clamped to an end before its own start — which
+// isValidClipEntry rejects and calibrateClipTimes then skips, so it is never
+// repaired. A duration too short to hold the clip is therefore treated as
+// unsettled: run the same scan the Infinity case uses and retry on
+// durationchange. The wait is capped so a genuinely truncated recording (real
+// duration really is shorter than the trace segment) still calibrates.
+function durationSettled(clipEntry, ptsStart, video) {
+  if (durationHoldsClip(clipEntry, ptsStart, video.duration)) return true;
+  const srcKey = video.currentSrc || video.src || '';
+  const wait = _durationWait.get(video);
+  if (!wait || wait.srcKey !== srcKey) {
+    _durationWait.set(video, { srcKey, at: Date.now() });
+    video.addEventListener('durationchange', onMeta, { once: true });
+    forceDurationScan(video);
+    // Backstop: durationchange may never come for a video that is already at
+    // its final (short) length, so wake the pipeline once regardless.
+    setTimeout(onMeta, DURATION_SETTLE_MS + 50);
+    return false;
+  }
+  if (Date.now() - wait.at < DURATION_SETTLE_MS) {
+    video.addEventListener('durationchange', onMeta, { once: true });
+    return false;
+  }
+  return true; // waited long enough — this recording really is shorter than its clip
 }
 
 // Convert a single clip entry using trace calibration. Returns true if the
@@ -223,6 +264,7 @@ function convertClipEntry(clipEntry, video) {
     clipEntry._converted = true;
     return true;
   }
+  if (!durationSettled(clipEntry, tracePtsStart, video)) return false;
   applyCalibrationToClip(clipEntry, tracePtsStart, video.duration);
   return !!clipEntry._converted;
 }

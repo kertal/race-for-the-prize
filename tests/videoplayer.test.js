@@ -108,6 +108,14 @@ describe('buildPlayerHtml', () => {
     expect(rule[0]).not.toContain('display: none');
   });
 
+  it('announces each finish badge as a native live region', () => {
+    // <output> is a live region on its own, so assistive tech announces the
+    // placement without an explicit status role — which is not honoured
+    // everywhere the player is opened.
+    expect(defaultHtml).toContain('<output id="finishResult0" class="finish-result"');
+    expect(defaultHtml).not.toContain('role="status"');
+  });
+
   it('embeds racer names and video sources', () => {
     expect(defaultHtml).toContain('lauda');
     expect(defaultHtml).toContain('hunt');
@@ -1247,6 +1255,12 @@ describe('buildPlayerHtml seekAllWithVerify', () => {
 
 describe('buildPlayerHtml onMeta _durationForced (Chrome WebM Infinity duration)', () => {
   const withClips = (clips) => withOptions({ clipTimes: clips });
+  const sliceFn = (html, signature) => {
+    const start = html.indexOf(signature);
+    expect(start).toBeGreaterThan(-1);
+    const end = html.indexOf('\nfunction ', start + 1);
+    return html.slice(start, end > start ? end : start + 1500);
+  };
 
   it('declares _durationForced WeakMap', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
@@ -1254,39 +1268,31 @@ describe('buildPlayerHtml onMeta _durationForced (Chrome WebM Infinity duration)
     expect(html).toContain('WeakMap');
   });
 
-  it('ensureFiniteDurations triggers 1e10 seek when duration is non-finite', () => {
+  it('forceDurationScan issues the 1e10 seek and listens for durationchange', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
-    const fnStart = html.indexOf('function ensureFiniteDurations(');
-    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
-    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 1500);
+    const fn = sliceFn(html, 'function forceDurationScan(');
     expect(fn).toContain('1e10');
     expect(fn).toContain('durationchange');
   });
 
   it('ensureFiniteDurations always returns early while any video has non-finite duration', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
-    const fnStart = html.indexOf('function ensureFiniteDurations(');
-    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
-    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 1500);
-    // The return must be unconditional — i.e. it appears after the closing brace
-    // of the if (!_durationForced.has(v)) { ... } block, not inside it.
-    // Search for the actual assignment (not a comment mention) to find the right position.
-    const seek1e10Idx = fn.indexOf('currentTime = 1e10');
-    expect(seek1e10Idx).toBeGreaterThan(-1);
-    // Find the closing brace of the has-guard block (after the 1e10 assignment)
-    const closingBraceIdx = fn.indexOf('}', seek1e10Idx);
-    const returnIdx = fn.indexOf('return false;', closingBraceIdx);
-    expect(returnIdx).toBeGreaterThan(closingBraceIdx);
-    // Only whitespace/comments between the closing brace and return false;
-    const between = fn.slice(closingBraceIdx + 1, returnIdx).replace(/\/\/[^\n]*/g, '').trim();
+    const fn = sliceFn(html, 'function ensureFiniteDurations(');
+    // The return must be unconditional — it follows the scan call rather than
+    // sitting inside a branch, so a video mid-scan can never fall through to
+    // calibration.
+    const scanIdx = fn.indexOf('forceDurationScan(v)');
+    expect(scanIdx).toBeGreaterThan(-1);
+    const returnIdx = fn.indexOf('return false;', scanIdx);
+    expect(returnIdx).toBeGreaterThan(scanIdx);
+    const between = fn.slice(scanIdx + 'forceDurationScan(v)'.length, returnIdx)
+      .replace(/\/\/[^\n]*/g, '').replace(/[;\s]/g, '');
     expect(between).toBe('');
   });
 
-  it('ensureFiniteDurations only triggers 1e10 seek once per src (WeakMap guard)', () => {
+  it('forceDurationScan only seeks once per src (WeakMap guard)', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
-    const fnStart = html.indexOf('function ensureFiniteDurations(');
-    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
-    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 1500);
+    const fn = sliceFn(html, 'function forceDurationScan(');
     // WeakMap API: set() inside the guard, get() !== srcKey as the condition
     expect(fn).toContain('_durationForced.set(v');
     const getGuardIdx = fn.indexOf('_durationForced.get(v)');
@@ -1295,6 +1301,23 @@ describe('buildPlayerHtml onMeta _durationForced (Chrome WebM Infinity duration)
     expect(getGuardIdx).toBeGreaterThan(-1);
     expect(setIdx).toBeGreaterThan(getGuardIdx);
     expect(seek1e10Idx).toBeGreaterThan(getGuardIdx);
+  });
+
+  it('waits for a duration long enough to hold the clip before calibrating', () => {
+    // A WebM duration Chrome has not finished resolving reports short (0 at
+    // first). Calibrating against it clamps the clip to an end before its own
+    // start, which isValidClipEntry rejects for good — so conversion waits.
+    const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
+    const convert = sliceFn(html, 'function convertClipEntry(');
+    const settledIdx = convert.indexOf('durationSettled(clipEntry, tracePtsStart, video)');
+    const applyIdx = convert.indexOf('applyCalibrationToClip(');
+    expect(settledIdx).toBeGreaterThan(-1);
+    expect(applyIdx).toBeGreaterThan(settledIdx); // gate comes first
+    const settled = sliceFn(html, 'function durationSettled(');
+    expect(settled).toContain('durationHoldsClip(');
+    expect(settled).toContain('forceDurationScan(video)');
+    // The wait is capped, so a genuinely truncated recording still calibrates.
+    expect(settled).toContain('DURATION_SETTLE_MS');
   });
 });
 
