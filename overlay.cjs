@@ -284,12 +284,18 @@ class OverlayController {
 
   /**
    * Raises the flag at the recording stop — the one moment a racer is done.
+   * Corner and centre flip in the same frame: the recording stop that follows
+   * is a beat later, and a stopwatch beside a finish flag reads as a bug.
    * Placement stays out of the video; the player badges it from the results.
    */
   async onFinish() {
     if (this._disabled) return;
     this.finishShown = true;
-    await showFinishFlag(this._page);
+    this.right = '\u{1F3C1}';
+    await Promise.all([
+      setOverlay(this._page, this.dot, this.right),
+      showFinishFlag(this._page),
+    ]);
   }
 }
 

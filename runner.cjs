@@ -35,6 +35,10 @@ let cleanupInProgress = false;
 // --- Named constants (previously magic numbers) ---
 
 const POST_RACE_WAIT_MS = 500;          // Pause after race finishes for final video frames
+// The screencast runs at ~25fps, so a freshly painted flag needs a beat to land
+// in a captured frame. Two frames' worth, spent before the recording-end mark
+// the player trims on — otherwise the flag falls outside the clip and is lost.
+const FLAG_CAPTURE_MS = 80;
 const SLOWMO_MULTIPLIER = 20;           // Playwright slowMo factor per slowmo unit
 const PAGE_TIMEOUT_MS = 90000;          // Default page action/navigation timeout
 // Barrier deadline sits above the page timeout so Playwright's own errors fire
@@ -184,12 +188,17 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
           flashCues ? flashCue(page, CUE_COLOR_START) : null,
         ]);
       },
-      markRecordingEnd: () => markTrace(`${traceMarkPrefix}recording:end`),
+      markRecordingEnd: async () => {
+        // Flag first, mark second: the player trims the clip at this mark, so a
+        // flag painted after it lands outside the clip and is never seen. Never
+        // at the mark's expense, though — the trim depends on it.
+        if (!noOverlay && !noRecording) {
+          await overlayCtrl.onFinish().catch(() => {});
+          await page.waitForTimeout(FLAG_CAPTURE_MS);
+        }
+        await markTrace(`${traceMarkPrefix}recording:end`);
+      },
       onRecordingStop: async ({ segmentEnd }) => {
-        // Recording completion order includes post-race delays and is not a
-        // ranking, so the page only gets a finish flag; the player adds the
-        // placement from the final measurements.
-        await overlayCtrl.onFinish();
         await Promise.all([
           flashCues ? flashCue(page, CUE_COLOR_END) : null,
           // The clock stops with the recording, not on the finish: it ran
