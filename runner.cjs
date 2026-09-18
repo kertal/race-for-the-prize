@@ -35,6 +35,10 @@ let cleanupInProgress = false;
 // --- Named constants (previously magic numbers) ---
 
 const POST_RACE_WAIT_MS = 500;          // Pause after race finishes for final video frames
+// The screencast runs at ~25fps, so a freshly painted flag needs a beat to land
+// in a captured frame. Two frames' worth, spent before the recording-end mark
+// the player trims on — otherwise the flag falls outside the clip and is lost.
+const FLAG_CAPTURE_MS = 80;
 const SLOWMO_MULTIPLIER = 20;           // Playwright slowMo factor per slowmo unit
 const PAGE_TIMEOUT_MS = 90000;          // Default page action/navigation timeout
 // Barrier deadline sits above the page timeout so Playwright's own errors fire
@@ -184,23 +188,18 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
           flashCues ? flashCue(page, CUE_COLOR_START) : null,
         ]);
       },
-      markRecordingEnd: () => markTrace(`${traceMarkPrefix}recording:end`),
-      onRecordingStop: async ({ endTime, segmentEnd }) => {
-        if (sharedState) {
-          // Record one finish entry per racer, not per recording segment. A racer
-          // with several raceRecordingStart/End segments would otherwise appear
-          // multiple times and corrupt the medal-placement index (which assumes
-          // one entry per racer).
-          const existing = sharedState.finishOrder.find(f => f.id === id);
-          if (existing) existing.endTime = endTime;
-          else sharedState.finishOrder.push({ id, endTime });
-          if (!noOverlay && !noRecording) {
-            // Calculate placement from finish order for the medal display
-            const sorted = [...sharedState.finishOrder].sort((a, b) => a.endTime - b.endTime);
-            const place = isParallel ? sorted.findIndex(f => f.id === id) + 1 : null;
-            await overlayCtrl.onFinish(place);
-          }
+      markRecordingEnd: async () => {
+        // Flag first, mark second: the player trims the clip at this mark, so a
+        // flag painted after it lands outside the clip and is never seen. Never
+        // at the mark's expense, though — the trim depends on it.
+        if (!noOverlay && !noRecording) {
+          // A segment with no measured finish flies no flag and spends no beat.
+          const painted = await overlayCtrl.onFinish().catch(() => false);
+          if (painted) await page.waitForTimeout(FLAG_CAPTURE_MS);
         }
+        await markTrace(`${traceMarkPrefix}recording:end`);
+      },
+      onRecordingStop: async ({ segmentEnd }) => {
         await Promise.all([
           flashCues ? flashCue(page, CUE_COLOR_END) : null,
           // The clock stops with the recording, not on the finish: it ran
@@ -520,7 +519,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
 
 async function runParallel(browserConfigs, opts = {}) {
   const count = browserConfigs.length;
-  const sharedState = { hasError: false, errorMessage: null, finishOrder: [] };
+  const sharedState = { hasError: false, errorMessage: null };
   const barriers = {
     ready: new SyncBarrier(count, sharedState, { timeoutMs: BARRIER_TIMEOUT_MS }),
     recordingStart: new SyncBarrier(count, sharedState, { timeoutMs: BARRIER_TIMEOUT_MS }),
@@ -540,7 +539,7 @@ async function runParallel(browserConfigs, opts = {}) {
 }
 
 async function runSequential(browserConfigs, opts = {}) {
-  const sharedState = { hasError: false, errorMessage: null, finishOrder: [] };
+  const sharedState = { hasError: false, errorMessage: null };
   const results = [];
   for (let i = 0; i < browserConfigs.length; i++) {
     const result = await runBrowserRecording(browserConfigs[i], null, false, sharedState, { ...opts, browserIndex: i, totalBrowsers: browserConfigs.length });

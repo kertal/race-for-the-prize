@@ -31,13 +31,32 @@ function canApplyTraceCalibration(ct) {
   return hasTraceCalibration(ct) && Number.isFinite(ct.traceCalibration.firstFrameTs);
 }
 
+// True while the element's duration is too short to hold the whole segment —
+// the mark of a duration Chrome has not finished resolving yet (a WebM whose
+// duration grows as clusters are parsed reports 0 at first). Clamping against
+// such a value freezes a clip that ends before it starts, so callers wait for
+// the real duration instead. A genuinely truncated recording keeps failing
+// this, hence durationSettled()'s probed escape hatch in playback.js.
+// A clip may legitimately end a frame or two past the last decoded frame — the
+// recording-end mark lands after it — so allow that much slack rather than
+// scanning the file over a rounding difference.
+const CLIP_FIT_TOLERANCE = 0.05;
+
+function durationHoldsClip(ct, ptsStart, videoDuration) {
+  if (!Number.isFinite(videoDuration)) return false;
+  return videoDuration + CLIP_FIT_TOLERANCE >= ptsStart + (ct._wcEnd - ct._wcStart);
+}
+
 function applyCalibrationToClip(ct, ptsStart, videoDuration) {
   const segDuration = ct._wcEnd - ct._wcStart;
   ct.calibratedStart = ptsStart;
   ct.calibratedEnd = ptsStart + segDuration;
   ct._ptsScale = null;
   ct.start = ptsStart;
-  ct.end = Number.isFinite(videoDuration) ? Math.min(ptsStart + segDuration, videoDuration) : ptsStart + segDuration;
+  const end = Number.isFinite(videoDuration) ? Math.min(ptsStart + segDuration, videoDuration) : ptsStart + segDuration;
+  // Never clamp below the start: an inverted entry fails isValidClipEntry, and
+  // calibrateClipTimes skips invalid entries, so it could never be repaired.
+  ct.end = Math.max(ptsStart, end);
   ct._converted = true;
 }
 
@@ -78,9 +97,11 @@ function resolveClipWindow(entries, hidden) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     US_PER_SECOND,
+    CLIP_FIT_TOLERANCE,
     isValidClipEntry,
     hasTraceCalibration,
     canApplyTraceCalibration,
+    durationHoldsClip,
     traceTsToClipPts,
     applyCalibrationToClip,
     computeSegmentClipTimes,
