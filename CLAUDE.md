@@ -29,7 +29,7 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 - `runner-throttling.cjs` — network presets and CPU throttling via CDP.
 - `runner-layout.cjs` — pure window-geometry math for 2–5 parallel browser windows.
 - `sync-barrier.cjs` — synchronization barrier for parallel mode, with a timeout so a hung racer can't deadlock the run.
-- `overlay.cjs` — in-page status overlays, medals, and the opt-in cue flashes.
+- `overlay.cjs` — in-page status overlays, medals, the opt-in wall clock, and the opt-in cue flashes.
 - `trace-calibration.cjs` — pure transform from Playwright trace JSON to recording segments, measurements, and video calibration data.
 - `visual-stability.cjs` — `raceWaitForVisualStability` polling logic (dependency-injected, Playwright-free).
 
@@ -45,7 +45,7 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 - `videoplayer.js` — assembles the HTML player from `player.html`/`player.css`/`player-runtime/`
 - `html-templates.js` — shared markup plumbing: `escHtml`, `{{placeholder}}` `render`, and `loadTemplates()`, which splits a `.html` file into its page shell and its `<template id="build-*">` fragments
 - `player-sections.js` — build-time HTML section builders (results table, comparisons, profile tables)
-- `player-runtime/` — browser-side player runtime split into concern-scoped files (playback, calibration, debug panel, export, ZIP) concatenated by `videoplayer.js` into one IIFE; the pure `.cjs` cores (calibration, export layout, ZIP/CRC32) are also requirable from Node for tests
+- `player-runtime/` — browser-side player runtime split into concern-scoped files (playback, calibration, debug panel, export, ZIP) concatenated by `videoplayer.js` into one IIFE; the pure `.cjs` cores (calibration, export layout, export progress, ZIP/CRC32) are also requirable from Node for tests
 - `skins.js` — resolves `--skin` (built-in name or `.css` path) to inlinable CSS; built-in skins live in `skins/`
 - `gemini-summary.js` — optional Gemini CLI integration (post-race commentary, spec generation)
 - `colors.js` — ANSI color codes (media constants re-exported for compatibility; import them from `media-config.js`)
@@ -58,7 +58,7 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 
 - `race.js` uses ESM; `runner.cjs` and its satellite modules use CommonJS (Playwright subprocess requirement). Everything both processes must agree on lives in `runner-protocol.cjs`.
 - Parallel mode uses `SyncBarrier` to synchronize browsers at checkpoints (ready, recordingStart, stop). Every barrier carries a generous deadlock backstop (default 300s) so a hung or out-of-sync racer fails the race instead of wedging the runner forever.
-- Timing and video calibration come from the Playwright trace (`trace-calibration.cjs`): the HTML player virtually trims via `traceCalibration`/clip times, and `--ffmpeg` physically trims using trace-derived PTS segments. The colored cue flashes are opt-in (`--cue-markers`) and exist only as ground truth for the ffprobe integration tests — they perturb metrics, so they're off by default.
+- Timing and video calibration come from the Playwright trace (`trace-calibration.cjs`): the HTML player virtually trims via `traceCalibration`/clip times, and `--ffmpeg` physically trims using trace-derived PTS segments. The colored cue flashes are opt-in (`--cue-markers`) and exist only as ground truth for the ffprobe integration tests — they perturb metrics, so they're off by default. The recorded wall clock (`--wall-clock`) is opt-in for the same reason: its 10 Hz text update costs a style recalc and a paint per tick, and it keeps `raceWaitForVisualStability` from ever seeing the page settle.
 - CLI flags override `settings.json` values (CLI takes priority). See `config.js` `applyOverrides()`.
 - Per-racer setup scripts (e.g. `racer-a.setup.sh`) trigger split execution: each racer's setup runs right before that racer's runs, not all upfront. Without per-racer setups, all racers run together per run.
 - Generated markup lives in `.html` files, never in JS string literals: each page has a shell plus one `<template id="build-*">` per repeated fragment, loaded by `html-templates.js` and filled with `{{placeholder}}` data. Tests reject classed markup or CSS rules written inline in `player-sections.js`, `videoplayer.js` or `condition-matrix.js`, and flag fragments that are unused or missing.

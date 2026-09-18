@@ -63,6 +63,7 @@ const RUNTIME_FILES = [
   'segments.js',       // segment navigation + racer filter UI
   'main.js',           // startup: initial verified seek + metadata pass
   'export-layout.cjs', // pure side-by-side export layout math (Node-testable)
+  'export-progress.cjs', // pure export-conversion progress math (Node-testable)
   'export-video.js',   // canvas side-by-side export + ffmpeg.wasm conversion
   'fullscreen.js',     // fullscreen mode
   'zip.cjs',           // pure CRC32/ZIP builder (Node-testable)

@@ -125,7 +125,7 @@ function sanitizeScript(script) {
  *
  * Returns { segments, measurements } for video trimming and result comparison.
  */
-async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay = false, metricsCollector = null, noRecording = false, cueMarkers = false) {
+async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay = false, metricsCollector = null, noRecording = false, cueMarkers = false, wallClock = false) {
   const { id, script: raceScript, vars } = config;
 
   // --- Visual cues (opt-in via --cue-markers) ---
@@ -162,7 +162,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
 
   const encodeMeasureName = (name) => encodeURIComponent(String(name ?? 'default'));
 
-  const overlayCtrl = new OverlayController(page, { noOverlay, noRecording });
+  const overlayCtrl = new OverlayController(page, { noOverlay, noRecording, wallClock, timeBase: recordingStartTime });
 
   // The state machine lives in race-api.cjs; everything runner-specific
   // (trace marks, overlays, cues, CDP metrics, barriers, stderr protocol)
@@ -174,14 +174,18 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
         ? () => barriers.recordingStart.wait(`${id} startRecording`)
         : null,
       onRecordingStart: async () => {
+        // The clock's zero, read before the trace mark's page round-trip so a
+        // slow evaluate can't shift it. race-api timestamps the segment start
+        // immediately before calling this hook, so the two agree.
+        const startEpochMs = Date.now();
         await markTrace(`${traceMarkPrefix}recording:start`);
         await Promise.all([
-          overlayCtrl.onStartRecording(),
+          overlayCtrl.onStartRecording(startEpochMs),
           flashCues ? flashCue(page, CUE_COLOR_START) : null,
         ]);
       },
       markRecordingEnd: () => markTrace(`${traceMarkPrefix}recording:end`),
-      onRecordingStop: async ({ endTime }) => {
+      onRecordingStop: async ({ endTime, segmentEnd }) => {
         if (sharedState) {
           // Record one finish entry per racer, not per recording segment. A racer
           // with several raceRecordingStart/End segments would otherwise appear
@@ -199,16 +203,19 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
         }
         await Promise.all([
           flashCues ? flashCue(page, CUE_COLOR_END) : null,
-          overlayCtrl.onStopRecording(),
+          // The clock stops with the recording, not on the finish: it ran
+          // through the spec's untimed waits, so it counts the outro too.
+          overlayCtrl.onStopRecording(segmentEnd),
         ]);
       },
       onMeasureStart: async (name) => {
         await markTrace(`${traceMarkPrefix}measure:start:${encodeMeasureName(name)}`);
         await overlayCtrl.onMeasureStart();
       },
-      onMeasureEnd: (name) => {
+      onMeasureEnd: (name, endTime, activeCount) => {
         queueTraceMark(`${traceMarkPrefix}measure:end:${encodeMeasureName(name)}`);
-        overlayCtrl.onMeasureEnd();
+        // raceEnd stays synchronous; raise the flag without waiting on it.
+        overlayCtrl.onMeasureEnd(activeCount).catch(() => {});
       },
       onUnmatchedMeasureEnd: (name) => {
         console.error(`[${id}] Warning: raceEnd(${JSON.stringify(name)}) called with no matching raceStart — measurement ignored.`);
@@ -330,7 +337,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
  * Called N times (once per racer) by runParallel or runSequential.
  */
 async function runBrowserRecording(config, barriers, isParallel, sharedState, opts = {}) {
-  const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, noRecording = false, ffmpeg = false, har = false, cueMarkers = false, recordingsDir = null, ignoreHTTPSErrors = false, viewportHeight: configViewportHeight = null } = opts;
+  const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, noRecording = false, ffmpeg = false, har = false, cueMarkers = false, wallClock = false, recordingsDir = null, ignoreHTTPSErrors = false, viewportHeight: configViewportHeight = null } = opts;
   const { id, headless: headlessRaw } = config;
   const headless = headlessRaw === true;
   // id is validated at config entry (isSafeRacerId); confinePath re-checks the
@@ -384,7 +391,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
 
     metricsCollector = await startProfiling(page, browser, id);
 
-    const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay, metricsCollector, noRecording, cueMarkers);
+    const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay, metricsCollector, noRecording, cueMarkers, wallClock);
     const markerSegments = result?.segments || [];
     const markerMeasurements = result?.measurements || [];
 
@@ -589,7 +596,7 @@ async function main() {
     process.exit(1);
   }
 
-  const { browsers, executionMode, throttle, headless: headlessRaw, slowmo, noOverlay, noRecording, ffmpeg, har, cueMarkers, recordingsDir, ignoreHTTPSErrors, viewportHeight } = config;
+  const { browsers, executionMode, throttle, headless: headlessRaw, slowmo, noOverlay, noRecording, ffmpeg, har, cueMarkers, wallClock, recordingsDir, ignoreHTTPSErrors, viewportHeight } = config;
 
   // Racer ids become directory/file names under the recordings dir, so reject
   // anything that isn't a plain basename before any path is built from them.
@@ -611,7 +618,7 @@ async function main() {
   const recBase = path.resolve(recordingsDir || path.join(__dirname, 'recordings'));
   fs.mkdirSync(recBase, { recursive: true });
 
-  const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, har, cueMarkers, recordingsDir: recBase, ignoreHTTPSErrors, viewportHeight };
+  const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, har, cueMarkers, wallClock, recordingsDir: recBase, ignoreHTTPSErrors, viewportHeight };
 
   // Set headless flag on all browser configs (strict boolean — strings must not slip through)
   for (const browser of browsers) {

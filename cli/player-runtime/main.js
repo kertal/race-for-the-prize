@@ -19,6 +19,15 @@ const MAX_SEEK_RETRIES = 10;
 // Positions within 1ms of zero are treated as "start of video" — no seek needed.
 const ZERO_START_THRESHOLD = 0.001;
 
+// Chrome/WebM: after a verified seek, a paused video can keep painting a stale
+// frame (e.g. left over from the 1e10 duration-probe seek). A 1ms re-seek
+// forces a fresh decode+paint. Deliberately not play()/pause(): its async
+// pause can land mid-export or mid-playback and freeze a running video.
+function nudgePaint(video) {
+  if (!video.paused || video.currentTime <= 0) return;
+  video.currentTime = Math.max(0, video.currentTime - 0.001);
+}
+
 // seekAllWithVerify handles two distinct Chrome/WebM seeking failure modes:
 //
 //  1. Seek snaps back (seeked fires but currentTime < expected − tolerance):
@@ -44,13 +53,26 @@ function seekAllWithVerify(targetStart) {
     const expected = ct && isValidClipEntry(ct[i]) ? ct[i].start : targetStart;
     if (expected <= ZERO_START_THRESHOLD) return; // nothing to verify at start of video
     let seeks = 0;
-    const reseek = () => {
-      if (Math.abs(v.currentTime - expected) > SEEK_SNAP_TOLERANCE && seeks < MAX_SEEK_RETRIES) {
-        seeks++;
-        v.currentTime = Math.min(expected, Number.isFinite(v.duration) ? v.duration : expected);
-        v.addEventListener('seeked', reseek, { once: true });
-      }
+    const cancel = () => {
+      v.removeEventListener('seeked', reseek);
+      v.removeEventListener('canplay', reseek);
+      pendingSeekVerifications.delete(v);
     };
+    const reseek = () => {
+      if (pendingSeekVerifications.get(v) !== cancel) return;
+      const settled = Math.abs(v.currentTime - expected) <= SEEK_SNAP_TOLERANCE;
+      if (settled || seeks >= MAX_SEEK_RETRIES) {
+        // Only a verified position gets the repaint nudge; an exhausted retry
+        // budget is left where it landed rather than moved another frame off.
+        if (settled) nudgePaint(v);
+        cancel();
+        return;
+      }
+      seeks++;
+      v.currentTime = Math.min(expected, Number.isFinite(v.duration) ? v.duration : expected);
+      v.addEventListener('seeked', reseek, { once: true });
+    };
+    trackSeekVerification(v, cancel);
     v.addEventListener('seeked', reseek, { once: true });
     // Case 2 fallback: once data is available (canplay = readyState ≥ 3), make a
     // fresh attempt if still off — within the same shared budget.

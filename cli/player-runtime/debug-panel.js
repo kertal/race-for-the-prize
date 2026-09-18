@@ -317,6 +317,8 @@ function adjustDebugOffset(idx, frameDelta) {
   // Use direct per-video currentTime assignment + pause to guarantee a visible update.
   const adj = getAdjustedClipTimes();
   const ct = adj || clipTimes;
+  // A startup verification still pending would snap this seek back.
+  cancelSeekVerifications();
   videos.forEach((v, i) => {
     if (!v) return;
     const target = clipStartTarget(ct, i);
@@ -372,6 +374,7 @@ if (debugPanel) {
       recalcActiveClip();
       const adj = getAdjustedClipTimes();
       const ct = adj || clipTimes;
+      cancelSeekVerifications();
       videos.forEach((v, i) => {
         if (!v) return;
         const target = clipStartTarget(ct, i);
