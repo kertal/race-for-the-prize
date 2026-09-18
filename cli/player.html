@@ -178,6 +178,7 @@
   <div class="racer" style="--racer-color: {{color}}">
     <div class="racer-label">{{trophy}}{{name}}</div>
     <video id="v{{idx}}"{{src}} preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Race recording for {{name}}" data-racer-name="{{name}}"></video>
+    <span class="frame-badge" id="frameBadge{{idx}}" aria-hidden="true"></span>
     <output id="finishResult{{idx}}" class="finish-result" aria-atomic="true" hidden></output>
   </div></template>
 
@@ -205,12 +206,12 @@
 <div class="controls" role="toolbar" aria-label="Playback controls">
   <div class="controls-row">
     <button type="button" class="frame-btn" id="goStart" title="Go to start (Home)" aria-label="Go to start">&#x23EE;</button>
-    <button type="button" class="frame-btn" id="prevFrame" title="-0.1s (&larr;)" aria-label="Previous frame">&laquo;</button>
+    <button type="button" class="frame-btn" id="prevFrame" title="Previous frame (&larr;)" aria-label="Previous frame">&laquo;</button>
     <button type="button" class="play-btn" id="playBtn" aria-label="Play">&#x25B6;</button>
-    <button type="button" class="frame-btn" id="nextFrame" title="+0.1s (&rarr;)" aria-label="Next frame">&raquo;</button>
+    <button type="button" class="frame-btn" id="nextFrame" title="Next frame (&rarr;)" aria-label="Next frame">&raquo;</button>
     <button type="button" class="frame-btn" id="goEnd" title="Go to end (End)" aria-label="Go to end">&#x23ED;</button>
     <label for="scrubber" class="sr-only">Video position</label>
-    <input type="range" class="scrubber" id="scrubber" min="0" max="1000" value="0" aria-label="Video position">
+    <input type="range" class="scrubber" id="scrubber" min="0" max="1000" step="any" value="0" aria-label="Video position">
   </div>
   <span class="time-display" id="timeDisplay">0:00.000 / 0:00.000</span>
   <span class="frame-display" id="frameDisplay">0.0s</span>
@@ -221,7 +222,7 @@
     <option value="1" selected>🚙 1x</option>
     <option value="2">🏎️ 2x</option>
   </select>
-  <button type="button" class="frame-btn" id="modeDebug" title="Calibration" aria-label="Toggle calibration" aria-expanded="false" aria-controls="debugPanel" style="display:none">🎛️</button>
+  <button type="button" class="frame-btn calibration-btn" id="modeDebug" title="Calibration" aria-label="Toggle calibration" aria-expanded="false" aria-controls="debugPanel" style="display:none">🎛️</button>
 </div>
 </div>
 </template>

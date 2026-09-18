@@ -47,10 +47,14 @@ function loadVideoSet(srcSet, applySrc, seekCallback) {
   pendingSeek = seekCallback;
 }
 
-// Set the active segment and its resolved clip times.
+// Set the active segment and its resolved clip times. The calibration panel
+// reads its rows off the active window, so it has to be repainted here — it
+// used to keep showing the previous segment's starts until the next nudge.
 function setActiveSegment(name, clip) {
   activeSegmentName = name;
   activeSegmentClipTimes = clip;
+  updateDebugDisplay();
+  updateDebugStats();
 }
 
 // Queue a seek to run once metadata/calibration is ready.
@@ -78,7 +82,6 @@ let activeSegmentClipTimes = null;
 let activeSegmentName = null;
 let segmentNavBuilt = false;
 const hiddenRacers = new Set();
-const STEP = 0.1;
 let loadedSrcSet = 'race';
 let pendingSeek = null;
 const pendingSeekVerifications = new Map();
@@ -99,6 +102,17 @@ function trackSeekVerification(video, cancel) {
 function isHiddenRacer(i) {
   return videos === raceVideos && hiddenRacers.has(i);
 }
+
+// The transport steps by exactly one frame — FRAME_STEP, the same unit the
+// calibration buttons nudge by and the frame badges count in. It is declared in
+// calibration.cjs, concatenated after this file, so it is only ever read from
+// inside a handler that runs once the whole runtime has been evaluated.
+//
+// stepFrame reads its position back off the scrubber (racers can be offset from
+// each other, so no single video holds the shared elapsed time). The scrubber
+// therefore carries `step="any"`: over its 1000 units one unit is 40ms once the
+// window passes 40s — coarser than a frame — and integer rounding would make
+// single-frame steps stall or jump two.
 
 // --- Formatting helpers ---
 
@@ -135,8 +149,54 @@ function updateTimeDisplay() {
 
 // --- Debug mode: per-racer clip start calibration ---
 
-const FRAME_STEP = 0.04;
-const debugOffsets = raceVideos.map(() => 0);
+// Calibration offsets survive a reload, keyed on the race id stamped into
+// #race-config at build time. That id is unique to one race run, so a second
+// race — or a re-run of the same one, whose recordings start elsewhere — can
+// never overwrite this page's calibration. Without an id (an older page, or a
+// config that failed to parse) nothing is stored rather than risking a
+// cross-race clash on a shared key.
+//
+// An exported page already carries its calibration inside clipTimes and ships
+// without the calibration panel, so it neither restores nor stores anything:
+// it shares the source page's race id, and reading that key would apply the
+// same offsets a second time.
+const CALIBRATION_KEY_PREFIX = 'race-calibration:';
+
+function calibrationStorageKey() {
+  if (!raceId || calibrationBaked) return null;
+  return CALIBRATION_KEY_PREFIX + raceId;
+}
+
+function zeroOffsets() {
+  return raceVideos.map(() => 0);
+}
+
+function loadDebugOffsets() {
+  const key = calibrationStorageKey();
+  if (!key) return zeroOffsets();
+  try {
+    const stored = JSON.parse(localStorage.getItem(key));
+    // Only take a value shaped for this page: a stale entry from a race with a
+    // different racer count must not half-apply.
+    if (Array.isArray(stored) && stored.length === raceVideos.length && stored.every(Number.isFinite)) {
+      return stored;
+    }
+  } catch (e) { /* storage unavailable (privacy mode / sandboxed) or corrupt */ }
+  return zeroOffsets();
+}
+
+const debugOffsets = loadDebugOffsets();
+
+// Persist the current offsets; an all-zero calibration drops the entry instead
+// of storing a no-op.
+function saveDebugOffsets() {
+  const key = calibrationStorageKey();
+  if (!key) return;
+  try {
+    if (debugOffsets.some(o => o !== 0)) localStorage.setItem(key, JSON.stringify(debugOffsets));
+    else localStorage.removeItem(key);
+  } catch (e) { /* storage unavailable */ }
+}
 
 function getAdjustedClipTimes() {
   const base = activeSegmentClipTimes || clipTimes;
@@ -332,6 +392,7 @@ function onMeta() {
     activeSegmentClipTimes = getSegmentClipTimes(activeSegmentName);
   }
   activeClip = resolveAdjustedClip();
+  revealCalibrationToggle();
   buildSegmentNav();
   updateTimeDisplay();
   updateDebugStats();
@@ -506,11 +567,7 @@ function switchMode(targetSrcSet, targetVideos, modeBtn, opts) {
 }
 
 function hideCalibration() {
-  if (debugPanel) debugPanel.style.display = 'none';
-  if (modeDebug) {
-    modeDebug.classList.remove('active');
-    modeDebug.setAttribute('aria-expanded', 'false');
-  }
+  setCalibrationVisible(false);
 }
 
 function resetSegmentState({ hide = false } = {}) {
@@ -582,15 +639,7 @@ function switchToMerged() {
 
 function toggleCalibration() {
   if (!debugPanel) return;
-  const visible = debugPanel.style.display === 'block';
-  debugPanel.style.display = visible ? 'none' : 'block';
-  modeDebug?.classList.toggle('active', !visible);
-  modeDebug?.setAttribute('aria-expanded', String(!visible));
-  if (!visible) {
-    updateDebugDisplay();
-    updateDebugStats();
-    updateFramePositions();
-  }
+  setCalibrationVisible(debugPanel.style.display !== 'block');
 }
 
 // --- Mode button bindings ---
@@ -631,9 +680,22 @@ scrubber.addEventListener('input', () => {
   updateTimeDisplay();
 });
 
+// A native <select> keeps focus after a pick, and the shortcuts below stand
+// aside for a focused select (its own arrow keys move through the options) — so
+// choosing a speed silently killed frame stepping until something else took
+// focus. That bites hardest in fullscreen, where the controls fade out and
+// nothing shows what holds focus. Release focus after a pointer-driven pick;
+// a keyboard user is still walking the options with those same arrows, so leave
+// their focus where it is.
+let speedPickedByPointer = false;
+speedSelect.addEventListener('pointerdown', () => { speedPickedByPointer = true; });
+speedSelect.addEventListener('keydown', () => { speedPickedByPointer = false; });
+speedSelect.addEventListener('blur', () => { speedPickedByPointer = false; });
+
 speedSelect.addEventListener('change', () => {
   const rate = Number.parseFloat(speedSelect.value);
   videos.forEach(v => { if (v) v.playbackRate = rate; });
+  if (speedPickedByPointer) speedSelect.blur();
 });
 
 function stepFrame(delta) {
@@ -642,15 +704,15 @@ function stepFrame(delta) {
   const maxT = activeClip ? activeClip.end : duration;
   const d = clipDuration();
   const cur = d > 0 ? minT + (scrubber.value / 1000) * d : (primary.currentTime || 0);
-  const t = Math.max(minT, Math.min(maxT, cur + delta));
+  const t = stepFrameTime(cur, delta, minT, maxT);
   seekAll(t);
   const newElapsed = t - minT;
   scrubber.value = d > 0 ? (newElapsed / d) * 1000 : 0;
   updateTimeDisplay();
 }
 
-document.getElementById('prevFrame').addEventListener('click', () => stepFrame(-STEP));
-document.getElementById('nextFrame').addEventListener('click', () => stepFrame(STEP));
+document.getElementById('prevFrame').addEventListener('click', () => stepFrame(-FRAME_STEP));
+document.getElementById('nextFrame').addEventListener('click', () => stepFrame(FRAME_STEP));
 
 function goToStart() {
   pausePlayback();
@@ -671,8 +733,8 @@ document.getElementById('goEnd').addEventListener('click', goToEnd);
 
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
-  if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-STEP); }
-  else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(STEP); }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-FRAME_STEP); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(FRAME_STEP); }
   else if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
   else if (e.key === 'Home') { e.preventDefault(); goToStart(); }
   else if (e.key === 'End') { e.preventDefault(); goToEnd(); }

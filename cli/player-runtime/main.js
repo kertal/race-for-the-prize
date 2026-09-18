@@ -80,14 +80,18 @@ function seekAllWithVerify(targetStart) {
   });
 }
 
+// Put every racer on the start of its (calibrated, offset-adjusted) clip.
+// Named and top-level so config.js can re-arm it after swapping embedded
+// data: URIs for blob: URLs, which resets currentTime.
+function initialClipSeek() {
+  recalcActiveClip();
+  seekAllWithVerify(activeClip ? activeClip.start : 0);
+  scrubber.value = 0;
+  updateTimeDisplay();
+}
+
 if (clipTimes) {
-  const initSeek = () => {
-    recalcActiveClip();
-    seekAllWithVerify(activeClip ? activeClip.start : 0);
-    scrubber.value = 0;
-    updateTimeDisplay();
-  };
-  setPendingSeek(initSeek);
+  setPendingSeek(initialClipSeek);
   if (raceVideos.every(v => !v || v.readyState >= 1)) {
     // If metadata loaded before listeners attached, run one onMeta() pass
     // explicitly so clip conversions/calibration are applied on first paint.

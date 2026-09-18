@@ -15,6 +15,10 @@ const raceConfig = JSON.parse(_raceConfigEl?.textContent || '{}');
 const raceVideoPaths = raceConfig.raceVideoPaths;
 const fullVideoPaths = raceConfig.fullVideoPaths;
 const clipTimes = raceConfig.clipTimes;
+// Identity of this race run, and whether calibration offsets are already baked
+// into clipTimes (set by the HTML export). Both scope the saved calibration.
+const raceId = raceConfig.raceId || null;
+const calibrationBaked = !!raceConfig.calibrationBaked;
 const racerNames = raceConfig.racerNames;
 const racerColors = raceConfig.racerColors;
 const ffmpegDir = raceConfig.ffmpegDir;
@@ -47,6 +51,13 @@ async function resolveEmbeddedVideos() {
     raceVideoPaths ? Promise.all(raceVideoPaths.map(toBlobUrl)) : Promise.resolve(raceVideoPaths),
     fullVideoPaths ? Promise.all(fullVideoPaths.map(toBlobUrl)) : Promise.resolve(fullVideoPaths),
   ]);
+  // Assigning src resets currentTime, discarding the initial clip seek that
+  // already ran against the data: URI. Re-arm it so the loadedmetadata pass for
+  // the new source puts every racer back on its calibrated first frame —
+  // without this an exported page with embedded videos opens at 0 instead of
+  // the clip start. Armed *before* the swap: that event can fire during the
+  // merged-video await below, and a seek armed after it would never run.
+  if (clipTimes) setPendingSeek(initialClipSeek);
   // Update video src attributes with seekable blob: URLs
   raceVideos.forEach((v, i) => {
     if (!v) return;

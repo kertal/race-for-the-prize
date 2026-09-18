@@ -398,6 +398,12 @@ h1 {
   flex: 1;
   min-width: 280px;
   text-align: center;
+  /* Anchors the calibration frame badge and the finish result over this
+     racer's video. The label sits above the video at a height fixed by
+     design (see .racer-label), so overlays that hang off the top of the
+     video clear it with --racer-label-height rather than guessing. */
+  --racer-label-pad: 0.5rem;
+  --racer-label-height: calc(var(--font-size-2xl) * var(--leading) + var(--racer-label-pad) * 2);
 }
 .finish-result {
   position: absolute;
@@ -424,13 +430,49 @@ h1 {
   line-height: var(--leading);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
-  padding: 0.5rem 0;
+  padding: var(--racer-label-pad) 0;
 }
 video {
   width: 100%;
   border: var(--video-border-width) solid var(--video-border-color);
   border-radius: var(--radius);
   background: var(--video-bg);
+}
+/* Block layout drops the inline descender gap under the video, so the frame
+   badge sits flush against the bottom of the picture. */
+.racer video { display: block; }
+
+/* --- Calibration frame badge --------------------------------------------- */
+/* Which frame each racer is showing, painted over the video while the
+   calibration panel is open. Hidden the rest of the time. */
+.frame-badge { display: none; }
+.player-container.show-frame-badges .frame-badge {
+  display: flex;
+  position: absolute;
+  top: calc(var(--racer-label-height) + 0.6rem);
+  left: 50%;
+  transform: translateX(-50%);
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding: 0.1rem 0.3rem;
+  background: var(--scrim);
+  border: var(--border-width) solid var(--tool-accent);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  /* A readout, not a headline: it sits over the recording, so it stays small
+     enough to leave the racer's own page visible behind it. */
+  line-height: var(--leading);
+  pointer-events: none;
+}
+.frame-badge-num {
+  color: var(--tool-accent);
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+}
+.frame-badge-clip {
+  color: var(--text-dim);
+  font-size: var(--font-size-marker);
 }
 .merged-container {
   max-width: 1200px;
@@ -1023,6 +1065,9 @@ video {
   pointer-events: none;
   z-index: 10;
 }
+/* The calibration panel is rendered outside the fullscreen wrapper, so its
+   toggle has nothing to open while fullscreen — hide it with the racer labels. */
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .calibration-btn { display: none; }
 .fullscreen-wrapper.fs-controls-visible .controls {
   opacity: 1;
   pointer-events: auto;
