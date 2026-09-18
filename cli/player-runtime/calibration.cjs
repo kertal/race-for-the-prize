@@ -13,6 +13,8 @@ const US_PER_SECOND = 1e6; // trace timestamps are in microseconds
 // Playwright records at 25fps, so one frame is 40ms. This is the step the
 // calibration buttons nudge by and the unit every frame readout counts in.
 const FRAME_STEP = 0.04;
+// The scrubber input's max, as declared in player.html.
+const SCRUBBER_MAX = 1000;
 
 function traceTsToClipPts(ct, traceTs) {
   if (!hasTraceCalibration(ct) || !Number.isFinite(traceTs)) return null;
@@ -186,6 +188,23 @@ function stepFrameTime(cur, frameDelta, minT, maxT, frameStep = FRAME_STEP) {
   return Math.max(minT, Math.min(maxT, minT + frames * frameStep));
 }
 
+// Where the transport lands after a calibration change: the position the user
+// was already watching, not the clip start. Calibration is judged on one frame
+// at one moment of the race, so snapping back to the start on every nudge threw
+// away the very frame being compared.
+//
+// Offsets move the clip window, so the elapsed time is read against the window
+// it was taken in (prevDuration) and then clamped into the new one — a nudge
+// that shrinks the window would otherwise leave the scrubber past the end.
+// Returns the seconds to seek to and the scrubber value that matches it.
+function holdTransportPosition(scrubberValue, prevDuration, nextDuration, scrubberMax = SCRUBBER_MAX) {
+  const prev = prevDuration > 0 ? prevDuration : 0;
+  const next = nextDuration > 0 ? nextDuration : 0;
+  const elapsed = prev > 0 ? (scrubberValue / scrubberMax) * prev : 0;
+  const held = Math.max(0, Math.min(next, elapsed));
+  return { elapsed: held, scrubber: next > 0 ? (held / next) * scrubberMax : 0 };
+}
+
 // Node export for unit tests — a no-op in the browser build, where `module` is undefined.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -205,5 +224,7 @@ if (typeof module !== 'undefined' && module.exports) {
     offsetRoom,
     planOffsetNudge,
     stepFrameTime,
+    holdTransportPosition,
+    SCRUBBER_MAX,
   };
 }

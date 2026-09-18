@@ -282,11 +282,6 @@ function updateDebugDisplay() {
   }
 }
 
-function clipStartTarget(ct, i) {
-  if (activeClip && ct && isValidClipEntry(ct[i])) return ct[i].start;
-  return activeClip ? activeClip.start : 0;
-}
-
 // The windows an offset shifts within: a selected segment when one is active,
 // else the race clip. Offsets are applied on top of these, so the bounds have
 // to come from them too — clamping against the raw clip entry let an offset
@@ -301,32 +296,37 @@ function offsetBase(idx) {
   return base ? base[idx] : null;
 }
 
+// The transport position to carry across an offset change, captured before the
+// offsets move the clip window.
+function transportPosition() {
+  return { scrubber: Number(scrubber.value), duration: clipDuration() };
+}
+
+// Put the transport back where the user left it, now that the window has moved.
+// holdTransportPosition() clamps it into the new window. seekAll() cancels any
+// pending startup verification (which would otherwise snap this seek back) and
+// re-renders the paused frame on every racer.
+function restoreTransport(was) {
+  const held = holdTransportPosition(was.scrubber, was.duration, clipDuration());
+  seekAll(clipOffset() + held.elapsed);
+  scrubber.value = held.scrubber;
+  updateTimeDisplay();
+}
+
 // Nudge one racer relative to the others. planOffsetNudge() decides how much of
 // the move the clicked racer can absorb itself and how much the others have to
 // give, so a button only does nothing when no racer has any room left at all.
 function adjustDebugOffset(idx, frameDelta) {
   const next = planOffsetNudge(offsetWindows(), debugOffsets, idx, frameDelta);
   if (!next) return;
+  const was = transportPosition();
   for (let i = 0; i < debugOffsets.length; i++) debugOffsets[i] = next[i];
   saveDebugOffsets();
   updateDebugDisplay();
   updateDebugStats();
   pausePlayback();
   recalcActiveClip();
-  // Force each video to seek to its adjusted start and render the frame.
-  // Use direct per-video currentTime assignment + pause to guarantee a visible update.
-  const adj = getAdjustedClipTimes();
-  const ct = adj || clipTimes;
-  // A startup verification still pending would snap this seek back.
-  cancelSeekVerifications();
-  videos.forEach((v, i) => {
-    if (!v) return;
-    const target = clipStartTarget(ct, i);
-    v.currentTime = Math.min(target, v.duration || target);
-  });
-  updateFramePositions();
-  scrubber.value = 0;
-  updateTimeDisplay();
+  restoreTransport(was);
 }
 
 // Start following presented frames now: the badges read whatever the loop has
@@ -366,23 +366,14 @@ if (debugPanel) {
       return;
     }
     if (e.target.id === 'debugResetAll') {
+      const was = transportPosition();
       for (let i = 0; i < debugOffsets.length; i++) debugOffsets[i] = 0;
       saveDebugOffsets();
       updateDebugDisplay();
       updateDebugStats();
       pausePlayback();
       recalcActiveClip();
-      const adj = getAdjustedClipTimes();
-      const ct = adj || clipTimes;
-      cancelSeekVerifications();
-      videos.forEach((v, i) => {
-        if (!v) return;
-        const target = clipStartTarget(ct, i);
-        v.currentTime = Math.min(target, v.duration || target);
-      });
-      updateFramePositions();
-      scrubber.value = 0;
-      updateTimeDisplay();
+      restoreTransport(was);
     }
   });
 }

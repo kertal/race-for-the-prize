@@ -24,6 +24,8 @@ const {
   offsetRoom,
   planOffsetNudge,
   stepFrameTime,
+  holdTransportPosition,
+  SCRUBBER_MAX,
 } = require('../cli/player-runtime/calibration.cjs');
 const { computeExportLayout } = require('../cli/player-runtime/export-layout.cjs');
 const { crc32, createZipBuilder } = require('../cli/player-runtime/zip.cjs');
@@ -634,5 +636,42 @@ describe('createZipBuilder', () => {
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
+  });
+});
+
+describe('calibration holdTransportPosition', () => {
+  it('keeps the transport where it was when the window is unchanged', () => {
+    const held = holdTransportPosition(SCRUBBER_MAX / 2, 10, 10);
+    expect(held.elapsed).toBeCloseTo(5, 10);
+    expect(held.scrubber).toBeCloseTo(SCRUBBER_MAX / 2, 10);
+  });
+
+  it('holds the same moment, not the same fraction, when a nudge resizes the window', () => {
+    // Half of a 10s clip is 5s in. After the window grows to 20s the user must
+    // still be looking at 5s — the scrubber moves instead.
+    const held = holdTransportPosition(SCRUBBER_MAX / 2, 10, 20);
+    expect(held.elapsed).toBeCloseTo(5, 10);
+    expect(held.scrubber).toBeCloseTo(SCRUBBER_MAX / 4, 10);
+  });
+
+  it('clamps into a window that a nudge shrank past the held position', () => {
+    const held = holdTransportPosition(SCRUBBER_MAX, 10, 4);
+    expect(held.elapsed).toBeCloseTo(4, 10);
+    expect(held.scrubber).toBeCloseTo(SCRUBBER_MAX, 10);
+  });
+
+  it('stays at the clip start when it was already there', () => {
+    expect(holdTransportPosition(0, 10, 10)).toEqual({ elapsed: 0, scrubber: 0 });
+  });
+
+  it('falls back to the start for a window with no duration either side', () => {
+    expect(holdTransportPosition(500, 0, 10)).toEqual({ elapsed: 0, scrubber: 0 });
+    expect(holdTransportPosition(500, 10, 0)).toEqual({ elapsed: 0, scrubber: 0 });
+    expect(holdTransportPosition(500, -1, -1)).toEqual({ elapsed: 0, scrubber: 0 });
+  });
+
+  it('reads the scrubber value as a number even when the DOM hands back a string', () => {
+    // scrubber.value is a string off a range input.
+    expect(holdTransportPosition('500', 10, 10).elapsed).toBeCloseTo(5, 10);
   });
 });

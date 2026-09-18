@@ -1079,6 +1079,23 @@ describe('buildPlayerHtml calibration persistence', () => {
     expect(html).toContain('if (!raceId || calibrationBaked) return null;');
   });
 
+  it('holds the play position when calibration offsets change', () => {
+    const html = withOptions({ clipTimes });
+    // Regression: both offset paths seeked every racer back to its clip start
+    // and zeroed the scrubber, so the frame being compared was lost on each nudge.
+    const nudge = html.slice(html.indexOf('function adjustDebugOffset'), html.indexOf('function adjustDebugOffset') + 700);
+    expect(nudge).toContain('const was = transportPosition();');
+    expect(nudge).toContain('restoreTransport(was);');
+    expect(nudge).not.toContain('scrubber.value = 0;');
+    const reset = html.slice(html.indexOf("e.target.id === 'debugResetAll'"));
+    expect(reset.slice(0, 400)).toContain('const was = transportPosition();');
+    expect(reset.slice(0, 400)).toContain('restoreTransport(was);');
+    expect(reset.slice(0, 400)).not.toContain('scrubber.value = 0;');
+    // The position is captured before the offsets move the clip window.
+    expect(html).toContain('function transportPosition');
+    expect(html).toContain('holdTransportPosition(was.scrubber, was.duration, clipDuration())');
+  });
+
   it('restores offsets on load and saves them on every change', () => {
     const html = withOptions({ clipTimes });
     expect(html).toContain('const debugOffsets = loadDebugOffsets();');
