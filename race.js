@@ -6,15 +6,18 @@
  * Orchestrates browser races: parses args, discovers racer scripts,
  * spawns the Playwright runner, collects results, and prints a report.
  *
- * Usage:
- *   node race.js https://a.com https://b.com  Race page load times (URL mode)
- *   node race.js ./races/my-race              Run a scripted race
- *   node race.js ./races/my-race --results    View recent results
- *   node race.js ./races/my-race --parallel   Run both browsers simultaneously
- *   node race.js ./races/my-race --headless   Run headless
- *   node race.js ./races/my-race --network=fast-3g --cpu=4
- *   node race.js ./races/my-race --network=slow-3g,4g --cpu=1,4
- *   node race.js ./races/my-race --har --wasm=0 --serve=0
+ * Usage (published as the `race-for-the-prize` bin; from a checkout it is
+ * `node race.js` — cli/help.js picks the spelling the help screen shows):
+ *   race-for-the-prize https://a.com https://b.com  Race page load times (URL mode)
+ *   race-for-the-prize --init my-race               Scaffold a race directory
+ *   race-for-the-prize ./my-race                    Run a scripted race
+ *   race-for-the-prize ./my-race --results          View recent results
+ *   race-for-the-prize ./my-race --parallel         Run all browsers simultaneously
+ *   race-for-the-prize ./my-race --headless         Run headless
+ *   race-for-the-prize ./my-race --network=fast-3g --cpu=4
+ *   race-for-the-prize ./my-race --network=slow-3g,4g --cpu=1,4
+ *   race-for-the-prize ./my-race --har --wasm=0 --serve=0
+ *   race-for-the-prize --help | --version
  */
 
 import fs from 'fs';
@@ -34,7 +37,7 @@ import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
 import { buildPlayerHtml } from './cli/videoplayer.js';
 import { buildRunNavHtml } from './cli/player-sections.js';
-import { listSkins } from './cli/skins.js';
+import { buildHelp, resolveInvocation } from './cli/help.js';
 import { runGeminiSummary, runGeminiSpec } from './cli/gemini-summary.js';
 import { buildResultsPaths, createStaticHandler, serveResults } from './cli/serve.js';
 import { loadRaceDir, applySettingsOrExit } from './cli/race-loader.js';
@@ -610,7 +613,7 @@ const unknownFlags = findUnknownFlags(boolFlags, kvFlags);
 if (unknownFlags.length > 0) {
   const labels = unknownFlags.map(n => `--${n}`).join(', ');
   console.error(`${c.red}Error: Unknown flag(s): ${labels}${c.reset}`);
-  console.error(`${c.dim}  Run with no arguments to see the list of supported flags.${c.reset}`);
+  console.error(`${c.dim}  Run --help to see the list of supported flags.${c.reset}`);
   process.exit(2);
 }
 
@@ -622,6 +625,21 @@ if (valuelessFlags.length > 0) {
   console.error(`${c.red}Error: Flag(s) require a value: ${labels}${c.reset}`);
   console.error(`${c.dim}  Example: --runs=3 (or --runs 3)${c.reset}`);
   process.exit(2);
+}
+
+// How this process was started ("race-for-the-prize", "npx race-for-the-prize"
+// or "node race.js") — every example in the help and in the hints below is
+// printed with it, so copy-paste works wherever the tool came from.
+const invocation = resolveInvocation();
+
+if (boolFlags.has('help')) {
+  console.log(buildHelp(invocation));
+  process.exit(0);
+}
+
+if (boolFlags.has('version')) {
+  console.log(createRequire(import.meta.url)('./package.json').version);
+  process.exit(0);
 }
 
 const verbose = boolFlags.has('verbose');
@@ -710,7 +728,7 @@ ${c.green}${c.bold}✓ Race scaffolded with Gemini:${c.reset} ${c.cyan}${path.re
   ${c.dim}settings.json${c.reset}
 
 ${c.bold}Run it:${c.reset}
-  ${c.cyan}npx race-for-the-prize ${path.relative(process.cwd(), targetDir)}${c.reset}
+  ${c.cyan}${invocation.cmd} ${path.relative(process.cwd(), targetDir)}${c.reset}
 `);
     } catch (e) {
       console.error(`${c.red}Gemini spec generation failed: ${e.message}${c.reset}`);
@@ -738,7 +756,7 @@ ${c.green}${c.bold}✓ Race scaffolded:${c.reset} ${c.cyan}${path.relative(proce
   ${c.dim}settings.json${c.reset}    — tune parallel, headless, runs, network, cpu
 
 ${c.bold}Run it:${c.reset}
-  ${c.cyan}npx race-for-the-prize ${path.relative(process.cwd(), targetDir)}${c.reset}
+  ${c.cyan}${invocation.cmd} ${path.relative(process.cwd(), targetDir)}${c.reset}
 `);
   process.exit(0);
 }
@@ -749,88 +767,9 @@ const applySettings = (base, raceDir) => applySettingsOrExit(base, boolFlags, kv
 const loadRace = (dir) => loadRaceDir(dir, { boolFlags, kvFlags, rootDir: __dirname, buildContext: buildRaceContext });
 
 if (positional.length === 0) {
-  console.error(`
-${c.yellow}    ____                   ____              _   _            ____       _          ${c.reset}
-${c.yellow}   / __ \\____ _________   / __/___  _____   / |_/ /_  ___   / __ \\_____(_)_______   ${c.reset}
-${c.yellow}  / /_/ / __ \`/ ___/ _ \\ / /_/ __ \\/ ___/  / __/ __ \\/ _ \\ / /_/ / ___/ / ___/ _ \\  ${c.reset}
-${c.yellow} / _, _/ /_/ / /__/  __// __/ /_/ / /     / /_/ / / /  __// ____/ /  / / /__/  __/  ${c.reset}
-${c.yellow}/_/ |_|\\__,_/\\___/\\___//_/  \\____/_/      \\__/_/ /_/\\___//_/   /_/  /_/\\___/\\___/   ${c.reset}
-
-${c.dim}  Race two browsers. Measure everything. Crown a winner.  🏎️ 💨${c.reset}
-
-${c.bold}  Quick Start:${c.reset}
-${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
-  ${c.bold}1.${c.reset} Choose a race mode:
-
-     ${c.cyan}races/my-race/${c.reset}
-       ${c.green}contender-a.spec.js${c.reset}  ${c.dim}# Multi-spec mode: one file per racer${c.reset}
-       ${c.blue}contender-b.spec.js${c.reset}  ${c.dim}# Racer 2${c.reset}
-       ${c.dim}OR${c.reset}
-       ${c.green}race.spec.js${c.reset}        ${c.dim}# Shared-spec mode: one file for all racers${c.reset}
-       ${c.dim}settings.json${c.reset}        ${c.dim}# shared mode racers + optional race settings${c.reset}
-       ${c.dim}setup.sh${c.reset}             ${c.dim}# Optional: global setup before race${c.reset}
-       ${c.dim}teardown.sh${c.reset}          ${c.dim}# Optional: global teardown after race${c.reset}
-       ${c.dim}contender-a.setup.sh${c.reset} ${c.dim}# Optional: per-racer setup (runs before this racer)${c.reset}
-       ${c.dim}contender-a.teardown.sh${c.reset} ${c.dim}# Optional: per-racer teardown${c.reset}
-
-  ${c.bold}2.${c.reset} Each script gets a Playwright ${c.cyan}page${c.reset} with race helpers:
-
-     ${c.dim}await${c.reset} page.goto(${c.green}'https://...'${c.reset});
-     ${c.dim}await${c.reset} page.raceRecordingStart();       ${c.dim}// optional: start video segment${c.reset}
-     ${c.dim}await${c.reset} page.raceStart(${c.green}'Load Time'${c.reset});     ${c.dim}// start measurement${c.reset}
-     ${c.dim}await${c.reset} page.click(${c.green}'.button'${c.reset});
-     ${c.dim}await${c.reset} page.waitForSelector(${c.green}'.result'${c.reset});
-     page.raceEnd(${c.green}'Load Time'${c.reset});              ${c.dim}// end measurement (sync)${c.reset}
-     page.raceMessage(${c.green}'I win!'${c.reset});              ${c.dim}// send message to CLI${c.reset}
-     ${c.dim}await${c.reset} page.raceRecordingEnd();          ${c.dim}// optional: end video segment${c.reset}
-     race.name                              ${c.dim}// this racer's name${c.reset}
-     race.vars                              ${c.dim}// per-racer vars from settings.json${c.reset}
-
-     ${c.dim}If raceRecordingStart/End are omitted, recording wraps raceStart to raceEnd.${c.reset}
-
-  ${c.bold}3.${c.reset} Run it!
-
-     ${c.bold}$${c.reset} ${c.cyan}node race.js ./races/lauda-vs-hunt${c.reset}
-
-${c.bold}  Quick Race (URL mode):${c.reset}
-${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
-  Pass 2+ URLs directly to measure page load times head-to-head:
-
-     ${c.bold}$${c.reset} ${c.cyan}node race.js https://react.dev https://angular.dev${c.reset}
-
-${c.bold}  Commands:${c.reset}
-${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
-  node race.js ${c.cyan}<url> <url> [url...]${c.reset}      Race page load times (2-5 URLs)
-  node race.js ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset}               Scaffold a starter race (default: my-race/)
-  node race.js ${c.cyan}<dir>${c.reset}                       Run a scripted race
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--results${c.reset}            View recent results
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--parallel${c.reset}           Run both browsers simultaneously
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--headless${c.reset}           Hide browsers
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--network${c.reset}=${c.green}slow-3g${c.reset}   Network: none, slow-3g, fast-3g, 4g
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--network${c.reset}=${c.green}slow-3g,4g${c.reset} Race each network condition separately
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}4${c.reset}              CPU slowdown: 4x slower (1=none)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}1,4${c.reset}            Race each CPU slowdown separately
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--format${c.reset}=${c.green}mov${c.reset}          Output format: webm (default), mov, gif
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--skin${c.reset}=${c.green}light${c.reset}          Skin the results player: ${listSkins().join(', ')}, or a path to a .css file
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--runs${c.reset}=${c.green}3${c.reset}            Run multiple times, report median
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--pause${c.reset}              Pause between runs (press Enter to continue)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--slowmo${c.reset}=${c.green}2${c.reset}           Slow-motion side-by-side replay (2x, 3x, etc.)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--overlay${c.reset}=${c.green}0${c.reset}        Disable overlays in recordings (1=enable, 0=disable)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--recording${c.reset}=${c.green}0${c.reset}      Skip video recording, just measure (1=enable, 0=disable)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ffmpeg${c.reset}             Enable FFmpeg processing (trim, merge, convert)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--har${c.reset}                Record network HAR files alongside videos
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--wasm${c.reset}=${c.green}0${c.reset}           Skip copying ffmpeg.wasm files (~25 MB) to results
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--height${c.reset}=${c.green}900${c.reset}          Viewport/recording height in pixels (480–4320, default 720)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ignore-https-errors${c.reset}  Accept invalid/self-signed TLS certificates
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--wall-clock${c.reset}         Burn a ticking wall clock into the recording (perturbs metrics)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cue-markers${c.reset}        Flash visual cues at segment boundaries (calibration testing; perturbs metrics)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--serve${c.reset}=${c.green}0${c.reset}          Don't start local results server (CI/headless; open index.html manually)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--gemini${c.reset}             Gemini CLI sports reporter commentary after race
-  node race.js ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset} ${c.yellow}--gemini-spec${c.reset}=${c.green}"prompt"${c.reset}  Generate specs via Gemini + Playwright HTML research
-
-${c.dim}  All flags except --results work with both URL mode and directory mode.${c.reset}
-${c.dim}  Try the example:  node race.js ./races/lauda-vs-hunt${c.reset}
-`);
+  // No arguments: same screen as --help, but on stderr with a non-zero exit
+  // so a script that forgot its arguments still fails.
+  console.error(buildHelp(invocation));
   process.exit(1);
 }
 
@@ -838,7 +777,7 @@ ${c.dim}  Try the example:  node race.js ./races/lauda-vs-hunt${c.reset}
 
 if (positional.length === 1 && isUrl(positional[0])) {
   console.error(`${c.red}Error: URL mode requires at least 2 URLs to race against each other${c.reset}`);
-  console.error(`${c.dim}  Example: node race.js https://react.dev https://angular.dev${c.reset}`);
+  console.error(`${c.dim}  Example: ${invocation.cmd} https://react.dev https://angular.dev${c.reset}`);
   process.exit(1);
 }
 
@@ -848,8 +787,8 @@ const urlMode = positional.length >= 2 && positional.every(p => isUrl(p));
 if (!urlMode && positional.length >= 2 && positional.some(p => isUrl(p))) {
   const nonUrls = positional.filter(p => !isUrl(p));
   console.error(`${c.red}Error: Cannot mix URLs and directory paths. These are not valid URLs: ${nonUrls.join(', ')}${c.reset}`);
-  console.error(`${c.dim}  For URL mode, pass only URLs: node race.js https://a.com https://b.com${c.reset}`);
-  console.error(`${c.dim}  For directory mode, pass a race directory: node race.js ./races/my-race${c.reset}`);
+  console.error(`${c.dim}  For URL mode, pass only URLs: ${invocation.cmd} https://a.com https://b.com${c.reset}`);
+  console.error(`${c.dim}  For directory mode, pass a race directory: ${invocation.cmd} ./my-race${c.reset}`);
   process.exit(1);
 }
 
