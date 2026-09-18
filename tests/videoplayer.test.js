@@ -96,6 +96,26 @@ describe('buildPlayerHtml', () => {
     expect(defaultHtml).toContain('max-width: 680px');
   });
 
+  it('keeps the racer name on screen in fullscreen', () => {
+    // Fullscreen gives each grid row the viewport, so the label rides on top of
+    // its video rather than taking a line of its own — but it stays visible:
+    // with the page chrome gone, it is the only thing naming each racer.
+    const rule = defaultHtml.match(
+      /:is\(:fullscreen, :-webkit-full-screen\) \.racer-label \{[^}]*\}/
+    );
+    expect(rule).not.toBeNull();
+    expect(rule[0]).toContain('position: absolute');
+    expect(rule[0]).not.toContain('display: none');
+  });
+
+  it('announces each finish badge as a native live region', () => {
+    // <output> is a live region on its own, so assistive tech announces the
+    // placement without an explicit status role — which is not honoured
+    // everywhere the player is opened.
+    expect(defaultHtml).toContain('<output id="finishResult0" class="finish-result"');
+    expect(defaultHtml).not.toContain('role="status"');
+  });
+
   it('embeds racer names and video sources', () => {
     expect(defaultHtml).toContain('lauda');
     expect(defaultHtml).toContain('hunt');
@@ -894,6 +914,13 @@ describe('buildPlayerHtml debug mode', () => {
     expect(debugHtml).toContain('>Calibration<');
   });
 
+  it('hides the calibration button in fullscreen', () => {
+    // The calibration panel is rendered outside #fullscreenWrapper, so the
+    // toggle would open something the viewer cannot see.
+    expect(debugHtml).toContain('class="frame-btn calibration-btn" id="modeDebug"');
+    expect(debugHtml).toContain(':-webkit-full-screen) .calibration-btn { display: none; }');
+  });
+
   it('calibration button is always in template, hidden by default', () => {
     // Button is in the player template with display:none; runtime shows it when clip times exist
     expect(defaultHtml).toContain('id="modeDebug"');
@@ -951,14 +978,232 @@ describe('buildPlayerHtml debug mode', () => {
     expect(debugHtml).toContain('id="debugFrameRow1"');
   });
 
+  it('reveals the Calibration button without depending on segment names', () => {
+    // Regression: the toggle used to be un-hidden inside buildSegmentNav(),
+    // which bails out for races whose specs never call raceStart()/raceEnd() —
+    // manual calibration was unreachable for them.
+    expect(debugHtml).toContain('revealCalibrationToggle');
+    const segmentNavBody = debugHtml.slice(
+      debugHtml.indexOf('function buildSegmentNav'),
+      debugHtml.indexOf('function buildRacerFilter')
+    );
+    expect(segmentNavBody).not.toContain('modeDebug');
+  });
+
+  it('clamps frame offsets against the active window, segment included', () => {
+    expect(debugHtml).toContain('function offsetWindows');
+    expect(debugHtml).toContain('activeSegmentClipTimes || clipTimes');
+  });
+
+  it('nudges a racer relative to the others so no direction is dead', () => {
+    // Regression: adjustDebugOffset() moved only the clicked racer and gave up
+    // when it had no room, so "-" did nothing on any racer whose clip starts at
+    // its first recorded frame — which is nearly all of them.
+    expect(debugHtml).toContain('function planOffsetNudge');
+    const nudge = debugHtml.slice(
+      debugHtml.indexOf('function adjustDebugOffset'),
+      debugHtml.indexOf('// Start following presented frames')
+    );
+    expect(nudge).toContain('planOffsetNudge(offsetWindows(), debugOffsets, idx, frameDelta)');
+    expect(nudge).not.toContain('newStart >= base.end');
+  });
+
+  it('renders a frame badge over every racer video', () => {
+    expect(debugHtml).toContain('id="frameBadge0"');
+    expect(debugHtml).toContain('id="frameBadge1"');
+    expect(debugHtml).toContain('class="frame-badge"');
+  });
+
+  it('centres the frame badge at the top of the video, clear of the racer label', () => {
+    const rule = debugHtml.slice(
+      debugHtml.indexOf('.player-container.show-frame-badges .frame-badge'),
+      debugHtml.indexOf('.frame-badge-num')
+    );
+    // Anchored to .racer, whose top edge is the racer name — the badge has to
+    // clear that label's height or it lands on the name instead of the video.
+    expect(rule).toContain('top: calc(var(--racer-label-height) + 0.6rem)');
+    expect(rule).toContain('left: 50%');
+    expect(rule).toContain('transform: translateX(-50%)');
+    expect(rule).toContain('align-items: center');
+    expect(rule).not.toContain('bottom:');
+    // The label's padding and the height calc must stay in step.
+    expect(debugHtml).toContain('--racer-label-pad: 0.5rem');
+    expect(debugHtml).toContain('padding: var(--racer-label-pad) 0');
+  });
+
+  it('keeps the frame badge small enough to read the recording behind it', () => {
+    const badgeCss = debugHtml.slice(
+      debugHtml.indexOf('.player-container.show-frame-badges .frame-badge'),
+      debugHtml.indexOf('.merged-container')
+    );
+    // The badge overlays the racer's own page, so it stays at the small end of
+    // the type scale — well under the racer label (--font-size-2xl) above it.
+    expect(badgeCss).toContain('font-size: var(--font-size-sm)');
+    expect(badgeCss).toContain('font-size: var(--font-size-marker)');
+    expect(badgeCss).not.toContain('font-size: var(--font-size-lg)');
+    expect(badgeCss).toContain('padding: 0.1rem 0.3rem');
+    expect(badgeCss).toContain('border-radius: var(--radius-sm)');
+  });
+
+  it('shows frame badges only while calibration is open', () => {
+    expect(debugHtml).toContain('.frame-badge { display: none; }');
+    expect(debugHtml).toContain('.player-container.show-frame-badges .frame-badge');
+    expect(debugHtml).toContain("classList.toggle('show-frame-badges', on)");
+  });
+
+  it('script updates frame badges from the presented frame', () => {
+    expect(debugHtml).toContain('updateFrameBadges');
+    expect(debugHtml).toContain('requestVideoFrameCallback');
+    expect(debugHtml).toContain('presentedTimes');
+  });
+
   it('script includes frame position update showing clip, full, and range', () => {
     expect(debugHtml).toContain('updateFramePositions');
     expect(debugHtml).toContain('clipFrame');
-    expect(debugHtml).toContain('clipStartFrame');
-    expect(debugHtml).toContain('clipEndFrame');
+    expect(debugHtml).toContain('clipStart');
+    expect(debugHtml).toContain('clipEnd');
     expect(debugHtml).toContain("'clip: '");
     expect(debugHtml).toContain("'full: '");
     expect(debugHtml).toContain("'range: '");
+  });
+});
+
+// --- Keyboard shortcuts ---
+
+describe('buildPlayerHtml keyboard shortcuts', () => {
+  const html = withOptions({ clipTimes: [{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }] });
+
+  it('binds the shortcuts on document so they reach fullscreen', () => {
+    // The fullscreen element is #fullscreenWrapper; a listener on document
+    // still sees keys bubbling from inside it.
+    expect(html).toContain("document.addEventListener('keydown'");
+    expect(html).toContain("if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-FRAME_STEP); }");
+    expect(html).toContain("else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(FRAME_STEP); }");
+  });
+
+  it('steps by exactly one frame, not a fixed 0.1s', () => {
+    expect(html).toContain('stepFrame(-FRAME_STEP)');
+    expect(html).toContain('stepFrame(FRAME_STEP)');
+    expect(html).not.toMatch(/const STEP = /);
+    // The « / » buttons move the same single frame as the arrow keys.
+    expect(html).toContain("document.getElementById('prevFrame').addEventListener('click', () => stepFrame(-FRAME_STEP));");
+    expect(html).toContain("document.getElementById('nextFrame').addEventListener('click', () => stepFrame(FRAME_STEP));");
+    expect(html).toContain('title="Previous frame (&larr;)"');
+    expect(html).toContain('title="Next frame (&rarr;)"');
+  });
+
+  it('keeps the scrubber unquantized so single-frame steps do not round away', () => {
+    // stepFrame reads its position back off the scrubber; over 1000 integer
+    // units one unit is coarser than a frame once the window passes 40s.
+    expect(html).toContain('id="scrubber" min="0" max="1000" step="any"');
+  });
+
+  it('releases the speed select after a pointer pick so arrows keep stepping', () => {
+    // A focused <select> is deliberately skipped by the keydown handler, so a
+    // speed pick used to leave frame stepping dead — invisible in fullscreen,
+    // where the controls fade out.
+    expect(html).toContain("speedSelect.addEventListener('pointerdown'");
+    expect(html).toContain('if (speedPickedByPointer) speedSelect.blur();');
+  });
+
+  it('leaves focus alone when the speed is changed from the keyboard', () => {
+    // Arrow keys belong to the select while a keyboard user walks its options.
+    expect(html).toContain("speedSelect.addEventListener('keydown', () => { speedPickedByPointer = false; });");
+  });
+});
+
+// --- Calibration persistence ---
+
+describe('buildPlayerHtml calibration persistence', () => {
+  const clipTimes = [{ start: 1.52, end: 3 }, { start: 1.2, end: 2.8 }];
+  const idOf = (summary, files = videoFiles) =>
+    getRaceConfig(buildPlayerHtml(summary, files, null, null, { clipTimes })).raceId;
+
+  it('stamps a race id into the race config', () => {
+    expect(idOf(makeSummary())).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it('gives the same race the same id across builds', () => {
+    expect(idOf(makeSummary())).toBe(idOf(makeSummary()));
+  });
+
+  it('gives a different id to a different run of the same race', () => {
+    // Two runs share racers and video filenames; the results dir and timestamp
+    // are what keep their saved calibration apart.
+    const a = idOf(makeSummary({ resultsDir: 'results-1', timestamp: '2025-01-15T12:00:00.000Z' }));
+    const b = idOf(makeSummary({ resultsDir: 'results-2', timestamp: '2025-01-15T12:05:00.000Z' }));
+    expect(a).not.toBe(b);
+  });
+
+  it('gives a different id to a different set of racers', () => {
+    expect(idOf(makeSummary())).not.toBe(idOf(makeSummary({ racers: ['senna', 'prost'] })));
+  });
+
+  it('gives a different id when the recordings differ', () => {
+    expect(idOf(makeSummary())).not.toBe(idOf(makeSummary(), abVideoFiles));
+  });
+
+  it('keys stored offsets on the race id, and stores nothing without one', () => {
+    const html = withOptions({ clipTimes });
+    expect(html).toContain("'race-calibration:'");
+    expect(html).toContain('function calibrationStorageKey');
+    expect(html).toContain('if (!raceId || calibrationBaked) return null;');
+  });
+
+  it('holds the play position when calibration offsets change', () => {
+    const html = withOptions({ clipTimes });
+    // Regression: both offset paths seeked every racer back to its clip start
+    // and zeroed the scrubber, so the frame being compared was lost on each nudge.
+    const nudge = html.slice(html.indexOf('function adjustDebugOffset'), html.indexOf('function adjustDebugOffset') + 700);
+    expect(nudge).toContain('const was = transportPosition();');
+    expect(nudge).toContain('restoreTransport(was);');
+    expect(nudge).not.toContain('scrubber.value = 0;');
+    const reset = html.slice(html.indexOf("e.target.id === 'debugResetAll'"));
+    expect(reset.slice(0, 400)).toContain('const was = transportPosition();');
+    expect(reset.slice(0, 400)).toContain('restoreTransport(was);');
+    expect(reset.slice(0, 400)).not.toContain('scrubber.value = 0;');
+    // The position is captured before the offsets move the clip window.
+    expect(html).toContain('function transportPosition');
+    expect(html).toContain('holdTransportPosition(was.scrubber, was.duration, clipDuration())');
+  });
+
+  it('restores offsets on load and saves them on every change', () => {
+    const html = withOptions({ clipTimes });
+    expect(html).toContain('const debugOffsets = loadDebugOffsets();');
+    expect(html).toContain('function saveDebugOffsets');
+    // Both mutation paths persist: nudging a racer and Reset All.
+    const nudge = html.slice(html.indexOf('function adjustDebugOffset'), html.indexOf('function adjustDebugOffset') + 700);
+    expect(nudge).toContain('saveDebugOffsets();');
+    const reset = html.slice(html.indexOf("e.target.id === 'debugResetAll'"));
+    expect(reset.slice(0, 400)).toContain('saveDebugOffsets();');
+  });
+
+  it('ignores a stored value that does not fit this page', () => {
+    const html = withOptions({ clipTimes });
+    expect(html).toContain('stored.length === raceVideos.length');
+    expect(html).toContain('stored.every(Number.isFinite)');
+  });
+
+  it('flags exported clip times as baked so offsets are not applied twice', () => {
+    const html = withOptions({ clipTimes });
+    expect(html).toContain('cfg.calibrationBaked = true;');
+    // A baked page shares the source page's race id; it must not read (or
+    // write) that key, or the same offsets would land twice.
+    expect(html).toContain('if (!raceId || calibrationBaked) return null;');
+  });
+
+  it('re-arms the clip seek before embedded videos become blob URLs', () => {
+    // Assigning src resets currentTime, so an exported page with embedded
+    // videos would otherwise open at 0 instead of its calibrated start. The
+    // seek is armed before the swap: loadedmetadata can fire during the
+    // merged-video await, and a seek armed after it would never run.
+    const html = withOptions({ clipTimes });
+    const fn = html.slice(html.indexOf('async function resolveEmbeddedVideos'), html.indexOf('resolveEmbeddedVideos();'));
+    const arm = fn.indexOf('setPendingSeek(initialClipSeek)');
+    const swap = fn.indexOf('v.src = resolved');
+    expect(arm).toBeGreaterThan(-1);
+    expect(swap).toBeGreaterThan(-1);
+    expect(arm).toBeLessThan(swap);
   });
 });
 
@@ -1014,7 +1259,7 @@ describe('buildPlayerHtml timing events', () => {
 
   it('script includes frame number computation', () => {
     expect(timingHtml).toContain('toFrame');
-    expect(timingHtml).toContain('Math.round(pts / 0.04)');
+    expect(timingHtml).toContain('timeToFrame(pts)');
   });
 
   it('includes timingData in Copy JSON handler', () => {
@@ -1192,6 +1437,19 @@ describe('buildPlayerHtml clip alignment', () => {
     expect(stepFn).toContain('scrubber.value');
   });
 
+  it('quantizes a frame step onto the frame grid instead of adding to the scrubber', () => {
+    // Regression: the scrubber returns 0.079999 for 0.080, so `cur + delta`
+    // seeked a microsecond before the frame boundary and showed the previous
+    // frame — leaving racers whose clip starts on a boundary one frame behind
+    // racers whose clip starts mid-frame.
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    expect(html).toContain('function stepFrameTime');
+    const stepStart = html.indexOf('function stepFrame(');
+    const stepFn = html.slice(stepStart, stepStart + 500);
+    expect(stepFn).toContain('stepFrameTime(cur, delta, minT, maxT)');
+    expect(stepFn).not.toContain('cur + delta');
+  });
+
   it('export seek code uses elapsed-based alignment', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
     const exportSection = html.slice(html.indexOf('seekPromises'));
@@ -1253,13 +1511,12 @@ describe('buildPlayerHtml seekAllWithVerify', () => {
     expect(fn).toContain('ZERO_START_THRESHOLD');
   });
 
-  it('initSeek uses seekAllWithVerify not plain seekAll', () => {
+  it('initialClipSeek uses seekAllWithVerify not plain seekAll', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
-    const initSeekStart = html.indexOf('const initSeek = ()');
-    const initSeekEnd = html.indexOf('};', initSeekStart) + 2;
-    const initSeekFn = html.slice(initSeekStart, initSeekEnd);
-    expect(initSeekFn).toContain('seekAllWithVerify(');
-    expect(initSeekFn).not.toMatch(/(^|\W)seekAll\(/); // no plain seekAll call (only seekAllWithVerify)
+    const start = html.indexOf('function initialClipSeek()');
+    const fn = html.slice(start, html.indexOf('\n}', start) + 2);
+    expect(fn).toContain('seekAllWithVerify(');
+    expect(fn).not.toMatch(/(^|\W)seekAll\(/); // no plain seekAll call (only seekAllWithVerify)
   });
 
   it('onMeta recomputes activeSegmentClipTimes after calibration', () => {
@@ -1306,6 +1563,12 @@ describe('buildPlayerHtml seekAllWithVerify', () => {
 
 describe('buildPlayerHtml onMeta _durationForced (Chrome WebM Infinity duration)', () => {
   const withClips = (clips) => withOptions({ clipTimes: clips });
+  const sliceFn = (html, signature) => {
+    const start = html.indexOf(signature);
+    expect(start).toBeGreaterThan(-1);
+    const end = html.indexOf('\nfunction ', start + 1);
+    return html.slice(start, end > start ? end : start + 1500);
+  };
 
   it('declares _durationForced WeakMap', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
@@ -1313,39 +1576,31 @@ describe('buildPlayerHtml onMeta _durationForced (Chrome WebM Infinity duration)
     expect(html).toContain('WeakMap');
   });
 
-  it('ensureFiniteDurations triggers 1e10 seek when duration is non-finite', () => {
+  it('forceDurationScan issues the 1e10 seek and listens for durationchange', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
-    const fnStart = html.indexOf('function ensureFiniteDurations(');
-    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
-    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 1500);
+    const fn = sliceFn(html, 'function forceDurationScan(');
     expect(fn).toContain('1e10');
     expect(fn).toContain('durationchange');
   });
 
   it('ensureFiniteDurations always returns early while any video has non-finite duration', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
-    const fnStart = html.indexOf('function ensureFiniteDurations(');
-    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
-    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 1500);
-    // The return must be unconditional — i.e. it appears after the closing brace
-    // of the if (!_durationForced.has(v)) { ... } block, not inside it.
-    // Search for the actual assignment (not a comment mention) to find the right position.
-    const seek1e10Idx = fn.indexOf('currentTime = 1e10');
-    expect(seek1e10Idx).toBeGreaterThan(-1);
-    // Find the closing brace of the has-guard block (after the 1e10 assignment)
-    const closingBraceIdx = fn.indexOf('}', seek1e10Idx);
-    const returnIdx = fn.indexOf('return false;', closingBraceIdx);
-    expect(returnIdx).toBeGreaterThan(closingBraceIdx);
-    // Only whitespace/comments between the closing brace and return false;
-    const between = fn.slice(closingBraceIdx + 1, returnIdx).replace(/\/\/[^\n]*/g, '').trim();
+    const fn = sliceFn(html, 'function ensureFiniteDurations(');
+    // The return must be unconditional — it follows the scan call rather than
+    // sitting inside a branch, so a video mid-scan can never fall through to
+    // calibration.
+    const scanIdx = fn.indexOf('forceDurationScan(v)');
+    expect(scanIdx).toBeGreaterThan(-1);
+    const returnIdx = fn.indexOf('return false;', scanIdx);
+    expect(returnIdx).toBeGreaterThan(scanIdx);
+    const between = fn.slice(scanIdx + 'forceDurationScan(v)'.length, returnIdx)
+      .replace(/\/\/[^\n]*/g, '').replace(/[;\s]/g, '');
     expect(between).toBe('');
   });
 
-  it('ensureFiniteDurations only triggers 1e10 seek once per src (WeakMap guard)', () => {
+  it('forceDurationScan only seeks once per src (WeakMap guard)', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
-    const fnStart = html.indexOf('function ensureFiniteDurations(');
-    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
-    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 1500);
+    const fn = sliceFn(html, 'function forceDurationScan(');
     // WeakMap API: set() inside the guard, get() !== srcKey as the condition
     expect(fn).toContain('_durationForced.set(v');
     const getGuardIdx = fn.indexOf('_durationForced.get(v)');
@@ -1354,6 +1609,43 @@ describe('buildPlayerHtml onMeta _durationForced (Chrome WebM Infinity duration)
     expect(getGuardIdx).toBeGreaterThan(-1);
     expect(setIdx).toBeGreaterThan(getGuardIdx);
     expect(seek1e10Idx).toBeGreaterThan(getGuardIdx);
+  });
+
+  it('waits for a duration long enough to hold the clip before calibrating', () => {
+    // A WebM duration Chrome has not finished resolving reports short (0 at
+    // first). Calibrating against it clamps the clip to an end before its own
+    // start, which isValidClipEntry rejects for good — so conversion waits.
+    const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
+    const convert = sliceFn(html, 'function convertClipEntry(');
+    const settledIdx = convert.indexOf('durationSettled(clipEntry, tracePtsStart, video)');
+    const applyIdx = convert.indexOf('applyCalibrationToClip(');
+    expect(settledIdx).toBeGreaterThan(-1);
+    expect(applyIdx).toBeGreaterThan(settledIdx); // gate comes first
+    const settled = sliceFn(html, 'function durationSettled(');
+    expect(settled).toContain('durationHoldsClip(');
+    expect(settled).toContain('forceDurationScan(video)');
+    // The wait is capped, so a genuinely truncated recording still calibrates.
+    expect(settled).toContain('DURATION_SETTLE_MS');
+  });
+
+  it('holds off resolving the clip window and the pending seek while a clip waits on its duration', () => {
+    // Regression: a clip still waiting on its duration has raw coordinates
+    // while the others are calibrated. onMeta used to resolve activeClip and
+    // let finalizeCalibration consume pendingSeek anyway, seeking that racer
+    // to the wrong frame until the retry converted it.
+    const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
+    const convert = sliceFn(html, 'function convertClipEntry(');
+    expect(convert).toContain("return 'pending'");
+    const calibrate = sliceFn(html, 'function calibrateClipTimes(');
+    expect(calibrate).toContain("status === 'pending'");
+    expect(calibrate).toContain('return { convertedAny, pending }');
+    const onMeta = sliceFn(html, 'function onMeta(');
+    const pendingIdx = onMeta.indexOf('if (pending) return;');
+    const clipIdx = onMeta.indexOf('activeClip = resolveAdjustedClip()');
+    const finalizeIdx = onMeta.indexOf('finalizeCalibration(');
+    expect(pendingIdx).toBeGreaterThan(-1);
+    expect(clipIdx).toBeGreaterThan(pendingIdx);
+    expect(finalizeIdx).toBeGreaterThan(pendingIdx);
   });
 });
 

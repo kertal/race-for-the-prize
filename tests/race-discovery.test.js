@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { discoverRacers, resolveSharedRacerNames, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown, findValuelessKvFlags, parseNetworkList, parseCpuList, buildRaceConditions, InvalidSettingError } from '../cli/config.js';
+import { discoverRacers, resolveSharedRacerNames, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown, findValuelessKvFlags, findUnknownFlags, parseNetworkList, parseCpuList, buildRaceConditions, InvalidSettingError } from '../cli/config.js';
 
 let tmpDir;
 
@@ -375,6 +375,23 @@ describe('settings override', () => {
     expect(s.noRecording).toBe(false);
   });
 
+  it('CLI --wall-clock enables the recorded wall clock', () => {
+    const s = applyOverrides({}, new Set(['wall-clock']), {});
+    expect(s.wallClock).toBe(true);
+  });
+
+  it('kv boolean --wall-clock=false disables the recorded wall clock', () => {
+    const s = applyOverrides({ wallClock: true }, new Set(), { 'wall-clock': 'false' });
+    expect(s.wallClock).toBe(false);
+  });
+
+  it('parseArgs recognises --wall-clock as a boolean-valued flag', () => {
+    expect(parseArgs(['dir', '--wall-clock']).boolFlags.has('wall-clock')).toBe(true);
+    expect(parseArgs(['dir', '--wall-clock', 'false']).kvFlags['wall-clock']).toBe('false');
+    expect(parseArgs(['dir', '--wall-clock=0']).kvFlags['wall-clock']).toBe('0');
+    expect(findUnknownFlags(new Set(['wall-clock']), {})).toEqual([]);
+  });
+
   it('preserves settings when no overrides', () => {
     const orig = { parallel: true, network: 'fast-3g', cpuThrottle: 2 };
     const s = applyOverrides(orig, new Set(), {});
@@ -410,6 +427,44 @@ describe('settings override', () => {
   it('--height defaults to 720 for non-numeric input', () => {
     const s = applyOverrides({}, new Set(), { height: 'abc' });
     expect(s.viewportHeight).toBe(720);
+  });
+
+  it('settings.json "height" sets viewportHeight', () => {
+    const s = applyOverrides({ height: 1080 }, new Set(), {});
+    expect(s.viewportHeight).toBe(1080);
+    expect(s.height).toBeUndefined();
+  });
+
+  it('settings.json "height" is clamped and rounded like --height', () => {
+    expect(applyOverrides({ height: 100 }, new Set(), {}).viewportHeight).toBe(480);
+    expect(applyOverrides({ height: 9999 }, new Set(), {}).viewportHeight).toBe(4320);
+    expect(applyOverrides({ height: 999.7 }, new Set(), {}).viewportHeight).toBe(1000);
+    expect(applyOverrides({ height: 'abc' }, new Set(), {}).viewportHeight).toBe(720);
+  });
+
+  it('settings.json "height": null means unset, not 0 clamped to the minimum', () => {
+    const s = applyOverrides({ height: null }, new Set(), {});
+    expect(s.viewportHeight).toBeUndefined();
+    expect(s.height).toBeUndefined();
+  });
+
+  it('settings.json "height" that is neither string nor number falls back to 720 like --height', () => {
+    expect(applyOverrides({ height: true }, new Set(), {}).viewportHeight).toBe(720);
+    expect(applyOverrides({ height: false }, new Set(), {}).viewportHeight).toBe(720);
+    expect(applyOverrides({ height: [900] }, new Set(), {}).viewportHeight).toBe(720);
+    expect(applyOverrides({ height: { px: 900 } }, new Set(), {}).viewportHeight).toBe(720);
+  });
+
+  it('settings.json "viewportHeight" is validated like the alias', () => {
+    expect(applyOverrides({ viewportHeight: 100 }, new Set(), {}).viewportHeight).toBe(480);
+    expect(applyOverrides({ viewportHeight: '900' }, new Set(), {}).viewportHeight).toBe(900);
+    expect(applyOverrides({ viewportHeight: true }, new Set(), {}).viewportHeight).toBe(720);
+    expect(applyOverrides({ viewportHeight: null }, new Set(), {}).viewportHeight).toBeNull();
+  });
+
+  it('CLI --height overrides settings.json "height"', () => {
+    const s = applyOverrides({ height: 1080 }, new Set(), { height: '900' });
+    expect(s.viewportHeight).toBe(900);
   });
 
   it('parseArgs handles --height=1080 format', () => {

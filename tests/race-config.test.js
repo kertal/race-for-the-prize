@@ -16,7 +16,7 @@ import {
   SOURCE_DEFAULT,
   SOURCE_FILE,
 } from '../cli/race-config.js';
-import { FLAG_SETTING_KEYS, applyOverrides } from '../cli/config.js';
+import { FLAG_SETTING_KEYS, KNOWN_FLAGS, applyOverrides } from '../cli/config.js';
 import { storeRaceAssets } from '../race.js';
 
 const withTempDir = (fn) => {
@@ -96,6 +96,13 @@ describe('resolveSettingSources', () => {
     expect(sources.skin).toBe(SOURCE_DEFAULT);
   });
 
+  it('credits settings.json for a viewport height written under its "height" alias', () => {
+    // applyOverrides folds the file's `height` into viewportHeight and drops the
+    // alias, so the effective settings no longer show where the value came from.
+    const sources = resolveSettingSources({ viewportHeight: 900 }, { fileSettings: { height: 900 } });
+    expect(sources.viewportHeight).toBe(SOURCE_FILE);
+  });
+
   it('ignores flags that touch no setting', () => {
     const sources = resolveSettingSources({ runs: 1 }, { boolFlags: new Set(['verbose', 'results']) });
     expect(sources.runs).toBe(SOURCE_DEFAULT);
@@ -125,13 +132,27 @@ describe('FLAG_SETTING_KEYS', () => {
     expect(touched).toEqual([key]);
   });
 
-  it('covers every boolean flag that reaches a setting', () => {
-    const allBoolFlags = new Set([
-      'parallel', 'headless', 'overlay', 'recording', 'ffmpeg', 'har', 'wasm',
-      'serve', 'pause', 'ignore-https-errors', 'gemini', 'cue-markers',
-    ]);
+  // Flags that steer the CLI itself rather than a race setting. Every other
+  // known flag must be in the map, so adding one without mapping it fails here
+  // rather than silently reporting its setting as a "default" in the record.
+  const NON_SETTING_FLAGS = new Set(['results', 'init', 'verbose', 'help', 'version', 'gemini-spec']);
+
+  it('maps every flag that is not purely a CLI switch', () => {
+    const unmapped = [...KNOWN_FLAGS].filter(
+      flag => !NON_SETTING_FLAGS.has(flag) && !(flag in FLAG_SETTING_KEYS)
+    );
+    expect(unmapped).toEqual([]);
+  });
+
+  it('claims no flag that writes nothing', () => {
+    const claimed = [...NON_SETTING_FLAGS].filter(flag => flag in FLAG_SETTING_KEYS);
+    expect(claimed).toEqual([]);
+  });
+
+  it('leaves no setting written by a boolean flag unattributed', () => {
+    const boolFlags = new Set([...KNOWN_FLAGS].filter(flag => !NON_SETTING_FLAGS.has(flag)));
     const mapped = Object.values(FLAG_SETTING_KEYS);
-    const unmapped = Object.keys(applyOverrides({}, allBoolFlags, {})).filter(key => !mapped.includes(key));
+    const unmapped = Object.keys(applyOverrides({}, boolFlags, {})).filter(key => !mapped.includes(key));
     expect(unmapped).toEqual([]);
   });
 });

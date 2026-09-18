@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 
-const { flashCue, setOverlay, showMedal, OverlayController, CUE_DURATION_MS, CUE_SIZE } = require('../overlay.cjs');
+const { flashCue, setOverlay, setClock, OverlayController, CUE_DURATION_MS, CUE_SIZE, CLOCK_TICK_MS } = require('../overlay.cjs');
 
 // --- Minimal DOM stub for page.evaluate ---
 // The overlay functions pass a callback + args to page.evaluate().
@@ -140,61 +140,43 @@ describe('setOverlay', () => {
   });
 });
 
-// --- showMedal tests ---
+// --- finish flag via setOverlay ---
 
-describe('showMedal', () => {
-  it('shows 1st place medal', async () => {
+describe('setOverlay finish flag', () => {
+  it('paints the corner and the centre flag in one page call', async () => {
     const { doc, elements } = createMockDOM();
     const page = createMockPage(doc);
 
-    await showMedal(page, 1);
+    await setOverlay(page, true, '🏁', true);
 
-    expect(elements['__race_medal']).toBeDefined();
-    expect(elements['__race_medal'].textContent).toBe('🥇 1st');
-  });
-
-  it('shows 2nd place medal', async () => {
-    const { doc, elements } = createMockDOM();
-    const page = createMockPage(doc);
-
-    await showMedal(page, 2);
-    expect(elements['__race_medal'].textContent).toBe('🥈 2nd');
-  });
-
-  it('shows 3rd place medal', async () => {
-    const { doc, elements } = createMockDOM();
-    const page = createMockPage(doc);
-
-    await showMedal(page, 3);
-    expect(elements['__race_medal'].textContent).toBe('🥉 3rd');
-  });
-
-  it('shows finish flag for sequential mode (place=null)', async () => {
-    const { doc, elements } = createMockDOM();
-    const page = createMockPage(doc);
-
-    await showMedal(page, null);
+    expect(page.evaluate).toHaveBeenCalledOnce();
+    expect(elements['__race_or'].textContent).toBe('🏁');
     expect(elements['__race_medal'].textContent).toBe('🏁');
   });
 
-  it('replaces existing medal element', async () => {
+  it('replaces an existing flag element', async () => {
     const { doc, elements } = createMockDOM();
     const page = createMockPage(doc);
 
-    await showMedal(page, 1);
+    await setOverlay(page, true, '🏁', true);
     const first = elements['__race_medal'];
-    await showMedal(page, 2);
+    await setOverlay(page, true, '🏁', true);
 
     expect(elements['__race_medal']).not.toBe(first);
-    expect(elements['__race_medal'].textContent).toBe('🥈 2nd');
+    expect(elements['__race_medal'].textContent).toBe('🏁');
   });
 
-  it('falls back to number for places > 5', async () => {
+  it('leaves the flag alone by default and removes it on false', async () => {
     const { doc, elements } = createMockDOM();
     const page = createMockPage(doc);
 
-    await showMedal(page, 7);
-    expect(elements['__race_medal'].textContent).toBe('7 7th');
+    await setOverlay(page, true, '🏁', true);
+    await setOverlay(page, false, '🏁');
+    expect(elements['__race_medal']).toBeDefined();
+
+    await setOverlay(page, true, null, false);
+    expect(elements['__race_medal']).toBeUndefined();
+    expect(elements['__race_or']).toBeUndefined();
   });
 });
 
@@ -221,9 +203,199 @@ describe('flashCue', () => {
   });
 });
 
+// --- setClock tests ---
+
+describe('setClock', () => {
+  afterEach(() => {
+    if (globalThis.__raceClockTimer) {
+      clearInterval(globalThis.__raceClockTimer);
+      globalThis.__raceClockTimer = null;
+    }
+    vi.useRealTimers();
+  });
+
+  function atTime(epochMs) {
+    vi.useFakeTimers();
+    vi.setSystemTime(epochMs);
+  }
+
+  it('creates a clock element showing the elapsed time', async () => {
+    atTime(1000);
+    const { doc, elements } = createMockDOM();
+    const page = createMockPage(doc);
+
+    await setClock(page, 1000);
+
+    expect(elements['__race_clock']).toBeDefined();
+    expect(elements['__race_clock'].textContent).toBe('0:00.0');
+    expect(elements['__race_clock'].style.cssText).toContain('position:fixed');
+  });
+
+  it('ticks while running', async () => {
+    atTime(0);
+    const { doc, elements } = createMockDOM();
+    const page = createMockPage(doc);
+
+    await setClock(page, 0);
+    vi.advanceTimersByTime(3400);
+
+    expect(elements['__race_clock'].textContent).toBe('0:03.4');
+  });
+
+  it('rolls over into minutes', async () => {
+    atTime(0);
+    const { doc, elements } = createMockDOM();
+    const page = createMockPage(doc);
+
+    await setClock(page, 0);
+    vi.advanceTimersByTime(65_200);
+
+    expect(elements['__race_clock'].textContent).toBe('1:05.2');
+  });
+
+  it('truncates tenths instead of rounding up to 60 seconds', async () => {
+    atTime(59_970);
+    const { doc, elements } = createMockDOM();
+    const page = createMockPage(doc);
+
+    await setClock(page, 0);
+
+    expect(elements['__race_clock'].textContent).toBe('0:59.9');
+  });
+
+  it('freezes on the given time and stops ticking', async () => {
+    atTime(0);
+    const { doc, elements } = createMockDOM();
+    const page = createMockPage(doc);
+
+    await setClock(page, 0, 2500);
+    vi.advanceTimersByTime(5000);
+
+    expect(elements['__race_clock'].textContent).toBe('0:02.5');
+    expect(globalThis.__raceClockTimer).toBeFalsy();
+  });
+
+  it('reuses the existing element when re-injected', async () => {
+    atTime(0);
+    const { doc, elements } = createMockDOM();
+    const page = createMockPage(doc);
+
+    await setClock(page, 0);
+    const first = elements['__race_clock'];
+    await setClock(page, 0, 1000);
+
+    expect(elements['__race_clock']).toBe(first);
+  });
+
+  it('removes the clock when start is null', async () => {
+    atTime(0);
+    const { doc, elements } = createMockDOM();
+    const page = createMockPage(doc);
+
+    await setClock(page, 0);
+    await setClock(page, null);
+
+    expect(elements['__race_clock']).toBeUndefined();
+    expect(globalThis.__raceClockTimer).toBeFalsy();
+  });
+
+  it('never shows a negative time before the start epoch', async () => {
+    atTime(0);
+    const { doc, elements } = createMockDOM();
+    const page = createMockPage(doc);
+
+    await setClock(page, 5000);
+
+    expect(elements['__race_clock'].textContent).toBe('0:00.0');
+  });
+
+  it('passes the tick interval to the page', async () => {
+    atTime(0);
+    const page = { evaluate: vi.fn(async () => {}) };
+
+    await setClock(page, 0);
+
+    expect(page.evaluate.mock.calls[0][1]).toEqual({ start: 0, frozen: null, tick: CLOCK_TICK_MS });
+  });
+});
+
 // --- OverlayController tests ---
 
 describe('OverlayController', () => {
+  it('runs on through the post-race delay and stops when the recording does', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    const { ctrl, elements } = createCtrl({ wallClock: true, timeBase: 1000 });
+    const { createRaceApi } = require('../race-api.cjs');
+    let flag;
+    const api = createRaceApi({ recordingStartTime: 1000, hooks: {
+      onRecordingStart: () => ctrl.onStartRecording(),
+      onMeasureStart: () => ctrl.onMeasureStart(),
+      onMeasureEnd: (_name, _end, count) => { flag = ctrl.onMeasureEnd(count); },
+      onRecordingStop: ({ segmentEnd }) => ctrl.onStopRecording(segmentEnd),
+    } });
+    try {
+      await api.startRecording();
+      await api.startMeasure('outer');
+      await api.startMeasure('inner');
+      await vi.advanceTimersByTimeAsync(1500);
+      api.endMeasure('inner');
+      await flag;
+      expect(ctrl.clockRunning).toBe(true);
+      expect(elements.__race_or.textContent).toBe('⏱️');
+      expect(elements.__race_medal).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(6000);
+      api.endMeasure('outer');
+      await flag;
+      expect(elements.__race_clock.textContent).toBe('0:07.5');
+      expect(ctrl.clockRunning).toBe(true);
+      expect(ctrl.right).toBe('🏁');
+      expect(elements.__race_medal).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(elements.__race_clock.textContent).toBe('0:09.0');
+      await api.stopRecording();
+      expect(ctrl.clockRunning).toBe(false);
+      expect(elements.__race_clock.textContent).toBe('0:09.0');
+      expect(globalThis.__raceClockTimer).toBeFalsy();
+    } finally {
+      clearInterval(globalThis.__raceClockTimer);
+      globalThis.__raceClockTimer = null;
+      vi.useRealTimers();
+    }
+  });
+
+  it('ticks through the untimed gap between two sections instead of jumping it', async () => {
+    // Regression: the clock used to freeze on the closing measurement and
+    // resume against its unmoved zero, so the digits stood still through the
+    // spec's untimed wait and then jumped the whole gap in one step.
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    const { ctrl, elements, page } = createCtrl({ wallClock: true, timeBase: 1000 });
+    try {
+      await ctrl.onStartRecording();
+      await vi.advanceTimersByTimeAsync(2000);
+      await ctrl.onMeasureEnd(0);
+      elements.__race_clock.remove();
+      const onLoad = page.on.mock.calls.find(([event]) => event === 'load')[1];
+      onLoad();
+      // Re-injected mid-gap by the navigation, and still counting.
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(elements.__race_clock.textContent).toBe('0:03.5');
+      await ctrl.onMeasureStart();
+      expect(elements.__race_medal).toBeUndefined();
+      expect(elements.__race_or.textContent).toBe('⏱️');
+      await vi.advanceTimersByTimeAsync(500);
+      expect(elements.__race_clock.textContent).toBe('0:04.0');
+      await ctrl.onMeasureEnd(0);
+      await ctrl.onStopRecording(4);
+      expect(elements.__race_clock.textContent).toBe('0:04.0');
+    } finally {
+      clearInterval(globalThis.__raceClockTimer);
+      globalThis.__raceClockTimer = null;
+      vi.useRealTimers();
+    }
+  });
+
   function createCtrl(opts = {}) {
     const { doc, elements } = createMockDOM();
     const page = createMockPage(doc);
@@ -254,17 +426,87 @@ describe('OverlayController', () => {
     expect(elements['__race_or'].textContent).toBe('⏱️');
   });
 
-  it('onMeasureEnd updates state to flag without calling setOverlay', async () => {
+  it('holds the flag back until the recording stops', async () => {
+    const { ctrl, elements } = createCtrl();
+
+    await ctrl.onStartRecording();
+    await ctrl.onMeasureStart();
+    await ctrl.onMeasureEnd();
+
+    // Armed in state, painted nowhere.
+    expect(ctrl.right).toBe('🏁');
+    expect(elements.__race_or.textContent).toBe('⏱️');
+    expect(elements.__race_medal).toBeUndefined();
+
+    await ctrl.onFinish();
+    await ctrl.onStopRecording();
+
+    expect(elements.__race_or.textContent).toBe('🏁');
+    expect(elements.__race_medal.textContent).toBe('🏁');
+  });
+
+  it('clears an armed flag without a page round trip', async () => {
+    // A measured finish only arms the flag, so the next raceStart has nothing
+    // to remove — and must not pay a round trip to find that out.
     const { ctrl, page } = createCtrl();
 
     await ctrl.onStartRecording();
     await ctrl.onMeasureStart();
-    const callCount = page.evaluate.mock.calls.length;
+    await ctrl.onMeasureEnd();
+    const before = page.evaluate.mock.calls.length;
 
-    ctrl.onMeasureEnd();
+    await ctrl.onMeasureStart();
 
-    expect(ctrl.right).toBe('🏁');
-    expect(page.evaluate.mock.calls.length).toBe(callCount);
+    // One call: the stopwatch going back up, and nothing else.
+    expect(page.evaluate.mock.calls.length).toBe(before + 1);
+    expect(ctrl.right).toBe('⏱️');
+  });
+
+  it('does not arm the flag while an outer measurement is still open', async () => {
+    const { ctrl, elements } = createCtrl();
+
+    await ctrl.onStartRecording();
+    await ctrl.onMeasureStart();
+    await ctrl.onMeasureEnd(1); // an inner section closing
+
+    expect(ctrl.right).toBe('⏱️');
+    expect(elements.__race_or.textContent).toBe('⏱️');
+  });
+
+  it('flips corner and centre together, before the recording stop', async () => {
+    // Regression: the centre flag went up at the finish while the corner kept
+    // its stopwatch until the stop a beat later, so the recording caught frames
+    // claiming both at once.
+    const { ctrl, elements } = createCtrl();
+
+    await ctrl.onStartRecording();
+    await ctrl.onMeasureStart();
+    await ctrl.onMeasureEnd();
+    await ctrl.onFinish();
+
+    expect(elements.__race_or.textContent).toBe('\u{1F3C1}');
+    expect(elements.__race_medal.textContent).toBe('\u{1F3C1}');
+    expect(elements.__race_ol).toBeDefined(); // still recording, dot stays
+  });
+
+  it('flies no flag over the gap between two measured sections', async () => {
+    // Regression: the flag went up at every measured finish, flying it across
+    // the untimed gap while the racer still had a section to run.
+    const { ctrl, elements } = createCtrl();
+
+    await ctrl.onStartRecording();
+    await ctrl.onMeasureStart();
+    await ctrl.onMeasureEnd();
+    expect(elements.__race_medal).toBeUndefined();
+    expect(elements.__race_or.textContent).toBe('⏱️');
+
+    await ctrl.onMeasureStart();
+    expect(elements.__race_or.textContent).toBe('⏱️');
+    await ctrl.onMeasureEnd();
+    await ctrl.onFinish();
+    await ctrl.onStopRecording();
+
+    expect(elements.__race_medal.textContent).toBe('🏁');
   });
 
   it('onStopRecording removes dot and keeps flag', async () => {
@@ -272,7 +514,7 @@ describe('OverlayController', () => {
 
     await ctrl.onStartRecording();
     await ctrl.onMeasureStart();
-    ctrl.onMeasureEnd();
+    await ctrl.onMeasureEnd();
     await ctrl.onStopRecording();
 
     expect(ctrl.dot).toBe(false);
@@ -280,23 +522,25 @@ describe('OverlayController', () => {
     expect(elements['__race_or'].textContent).toBe('🏁');
   });
 
-  it('full lifecycle: 3 setOverlay calls (start, measure, stop)', async () => {
+  it('touches the page once per visible change through a full lap', async () => {
     const { ctrl, page } = createCtrl();
 
     await ctrl.onStartRecording();
     await ctrl.onMeasureStart();
-    ctrl.onMeasureEnd();
+    await ctrl.onMeasureEnd();
+    await ctrl.onFinish();
     await ctrl.onStopRecording();
 
-    // onStartRecording → 1, onMeasureStart → 1, onStopRecording → 1
-    expect(page.evaluate).toHaveBeenCalledTimes(3);
+    // start overlay, stopwatch, one paint for corner and centre flag together,
+    // stop overlay — the measured finish itself paints nothing.
+    expect(page.evaluate).toHaveBeenCalledTimes(4);
   });
 
   it('dot stays true between onMeasureEnd and onStopRecording', async () => {
     const { ctrl } = createCtrl();
 
     await ctrl.onStartRecording();
-    ctrl.onMeasureEnd();
+    await ctrl.onMeasureEnd();
 
     expect(ctrl.dot).toBe(true);
     expect(ctrl.right).toBe('🏁');
@@ -306,7 +550,7 @@ describe('OverlayController', () => {
     const { ctrl, page } = createCtrl();
 
     await ctrl.onStartRecording();
-    ctrl.onMeasureEnd();
+    await ctrl.onMeasureEnd();
 
     // Simulate navigation: the load handler checks state
     expect(ctrl.dot || ctrl.right).toBeTruthy();
@@ -320,7 +564,7 @@ describe('OverlayController', () => {
 
     await ctrl.onStartRecording();
     await ctrl.onMeasureStart();
-    ctrl.onMeasureEnd();
+    await ctrl.onMeasureEnd();
     await ctrl.onStopRecording();
 
     expect(ctrl.dot).toBe(false);
@@ -334,27 +578,258 @@ describe('OverlayController', () => {
 
     await ctrl.onStartRecording();
     await ctrl.onMeasureStart();
-    ctrl.onMeasureEnd();
+    await ctrl.onMeasureEnd();
     await ctrl.onStopRecording();
 
     expect(page.evaluate).not.toHaveBeenCalled();
   });
 
-  it('onFinish calls showMedal with placement', async () => {
+  it('onFinish shows the finish flag once a measured finish armed it', async () => {
     const { ctrl, elements } = createCtrl();
 
-    await ctrl.onFinish(1);
+    await ctrl.onStartRecording();
+    await ctrl.onMeasureStart();
+    await ctrl.onMeasureEnd();
+    await ctrl.onFinish();
 
     expect(elements['__race_medal']).toBeDefined();
-    expect(elements['__race_medal'].textContent).toBe('🥇 1st');
+    expect(elements['__race_medal'].textContent).toBe('🏁');
+    expect(elements['__race_or'].textContent).toBe('🏁');
   });
 
   it('onFinish is a no-op when disabled', async () => {
     const { ctrl, page } = createCtrl({ noOverlay: true });
 
-    await ctrl.onFinish(1);
+    await ctrl.onFinish();
 
     expect(page.evaluate).not.toHaveBeenCalled();
+  });
+
+  it('does not show a clock unless wallClock is enabled', async () => {
+    const { ctrl, elements } = createCtrl();
+
+    await ctrl.onStartRecording();
+
+    expect(elements['__race_clock']).toBeUndefined();
+    expect(ctrl.clockRunning).toBe(false);
+  });
+
+  it('zeroes the clock when recording starts, not at the API time base', async () => {
+    // Regression: the clock counted from context creation (the API's time
+    // base), which sits a variable distance before raceRecordingStart — page
+    // creation, navigation, and whatever the spec does first all land in that
+    // gap. The player aligns every racer's video on raceRecordingStart, so the
+    // burned-in clocks disagreed across racers at the same playback position.
+    const { ctrl, elements } = createCtrl({ wallClock: true, timeBase: 1000, now: () => 3500 });
+
+    await ctrl.onStartRecording();
+
+    expect(ctrl.clockRunning).toBe(true);
+    expect(ctrl._clockStart).toBe(3500); // recording start, not the 1000 base
+    expect(elements['__race_clock']).toBeDefined();
+    // Rendered from the real clock inside the page, so only its presence is
+    // asserted here — the formatting is covered by the setClock tests.
+    clearInterval(globalThis.__raceClockTimer);
+    globalThis.__raceClockTimer = null;
+  });
+
+  it('zeroes on the supplied recording-start epoch, not on when the call lands', async () => {
+    // runner.cjs awaits a trace mark between the recording start and this call,
+    // so the caller passes the moment it happened; reading the clock here would
+    // shift the zero by that page round-trip, by a different amount per racer.
+    const { ctrl } = createCtrl({ wallClock: true, timeBase: 1000, now: () => 3500 });
+
+    await ctrl.onStartRecording(3100);
+
+    expect(ctrl._clockStart).toBe(3100);
+    clearInterval(globalThis.__raceClockTimer);
+    globalThis.__raceClockTimer = null;
+  });
+
+  it('reads the same regardless of how long setup took before recording', async () => {
+    // Two racers with very different setup times must burn in the same value
+    // once the same amount of recording has elapsed.
+    const mk = (startEpoch) => {
+      let t = startEpoch;
+      const { doc, elements } = createMockDOM();
+      const page = createMockPage(doc);
+      const ctrl = new OverlayController(page, { wallClock: true, timeBase: 1000, now: () => t });
+      return { ctrl, elements, finish: () => { t = startEpoch + 2500; } };
+    };
+    const quick = mk(1100); // recording started 0.1s after context creation
+    const slow = mk(1900);  // ... and 0.9s after, for the other racer
+
+    for (const r of [quick, slow]) {
+      await r.ctrl.onStartRecording();
+      r.finish();
+      await r.ctrl.onStopRecording();
+    }
+
+    expect(quick.elements['__race_clock'].textContent).toBe('0:02.5');
+    expect(slow.elements['__race_clock'].textContent).toBe('0:02.5');
+  });
+
+  it('freezes the clock when recording stops', async () => {
+    const { ctrl, elements } = createCtrl({ wallClock: true, timeBase: 1000, now: () => 3500 });
+
+    await ctrl.onStartRecording();
+    await ctrl.onStopRecording();
+
+    expect(ctrl.clockRunning).toBe(false);
+    expect(ctrl.clockFrozenAt).toBe(3500);
+    expect(elements['__race_clock'].textContent).toBe('0:00.0');
+    expect(globalThis.__raceClockTimer).toBeFalsy();
+  });
+
+  it('renders the API recording end relative to the recording start', async () => {
+    // The end counts from the API's base (1000), but the clock's zero is the
+    // recording start (1400) — so 2.5s reported burns in as 2.1s.
+    const { ctrl, elements } = createCtrl({ wallClock: true, timeBase: 1000, now: () => 1400 });
+
+    await ctrl.onStartRecording();
+    await ctrl.onStopRecording(2.5);
+
+    expect(ctrl.clockFrozenAt).toBe(3500); // timeBase + 2.5s, an absolute epoch
+    expect(elements['__race_clock'].textContent).toBe('0:02.1');
+  });
+
+  it('does not let awaited overlay work push the frozen time past the finish', async () => {
+    // The finish flag (onFinish) and the overlay update are both awaited before
+    // the clock freezes — neither may advance the burned-in time.
+    const { doc, elements } = createMockDOM();
+    const page = createMockPage(doc);
+    let clock = 3500;
+    const slowPageWork = page.evaluate;
+    page.evaluate = vi.fn(async (...args) => {
+      clock += 400;
+      return slowPageWork(...args);
+    });
+    const ctrl = new OverlayController(page, { wallClock: true, timeBase: 1000, now: () => clock });
+
+    await ctrl.onStartRecording();
+    await ctrl.onMeasureStart();
+    await ctrl.onMeasureEnd();
+    await ctrl.onFinish();
+    await ctrl.onStopRecording();
+
+    // start overlay + clock + stopwatch + one paint for corner and centre flag.
+    expect(ctrl.clockFrozenAt).toBe(3500 + 400 * 4);
+    // Zeroed before that page work ran, so only the work itself is on the clock.
+    expect(elements['__race_clock'].textContent).toBe('0:01.6');
+  });
+
+  it('does not run the clock when overlays are disabled', async () => {
+    const { ctrl, page } = createCtrl({ wallClock: true, timeBase: 1000, noOverlay: true });
+
+    await ctrl.onStartRecording();
+    await ctrl.onStopRecording();
+
+    expect(ctrl.clockRunning).toBe(false);
+    expect(page.evaluate).not.toHaveBeenCalled();
+  });
+
+  it('does not run the clock without an API time base', async () => {
+    const { ctrl, elements } = createCtrl({ wallClock: true });
+
+    await ctrl.onStartRecording();
+
+    expect(ctrl.clockRunning).toBe(false);
+    expect(elements['__race_clock']).toBeUndefined();
+  });
+
+  it('re-injects the clock after a navigation', async () => {
+    const { doc, elements } = createMockDOM();
+    const page = createMockPage(doc);
+    let t = 1400;
+    const ctrl = new OverlayController(page, { wallClock: true, timeBase: 1000, now: () => t });
+
+    await ctrl.onStartRecording();
+    t = 3500;
+    await ctrl.onStopRecording();
+    elements['__race_clock'].remove(); // navigation wipes the overlay elements
+
+    const onLoad = page.on.mock.calls.find(([event]) => event === 'load')[1];
+    await onLoad();
+
+    // Re-injected against the same zero, so the frozen time survives the reload.
+    expect(elements['__race_clock'].textContent).toBe('0:02.1');
+  });
+
+  it('re-injects the finish flag after a navigation', async () => {
+    const { ctrl, page, elements } = createCtrl();
+
+    await ctrl.onStartRecording();
+    await ctrl.onMeasureEnd();
+    await ctrl.onFinish();
+    expect(elements.__race_medal.textContent).toBe('🏁');
+    // A navigation wipes both elements, and both have to come back — a centre
+    // flag over a stopwatch corner is the mismatch this pairing exists to stop.
+    elements.__race_medal.remove();
+    elements.__race_or.remove();
+
+    const onLoad = page.on.mock.calls.find(([event]) => event === 'load')[1];
+    onLoad();
+
+    expect(elements.__race_medal.textContent).toBe('🏁');
+    expect(elements.__race_or.textContent).toBe('🏁');
+  });
+
+  it('restores the painted corner after a navigation, not the armed flag', async () => {
+    // A measured finish arms the corner without painting it. A navigation in
+    // the post-race wait must bring back the stopwatch the page was showing,
+    // not fly the flag early — that stays for onFinish at the recording end.
+    const { ctrl, page, elements } = createCtrl();
+
+    await ctrl.onStartRecording();
+    await ctrl.onMeasureStart();
+    await ctrl.onMeasureEnd();
+    expect(ctrl.right).toBe('🏁'); // armed
+    expect(elements.__race_or.textContent).toBe('⏱️'); // still painted
+    elements.__race_or.remove();
+    elements.__race_ol.remove();
+
+    const onLoad = page.on.mock.calls.find(([event]) => event === 'load')[1];
+    onLoad();
+
+    expect(elements.__race_or.textContent).toBe('⏱️');
+    expect(elements.__race_ol).toBeDefined();
+    expect(elements.__race_medal).toBeUndefined();
+
+    await ctrl.onFinish();
+    expect(elements.__race_or.textContent).toBe('🏁');
+    expect(elements.__race_medal.textContent).toBe('🏁');
+  });
+
+  it('flies no flag for a segment recorded without a measured finish', async () => {
+    // A bare raceRecordingStart/End pair (b-roll) has no finish to mark, so the
+    // recording stop must not invent one.
+    const { ctrl, elements } = createCtrl();
+
+    await ctrl.onStartRecording();
+    const painted = await ctrl.onFinish(); // the runner's recording stop, nothing measured
+    await ctrl.onStopRecording();
+
+    expect(painted).toBe(false);
+    expect(elements.__race_medal).toBeUndefined();
+    expect(elements.__race_or).toBeUndefined();
+  });
+
+  it('takes a painted flag down with the next segment start, in one page call', async () => {
+    const { ctrl, page, elements } = createCtrl();
+
+    await ctrl.onStartRecording();
+    await ctrl.onMeasureStart();
+    await ctrl.onMeasureEnd();
+    expect(await ctrl.onFinish()).toBe(true);
+    await ctrl.onStopRecording();
+    expect(elements.__race_medal).toBeDefined();
+    const before = page.evaluate.mock.calls.length;
+
+    await ctrl.onStartRecording();
+
+    expect(page.evaluate.mock.calls.length).toBe(before + 1);
+    expect(elements.__race_medal).toBeUndefined();
+    expect(elements.__race_or).toBeUndefined(); // and the corner is back to bare
   });
 
   it('registers load event listener when enabled', () => {

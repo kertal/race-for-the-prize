@@ -58,9 +58,23 @@ const KEY_ORDER = [
   'pauseBetweenRuns',
   'ignoreHTTPSErrors',
   'cueMarkers',
+  'wallClock',
   'skin',
   'gemini',
 ];
+
+/**
+ * settings.json keys that feed a differently-named setting. `height` is the
+ * file's alias for `viewportHeight` (see `applyOverrides`), so a value written
+ * under the alias still reads as having come from the file.
+ */
+const FILE_KEY_ALIASES = { viewportHeight: ['height'] };
+
+/** Did settings.json supply this setting, under its own name or an alias? */
+function fileSupplied(fileSettings, key) {
+  if (fileSettings?.[key] != null) return true;
+  return (FILE_KEY_ALIASES[key] || []).some(alias => fileSettings?.[alias] != null);
+}
 
 /** Order setting keys: the well-known ones first, then the rest alphabetically. */
 export function sortSettingKeys(keys) {
@@ -112,7 +126,7 @@ export function resolveSettingSources(settings = {}, { fileSettings = {}, boolFl
   const sources = {};
   for (const key of Object.keys(settings)) {
     if (cliKeys.has(key)) sources[key] = SOURCE_CLI;
-    else if (fileSettings?.[key] != null) sources[key] = SOURCE_FILE;
+    else if (fileSupplied(fileSettings, key)) sources[key] = SOURCE_FILE;
     else sources[key] = SOURCE_DEFAULT;
   }
   return sources;

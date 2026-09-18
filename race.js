@@ -545,6 +545,7 @@ export function buildRaceContext({ racerNames, scripts, settings, rootDir = __di
     ffmpeg: settings.ffmpeg,
     har: settings.har,
     cueMarkers: settings.cueMarkers,
+    wallClock: settings.wallClock,
     ignoreHTTPSErrors: settings.ignoreHTTPSErrors,
     viewportHeight: settings.viewportHeight,
   };
@@ -827,6 +828,7 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--wasm${c.reset}=${c.green}0${c.reset}           Skip copying ffmpeg.wasm files (~25 MB) to results
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--height${c.reset}=${c.green}900${c.reset}          Viewport/recording height in pixels (480–4320, default 720)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ignore-https-errors${c.reset}  Accept invalid/self-signed TLS certificates
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--wall-clock${c.reset}         Burn a ticking wall clock into the recording (perturbs metrics)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cue-markers${c.reset}        Flash visual cues at segment boundaries (calibration testing; perturbs metrics)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--serve${c.reset}=${c.green}0${c.reset}          Don't start local results server (CI/headless; open index.html manually)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--gemini${c.reset}             Gemini CLI sports reporter commentary after race
