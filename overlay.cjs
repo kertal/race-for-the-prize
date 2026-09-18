@@ -224,10 +224,11 @@ class OverlayController {
   }
 
   /**
-   * Raises the flag. The clock keeps running: it is a wall clock, and the
-   * untimed gap before the next section is time the video spends too. Pausing
-   * it here and resuming there would leave the digits to jump that gap in one
-   * step, since the clock's zero never moves.
+   * Arms the flag without painting it: a multi-section spec closes a
+   * measurement per section, and a flag raised there would fly over the gap
+   * that follows. It goes up at the recording stop instead. The clock keeps
+   * running for the same reason — freezing and resuming would make the digits
+   * jump that gap in one step.
    *
    * @param {number} [activeCount] Measurements still open; the finish is the
    *   last one to close.
@@ -236,21 +237,14 @@ class OverlayController {
     if (this._disabled) return;
     if (activeCount > 0) return;
     this.right = '\u{1F3C1}';
-    // Publish both flags at the measured finish, while the recording dot
-    // remains visible through any post-race footage. Placement comes later.
-    this.finishShown = true;
-    await Promise.all([
-      setOverlay(this._page, this.dot, this.right),
-      showFinishFlag(this._page),
-    ]);
   }
 
   async _clearFinish() {
-    // A flag can also come from onFinish at a recording stop with no measured
-    // finish, while `right` is still null or the stopwatch — clear on either.
-    if (!this.finishShown && this.right !== '\u{1F3C1}') return;
-    this.finishShown = false;
+    // `right` is armed at every measured finish; the element exists only if a
+    // flag was painted.
     if (this.right === '\u{1F3C1}') this.right = null;
+    if (!this.finishShown) return;
+    this.finishShown = false;
     await this._page.evaluate(() => {
       document.getElementById('__race_medal')?.remove();
     });
@@ -289,8 +283,8 @@ class OverlayController {
   }
 
   /**
-   * Fallback flag at a recording stop, for a segment that closed without a
-   * measured finish (onMeasureEnd has already shown it otherwise).
+   * Raises the flag at the recording stop — the one moment a racer is done.
+   * Placement stays out of the video; the player badges it from the results.
    */
   async onFinish() {
     if (this._disabled) return;

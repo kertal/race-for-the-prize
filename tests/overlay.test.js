@@ -336,8 +336,7 @@ describe('OverlayController', () => {
       expect(elements.__race_clock.textContent).toBe('0:07.5');
       expect(ctrl.clockRunning).toBe(true);
       expect(ctrl.right).toBe('🏁');
-      expect(elements.__race_or.textContent).toBe('🏁');
-      expect(elements.__race_medal.textContent).toBe('🏁');
+      expect(elements.__race_medal).toBeUndefined();
       await vi.advanceTimersByTimeAsync(1500);
       expect(elements.__race_clock.textContent).toBe('0:09.0');
       await api.stopRecording();
@@ -413,16 +412,43 @@ describe('OverlayController', () => {
     expect(elements['__race_or'].textContent).toBe('⏱️');
   });
 
-  it('onMeasureEnd displays both flags before recording stops', async () => {
+  it('holds the flag back until the recording stops', async () => {
     const { ctrl, elements } = createCtrl();
 
     await ctrl.onStartRecording();
     await ctrl.onMeasureStart();
     await ctrl.onMeasureEnd();
 
+    // Armed in state, painted nowhere.
+    expect(ctrl.right).toBe('🏁');
+    expect(elements.__race_or.textContent).toBe('⏱️');
+    expect(elements.__race_medal).toBeUndefined();
+
+    await ctrl.onFinish();
+    await ctrl.onStopRecording();
+
     expect(elements.__race_or.textContent).toBe('🏁');
     expect(elements.__race_medal.textContent).toBe('🏁');
-    expect(elements.__race_ol).toBeDefined();
+  });
+
+  it('flies no flag over the gap between two measured sections', async () => {
+    // Regression: the flag went up at every measured finish, flying it across
+    // the untimed gap while the racer still had a section to run.
+    const { ctrl, elements } = createCtrl();
+
+    await ctrl.onStartRecording();
+    await ctrl.onMeasureStart();
+    await ctrl.onMeasureEnd();
+    expect(elements.__race_medal).toBeUndefined();
+    expect(elements.__race_or.textContent).toBe('⏱️');
+
+    await ctrl.onMeasureStart();
+    expect(elements.__race_or.textContent).toBe('⏱️');
+    await ctrl.onMeasureEnd();
+    await ctrl.onFinish();
+    await ctrl.onStopRecording();
+
+    expect(elements.__race_medal.textContent).toBe('🏁');
   });
 
   it('onStopRecording removes dot and keeps flag', async () => {
@@ -438,15 +464,17 @@ describe('OverlayController', () => {
     expect(elements['__race_or'].textContent).toBe('🏁');
   });
 
-  it('recording stop preserves the displayed finish flags', async () => {
+  it('touches the page once per visible change through a full lap', async () => {
     const { ctrl, page } = createCtrl();
 
     await ctrl.onStartRecording();
     await ctrl.onMeasureStart();
     await ctrl.onMeasureEnd();
+    await ctrl.onFinish();
     await ctrl.onStopRecording();
 
-    expect(page.evaluate).toHaveBeenCalledTimes(5);
+    // start overlay, stopwatch, flag, stop overlay — the finish paints nothing.
+    expect(page.evaluate).toHaveBeenCalledTimes(4);
   });
 
   it('dot stays true between onMeasureEnd and onStopRecording', async () => {
@@ -666,6 +694,7 @@ describe('OverlayController', () => {
 
     await ctrl.onStartRecording();
     await ctrl.onMeasureEnd();
+    await ctrl.onFinish();
     expect(elements.__race_medal.textContent).toBe('🏁');
     elements.__race_medal.remove(); // navigation wipes the overlay elements
 
