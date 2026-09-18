@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { discoverRacers, resolveSharedRacerNames, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown, findValuelessKvFlags, parseNetworkList, parseCpuList, buildRaceConditions, InvalidSettingError } from '../cli/config.js';
+import { discoverRacers, resolveSharedRacerNames, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown, findValuelessKvFlags, findUnknownFlags, parseNetworkList, parseCpuList, buildRaceConditions, InvalidSettingError } from '../cli/config.js';
 
 let tmpDir;
 
@@ -373,6 +373,23 @@ describe('settings override', () => {
   it('CLI --recording enables recording', () => {
     const s = applyOverrides({ noRecording: true }, new Set(['recording']), {});
     expect(s.noRecording).toBe(false);
+  });
+
+  it('CLI --wall-clock enables the recorded wall clock', () => {
+    const s = applyOverrides({}, new Set(['wall-clock']), {});
+    expect(s.wallClock).toBe(true);
+  });
+
+  it('kv boolean --wall-clock=false disables the recorded wall clock', () => {
+    const s = applyOverrides({ wallClock: true }, new Set(), { 'wall-clock': 'false' });
+    expect(s.wallClock).toBe(false);
+  });
+
+  it('parseArgs recognises --wall-clock as a boolean-valued flag', () => {
+    expect(parseArgs(['dir', '--wall-clock']).boolFlags.has('wall-clock')).toBe(true);
+    expect(parseArgs(['dir', '--wall-clock', 'false']).kvFlags['wall-clock']).toBe('false');
+    expect(parseArgs(['dir', '--wall-clock=0']).kvFlags['wall-clock']).toBe('0');
+    expect(findUnknownFlags(new Set(['wall-clock']), {})).toEqual([]);
   });
 
   it('preserves settings when no overrides', () => {

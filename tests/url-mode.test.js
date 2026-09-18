@@ -125,6 +125,12 @@ describe('applyDefaults', () => {
     expect(result.network).toBe('none');
     expect(result.cpuThrottle).toBe(1);
     expect(result.slowmo).toBe(0);
+    expect(result.wallClock).toBe(false);
+  });
+
+  it('coerces a string wallClock from settings.json', () => {
+    expect(applyDefaults({ wallClock: 'true' }).wallClock).toBe(true);
+    expect(applyDefaults({ wallClock: 'false' }).wallClock).toBe(false);
   });
 
   it('preserves explicitly set values', () => {

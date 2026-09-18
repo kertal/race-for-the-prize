@@ -33,7 +33,9 @@ function drawExportFrame(ctx, layout, clockTime, visibleIndices) {
     ctx.fillStyle = racerColors[i] || '#e8e0d0';
     ctx.font = 'bold 16px Georgia, serif';
     ctx.textAlign = 'center';
-    ctx.fillText(racerNames[i] || '', pos.x + layout.targetW / 2, pos.y + layout.labelH - 8);
+    const finish = finishResultForVideo(i);
+    const label = (racerNames[i] || '') + (finish ? ' · ' + finish.label : '');
+    ctx.fillText(label, pos.x + layout.targetW / 2, pos.y + layout.labelH - 8);
     try { ctx.drawImage(v, pos.x, pos.y + layout.labelH, layout.targetW, layout.cellH); } catch {}
   }
   // Clock overlay: matches the ffmpeg drawtext style in sidebyside.js
@@ -259,6 +261,9 @@ async function startExport() {
     return;
   }
   pausePlayback();
+  // The export owns all seeking from here; leftover startup verifications
+  // must not re-seek or nudge videos once the recorder is rolling.
+  cancelSeekVerifications();
 
   // Respect the racer filter: hidden racers must not be baked into the export.
   const visibleIndices = raceVideos.map((_, i) => i).filter(i => raceVideos[i] && !hiddenRacers.has(i));

@@ -33,7 +33,7 @@
 </header>
 
 <main id="main">
-<div class="winner-banner" role="status">{{winnerBanner}}</div>
+<output class="winner-banner">{{winnerBanner}}</output>
 {{videoSourceNote}}
 {{errors}}
 <div class="settings-panel" id="settingsPanel">
@@ -178,6 +178,7 @@
   <div class="racer" style="--racer-color: {{color}}">
     <div class="racer-label">{{trophy}}{{name}}</div>
     <video id="v{{idx}}"{{src}} preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Race recording for {{name}}" data-racer-name="{{name}}"></video>
+    <output id="finishResult{{idx}}" class="finish-result" aria-atomic="true" hidden></output>
   </div></template>
 
 <template id="build-merged-container">

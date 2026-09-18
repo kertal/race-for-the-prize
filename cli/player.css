@@ -330,6 +330,9 @@ h1 {
 
 /* --- Banners & notes ----------------------------------------------------- */
 .winner-banner {
+  /* <output> is a native live region, so the result announces itself without a
+     role attribute — but it is inline by default, and the banner is a block. */
+  display: block;
   text-align: center;
   font-family: var(--font-display);
   font-size: var(--font-size-3xl);
@@ -391,9 +394,26 @@ h1 {
   justify-content: center;
 }
 .racer {
+  position: relative;
   flex: 1;
   min-width: 280px;
   text-align: center;
+}
+.finish-result {
+  position: absolute;
+  bottom: 0.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.2rem 0.45rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--racer-color, var(--border));
+  border-radius: var(--radius);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-sm);
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
 }
 .racer-label {
   font-family: var(--font-display);
@@ -948,26 +968,23 @@ video {
   max-width: none;
   overflow: hidden;
 }
-/* Fullscreen has no room for a label above each video without stealing height
-   from the grid, so the name rides on top of its own recording instead: a
-   scrim-backed chip in the corner, out of the way of the action but keeping
-   every racer identifiable. */
-.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .racer { position: relative; }
+/* Out of the flow and onto the video: the fullscreen grid gives each row the
+   viewport, so a label that still took its own line would shrink every video
+   by its height. Centred at the top, where it clears the recording dot and the
+   wall clock burned into the footage's top-left corner. */
 .fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .racer-label {
   position: absolute;
   top: 0;
-  inset-inline-start: 0;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 5;
   max-width: 100%;
-  padding: 0.3rem 0.7rem;
-  font-size: var(--font-size-lg);
+  padding: 0.25rem 0.75rem;
   background: var(--scrim);
-  border-end-end-radius: var(--radius);
+  border-radius: 0 0 var(--radius) var(--radius);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  /* Clicking a video toggles the auto-hiding controls; the label must not
-     swallow that click. */
   pointer-events: none;
 }
 .fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) video {

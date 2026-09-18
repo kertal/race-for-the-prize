@@ -15,6 +15,7 @@ const {
   canApplyTraceCalibration,
   traceTsToClipPts,
   applyCalibrationToClip,
+  durationHoldsClip,
   computeSegmentClipTimes,
   resolveClipWindow,
 } = require('../cli/player-runtime/calibration.cjs');
@@ -114,6 +115,20 @@ describe('calibration applyCalibrationToClip', () => {
     expect(ct.end).toBe(4.5);
   });
 
+  it('never clamps end below start when the duration is shorter than the PTS start', () => {
+    // Regression: a WebM whose duration Chrome has not resolved yet reports 0.
+    // Clamping to it produced end < start, which isValidClipEntry rejects and
+    // calibrateClipTimes then skips — the racer was dropped from the shared
+    // window for the life of the page: it started at the winner's start and
+    // kept rolling past its own clip end, even once the real duration arrived.
+    const ct = { start: 0, end: 2.794, _wcStart: 0, _wcEnd: 2.794 };
+    applyCalibrationToClip(ct, 0.595, 0);
+    expect(ct.start).toBeCloseTo(0.595, 9);
+    expect(ct.end).toBeCloseTo(0.595, 9);
+    expect(isValidClipEntry(ct)).toBe(true);
+    expect(ct.calibratedEnd).toBeCloseTo(3.389, 9); // the true end is still recorded
+  });
+
   it('matches the onMeta pipeline: PTS start derived from trace timestamps', () => {
     // recordingStartTs - firstFrameTs = 100ms => recording began 0.1s into the video
     const cal = { recordingStartTs: 1_100_000, firstFrameTs: 1_000_000 };
@@ -124,6 +139,27 @@ describe('calibration applyCalibrationToClip', () => {
     expect(ct.calibratedStart).toBeCloseTo(0.1, 9);
     expect(ct.start).toBeCloseTo(0.1, 9);
     expect(ct.end).toBeCloseTo(2.1, 9); // 0.1 + 2s wall-clock segment
+  });
+});
+
+describe('calibration durationHoldsClip', () => {
+  const ct = { _wcStart: 0, _wcEnd: 2.794 }; // 2.794s of recording
+
+  it('accepts a duration that covers the whole clip', () => {
+    expect(durationHoldsClip(ct, 0.595, 4.96)).toBe(true);
+    // A clip ending a frame past the last decoded frame is still a fit: the
+    // recording-end mark lands after it, and seeks clamp to the duration anyway.
+    expect(durationHoldsClip(ct, 0.595, 3.389 - 0.02)).toBe(true);
+  });
+
+  it('rejects a duration too short to hold the clip', () => {
+    expect(durationHoldsClip(ct, 0.595, 0)).toBe(false); // Chrome's unresolved WebM duration
+    expect(durationHoldsClip(ct, 0.595, 3.0)).toBe(false);
+  });
+
+  it('rejects a non-finite duration — that is the 1e10 scan case', () => {
+    expect(durationHoldsClip(ct, 0.595, Infinity)).toBe(false);
+    expect(durationHoldsClip(ct, 0.595, NaN)).toBe(false);
   });
 });
 
