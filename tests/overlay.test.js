@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
-const { flashCue, setOverlay, setClock, showFinishFlag, OverlayController, CUE_DURATION_MS, CUE_SIZE, CLOCK_TICK_MS } = require('../overlay.cjs');
+const { flashCue, setOverlay, setClock, OverlayController, CUE_DURATION_MS, CUE_SIZE, CLOCK_TICK_MS } = require('../overlay.cjs');
 
 // --- Minimal DOM stub for page.evaluate ---
 // The overlay functions pass a callback + args to page.evaluate().
@@ -140,16 +140,17 @@ describe('setOverlay', () => {
   });
 });
 
-// --- showFinishFlag tests ---
+// --- finish flag via setOverlay ---
 
-describe('showFinishFlag', () => {
-  it('shows the finish flag', async () => {
+describe('setOverlay finish flag', () => {
+  it('paints the corner and the centre flag in one page call', async () => {
     const { doc, elements } = createMockDOM();
     const page = createMockPage(doc);
 
-    await showFinishFlag(page);
+    await setOverlay(page, true, '🏁', true);
 
-    expect(elements['__race_medal']).toBeDefined();
+    expect(page.evaluate).toHaveBeenCalledOnce();
+    expect(elements['__race_or'].textContent).toBe('🏁');
     expect(elements['__race_medal'].textContent).toBe('🏁');
   });
 
@@ -157,12 +158,25 @@ describe('showFinishFlag', () => {
     const { doc, elements } = createMockDOM();
     const page = createMockPage(doc);
 
-    await showFinishFlag(page);
+    await setOverlay(page, true, '🏁', true);
     const first = elements['__race_medal'];
-    await showFinishFlag(page);
+    await setOverlay(page, true, '🏁', true);
 
     expect(elements['__race_medal']).not.toBe(first);
     expect(elements['__race_medal'].textContent).toBe('🏁');
+  });
+
+  it('leaves the flag alone by default and removes it on false', async () => {
+    const { doc, elements } = createMockDOM();
+    const page = createMockPage(doc);
+
+    await setOverlay(page, true, '🏁', true);
+    await setOverlay(page, false, '🏁');
+    expect(elements['__race_medal']).toBeDefined();
+
+    await setOverlay(page, true, null, false);
+    expect(elements['__race_medal']).toBeUndefined();
+    expect(elements['__race_or']).toBeUndefined();
   });
 });
 
@@ -517,9 +531,9 @@ describe('OverlayController', () => {
     await ctrl.onFinish();
     await ctrl.onStopRecording();
 
-    // start overlay, stopwatch, both flag paints, stop overlay — the measured
-    // finish itself paints nothing.
-    expect(page.evaluate).toHaveBeenCalledTimes(5);
+    // start overlay, stopwatch, one paint for corner and centre flag together,
+    // stop overlay — the measured finish itself paints nothing.
+    expect(page.evaluate).toHaveBeenCalledTimes(4);
   });
 
   it('dot stays true between onMeasureEnd and onStopRecording', async () => {
@@ -570,9 +584,12 @@ describe('OverlayController', () => {
     expect(page.evaluate).not.toHaveBeenCalled();
   });
 
-  it('onFinish shows the finish flag', async () => {
+  it('onFinish shows the finish flag once a measured finish armed it', async () => {
     const { ctrl, elements } = createCtrl();
 
+    await ctrl.onStartRecording();
+    await ctrl.onMeasureStart();
+    await ctrl.onMeasureEnd();
     await ctrl.onFinish();
 
     expect(elements['__race_medal']).toBeDefined();
@@ -690,10 +707,12 @@ describe('OverlayController', () => {
     const ctrl = new OverlayController(page, { wallClock: true, timeBase: 1000, now: () => clock });
 
     await ctrl.onStartRecording();
+    await ctrl.onMeasureStart();
+    await ctrl.onMeasureEnd();
     await ctrl.onFinish();
     await ctrl.onStopRecording();
 
-    // start overlay + clock + the flag's two paints (corner and centre).
+    // start overlay + clock + stopwatch + one paint for corner and centre flag.
     expect(ctrl.clockFrozenAt).toBe(3500 + 400 * 4);
     // Zeroed before that page work ran, so only the work itself is on the clock.
     expect(elements['__race_clock'].textContent).toBe('0:01.6');
@@ -755,16 +774,34 @@ describe('OverlayController', () => {
     expect(elements.__race_or.textContent).toBe('🏁');
   });
 
-  it('clears a flag shown at a recording stop with no measured finish when the next segment starts', async () => {
+  it('flies no flag for a segment recorded without a measured finish', async () => {
+    // A bare raceRecordingStart/End pair (b-roll) has no finish to mark, so the
+    // recording stop must not invent one.
     const { ctrl, elements } = createCtrl();
 
     await ctrl.onStartRecording();
-    await ctrl.onFinish(); // the runner's recording stop, nothing measured
+    const painted = await ctrl.onFinish(); // the runner's recording stop, nothing measured
+    await ctrl.onStopRecording();
+
+    expect(painted).toBe(false);
+    expect(elements.__race_medal).toBeUndefined();
+    expect(elements.__race_or).toBeUndefined();
+  });
+
+  it('takes a painted flag down with the next segment start, in one page call', async () => {
+    const { ctrl, page, elements } = createCtrl();
+
+    await ctrl.onStartRecording();
+    await ctrl.onMeasureStart();
+    await ctrl.onMeasureEnd();
+    expect(await ctrl.onFinish()).toBe(true);
     await ctrl.onStopRecording();
     expect(elements.__race_medal).toBeDefined();
+    const before = page.evaluate.mock.calls.length;
 
     await ctrl.onStartRecording();
 
+    expect(page.evaluate.mock.calls.length).toBe(before + 1);
     expect(elements.__race_medal).toBeUndefined();
     expect(elements.__race_or).toBeUndefined(); // and the corner is back to bare
   });

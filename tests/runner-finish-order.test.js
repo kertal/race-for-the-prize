@@ -22,11 +22,13 @@ function createFakePage() {
 }
 
 // Each overlay helper has its own argument shape, which is enough to tell the
-// page writes apart without reaching into the runner.
+// page writes apart without reaching into the runner. An overlay update that
+// carries the centre flag is the finish paint.
 function classify(arg) {
   if (typeof arg === 'string' && arg.startsWith('race:')) return { kind: 'mark', name: arg };
-  if (typeof arg === 'string' && arg.includes('top:50%')) return { kind: 'finish-flag' };
-  if (arg && typeof arg === 'object' && 'd' in arg) return { kind: 'overlay', right: arg.r, dot: arg.d };
+  if (arg && typeof arg === 'object' && 'd' in arg) {
+    return { kind: arg.f === true ? 'finish-flag' : 'overlay', right: arg.r, dot: arg.d };
+  }
   return { kind: 'other' };
 }
 
@@ -37,9 +39,15 @@ const SCRIPT = `
   await page.raceRecordingEnd();
 `;
 
-function run(page, { noOverlay = false, noRecording = false } = {}) {
+// A segment with nothing timed in it — b-roll — has no finish to fly a flag for.
+const UNMEASURED_SCRIPT = `
+  await page.raceRecordingStart();
+  await page.raceRecordingEnd();
+`;
+
+function run(page, { noOverlay = false, noRecording = false, script = SCRIPT } = {}) {
   return runMarkerMode(
-    page, {}, { id: 'alpha', script: SCRIPT, vars: {} },
+    page, {}, { id: 'alpha', script, vars: {} },
     null, false, null, Date.now(), noOverlay, null, noRecording, false, false
   );
 }
@@ -77,10 +85,25 @@ describe('runMarkerMode finish ordering', () => {
     await run(page);
 
     const mark = calls.findIndex(c => c.kind === 'mark' && c.name.endsWith('recording:end'));
-    const corner = calls.slice(0, mark).filter(c => c.kind === 'overlay').pop();
+    const corner = calls.slice(0, mark).filter(c => c.kind === 'overlay' || c.kind === 'finish-flag').pop();
     // A stopwatch corner over a centre flag reads as a bug, so both go up
-    // before the mark rather than the corner waiting for the recording stop.
+    // before the mark rather than the corner waiting for the recording stop —
+    // and in the same page call, so no frame can catch one without the other.
+    expect(corner.kind).toBe('finish-flag');
     expect(corner.right).toBe('\u{1F3C1}');
+  });
+
+  it('flies no flag and spends no beat for a segment without a measured finish', async () => {
+    const { page, calls } = createFakePage();
+
+    await run(page, { script: UNMEASURED_SCRIPT });
+
+    expect(calls.some(c => c.kind === 'finish-flag')).toBe(false);
+    const mark = calls.findIndex(c => c.kind === 'mark' && c.name.endsWith('recording:end'));
+    expect(mark).toBeGreaterThanOrEqual(0);
+    expect(calls.slice(0, mark).some(c => c.kind === 'wait')).toBe(false);
+    // The corner never claims a finish either.
+    expect(calls.filter(c => c.kind === 'overlay').every(c => c.right !== '\u{1F3C1}')).toBe(true);
   });
 
   it('spends no beat when overlays are off', async () => {

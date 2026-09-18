@@ -193,8 +193,9 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
         // flag painted after it lands outside the clip and is never seen. Never
         // at the mark's expense, though — the trim depends on it.
         if (!noOverlay && !noRecording) {
-          await overlayCtrl.onFinish().catch(() => {});
-          await page.waitForTimeout(FLAG_CAPTURE_MS);
+          // A segment with no measured finish flies no flag and spends no beat.
+          const painted = await overlayCtrl.onFinish().catch(() => false);
+          if (painted) await page.waitForTimeout(FLAG_CAPTURE_MS);
         }
         await markTrace(`${traceMarkPrefix}recording:end`);
       },

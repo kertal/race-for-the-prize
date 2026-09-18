@@ -41,14 +41,19 @@ async function flashCue(page, color, durationMs) {
 }
 
 /**
- * Set or remove overlay indicators in one evaluate call.
+ * Set or remove overlay indicators in one evaluate call: the recording dot,
+ * the corner emoji, and — when asked — the centered finish flag. One call
+ * means one browser task, so the screencast never catches the corner and the
+ * centre disagreeing about whether the racer has finished.
  *
  * @param {Page} page - Playwright page
  * @param {boolean} dot - Show recording dot (left)
  * @param {string|null} right - Right indicator emoji (e.g. stopwatch/flag) or null to hide
+ * @param {boolean|null} [flag] - true paints the centered finish flag (replacing
+ *   any existing one), false removes it, null leaves it as it is
  */
-async function setOverlay(page, dot, right) {
-  await page.evaluate(({ d, r }) => {
+async function setOverlay(page, dot, right, flag = null) {
+  await page.evaluate(({ d, r, f }) => {
     let el = document.getElementById('__race_ol');
     if (d) {
       if (!el) {
@@ -72,7 +77,21 @@ async function setOverlay(page, dot, right) {
     } else if (el) {
       el.remove();
     }
-  }, { d: dot, r: right });
+    if (f === null) return;
+    // Placement is not known in the page — the player works it out from the
+    // final measurements — so the recording only ever marks the moment a
+    // racer finished.
+    const existing = document.getElementById('__race_medal');
+    if (existing) existing.remove();
+    if (!f) return;
+    el = document.createElement('div');
+    el.id = '__race_medal';
+    el.textContent = '\u{1F3C1}';
+    el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483647;'
+      + 'pointer-events:none;background:rgba(0,0,0,0.6);color:#fff;padding:24px 48px;border-radius:16px;'
+      + 'font:bold 80px/1 system-ui,sans-serif';
+    document.body.appendChild(el);
+  }, { d: dot, r: right, f: flag });
 }
 
 /**
@@ -130,27 +149,6 @@ async function setClock(page, startEpochMs, frozenAtEpochMs = null) {
 }
 
 /**
- * Show the centered finish flag. Placement is not known in the page — the
- * player works it out from the final measurements — so the recording only
- * ever marks the moment a racer finished.
- *
- * @param {Page} page - Playwright page
- */
-async function showFinishFlag(page) {
-  const style = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483647;'
-    + 'pointer-events:none;background:rgba(0,0,0,0.6);color:#fff;padding:24px 48px;border-radius:16px;';
-  await page.evaluate((style) => {
-    const existing = document.getElementById('__race_medal');
-    if (existing) existing.remove();
-    const el = document.createElement('div');
-    el.id = '__race_medal';
-    el.textContent = '\u{1F3C1}';
-    el.style.cssText = style + 'font:bold 80px/1 system-ui,sans-serif';
-    document.body.appendChild(el);
-  }, style);
-}
-
-/**
  * Stateful overlay controller — manages recording dot, stopwatch/flag,
  * and re-injection after navigations. Keeps all overlay state and DOM
  * interaction out of runner.cjs.
@@ -176,16 +174,14 @@ class OverlayController {
 
     if (!this._disabled) {
       page.on('load', () => {
-        if (this.dot || this.right) {
-          setOverlay(page, this.dot, this.right).catch(() => {});
+        // A navigation wipes the overlay elements — put them back in one go,
+        // the finish flag included, so corner and centre reappear together.
+        if (this.dot || this.right || this.finishShown) {
+          setOverlay(page, this.dot, this.right, this.finishShown ? true : null).catch(() => {});
         }
-        // A navigation wipes the clock element and its timer — put them back.
+        // So does the clock element and its timer.
         if (this.clockRunning || this.clockFrozenAt !== null) {
           setClock(page, this._clockStart, this.clockFrozenAt).catch(() => {});
-        }
-        // So does the finish flag, which lives in its own element.
-        if (this.finishShown) {
-          showFinishFlag(page).catch(() => {});
         }
       });
     }
@@ -198,7 +194,7 @@ class OverlayController {
    */
   async onStartRecording(startEpochMs = this._now()) {
     if (this._disabled) return;
-    await this._clearFinish();
+    const dropFlag = this._clearFinish();
     // Zero the clock on the moment recording starts, before any awaited page
     // work can push it later. This is the moment the player aligns every
     // racer's video on, so a clock counting from anything else reads a
@@ -208,7 +204,7 @@ class OverlayController {
     // raceRecordingStart() all land in that gap.
     if (this._wallClock) this._clockStart = startEpochMs;
     this.dot = true;
-    await setOverlay(this._page, true, this.right);
+    await setOverlay(this._page, true, this.right, dropFlag ? false : null);
     if (this._wallClock) {
       this.clockRunning = true;
       this.clockFrozenAt = null;
@@ -218,9 +214,9 @@ class OverlayController {
 
   async onMeasureStart() {
     if (this._disabled) return;
-    await this._clearFinish();
+    const dropFlag = this._clearFinish();
     this.right = '\u23F1\uFE0F';
-    await setOverlay(this._page, this.dot, this.right);
+    await setOverlay(this._page, this.dot, this.right, dropFlag ? false : null);
   }
 
   /**
@@ -239,15 +235,18 @@ class OverlayController {
     this.right = '\u{1F3C1}';
   }
 
-  async _clearFinish() {
+  /**
+   * Disarms the flag. Returns whether a painted flag has to come down, so the
+   * caller can fold that into its own overlay update instead of paying a
+   * separate page round trip.
+   */
+  _clearFinish() {
     // `right` is armed at every measured finish; the element exists only if a
     // flag was painted.
     if (this.right === '\u{1F3C1}') this.right = null;
-    if (!this.finishShown) return;
+    if (!this.finishShown) return false;
     this.finishShown = false;
-    await this._page.evaluate(() => {
-      document.getElementById('__race_medal')?.remove();
-    });
+    return true;
   }
 
   /**
@@ -283,19 +282,20 @@ class OverlayController {
   }
 
   /**
-   * Raises the flag at the recording stop — the one moment a racer is done.
-   * Corner and centre flip in the same frame: the recording stop that follows
-   * is a beat later, and a stopwatch beside a finish flag reads as a bug.
-   * Placement stays out of the video; the player badges it from the results.
+   * Raises the flag at the recording stop — the one moment a racer is done —
+   * but only if a measured finish armed it: a segment recorded without a
+   * measurement (b-roll, a bare raceRecordingStart/End pair) has no finish to
+   * fly. Corner and centre flip in the same page update, so the screencast
+   * never catches a stopwatch beside a finish flag. Placement stays out of the
+   * video; the player badges it from the results.
+   *
+   * @returns {Promise<boolean>} whether a flag was painted
    */
   async onFinish() {
-    if (this._disabled) return;
+    if (this._disabled || this.right !== '\u{1F3C1}') return false;
     this.finishShown = true;
-    this.right = '\u{1F3C1}';
-    await Promise.all([
-      setOverlay(this._page, this.dot, this.right),
-      showFinishFlag(this._page),
-    ]);
+    await setOverlay(this._page, this.dot, this.right, true);
+    return true;
   }
 }
 
@@ -303,7 +303,6 @@ module.exports = {
   flashCue,
   setOverlay,
   setClock,
-  showFinishFlag,
   OverlayController,
   CUE_DURATION_MS,
   CUE_SIZE,
