@@ -150,6 +150,55 @@ describe('page.race* API (race-api.cjs)', () => {
       expect(api.segments).toHaveLength(2);
     });
 
+    it('reports a later segment without a measurement as finishing at its own end', async () => {
+      // Regression: the finish time came from the last entry of the global
+      // measurements list, so a second segment with no raceStart/raceEnd of
+      // its own inherited the first segment's finish — an instant before the
+      // second segment even began.
+      let t = 0;
+      const finishes = [];
+      const { page } = createTestApi({
+        recordingStartTime: 0,
+        now: () => t,
+        hooks: { onRecordingStop: async ({ endTime }) => { finishes.push(endTime); } },
+      });
+
+      await page.raceRecordingStart();
+      await page.raceStart('Load');
+      t = 2000;
+      page.raceEnd('Load');
+      t = 3000;
+      await page.raceRecordingEnd();
+
+      t = 10_000;
+      await page.raceRecordingStart();
+      t = 14_000;
+      await page.raceRecordingEnd();
+
+      expect(finishes).toEqual([2, 14]);
+    });
+
+    it('uses the segment end as the fallback finish, not a later instant', async () => {
+      // The end trace mark is a page round-trip; the finish must not drift past it.
+      let t = 0;
+      const finishes = [];
+      const { api, page } = createTestApi({
+        recordingStartTime: 0,
+        now: () => t,
+        hooks: {
+          markRecordingEnd: async () => { t += 500; },
+          onRecordingStop: async ({ endTime }) => { finishes.push(endTime); },
+        },
+      });
+
+      await page.raceRecordingStart();
+      t = 3000;
+      await page.raceRecordingEnd();
+
+      expect(api.segments[0].end).toBe(3);
+      expect(finishes).toEqual([3]);
+    });
+
     it('ignores a duplicate recording start while a segment is open', async () => {
       const { api, page } = createTestApi();
 
@@ -282,7 +331,7 @@ describe('page.race* API (race-api.cjs)', () => {
       expect(ends).toEqual([['inner', 1], ['outer', 0]]);
     });
 
-    it('passes the last measurement end time to onRecordingStop', async () => {
+    it('passes both the last measurement end and the segment close to onRecordingStop', async () => {
       let stopInfo = null;
       const now = vi.fn().mockReturnValue(1000);
       const { api, page } = createTestApi({
@@ -297,8 +346,9 @@ describe('page.race* API (race-api.cjs)', () => {
       now.mockReturnValue(9000);
       await api.finalize();
 
-      // Finish time is the measurement's end (3s), not the segment close (8s)
-      expect(stopInfo).toEqual({ endTime: 3 });
+      // The finish is the measurement's end (3s); the recording ran on to 8s.
+      // The medal and the placement use the first, the wall clock the second.
+      expect(stopInfo).toEqual({ endTime: 3, segmentEnd: 8 });
     });
   });
 

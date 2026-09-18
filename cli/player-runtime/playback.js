@@ -47,10 +47,14 @@ function loadVideoSet(srcSet, applySrc, seekCallback) {
   pendingSeek = seekCallback;
 }
 
-// Set the active segment and its resolved clip times.
+// Set the active segment and its resolved clip times. The calibration panel
+// reads its rows off the active window, so it has to be repainted here — it
+// used to keep showing the previous segment's starts until the next nudge.
 function setActiveSegment(name, clip) {
   activeSegmentName = name;
   activeSegmentClipTimes = clip;
+  updateDebugDisplay();
+  updateDebugStats();
 }
 
 // Queue a seek to run once metadata/calibration is ready.
@@ -78,9 +82,37 @@ let activeSegmentClipTimes = null;
 let activeSegmentName = null;
 let segmentNavBuilt = false;
 const hiddenRacers = new Set();
-const STEP = 0.1;
 let loadedSrcSet = 'race';
 let pendingSeek = null;
+const pendingSeekVerifications = new Map();
+
+function cancelSeekVerifications() {
+  for (const cancel of pendingSeekVerifications.values()) cancel();
+  pendingSeekVerifications.clear();
+}
+
+// seekAllWithVerify (main.js) registers one cancel per video it is still
+// verifying; any later seek, play, export or listener detach calls them all.
+function trackSeekVerification(video, cancel) {
+  pendingSeekVerifications.set(video, cancel);
+}
+
+// hiddenRacers indexes raceVideos. In merged mode `videos` is [mergedVideo],
+// which must not inherit racer 0's hidden state.
+function isHiddenRacer(i) {
+  return videos === raceVideos && hiddenRacers.has(i);
+}
+
+// The transport steps by exactly one frame — FRAME_STEP, the same unit the
+// calibration buttons nudge by and the frame badges count in. It is declared in
+// calibration.cjs, concatenated after this file, so it is only ever read from
+// inside a handler that runs once the whole runtime has been evaluated.
+//
+// stepFrame reads its position back off the scrubber (racers can be offset from
+// each other, so no single video holds the shared elapsed time). The scrubber
+// therefore carries `step="any"`: over its 1000 units one unit is 40ms once the
+// window passes 40s — coarser than a frame — and integer rounding would make
+// single-frame steps stall or jump two.
 
 // --- Formatting helpers ---
 
@@ -110,12 +142,59 @@ function updateTimeDisplay() {
   const t = d > 0 ? (scrubber.value / 1000) * d : 0;
   timeDisplay.textContent = fmt(Math.max(0, t)) + ' / ' + fmt(d);
   frameDisplay.textContent = getTime(Math.max(0, t));
+  updateFinishDisplays();
 }
 
 // --- Debug mode: per-racer clip start calibration ---
 
-const FRAME_STEP = 0.04;
-const debugOffsets = raceVideos.map(() => 0);
+// Calibration offsets survive a reload, keyed on the race id stamped into
+// #race-config at build time. That id is unique to one race run, so a second
+// race — or a re-run of the same one, whose recordings start elsewhere — can
+// never overwrite this page's calibration. Without an id (an older page, or a
+// config that failed to parse) nothing is stored rather than risking a
+// cross-race clash on a shared key.
+//
+// An exported page already carries its calibration inside clipTimes and ships
+// without the calibration panel, so it neither restores nor stores anything:
+// it shares the source page's race id, and reading that key would apply the
+// same offsets a second time.
+const CALIBRATION_KEY_PREFIX = 'race-calibration:';
+
+function calibrationStorageKey() {
+  if (!raceId || calibrationBaked) return null;
+  return CALIBRATION_KEY_PREFIX + raceId;
+}
+
+function zeroOffsets() {
+  return raceVideos.map(() => 0);
+}
+
+function loadDebugOffsets() {
+  const key = calibrationStorageKey();
+  if (!key) return zeroOffsets();
+  try {
+    const stored = JSON.parse(localStorage.getItem(key));
+    // Only take a value shaped for this page: a stale entry from a race with a
+    // different racer count must not half-apply.
+    if (Array.isArray(stored) && stored.length === raceVideos.length && stored.every(Number.isFinite)) {
+      return stored;
+    }
+  } catch (e) { /* storage unavailable (privacy mode / sandboxed) or corrupt */ }
+  return zeroOffsets();
+}
+
+const debugOffsets = loadDebugOffsets();
+
+// Persist the current offsets; an all-zero calibration drops the entry instead
+// of storing a no-op.
+function saveDebugOffsets() {
+  const key = calibrationStorageKey();
+  if (!key) return;
+  try {
+    if (debugOffsets.some(o => o !== 0)) localStorage.setItem(key, JSON.stringify(debugOffsets));
+    else localStorage.removeItem(key);
+  } catch (e) { /* storage unavailable */ }
+}
 
 function getAdjustedClipTimes() {
   const base = activeSegmentClipTimes || clipTimes;
@@ -141,6 +220,7 @@ function resolveAdjustedClip() {
 }
 
 function seekAll(t) {
+  cancelSeekVerifications();
   const adj = getAdjustedClipTimes();
   const ct = adj || clipTimes;
   videos.forEach((v, i) => {
@@ -167,33 +247,76 @@ function seekAll(t) {
 // sources (e.g. race clip → full recording) re-triggers the scan if needed.
 const _durationForced = new WeakMap();
 
+// Trigger the 1e10 scan for this video unless it already ran for this src.
+// Returns true if the scan was started (the caller must then wait).
+function forceDurationScan(v) {
+  const srcKey = v.currentSrc || v.src || '';
+  if (_durationForced.get(v) === srcKey) return false;
+  _durationForced.set(v, srcKey);
+  v.addEventListener('durationchange', onMeta, { once: true });
+  v.currentTime = 1e10; // seek past end → Chrome scans file → durationchange fires
+  return true;
+}
+
 // Ensure every video has a finite duration, triggering the 1e10 scan when
 // needed. Returns true once all videos report finite durations.
 function ensureFiniteDurations() {
   for (const v of videos) {
     if (!v || v.readyState < 1) continue; // readyState 1 = HAVE_METADATA
     if (!Number.isFinite(v.duration)) {
-      const srcKey = v.currentSrc || v.src || '';
-      if (_durationForced.get(v) !== srcKey) {
-        _durationForced.set(v, srcKey);
-        v.addEventListener('durationchange', onMeta, { once: true });
-        v.currentTime = 1e10; // seek past end → Chrome scans file → durationchange fires
-      }
+      forceDurationScan(v);
       return false; // always wait — do not proceed until durationchange fires
     }
   }
   return true;
 }
 
+// How long to keep waiting for a duration that can still hold the clip before
+// accepting the one on offer.
+const DURATION_SETTLE_MS = 2000;
+// video → { srcKey, at }: when we first found this src's duration too short.
+const _durationWait = new WeakMap();
+
+// A finite duration is not necessarily the final one: Chrome reports a WebM's
+// duration as it parses clusters, so a video whose metadata has just landed can
+// report 0 (or any partial value) before settling on the real length. Calibrate
+// against that and the clip is clamped to an end before its own start — which
+// isValidClipEntry rejects and calibrateClipTimes then skips, so it is never
+// repaired. A duration too short to hold the clip is therefore treated as
+// unsettled: run the same scan the Infinity case uses and retry on
+// durationchange. The wait is capped so a genuinely truncated recording (real
+// duration really is shorter than the trace segment) still calibrates.
+function durationSettled(clipEntry, ptsStart, video) {
+  if (durationHoldsClip(clipEntry, ptsStart, video.duration)) return true;
+  const srcKey = video.currentSrc || video.src || '';
+  const wait = _durationWait.get(video);
+  if (!wait || wait.srcKey !== srcKey) {
+    _durationWait.set(video, { srcKey, at: Date.now() });
+    video.addEventListener('durationchange', onMeta, { once: true });
+    forceDurationScan(video);
+    // Backstop: durationchange may never come for a video that is already at
+    // its final (short) length, so wake the pipeline once regardless.
+    setTimeout(onMeta, DURATION_SETTLE_MS + 50);
+    return false;
+  }
+  if (Date.now() - wait.at < DURATION_SETTLE_MS) {
+    video.addEventListener('durationchange', onMeta, { once: true });
+    return false;
+  }
+  return true; // waited long enough — this recording really is shorter than its clip
+}
+
 // Convert a single clip entry using trace calibration. Returns true if the
-// entry transitioned to converted during this call.
+// entry's status: 'converted' when it transitioned during this call,
+// 'pending' while it waits for its video's duration to settle, else
+// 'unchanged'.
 function convertClipEntry(clipEntry, video) {
-  if (clipEntry._converted) return false;
+  if (clipEntry._converted) return 'unchanged';
   if (clipEntry._wcStart == null) { clipEntry._wcStart = clipEntry.start; clipEntry._wcEnd = clipEntry.end; }
   if (!canApplyTraceCalibration(clipEntry)) {
     // No trace calibration metadata — use raw clip times as-is (e.g. URL mode races)
     clipEntry._converted = true;
-    return true;
+    return 'converted';
   }
   // recordingStartTs − firstFrameTs gives the PTS offset (µs) where recording
   // started relative to the first captured frame; divide to get seconds.
@@ -201,21 +324,26 @@ function convertClipEntry(clipEntry, video) {
   if (!Number.isFinite(tracePtsStart) || tracePtsStart < 0) {
     // Invalid trace timestamps — use raw clip times as-is
     clipEntry._converted = true;
-    return true;
+    return 'converted';
   }
+  if (!durationSettled(clipEntry, tracePtsStart, video)) return 'pending';
   applyCalibrationToClip(clipEntry, tracePtsStart, video.duration);
-  return !!clipEntry._converted;
+  return 'converted';
 }
 
-// Calibrate all clip entries; returns true if any entry was converted.
+// Calibrate all clip entries. Reports whether any entry was converted, and
+// whether any is still pending — waiting on its duration, with a retry already
+// scheduled through onMeta.
 function calibrateClipTimes() {
-  if (!clipTimes) return false;
   let convertedAny = false;
-  for (let i = 0; i < clipTimes.length; i++) {
+  let pending = false;
+  for (let i = 0; clipTimes && i < clipTimes.length; i++) {
     if (!isValidClipEntry(clipTimes[i]) || !videos[i] || (videos[i].readyState < 1)) continue;
-    if (convertClipEntry(clipTimes[i], videos[i])) convertedAny = true;
+    const status = convertClipEntry(clipTimes[i], videos[i]);
+    if (status === 'converted') convertedAny = true;
+    if (status === 'pending') pending = true;
   }
-  return convertedAny;
+  return { convertedAny, pending };
 }
 
 // After calibration converts clip entries, seek to the calibrated start and
@@ -249,7 +377,12 @@ function onMeta() {
   if (!ensureFiniteDurations()) return;
 
   duration = Math.max(...videos.filter(Boolean).map(v => v.duration || 0));
-  const convertedAny = calibrateClipTimes();
+  const { convertedAny, pending } = calibrateClipTimes();
+  // A clip still waiting on its duration has raw coordinates while the others
+  // are calibrated; resolving the window or consuming the pending seek now
+  // would seek that racer to the wrong frame. durationSettled has already
+  // scheduled the retry, so wait for it.
+  if (pending) return;
   // Recompute segment clip times after calibration (they depend on traceTsToClipPts
   // which uses the now-calibrated traceCalibration data on clipTimes entries).
   // Skip for __all__ (uses base clipTimes) and __full__ (intentionally null).
@@ -257,6 +390,7 @@ function onMeta() {
     activeSegmentClipTimes = getSegmentClipTimes(activeSegmentName);
   }
   activeClip = resolveAdjustedClip();
+  revealCalibrationToggle();
   buildSegmentNav();
   updateTimeDisplay();
   updateDebugStats();
@@ -280,7 +414,7 @@ function maxClipElapsed(ct) {
   let elapsed = 0;
   for (let i = 0; i < videos.length; i++) {
     const v = videos[i];
-    if (!v) continue;
+    if (!v || isHiddenRacer(i)) continue;
     const vidClip = activeClip && ct && isValidClipEntry(ct[i]) ? ct[i] : null;
     const e = videoClipElapsed(v, vidClip);
     if (e > elapsed) elapsed = e;
@@ -288,13 +422,24 @@ function maxClipElapsed(ct) {
   return elapsed;
 }
 
+function allClipsFinished(ct) {
+  return videos.every((v, i) => {
+    // Hidden racers and racers with no clip in this window are not on the
+    // track — the same entries resolveClipWindow leaves out of activeClip.
+    if (!v || isHiddenRacer(i)) return true;
+    const clip = ct?.[i];
+    if (!isValidClipEntry(clip)) return true;
+    if (v.seeking) return false;
+    return v.ended || v.currentTime >= Math.min(clip.end, v.duration || clip.end);
+  });
+}
+
 function onTimeUpdate() {
   const adj = getAdjustedClipTimes();
   const ct = adj || clipTimes;
   const elapsed = maxClipElapsed(ct);
-  if (activeClip && elapsed >= clipDuration()) {
+  if (activeClip && allClipsFinished(ct)) {
     videos.forEach(v => v?.pause());
-    seekAll(activeClip.end);
     playing = false;
     setPlayState(false);
     scrubber.value = 1000;
@@ -319,6 +464,7 @@ function onEnded() {
 // --- Listener management ---
 
 function detachVideoListeners() {
+  cancelSeekVerifications();
   raceVideos.forEach(v => {
     if (v) {
       v.removeEventListener('loadedmetadata', onMeta);
@@ -416,8 +562,7 @@ function switchMode(targetSrcSet, targetVideos, modeBtn, opts) {
 }
 
 function hideCalibration() {
-  if (debugPanel) debugPanel.style.display = 'none';
-  if (modeDebug) modeDebug.classList.remove('active');
+  setCalibrationVisible(false);
 }
 
 function resetSegmentState({ hide = false } = {}) {
@@ -489,14 +634,7 @@ function switchToMerged() {
 
 function toggleCalibration() {
   if (!debugPanel) return;
-  const visible = debugPanel.style.display === 'block';
-  debugPanel.style.display = visible ? 'none' : 'block';
-  modeDebug?.classList.toggle('active', !visible);
-  if (!visible) {
-    updateDebugDisplay();
-    updateDebugStats();
-    updateFramePositions();
-  }
+  setCalibrationVisible(debugPanel.style.display !== 'block');
 }
 
 // --- Mode button bindings ---
@@ -515,11 +653,12 @@ if (mergedVideo) mergedVideo.addEventListener('loadedmetadata', () => {
 // --- Playback controls ---
 
 playBtn.addEventListener('click', () => {
+  cancelSeekVerifications();
   if (playing) {
     videos.forEach(v => v?.pause());
     setPlayState(false);
   } else {
-    if (activeClip && Number(scrubber.value) >= 999) {
+    if (activeClip && allClipsFinished(getAdjustedClipTimes() || clipTimes)) {
       seekAll(activeClip.start);
       scrubber.value = 0;
     }
@@ -536,9 +675,22 @@ scrubber.addEventListener('input', () => {
   updateTimeDisplay();
 });
 
+// A native <select> keeps focus after a pick, and the shortcuts below stand
+// aside for a focused select (its own arrow keys move through the options) — so
+// choosing a speed silently killed frame stepping until something else took
+// focus. That bites hardest in fullscreen, where the controls fade out and
+// nothing shows what holds focus. Release focus after a pointer-driven pick;
+// a keyboard user is still walking the options with those same arrows, so leave
+// their focus where it is.
+let speedPickedByPointer = false;
+speedSelect.addEventListener('pointerdown', () => { speedPickedByPointer = true; });
+speedSelect.addEventListener('keydown', () => { speedPickedByPointer = false; });
+speedSelect.addEventListener('blur', () => { speedPickedByPointer = false; });
+
 speedSelect.addEventListener('change', () => {
   const rate = Number.parseFloat(speedSelect.value);
   videos.forEach(v => { if (v) v.playbackRate = rate; });
+  if (speedPickedByPointer) speedSelect.blur();
 });
 
 function stepFrame(delta) {
@@ -547,15 +699,15 @@ function stepFrame(delta) {
   const maxT = activeClip ? activeClip.end : duration;
   const d = clipDuration();
   const cur = d > 0 ? minT + (scrubber.value / 1000) * d : (primary.currentTime || 0);
-  const t = Math.max(minT, Math.min(maxT, cur + delta));
+  const t = stepFrameTime(cur, delta, minT, maxT);
   seekAll(t);
   const newElapsed = t - minT;
   scrubber.value = d > 0 ? (newElapsed / d) * 1000 : 0;
   updateTimeDisplay();
 }
 
-document.getElementById('prevFrame').addEventListener('click', () => stepFrame(-STEP));
-document.getElementById('nextFrame').addEventListener('click', () => stepFrame(STEP));
+document.getElementById('prevFrame').addEventListener('click', () => stepFrame(-FRAME_STEP));
+document.getElementById('nextFrame').addEventListener('click', () => stepFrame(FRAME_STEP));
 
 function goToStart() {
   pausePlayback();
@@ -576,8 +728,8 @@ document.getElementById('goEnd').addEventListener('click', goToEnd);
 
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
-  if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-STEP); }
-  else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(STEP); }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-FRAME_STEP); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(FRAME_STEP); }
   else if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
   else if (e.key === 'Home') { e.preventDefault(); goToStart(); }
   else if (e.key === 'End') { e.preventDefault(); goToEnd(); }

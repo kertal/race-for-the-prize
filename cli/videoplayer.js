@@ -15,6 +15,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { getPlacementOrder } from './summary.js';
 import { loadTemplates, escHtml, render } from './html-templates.js';
@@ -60,8 +61,11 @@ const RUNTIME_FILES = [
   'calibration.cjs',   // pure clip-calibration math (Node-testable)
   'debug-panel.js',    // calibration/debug panel UI
   'segments.js',       // segment navigation + racer filter UI
+  'finish-results.cjs', // final per-section placements, independent of recording order
+  'finish-display.js', // show each placement at that racer's own finish
   'main.js',           // startup: initial verified seek + metadata pass
   'export-layout.cjs', // pure side-by-side export layout math (Node-testable)
+  'export-progress.cjs', // pure export-conversion progress math (Node-testable)
   'export-video.js',   // canvas side-by-side export + ffmpeg.wasm conversion
   'fullscreen.js',     // fullscreen mode
   'zip.cjs',           // pure CRC32/ZIP builder (Node-testable)
@@ -95,6 +99,16 @@ function buildPlayerScript() {
 // Escapes '<' so a value can't break out of the </script> context.
 function serializeRaceConfig(config) {
   return JSON.stringify(config).replaceAll('<', String.raw`\u003c`);
+}
+
+// Stable identity for one race run, stamped into #race-config. The browser
+// runtime keys its saved calibration offsets on it, so two races — or two runs
+// of the same race — can never overwrite each other's saved calibration. The
+// seed is what makes a run unique: who raced, where the results landed, when,
+// and which recordings the page plays.
+function computeRaceId(summary, videoFiles) {
+  const seed = JSON.stringify([summary.racers, summary.resultsDir || '', summary.timestamp || '', videoFiles || []]);
+  return createHash('sha1').update(seed).digest('hex').slice(0, 16);
 }
 
 function playerMaxWidth(count) {
@@ -136,11 +150,17 @@ function buildVideoPlayer(summary, videoFiles, opts) {
 
   const videoIds = placementOrder.map((_, i) => `v${i}`);
   const raceConfigJson = serializeRaceConfig({
+    raceId: computeRaceId(summary, videoFiles),
     videoCount: videoIds.length,
     raceVideoPaths: placementOrder.map(i => videoFiles[i]),
     fullVideoPaths: fullVideoFiles ? placementOrder.map(i => fullVideoFiles[i]) : null,
     clipTimes: clipTimes ? placementOrder.map(i => clipTimes[i] || null) : null,
     racerNames: placementOrder.map(i => racers[i]),
+    finishResults: (summary.comparisons || []).map(c => ({
+      name: c.name,
+      isSyntheticTotal: !!c.isSyntheticTotal,
+      durations: placementOrder.map(i => c.racers?.[i]?.duration ?? null),
+    })),
     racerColors: placementOrder.map(i => RACER_CSS_COLORS[i % RACER_CSS_COLORS.length]),
     ffmpegDir,
   });

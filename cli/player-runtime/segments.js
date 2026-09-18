@@ -90,7 +90,6 @@ function buildSegmentNav() {
   segmentNav.addEventListener('change', () => onSegmentChange(segmentNav.value));
 
   segmentNav.style.display = 'inline-block';
-  if (modeDebug) modeDebug.style.display = '';
 }
 
 function buildRacerFilter() {

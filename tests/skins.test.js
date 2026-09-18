@@ -232,11 +232,16 @@ describe('design tokens', () => {
   );
 
   it('resolves every token the component layers reference', () => {
-    const declared = new Set([...rootBlock.matchAll(/^\s*(--[a-z0-9-]+):/gm)].map(m => m[1]));
+    // A token resolves if :root declares it, or if the component layer declares
+    // it locally on the element it applies to (e.g. --racer-label-height on
+    // .racer, a derived length no skin should be overriding).
+    const declared = new Set(
+      [...(rootBlock + componentCss + matrixCss).matchAll(/^\s*(--[a-z0-9-]+):/gm)].map(m => m[1])
+    );
     const referenced = new Set(
       [...(componentCss + matrixCss).matchAll(/var\(\s*(--[a-z0-9-]+)/g)].map(m => m[1])
     );
-    // --racer-color is set inline per element, never declared at :root.
+    // Set inline per element from JS, so they appear in no stylesheet.
     referenced.delete('--racer-color');
     referenced.delete('--fs-cols');
     const missing = [...referenced].filter(token => !declared.has(token));
