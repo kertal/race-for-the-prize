@@ -29,7 +29,7 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 - `runner-throttling.cjs` — network presets and CPU throttling via CDP.
 - `runner-layout.cjs` — pure window-geometry math for 2–5 parallel browser windows.
 - `sync-barrier.cjs` — synchronization barrier for parallel mode, with a timeout so a hung racer can't deadlock the run.
-- `overlay.cjs` — in-page status overlays, medals, the opt-in wall clock, and the opt-in cue flashes.
+- `overlay.cjs` — in-page status overlays, the finish flag, the opt-in wall clock, and the opt-in cue flashes.
 - `trace-calibration.cjs` — pure transform from Playwright trace JSON to recording segments, measurements, and video calibration data.
 - `visual-stability.cjs` — `raceWaitForVisualStability` polling logic (dependency-injected, Playwright-free).
 
@@ -45,7 +45,7 @@ node race.js ./races/lauda-vs-hunt                # Run a race
 - `videoplayer.js` — assembles the HTML player from `player.html`/`player.css`/`player-runtime/`
 - `html-templates.js` — shared markup plumbing: `escHtml`, `{{placeholder}}` `render`, and `loadTemplates()`, which splits a `.html` file into its page shell and its `<template id="build-*">` fragments
 - `player-sections.js` — build-time HTML section builders (results table, comparisons, profile tables)
-- `player-runtime/` — browser-side player runtime split into concern-scoped files (playback, calibration, debug panel, export, ZIP) concatenated by `videoplayer.js` into one IIFE; the pure `.cjs` cores (calibration, export layout, export progress, ZIP/CRC32) are also requirable from Node for tests
+- `player-runtime/` — browser-side player runtime split into concern-scoped files (playback, calibration, debug panel, finish results, export, ZIP) concatenated by `videoplayer.js` into one IIFE; the pure `.cjs` cores (calibration, finish results, export layout, export progress, ZIP/CRC32) are also requirable from Node for tests
 - `skins.js` — resolves `--skin` (built-in name or `.css` path) to inlinable CSS; built-in skins live in `skins/`
 - `gemini-summary.js` — optional Gemini CLI integration (post-race commentary, spec generation)
 - `colors.js` — ANSI color codes (media constants re-exported for compatibility; import them from `media-config.js`)

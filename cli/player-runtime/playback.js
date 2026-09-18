@@ -142,6 +142,7 @@ function updateTimeDisplay() {
   const t = d > 0 ? (scrubber.value / 1000) * d : 0;
   timeDisplay.textContent = fmt(Math.max(0, t)) + ' / ' + fmt(d);
   frameDisplay.textContent = getTime(Math.max(0, t));
+  updateFinishDisplays();
 }
 
 // --- Debug mode: per-racer clip start calibration ---
@@ -246,33 +247,76 @@ function seekAll(t) {
 // sources (e.g. race clip → full recording) re-triggers the scan if needed.
 const _durationForced = new WeakMap();
 
+// Trigger the 1e10 scan for this video unless it already ran for this src.
+// Returns true if the scan was started (the caller must then wait).
+function forceDurationScan(v) {
+  const srcKey = v.currentSrc || v.src || '';
+  if (_durationForced.get(v) === srcKey) return false;
+  _durationForced.set(v, srcKey);
+  v.addEventListener('durationchange', onMeta, { once: true });
+  v.currentTime = 1e10; // seek past end → Chrome scans file → durationchange fires
+  return true;
+}
+
 // Ensure every video has a finite duration, triggering the 1e10 scan when
 // needed. Returns true once all videos report finite durations.
 function ensureFiniteDurations() {
   for (const v of videos) {
     if (!v || v.readyState < 1) continue; // readyState 1 = HAVE_METADATA
     if (!Number.isFinite(v.duration)) {
-      const srcKey = v.currentSrc || v.src || '';
-      if (_durationForced.get(v) !== srcKey) {
-        _durationForced.set(v, srcKey);
-        v.addEventListener('durationchange', onMeta, { once: true });
-        v.currentTime = 1e10; // seek past end → Chrome scans file → durationchange fires
-      }
+      forceDurationScan(v);
       return false; // always wait — do not proceed until durationchange fires
     }
   }
   return true;
 }
 
+// How long to keep waiting for a duration that can still hold the clip before
+// accepting the one on offer.
+const DURATION_SETTLE_MS = 2000;
+// video → { srcKey, at }: when we first found this src's duration too short.
+const _durationWait = new WeakMap();
+
+// A finite duration is not necessarily the final one: Chrome reports a WebM's
+// duration as it parses clusters, so a video whose metadata has just landed can
+// report 0 (or any partial value) before settling on the real length. Calibrate
+// against that and the clip is clamped to an end before its own start — which
+// isValidClipEntry rejects and calibrateClipTimes then skips, so it is never
+// repaired. A duration too short to hold the clip is therefore treated as
+// unsettled: run the same scan the Infinity case uses and retry on
+// durationchange. The wait is capped so a genuinely truncated recording (real
+// duration really is shorter than the trace segment) still calibrates.
+function durationSettled(clipEntry, ptsStart, video) {
+  if (durationHoldsClip(clipEntry, ptsStart, video.duration)) return true;
+  const srcKey = video.currentSrc || video.src || '';
+  const wait = _durationWait.get(video);
+  if (!wait || wait.srcKey !== srcKey) {
+    _durationWait.set(video, { srcKey, at: Date.now() });
+    video.addEventListener('durationchange', onMeta, { once: true });
+    forceDurationScan(video);
+    // Backstop: durationchange may never come for a video that is already at
+    // its final (short) length, so wake the pipeline once regardless.
+    setTimeout(onMeta, DURATION_SETTLE_MS + 50);
+    return false;
+  }
+  if (Date.now() - wait.at < DURATION_SETTLE_MS) {
+    video.addEventListener('durationchange', onMeta, { once: true });
+    return false;
+  }
+  return true; // waited long enough — this recording really is shorter than its clip
+}
+
 // Convert a single clip entry using trace calibration. Returns true if the
-// entry transitioned to converted during this call.
+// entry's status: 'converted' when it transitioned during this call,
+// 'pending' while it waits for its video's duration to settle, else
+// 'unchanged'.
 function convertClipEntry(clipEntry, video) {
-  if (clipEntry._converted) return false;
+  if (clipEntry._converted) return 'unchanged';
   if (clipEntry._wcStart == null) { clipEntry._wcStart = clipEntry.start; clipEntry._wcEnd = clipEntry.end; }
   if (!canApplyTraceCalibration(clipEntry)) {
     // No trace calibration metadata — use raw clip times as-is (e.g. URL mode races)
     clipEntry._converted = true;
-    return true;
+    return 'converted';
   }
   // recordingStartTs − firstFrameTs gives the PTS offset (µs) where recording
   // started relative to the first captured frame; divide to get seconds.
@@ -280,21 +324,26 @@ function convertClipEntry(clipEntry, video) {
   if (!Number.isFinite(tracePtsStart) || tracePtsStart < 0) {
     // Invalid trace timestamps — use raw clip times as-is
     clipEntry._converted = true;
-    return true;
+    return 'converted';
   }
+  if (!durationSettled(clipEntry, tracePtsStart, video)) return 'pending';
   applyCalibrationToClip(clipEntry, tracePtsStart, video.duration);
-  return !!clipEntry._converted;
+  return 'converted';
 }
 
-// Calibrate all clip entries; returns true if any entry was converted.
+// Calibrate all clip entries. Reports whether any entry was converted, and
+// whether any is still pending — waiting on its duration, with a retry already
+// scheduled through onMeta.
 function calibrateClipTimes() {
-  if (!clipTimes) return false;
   let convertedAny = false;
-  for (let i = 0; i < clipTimes.length; i++) {
+  let pending = false;
+  for (let i = 0; clipTimes && i < clipTimes.length; i++) {
     if (!isValidClipEntry(clipTimes[i]) || !videos[i] || (videos[i].readyState < 1)) continue;
-    if (convertClipEntry(clipTimes[i], videos[i])) convertedAny = true;
+    const status = convertClipEntry(clipTimes[i], videos[i]);
+    if (status === 'converted') convertedAny = true;
+    if (status === 'pending') pending = true;
   }
-  return convertedAny;
+  return { convertedAny, pending };
 }
 
 // After calibration converts clip entries, seek to the calibrated start and
@@ -328,7 +377,12 @@ function onMeta() {
   if (!ensureFiniteDurations()) return;
 
   duration = Math.max(...videos.filter(Boolean).map(v => v.duration || 0));
-  const convertedAny = calibrateClipTimes();
+  const { convertedAny, pending } = calibrateClipTimes();
+  // A clip still waiting on its duration has raw coordinates while the others
+  // are calibrated; resolving the window or consuming the pending seek now
+  // would seek that racer to the wrong frame. durationSettled has already
+  // scheduled the retry, so wait for it.
+  if (pending) return;
   // Recompute segment clip times after calibration (they depend on traceTsToClipPts
   // which uses the now-calibrated traceCalibration data on clipTimes entries).
   // Skip for __all__ (uses base clipTimes) and __full__ (intentionally null).
