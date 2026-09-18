@@ -79,9 +79,10 @@ beforeAll(async () => {
     for (const name of RACERS) {
       const dir = path.join(tmpDir, label, name);
       fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, name + '.race.webm');
       execSync(
         `ffmpeg -y -f lavfi -i color=c=black:size=32x32:rate=10 -t ${VIDEO_SECONDS} ` +
-        `-c:v libvpx -b:v 20k -an "${path.join(dir, `${name}.race.webm`)}"`,
+        `-c:v libvpx -b:v 20k -an "${file}"`,
         { stdio: 'pipe', timeout: 30_000 },
       );
     }

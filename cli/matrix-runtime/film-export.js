@@ -293,12 +293,33 @@ async function recordFilm(plan, ui, state) {
   return new Blob(chunks, { type: mimeType });
 }
 
+/** Hold one info card on screen for its beat. */
+function showCard(state, frame, card) {
+  return runPhase(
+    state,
+    () => drawCard(frame.ctx, frame.layout, frame.theme, card),
+    elapsed => elapsed >= CARD_SECONDS
+  );
+}
+
+/** Play one condition's recordings through to the end of their race. */
+async function playRace(state, frame, loaded) {
+  loaded.videos.forEach(video => { video.play().catch(() => {}); });
+  await runPhase(
+    state,
+    () => drawRaceFrame(frame.ctx, frame.layout, frame.theme, loaded, raceElapsed(loaded)),
+    elapsed => raceFinished(loaded, elapsed)
+  );
+  loaded.videos.forEach(video => video.pause());
+}
+
 /**
  * Walk the plan: card, race, card, race… Returns whatever condition is still
  * loaded at the end so the caller can dispose of it.
  */
-async function recordConditions(plan, ui, state, { ctx, layout, theme, loaded }) {
+async function recordConditions(plan, ui, state, frame) {
   const total = plan.conditions.length;
+  let loaded = frame.loaded;
   for (let i = 0; i < total && !state.cancelled; i++) {
     const condition = plan.conditions[i];
     // Load the next condition while this one's card is on screen, so the film
@@ -307,16 +328,10 @@ async function recordConditions(plan, ui, state, { ctx, layout, theme, loaded })
 
     ui.status(`Card ${i + 1} of ${total}: ${condition.title}`);
     ui.progress((i + 0.15) / total);
-    await runPhase(state, () => drawCard(ctx, layout, theme, condition.card), elapsed => elapsed >= CARD_SECONDS);
+    await showCard(state, frame, condition.card);
 
     ui.status(`Race ${i + 1} of ${total}: ${condition.title}`);
-    loaded.videos.forEach(video => { video.play().catch(() => {}); });
-    await runPhase(
-      state,
-      () => drawRaceFrame(ctx, layout, theme, loaded, raceElapsed(loaded)),
-      elapsed => raceFinished(loaded, elapsed)
-    );
-    loaded.videos.forEach(video => video.pause());
+    await playRace(state, frame, loaded);
     ui.progress((i + 1) / total);
 
     disposeCondition(loaded);
@@ -403,5 +418,10 @@ async function startFilm() {
 }
 
 if (filmBtn && filmOverlay && filmConfig) {
-  filmBtn.addEventListener('click', startFilm);
+  // The listener itself stays synchronous: handing addEventListener an async
+  // function would let a rejection escape as an unhandled rejection instead of
+  // reaching anything that can report it.
+  filmBtn.addEventListener('click', () => {
+    startFilm().catch(err => { console.error('film:', err); });
+  });
 }
