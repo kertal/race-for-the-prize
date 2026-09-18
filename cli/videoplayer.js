@@ -15,6 +15,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { getPlacementOrder } from './summary.js';
 import { loadTemplates, escHtml, render } from './html-templates.js';
@@ -100,6 +101,16 @@ function serializeRaceConfig(config) {
   return JSON.stringify(config).replaceAll('<', String.raw`\u003c`);
 }
 
+// Stable identity for one race run, stamped into #race-config. The browser
+// runtime keys its saved calibration offsets on it, so two races — or two runs
+// of the same race — can never overwrite each other's saved calibration. The
+// seed is what makes a run unique: who raced, where the results landed, when,
+// and which recordings the page plays.
+function computeRaceId(summary, videoFiles) {
+  const seed = JSON.stringify([summary.racers, summary.resultsDir || '', summary.timestamp || '', videoFiles || []]);
+  return createHash('sha1').update(seed).digest('hex').slice(0, 16);
+}
+
 function playerMaxWidth(count) {
   if (count <= 2) return 680;
   return count === 3 ? 450 : 340;
@@ -139,6 +150,7 @@ function buildVideoPlayer(summary, videoFiles, opts) {
 
   const videoIds = placementOrder.map((_, i) => `v${i}`);
   const raceConfigJson = serializeRaceConfig({
+    raceId: computeRaceId(summary, videoFiles),
     videoCount: videoIds.length,
     raceVideoPaths: placementOrder.map(i => videoFiles[i]),
     fullVideoPaths: fullVideoFiles ? placementOrder.map(i => fullVideoFiles[i]) : null,

@@ -19,6 +19,9 @@ function bakeRaceConfig(doc, pathOverrides, hasOverrides) {
 
   const adj = getAdjustedClipTimes();
   if (adj && clipTimes) {
+    // The exported clip times below already include the frame offsets, so the
+    // exported page must not apply its saved offsets on top of them.
+    cfg.calibrationBaked = true;
     cfg.clipTimes = adj.map((ct, i) => {
       if (!ct) return null;
       const orig = clipTimes[i] || {};
@@ -62,6 +65,7 @@ function dedupeRacerCards(doc) {
 function stripExportChrome(doc) {
   removeEl(doc, '#debugPanel');
   removeEl(doc, '#modeDebug');
+  doc.querySelectorAll('.frame-badge').forEach(el => el.remove());
   doc.querySelectorAll('#exportHtmlBtn, #exportBtn, #exportHtmlOnlyBtn').forEach(el => el.remove());
   doc.querySelectorAll('.run-nav').forEach(el => el.remove());
   doc.querySelectorAll('.export-overlay').forEach(el => el.remove());
