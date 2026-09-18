@@ -36,6 +36,7 @@ import { buildPlayerHtml } from './cli/videoplayer.js';
 import { buildRunNavHtml } from './cli/player-sections.js';
 import { listSkins } from './cli/skins.js';
 import { runGeminiSummary, runGeminiSpec } from './cli/gemini-summary.js';
+import { parseDemoArg, prepareDemo, formatDemoList, UnknownDemoError } from './cli/demos.js';
 import { buildResultsPaths, createStaticHandler, serveResults } from './cli/serve.js';
 import { loadRaceDir, applySettingsOrExit } from './cli/race-loader.js';
 import { runScript as runTaskScript } from './cli/task-runner.js';
@@ -790,7 +791,13 @@ ${c.dim}  ───────────────────────�
 
   ${c.bold}3.${c.reset} Run it!
 
-     ${c.bold}$${c.reset} ${c.cyan}node race.js ./races/lauda-vs-hunt${c.reset}
+     ${c.bold}$${c.reset} ${c.cyan}node race.js ./races/my-race${c.reset}
+
+${c.bold}  Demo Races:${c.reset}
+${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
+  No race of your own yet? Run one that ships with the CLI:
+
+     ${c.bold}$${c.reset} ${c.cyan}node race.js demo:lauda-vs-hunt${c.reset}   ${c.dim}# node race.js demo — to list them all${c.reset}
 
 ${c.bold}  Quick Race (URL mode):${c.reset}
 ${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
@@ -801,6 +808,8 @@ ${c.dim}  ───────────────────────�
 ${c.bold}  Commands:${c.reset}
 ${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
   node race.js ${c.cyan}<url> <url> [url...]${c.reset}      Race page load times (2-5 URLs)
+  node race.js ${c.magenta}demo${c.reset}                        List the demo races shipped with the CLI
+  node race.js ${c.magenta}demo:${c.cyan}<name>${c.reset}                 Run a demo race (copied to ./races/<name>/)
   node race.js ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset}               Scaffold a starter race (default: my-race/)
   node race.js ${c.cyan}<dir>${c.reset}                       Run a scripted race
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--results${c.reset}            View recent results
@@ -829,9 +838,38 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset} ${c.yellow}--gemini-spec${c.reset}=${c.green}"prompt"${c.reset}  Generate specs via Gemini + Playwright HTML research
 
 ${c.dim}  All flags except --results work with both URL mode and directory mode.${c.reset}
-${c.dim}  Try the example:  node race.js ./races/lauda-vs-hunt${c.reset}
+${c.dim}  Try a demo:       node race.js demo:lauda-vs-hunt${c.reset}
 `);
   process.exit(1);
+}
+
+// --- demo:<name>: run a race bundled with the package ---
+// `npx race-for-the-prize demo:lauda-vs-hunt` works from an empty directory —
+// the demo is copied into ./races/<name>/ and raced from there.
+
+let demoDir = null;
+const demoArg = parseDemoArg(positional[0]);
+if (demoArg) {
+  if (!demoArg.name) {
+    console.log(formatDemoList(c));
+    process.exit(0);
+  }
+  try {
+    const { demo, dir, copied } = prepareDemo(demoArg.name, { rootDir: __dirname });
+    demoDir = dir;
+    const where = path.relative(process.cwd(), dir) || '.';
+    if (copied.length > 0) {
+      console.error(`${c.dim}Copied demo race ${c.reset}${c.cyan}${demo.name}${c.reset}${c.dim} to ${where}/${c.reset}`);
+    }
+  } catch (e) {
+    if (e instanceof UnknownDemoError) {
+      console.error(`${c.red}Error: Unknown demo race: ${e.demoName}${c.reset}`);
+      console.error(formatDemoList(c));
+      process.exit(1);
+    }
+    console.error(`${c.red}Error: ${e.message}${c.reset}`);
+    process.exit(1);
+  }
 }
 
 // --- Detect URL mode vs directory mode ---
@@ -904,7 +942,7 @@ if (urlMode) {
   if (positional.length > 1) {
     console.error(`${c.yellow}Warning: Directory mode expects 1 argument (the race directory), ignoring extra arguments: ${positional.slice(1).join(', ')}${c.reset}`);
   }
-  raceDir = path.resolve(positional[0]);
+  raceDir = demoDir || path.resolve(positional[0]);
 
   if (!fs.existsSync(raceDir)) {
     console.error(`${c.red}Error: Race directory not found: ${raceDir}${c.reset}`);
