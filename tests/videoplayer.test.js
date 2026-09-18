@@ -960,6 +960,20 @@ describe('buildPlayerHtml debug mode', () => {
     expect(debugHtml).toContain('padding: var(--racer-label-pad) 0');
   });
 
+  it('keeps the frame badge small enough to read the recording behind it', () => {
+    const badgeCss = debugHtml.slice(
+      debugHtml.indexOf('.player-container.show-frame-badges .frame-badge'),
+      debugHtml.indexOf('.merged-container')
+    );
+    // The badge overlays the racer's own page, so it stays at the small end of
+    // the type scale — well under the racer label (--font-size-2xl) above it.
+    expect(badgeCss).toContain('font-size: var(--font-size-sm)');
+    expect(badgeCss).toContain('font-size: var(--font-size-marker)');
+    expect(badgeCss).not.toContain('font-size: var(--font-size-lg)');
+    expect(badgeCss).toContain('padding: 0.1rem 0.3rem');
+    expect(badgeCss).toContain('border-radius: var(--radius-sm)');
+  });
+
   it('shows frame badges only while calibration is open', () => {
     expect(debugHtml).toContain('.frame-badge { display: none; }');
     expect(debugHtml).toContain('.player-container.show-frame-badges .frame-badge');
