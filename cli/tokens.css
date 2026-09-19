@@ -81,7 +81,7 @@
 
   /* --- Typography ------------------------------------------------------- */
   --font-ui: ui-monospace, 'Courier New', monospace;
-  --font-display: Georgia, 'Times New Roman', serif;
+  --font-display: 'Georgia', 'Times New Roman', serif;
 
   --font-size-marker: 0.55rem;
   --font-size-xs: 0.72rem;
