@@ -34,7 +34,7 @@ style: |
 ---
 
 <!-- Slide 1: Title -->
-# 🏆 RaceForThePrize
+# 🏁 RaceForThePrize
 
 ## *Browser Performance. Head-to-Head.*
 

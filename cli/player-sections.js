@@ -10,11 +10,9 @@ import { escHtml, render } from './html-templates.js';
 import { PROFILE_METRICS, categoryDescriptions, determineProfileMetricOutcome } from './profile-analysis.js';
 import { formatPlatform } from './summary.js';
 import {
-  isSyntheticTotal,
   buildResultsModel,
   buildRunComparisonModel,
   rankEntries,
-  rankComparisonDurations,
 } from './report-model.js';
 
 export const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f', '#9b59b6'];
@@ -214,9 +212,6 @@ export function buildResultsHtml(comparisons, racers) {
 }
 
 export function buildProfileSummaryHtml(profileComparison, racers) {
-  const sectionComparisons = (profileComparison?.sectionComparisons || [])
-    .filter(comp => !isSyntheticTotal(comp));
-
   function buildWinRows(winsMap) {
     if (!racers.some(n => winsMap[n] > 0)) return '';
     return racers
@@ -235,20 +230,14 @@ export function buildProfileSummaryHtml(profileComparison, racers) {
   const measuredRows = buildWinRows(measuredWins);
   const totalRows = buildWinRows(totalWins);
 
-  if (!measuredRows && !totalRows && sectionComparisons.length === 0) return '';
+  // Per-section durations belong to Race Results, which already lists every one
+  // of them. Repeating them here rendered each section twice, byte for byte.
+  if (!measuredRows && !totalRows) return '';
 
   let body = '';
 
   if (measuredRows) {
     body += fill('profile-metric', { metricClass: 'profile-metric-total', titleAttr: '', name: 'Race', desc: '', rows: measuredRows });
-  }
-  if (sectionComparisons.length > 0) {
-    const openSectionRows = sectionComparisons.length === 1;
-    body += sectionComparisons.map(comp => buildCollapsibleSectionMetricHtml(
-      formatSectionTitle(comp.name),
-      buildMetricRowsHtml(rankComparisonDurations(comp, racers), comp.winner),
-      openSectionRows
-    )).join('\n');
   }
   if (totalRows) {
     body += fill('profile-metric', { metricClass: '', titleAttr: '', name: 'Total Recording (Including Pre and Post race)', desc: '', rows: totalRows });
