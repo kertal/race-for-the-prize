@@ -48,6 +48,8 @@
 
 {{files}}
 
+{{raceConfig}}
+
 <details class="section">
   <summary><h2>Run Info</h2></summary>
   <div class="section-body">
@@ -102,6 +104,19 @@
 
 <!-- Key/value grids under Run Info. -->
 <template id="build-info-grid"><div class="{{cls}}">{{items}}</div></template>
+
+<!-- The command and the merged configuration the race actually ran with. -->
+<template id="build-race-config">
+    <p class="config-command"><span class="config-command-label">$</span> <code>{{command}}</code></p>
+    {{meta}}
+    <table class="config-table">
+      <thead><tr><th scope="col">Setting</th><th scope="col">Value</th><th scope="col">From</th></tr></thead>
+      <tbody>
+{{rows}}
+      </tbody>
+    </table>
+  </template>
+<template id="build-config-row">        <tr><td class="config-key">{{key}}</td><td class="config-value">{{value}}</td><td><span class="config-source config-source-{{sourceKey}}">{{source}}</span></td></tr></template>
 
 <!-- Racer failures reported by the runner. -->
 <template id="build-errors"><div class="errors"><ul>{{items}}</ul></div></template>

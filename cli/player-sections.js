@@ -8,6 +8,7 @@
 
 import { escHtml, render } from './html-templates.js';
 import { PROFILE_METRICS, categoryDescriptions, determineProfileMetricOutcome } from './profile-analysis.js';
+import { formatSettingValue, sortSettingKeys, sourceLabel, SOURCE_DEFAULT } from './race-config.js';
 import { formatPlatform } from './summary.js';
 import {
   buildResultsModel,
@@ -168,6 +169,48 @@ export function buildRaceInfoHtml(summary) {
   }
   if (items.length === 0) return '';
   return fill('info-grid', { cls: 'race-info', items: items.join('') });
+}
+
+/**
+ * The command that started the race, plus every setting it actually ran with
+ * and where that value came from — so a report read next week (or by someone
+ * else) says how to reproduce it, not just who won.
+ */
+export function buildRaceConfigHtml(raceConfig) {
+  if (!raceConfig) return '';
+  const settings = raceConfig.settings || {};
+  const sources = raceConfig.sources || {};
+
+  const metaItems = [];
+  if (raceConfig.mode) metaItems.push(infoItem('Mode', escHtml(raceConfig.mode)));
+  if (raceConfig.raceDir) metaItems.push(infoItem('Race directory', escHtml(raceConfig.raceDir)));
+  if (raceConfig.version) metaItems.push(infoItem('Version', escHtml(raceConfig.version)));
+  for (const racer of raceConfig.racers || []) {
+    if (racer?.script) metaItems.push(infoItem(escHtml(racer.name), escHtml(racer.script)));
+  }
+  const meta = metaItems.length > 0
+    ? fill('info-grid', { cls: 'race-info', items: metaItems.join('') })
+    : '';
+
+  const rows = sortSettingKeys(Object.keys(settings)).map(key => {
+    const source = String(sources[key] || SOURCE_DEFAULT);
+    return fill('config-row', {
+      key: escHtml(key),
+      value: escHtml(formatSettingValue(settings[key])),
+      // The badge's modifier class: letters only, so "settings.json" can name one.
+      sourceKey: source.replace(/[^a-z]/gi, ''),
+      source: escHtml(sourceLabel(source)),
+    });
+  }).join('\n');
+
+  if (!raceConfig.command && !meta && rows === '') return '';
+
+  const body = fill('race-config', {
+    command: escHtml(raceConfig.command || ''),
+    meta,
+    rows,
+  });
+  return fill('section', { openAttr: '', title: 'Command &amp; Configuration', body: '\n' + body + '\n  ' });
 }
 
 export function buildMachineInfoHtml(machineInfo) {
@@ -391,7 +434,7 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
 }
 
 export function buildFilesHtml(racers, videoFiles, options) {
-  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, altFormat, altFiles, placementOrder } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, raceConfigFile, altFormat, altFiles, placementOrder } = options;
   const links = [];
   const order = placementOrder || racers.map((_, i) => i);
 
@@ -428,6 +471,13 @@ export function buildFilesHtml(racers, videoFiles, options) {
   }
   if (settingsFileCopied) {
     links.push(render(T['file-link'], { href: 'settings.json', attrs: '', text: 'settings.json' }));
+  }
+  if (raceConfigFile) {
+    links.push(render(T['file-link'], {
+      href: escHtml(raceConfigFile),
+      attrs: 'download title="The command and the settings this race actually ran with"',
+      text: escHtml(raceConfigFile),
+    }));
   }
 
   if (links.length === 0) return '';
