@@ -345,6 +345,8 @@ Afterwards you get a **performance matrix** — network presets down the side, C
 
 One race per condition tells you who won each; the matrix tells you how the field holds up as conditions get harder — and whether the winner flips somewhere along the way.
 
+When the conditions recorded video, the matrix page also offers a **🎬 Download film**: one WebM of the whole season, condition by condition, each race introduced by an info card with that condition's verdict and times (the card reports whichever metric the **Compare** picker is on). The film is assembled in your browser — canvas plus MediaRecorder, no ffmpeg — so open the results over HTTP (the race server does that for you) rather than from `file://`.
+
 The HTML matrix also has a **Compare** picker: switch the whole grid from total time to any performance-profile metric that was captured — network transfer, request count, script execution, layout time, TTFB, FCP, LCP, CLS, DOM timings, JS heap — for the measured section or the total recording. Bars rescale to the chosen metric, and a cell is only called a win when the difference clears that metric's significance threshold; anything smaller shows as a tie.
 
 The `--runs` flag takes the median, smoothing out noise and giving you a number you can trust. In multi-run mode, each racer independently picks the run closest to their own median — so if Racer A performed best in Run 2 and Racer B in Run 4, each gets their own representative video. The results page shows which runs were selected (e.g., "Runs 2, 4").
@@ -639,6 +641,7 @@ RaceForThePrize/
 │   ├── condition-matrix.js # Cross-condition performance matrix (terminal + HTML)
 │   ├── condition-matrix.html # Condition matrix markup + build-time templates
 │   ├── condition-matrix.css  # Condition matrix component styles
+│   ├── matrix-runtime/     # Condition matrix client-side runtime (the film)
 │   ├── skins.js            # Skin resolution for --skin
 │   ├── skins/              # Built-in player skins (light, neon)
 │   ├── summary.js          # Results formatting & markdown reports

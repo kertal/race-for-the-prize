@@ -657,6 +657,179 @@ describe('buildConditionIndexHtml matrix', () => {
   });
 });
 
+describe('buildConditionIndexHtml film', () => {
+  /** The film config the page embeds, parsed back out of it (null when it has none). */
+  const filmConfigOf = (html) => {
+    const match = /<script id="film-config" type="application\/json">([\s\S]*?)<\/script>/.exec(html);
+    return match ? JSON.parse(match[1]) : null;
+  };
+
+  /** The conditions the film would play, for a page that is expected to offer one. */
+  const filmConditionsOf = (html) => {
+    const config = filmConfigOf(html);
+    if (!config) throw new Error('the page embeds no film config');
+    return config.conditions;
+  };
+
+  /** A recorded condition: two racers, videos under the condition's own directory. */
+  const recorded = (label, cpu, winner) => ({
+    label,
+    title: `Network: none · CPU: ${cpu}x`,
+    network: 'none',
+    cpu,
+    summary: summaryOf({ lauda: cpu, hunt: cpu * 2 }, winner),
+    videoFiles: ['lauda/lauda.race.webm', 'hunt/hunt.race.webm'],
+    clipTimes: [
+      {
+        start: 0.5,
+        end: 2.5,
+        measurements: [{ name: 'Load', startTraceTs: 1 }],
+        traceCalibration: { recordingStartTs: 2_000_000, firstFrameTs: 1_000_000, extra: 'unused' },
+      },
+      null,
+    ],
+  });
+
+  it('offers no film when no condition recorded video', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', gridEntries(
+      ['none'], [1, 4], () => ({ lauda: 1, hunt: 2 }), () => 'lauda'
+    ));
+
+    expect(html).not.toContain('id="filmBtn"');
+    expect(html).not.toContain('id="film-config"');
+    expect(filmConfigOf(html)).toBeNull();
+  });
+
+  it('offers the film when the conditions recorded video', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', [recorded('none-cpu1x', 1, 'lauda')]);
+
+    expect(html).toContain('id="filmBtn"');
+    expect(html).toContain('id="filmOverlay"');
+    expect(html).toContain('buildFilmPlan');       // the runtime is inlined
+    expect(html).toContain('computeExportLayout'); // …including the shared layout math
+  });
+
+  it('puts the film button below the matrix, not above it', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', [recorded('none-cpu1x', 1, 'lauda')]);
+
+    expect(html.indexOf('id="filmBtn"')).toBeGreaterThan(html.indexOf('</table>'));
+  });
+
+  it('points every racer at its own condition directory, in matrix order', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', [
+      recorded('none-cpu1x', 1, 'lauda'),
+      recorded('none-cpu4x', 4, 'hunt'),
+    ]);
+    const conditions = filmConditionsOf(html);
+
+    expect(conditions.map(c => c.label)).toEqual(['none-cpu1x', 'none-cpu4x']);
+    expect(conditions[0].racers.map(r => r.src)).toEqual([
+      'none-cpu1x/lauda/lauda.race.webm',
+      'none-cpu1x/hunt/hunt.race.webm',
+    ]);
+    expect(conditions[1].racers[0].src).toBe('none-cpu4x/lauda/lauda.race.webm');
+    // Cards and video labels share the player's racer colours.
+    expect(conditions[0].racers.map(r => r.color)).toEqual(['#e74c3c', '#3498db']);
+  });
+
+  it('carries each condition\'s result for its card, per metric', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', [recorded('none-cpu4x', 4, 'hunt')]);
+    const card = filmConditionsOf(html)[0].metrics.duration;
+
+    expect(card.name).toBe('Total Time');
+    expect(card.verdict).toBe('🏆 hunt');
+    expect(card.rows).toEqual([
+      { medal: '', name: 'lauda', color: '#e74c3c', value: '4.000s', delta: null, fraction: 0.5, win: false },
+      { medal: '🏆', name: 'hunt', color: '#3498db', value: '8.000s', delta: '4.000s', fraction: 1, win: true },
+    ]);
+  });
+
+  it('scales the card bars against the whole matrix, as the cells are', () => {
+    // The 4x condition is twice as slow, so the 1x card's bars run at a
+    // quarter and a half of the track rather than filling it.
+    const conditions = filmConditionsOf(buildConditionIndexHtml('lauda vs hunt', [
+      recorded('none-cpu1x', 1, 'lauda'),
+      recorded('none-cpu4x', 4, 'hunt'),
+    ]));
+
+    expect(conditions[0].metrics.duration.rows.map(r => r.fraction)).toEqual([0.125, 0.25]);
+    expect(conditions[1].metrics.duration.rows.map(r => r.fraction)).toEqual([0.5, 1]);
+  });
+
+  it('embeds only the clip data the film needs', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', [recorded('none-cpu1x', 1, 'lauda')]);
+    const [lauda, hunt] = filmConditionsOf(html)[0].racers;
+
+    // The measurements and the rest of the calibration block stay behind.
+    expect(lauda.clip).toEqual({
+      start: 0.5,
+      end: 2.5,
+      traceCalibration: { recordingStartTs: 2_000_000, firstFrameTs: 1_000_000 },
+    });
+    expect(hunt.clip).toBeNull();
+  });
+
+  it('encodes each path segment of a recording, keeping the slashes between them', () => {
+    // Racer names come from file names: a '#' or a space is legal there, but a
+    // browser would read a raw '#' as the end of the URL's path.
+    const html = buildConditionIndexHtml('lauda vs hunt', [{
+      ...recorded('slow-3g cpu#4', 4, 'lauda'),
+      summary: summaryOf({ lauda: 4, 'hunt #2': 8 }, 'lauda'),
+      videoFiles: ['2/lauda/lauda.race.webm', '1/hunt #2/hunt #2.race.webm'],
+    }]);
+
+    expect(filmConditionsOf(html)[0].racers.map(r => r.src)).toEqual([
+      'slow-3g%20cpu%234/2/lauda/lauda.race.webm',
+      'slow-3g%20cpu%234/1/hunt%20%232/hunt%20%232.race.webm',
+    ]);
+  });
+
+  it('refuses a recording path that would step out of the condition directory', () => {
+    // A racer whose name is a dot segment (a file called "..spec.js" yields
+    // ".") has no URL inside its own directory — browsers normalise dot
+    // segments whether or not they are percent-encoded — so it stays out.
+    const html = buildConditionIndexHtml('lauda vs hunt', [{
+      ...recorded('none-cpu1x', 1, 'lauda'),
+      summary: summaryOf({ lauda: 1, '..': 2 }, 'lauda'),
+      videoFiles: ['lauda/lauda.race.webm', '../...race.webm'],
+    }]);
+
+    expect(filmConditionsOf(html)[0].racers.map(r => r.name)).toEqual(['lauda']);
+  });
+
+  it('leaves out a racer whose recording never materialised', () => {
+    // A run can lose one racer's video (the browser crashed, the file was never
+    // written): its path arrives as null, and the film plays the others.
+    const html = buildConditionIndexHtml('lauda vs hunt', [
+      { ...recorded('none-cpu1x', 1, 'lauda'), videoFiles: ['lauda/lauda.race.webm', null] },
+      { ...recorded('none-cpu4x', 4, 'hunt'), videoFiles: [null, null] },
+    ]);
+    const conditions = filmConditionsOf(html);
+
+    // The condition with no recordings at all is not in the film.
+    expect(conditions.map(c => c.label)).toEqual(['none-cpu1x']);
+    expect(conditions[0].racers.map(r => r.name)).toEqual(['lauda']);
+  });
+
+  it('skips a condition that raced without video but keeps the rest', () => {
+    const html = buildConditionIndexHtml('lauda vs hunt', [
+      { label: 'no-video', network: 'none', cpu: 1, summary: summaryOf({ lauda: 1, hunt: 2 }, 'lauda') },
+      recorded('none-cpu4x', 4, 'hunt'),
+    ]);
+
+    expect(filmConditionsOf(html).map(c => c.label)).toEqual(['none-cpu4x']);
+  });
+
+  it('keeps a condition title from breaking out of the config block', () => {
+    const html = buildConditionIndexHtml('a vs b', [
+      { ...recorded('x', 1, 'lauda'), title: '</script><script>alert(1)</script>' },
+    ]);
+
+    expect(html).not.toContain('</script><script>alert(1)');
+    expect(filmConditionsOf(html)[0].title).toBe('</script><script>alert(1)</script>');
+  });
+});
+
 describe('buildConditionIndexHtml skinning', () => {
   const entries = [{ label: 'x', network: 'none', cpu: 1, summary: summaryOf({ a: 1, b: 2 }, 'a') }];
 

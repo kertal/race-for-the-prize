@@ -35,5 +35,5 @@ page.raceEnd('Reload');
 
 // Padding after measurement
 await page.evaluate(() => window.__setPhase('done'));
-await page.waitForTimeout(300);
+await page.waitForTimeout(1000);
 await page.raceRecordingEnd();
