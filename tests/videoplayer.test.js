@@ -96,6 +96,46 @@ describe('buildPlayerHtml', () => {
     expect(defaultHtml).toContain('max-width: 680px');
   });
 
+  it('brackets the page with one checkered bar on top and one on the bottom', () => {
+    // The body opens and closes with a bar. Both are fixed, so without the
+    // sibling rule they would stack on top of each other in one corner.
+    expect(defaultHtml.match(/<div class="checkered-bar">/g)).toHaveLength(2);
+    const base = defaultHtml.match(/\n\.checkered-bar \{[^}]*\}/)[0];
+    expect(base).toContain('top: 0');
+    expect(base).not.toContain('bottom: 0');
+    const sibling = defaultHtml.match(/\.checkered-bar ~ \.checkered-bar \{[^}]*\}/)[0];
+    expect(sibling).toContain('bottom: 0');
+    expect(sibling).toContain('top: auto');
+    // Above the positioned page content (.racer, .share-menu), but under the
+    // export overlay, which is a modal and covers everything.
+    expect(base).toContain('z-index: 900');
+    // Neither bar may sit over the page content.
+    const body = defaultHtml.match(/\nbody \{[^}]*\}/)[0];
+    expect(body).toContain('padding-top: var(--checker-size)');
+    expect(body).toContain('padding-bottom: var(--checker-size)');
+  });
+
+  it('flies the checkered flag on the title, not the trophy', () => {
+    // The flag is the brand mark; the trophy is reserved for naming a winner.
+    const title = defaultHtml.match(/<h1>[^<]*<\/h1>/)[0];
+    expect(title).toContain('\u{1F3C1}');
+    expect(title).not.toContain('\u{1F3C6}');
+  });
+
+  it('stamps the title on a plate so it reads against the checkered bar', () => {
+    // The h1 lives inside the top bar, so it needs a solid block behind it —
+    // tokenised, so a skin can repaint the plate with the rest of the page.
+    const rule = defaultHtml.match(/\nh1 \{[^}]*\}/)[0];
+    expect(rule).toContain('background-color: var(--title-plate)');
+    expect(rule).toContain('padding: 0 var(--title-plate-pad)');
+    expect(rule).toContain('margin: 0 var(--title-plate-pad)');
+    expect(rule).toContain('display: inline-block');
+    // Centring comes from the bar: an inline-block cannot centre itself.
+    const bar = defaultHtml.match(/\n\.checkered-bar \{[^}]*\}/)[0];
+    expect(bar).toContain('text-align: center');
+    expect(rule).toContain('font-size: var(--font-size-sm)');
+  });
+
   it('keeps the racer name on screen in fullscreen', () => {
     // Fullscreen gives each grid row the viewport, so the label rides on top of
     // its video rather than taking a line of its own — but it stays visible:

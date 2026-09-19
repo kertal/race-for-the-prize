@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * race.js — CLI entry point for RaceForThePrize 🏆
+ * race.js — CLI entry point for RaceForThePrize 🏁
  *
  * Orchestrates browser races: parses args, discovers racer scripts,
  * spawns the Playwright runner, collects results, and prints a report.

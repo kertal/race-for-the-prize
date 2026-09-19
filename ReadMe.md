@@ -1,4 +1,4 @@
-# 🏆 RaceForThePrize
+# 🏁 RaceForThePrize
 
 **Ladies and gentlemen, welcome to race day!**
 
@@ -602,7 +602,7 @@ RaceForThePrize/
 │   ├── sidebyside.js       # FFmpeg video composition (--ffmpeg)
 │   └── videoplayer.js      # Interactive HTML player with clip-based trimming
 ├── races/
-│   ├── lauda-vs-hunt/        # 🏆 Example: the greatest rivalry in racing
+│   ├── lauda-vs-hunt/        # 🏁 Example: the greatest rivalry in racing
 │   ├── lebron-vs-curry/      # 🏀 Example: the GOAT debate, dribble-style
 │   └── react-vs-angular/     # ⚛️  Example: frontend framework showdown (4 racers)
 ├── docs/

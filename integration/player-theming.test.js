@@ -241,6 +241,25 @@ describeMaybe('player theming integration', () => {
     });
   });
 
+  describe('checkered bars', () => {
+    it('stays above the page as it scrolls under', async () => {
+      // Regression: both bars are fixed but carried no z-index, so the videos
+      // inside the positioned .racer — later in the DOM than the top bar —
+      // painted straight over it as the page scrolled.
+      await page.setViewportSize({ width: 1000, height: 320 });
+      await page.goto(writePlayer('checkered-stack', {}));
+      await page.evaluate(() => window.scrollTo(0, 150));
+      const onTop = await page.evaluate(() => {
+        const topmost = (x, y) => document.elementsFromPoint(x, y)[0].className;
+        // x=250 is over the first racer's video, not the gap between racers.
+        return { top: topmost(250, 5), bottom: topmost(250, 315) };
+      });
+      expect(onTop.top).toBe('checkered-bar');
+      expect(onTop.bottom).toBe('checkered-bar');
+      await page.setViewportSize({ width: 1280, height: 720 });
+    });
+  });
+
   describe('skins', () => {
     it('repaints the page from token overrides alone', async () => {
       const base = writePlayer('skin-none', {});

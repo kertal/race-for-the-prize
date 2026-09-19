@@ -18,23 +18,44 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
+  padding-top: var(--checker-size);
+  padding-bottom: var(--checker-size);
 }
 
 h1 {
   font-family: var(--font-display);
-  font-size: var(--font-size-4xl);
+  font-size: var(--font-size-sm);
   color: var(--accent);
   text-align: center;
   text-transform: uppercase;
   letter-spacing: var(--tracking-widest);
+  display: inline-block;
+  background-color: var(--title-plate);
+  padding: 0 var(--title-plate-pad);
+  margin: 0 var(--title-plate-pad);
 }
 
+/* The page is flagged off top and bottom. The body opens and closes with a
+   bar; the first one flies at the top of the viewport, any that follow at the
+   bottom — so the pair brackets the page instead of stacking in one corner.
+   The z-index keeps the page scrolling underneath: .racer and the share menu
+   are positioned too, and without it they would paint over the bars. It stays
+   under the export overlay (1000), which is a modal and covers everything. */
 .checkered-bar {
   width: 100%;
   height: var(--checker-size);
   background:
     repeating-conic-gradient(var(--checker-color-a) 0% 25%, var(--checker-color-b) 0% 50%)
     0 0 / var(--checker-size) var(--checker-size);
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 900;
+  text-align: center;
+}
+.checkered-bar ~ .checkered-bar {
+  top: auto;
+  bottom: 0;
 }
 
 /* --- Shared control chrome ----------------------------------------------
@@ -182,7 +203,6 @@ h1 {
   max-width: var(--page-max);
   padding: 1.2rem var(--gutter) 0.3rem;
 }
-.header-icon-left { margin-right: 0.5rem; }
 .header-icon-right {
   margin-left: auto;
   display: flex;
@@ -605,7 +625,6 @@ video {
 .profile-metric-total {
   border: var(--border-width) solid var(--accent-shadow);
   border-radius: var(--radius-md);
-  background: var(--accent-wash);
   padding: 0.55rem 0.65rem 0.35rem;
   margin-bottom: 0.8rem;
 }

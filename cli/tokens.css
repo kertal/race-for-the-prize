@@ -29,14 +29,13 @@
   --color-orange: #e67e22;
   --color-red: #e74c3c;
   --color-ink-900: #1a1a1a;
-  --color-ink-850: #222;
   --color-ink-800: #2a2a2a;
   --color-ink-700: #3a3a3a;
   --color-ink-650: #333;
   --color-ink-600: #444;
   --color-ink-500: #555;
-  --color-parchment: #e8e0d0;
   --color-white: #fff;
+  --color-black: #000;
   --color-grey-100: #ccc;
   --color-grey-300: #999;
   --color-grey-400: #888;
@@ -49,8 +48,13 @@
   --surface-raised: var(--color-ink-700);
   --surface-inset: rgb(255 255 255 / 2%);
   --scrim: rgb(0 0 0 / 85%);
+  /* Plate behind the page title. The h1 sits inside the top checkered bar, so
+     it needs a solid block cut out of the flag to stay readable. A skin whose
+     flag has no dark square (neon) should repoint this at its own --bg. */
+  --title-plate: var(--color-black);
+  --title-plate-pad: 0.25rem;
 
-  --text: var(--color-parchment);
+  --text: var(--color-white);
   --text-bright: var(--color-white);
   --text-muted: var(--color-grey-100);
   --text-dim: var(--color-grey-300);
@@ -58,11 +62,11 @@
   --text-faint: var(--color-grey-500);
   --text-ghost: var(--color-grey-600);
 
-  --accent: var(--color-gold);
-  --accent-bright: var(--color-gold-bright);
-  --accent-shadow: var(--color-gold-shadow);
+  --accent: var(--color-white);
+  --accent-bright: var(--color-grey-100);
+  --accent-shadow: var(--color-grey-600);
   --accent-contrast: var(--color-ink-900);
-  --accent-wash: linear-gradient(180deg, rgb(212 175 55 / 12%), rgb(212 175 55 / 3%));
+  --accent-wash: rgb(255 255 255 / 8%);
 
   --border: var(--color-ink-600);
   --border-strong: var(--color-ink-500);
@@ -123,8 +127,8 @@
 
   /* --- Ornament --------------------------------------------------------- */
   --checker-size: 20px;
-  --checker-color-a: var(--color-ink-850);
-  --checker-color-b: var(--accent);
+  --checker-color-a: var(--color-black);
+  --checker-color-b: var(--color-white);
 
   /* Dropdown arrow. Skins replace the whole image (the fill colour is baked
      into the data URI, so it cannot be tokenised any further). */
