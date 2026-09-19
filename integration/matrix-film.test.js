@@ -25,6 +25,9 @@ const require = createRequire(import.meta.url);
 const { CARD_SECONDS } = require('../cli/matrix-runtime/film-plan.cjs');
 
 const RACERS = ['lauda', 'hunt'];
+// Each racer's recording is a solid colour, so a frame of the film can say who
+// is in it: lauda fills the left slot red, hunt the right slot blue.
+const RACER_COLOURS = { lauda: 'red', hunt: 'blue' };
 const CONDITIONS = [
   { label: 'none-cpu1x', title: 'Network: none · CPU: 1x', network: 'none', cpu: 1, winner: 'lauda' },
   { label: 'none-cpu4x', title: 'Network: none · CPU: 4x', network: 'none', cpu: 4, winner: 'hunt' },
@@ -48,6 +51,24 @@ function decodedSeconds(file) {
   const times = [...(stderr || '').matchAll(/time=(\d+):(\d+):(\d+\.\d+)/g)]
     .map(([, h, m, s]) => Number(h) * 3600 + Number(m) * 60 + Number(s));
   return times.length > 0 ? Math.max(...times) : 0;
+}
+
+/** The average colour of one half of the frame at `seconds` into a video, as [r, g, b]. */
+function halfColour(file, seconds, half) {
+  const x = half === 'left' ? '0' : 'iw/2';
+  const { stdout } = spawnSync('ffmpeg', [
+    '-ss', String(seconds), '-i', file, '-frames:v', '1',
+    '-vf', `crop=iw/2:ih:${x}:0,scale=1:1:flags=area`,
+    '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-',
+  ], { timeout: 60_000 });
+  return [...(stdout || Buffer.alloc(0)).subarray(0, 3)];
+}
+
+/** Which of red or blue a colour is closest to, or 'neither' when it is not clearly either. */
+function dominantHue([r, g, b]) {
+  if (r > g + 60 && r > b + 60) return 'red';
+  if (b > r + 60 && b > g + 60) return 'blue';
+  return 'neither';
 }
 
 function summaryOf(durations, winner) {
@@ -91,7 +112,7 @@ beforeAll(async () => {
       fs.mkdirSync(dir, { recursive: true });
       const file = path.join(dir, name + '.race.webm');
       execSync(
-        `ffmpeg -y -f lavfi -i color=c=black:size=32x32:rate=10 -t ${VIDEO_SECONDS} ` +
+        `ffmpeg -y -f lavfi -i color=c=${RACER_COLOURS[name]}:size=32x32:rate=10 -t ${VIDEO_SECONDS} ` +
         `-c:v libvpx -b:v 20k -an "${file}"`,
         { stdio: 'pipe', timeout: 30_000 },
       );
@@ -154,8 +175,23 @@ describe('condition matrix film', () => {
     // EBML magic — a real WebM container, not a stub blob.
     expect([...bytes.subarray(0, 4)]).toEqual([0x1a, 0x45, 0xdf, 0xa3]);
 
-    // Long enough that both conditions are in there: two cards and two races.
-    expect(decodedSeconds(filmPath)).toBeGreaterThan(CONDITIONS.length * CARD_SECONDS);
+    // Long enough that both conditions are in there, cards and races alike — a
+    // film that skipped its races would stop short of this.
+    const expectedSeconds = CONDITIONS.length * (CARD_SECONDS + VIDEO_SECONDS);
+    expect(decodedSeconds(filmPath)).toBeGreaterThan(expectedSeconds - 0.5);
+
+    // Both racers made it into the frame: mid-way through the first race, the
+    // left slot is lauda's red and the right slot is hunt's blue.
+    const midRace = CARD_SECONDS + VIDEO_SECONDS / 2;
+    expect(dominantHue(halfColour(filmPath, midRace, 'left'))).toBe('red');
+    expect(dominantHue(halfColour(filmPath, midRace, 'right'))).toBe('blue');
+
+    // And the plan the page embeds lists every racer for every condition.
+    const planned = await page.evaluate(() => {
+      const config = document.getElementById('film-config');
+      return config ? JSON.parse(config.textContent).conditions.map(c => c.racers.map(r => r.name)) : null;
+    });
+    expect(planned).toEqual(CONDITIONS.map(() => RACERS));
 
     // computeExportLayout(2, 1) — two 640-wide cells plus the label strip.
     const size = await page.evaluate(() => {

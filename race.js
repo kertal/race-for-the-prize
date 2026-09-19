@@ -509,7 +509,11 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
       });
     }
 
-    return { summary, sideBySidePath, sideBySideName, clipTimes, videoFiles };
+    // What a film may play: a racer's path only where its recording actually
+    // landed. The player's own list above stays complete, as it always was.
+    const recordings = videoFiles ? videoFiles.map((file, i) => (results[i]?.videoPath ? file : null)) : null;
+
+    return { summary, sideBySidePath, sideBySideName, clipTimes, videoFiles: recordings };
   } finally {
     fs.rmSync(recordingsDir, { recursive: true, force: true });
   }
@@ -1098,9 +1102,11 @@ function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts
   });
 
   // The paths above follow the naming convention whether or not anything was
-  // recorded; only report them as recordings when the run actually made some,
-  // so a condition overview doesn't offer a film of files that don't exist.
-  return { summary, clipTimes, videoFiles: settings.noRecording ? null : videoFiles };
+  // recorded. Report a racer's as a recording only where one actually landed —
+  // under --no-recording that is nowhere — so a condition overview never offers
+  // a film of files that don't exist.
+  const recordings = runMovedResults.map((moved, i) => (moved?.videoPath ? videoFiles[i] : null));
+  return { summary, clipTimes, videoFiles: recordings };
 }
 
 /**
@@ -1134,20 +1140,21 @@ async function runNormalModeSeries() {
   }
 
   fs.mkdirSync(resultsDir, { recursive: true });
-  const summaries = [], sideBySideNames = [], allClipTimes = [];
+  const summaries = [], sideBySideNames = [], allClipTimes = [], allVideoFiles = [];
 
   for (let i = 0; i < totalRuns; i++) {
     console.error(`\n  ${c.bold}${c.cyan}── Run ${i + 1} of ${totalRuns} ──${c.reset}`);
     const runNav = { currentRun: i + 1, totalRuns, pathPrefix: '../' };
-    const { summary, sideBySidePath, sideBySideName, clipTimes: runClipTimes } = await runSingleRace(ctx, path.join(resultsDir, String(i + 1)), runNav, { skipCopyFFmpeg: true, ffmpegPathPrefix: '../' });
+    const { summary, sideBySidePath, sideBySideName, clipTimes: runClipTimes, videoFiles } = await runSingleRace(ctx, path.join(resultsDir, String(i + 1)), runNav, { skipCopyFFmpeg: true, ffmpegPathPrefix: '../' });
     printSummary(summary);
     summaries.push(summary);
     sideBySideNames.push(sideBySidePath ? sideBySideName : null);
     allClipTimes.push(runClipTimes);
+    allVideoFiles.push(videoFiles);
   }
 
   updateRunNavColors(summaries);
-  return buildMedianOutput(summaries, sideBySideNames, allClipTimes);
+  return buildMedianOutput(summaries, sideBySideNames, allClipTimes, allVideoFiles);
 }
 
 /**
@@ -1213,7 +1220,7 @@ async function runSplitModeSeries() {
     return { summary: summaries[0], videoFiles: allVideoFiles[0], clipTimes: allClipTimes[0] };
   }
   updateRunNavColors(summaries);
-  return buildMedianOutput(summaries, summaries.map(() => null), allClipTimes);
+  return buildMedianOutput(summaries, summaries.map(() => null), allClipTimes, allVideoFiles);
 }
 
 async function main() {
@@ -1314,7 +1321,14 @@ async function main() {
   }
 }
 
-function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
+/**
+ * @param {object[]} summaries - one per run
+ * @param {Array<string|null>} sideBySideNames - per run, the merged video's name if one was made
+ * @param {Array} allClipTimes - per run, the clip entries per racer
+ * @param {Array<Array<string|null>|null>} allVideoFiles - per run, each racer's
+ *   recording relative to that run's directory, or null where none landed
+ */
+function buildMedianOutput(summaries, sideBySideNames, allClipTimes, allVideoFiles) {
   const medianSummary = buildMedianSummary(summaries, resultsDir);
   generateGeminiCommentary(medianSummary, resultsDir);
   fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(medianSummary, null, 2));
@@ -1361,7 +1375,12 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
       buildPlayerHtml(medianSummary, medianVideoFiles, ffmpeg && format !== 'webm' ? format : null, medianAltFiles, medianPlayerOptions)
     );
     if (!settings.noWasm) copyFFmpegFiles(resultsDir);
-    seriesVideoFiles = medianVideoFiles;
+    // A film takes each racer's recording from the same run its clip came from,
+    // and only if that run actually recorded one.
+    seriesVideoFiles = racerNames.map((_, i) => {
+      const file = allVideoFiles?.[perRacerRunIdx[i]]?.[i];
+      return file ? `${perRacerRunIdx[i] + 1}/${file}` : null;
+    });
     seriesClipTimes = medianClipTimes;
   }
 

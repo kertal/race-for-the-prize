@@ -489,9 +489,20 @@ function filmClip(clip) {
 }
 
 /**
+ * A recording's URL relative to the overview page: the condition's directory,
+ * then the path within it. Every segment is encoded on its own — racer names
+ * come from file names and may carry a '#' or '?', which a browser would read
+ * as the end of the path — while the slashes between them stay slashes.
+ */
+function filmSrc(label, file) {
+  return [label, ...file.split('/')].map(encodeURIComponent).join('/');
+}
+
+/**
  * One condition's recordings, as page-relative sources. Entries carry their
  * video paths relative to their own results directory, which is the condition's
- * label — the same directory the cell links to.
+ * label — the same directory the cell links to. A racer whose recording never
+ * materialised has no path, and no place in the film.
  */
 function filmRacers(entry, matrixRacers) {
   const names = entry?.summary?.racers || [];
@@ -503,7 +514,7 @@ function filmRacers(entry, matrixRacers) {
     return {
       name,
       color: racerColor(index >= 0 ? index : i),
-      src: files[i] ? `${entry.label}/${files[i]}` : null,
+      src: files[i] ? filmSrc(entry.label, files[i]) : null,
       clip: filmClip(entry.clipTimes?.[i]),
     };
   }).filter(racer => racer.src);

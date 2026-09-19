@@ -766,6 +766,35 @@ describe('buildConditionIndexHtml film', () => {
     expect(hunt.clip).toBeNull();
   });
 
+  it('encodes each path segment of a recording, keeping the slashes between them', () => {
+    // Racer names come from file names: a '#' or a space is legal there, but a
+    // browser would read a raw '#' as the end of the URL's path.
+    const html = buildConditionIndexHtml('lauda vs hunt', [{
+      ...recorded('slow-3g cpu#4', 4, 'lauda'),
+      summary: summaryOf({ lauda: 4, 'hunt #2': 8 }, 'lauda'),
+      videoFiles: ['2/lauda/lauda.race.webm', '1/hunt #2/hunt #2.race.webm'],
+    }]);
+
+    expect(filmConditionsOf(html)[0].racers.map(r => r.src)).toEqual([
+      'slow-3g%20cpu%234/2/lauda/lauda.race.webm',
+      'slow-3g%20cpu%234/1/hunt%20%232/hunt%20%232.race.webm',
+    ]);
+  });
+
+  it('leaves out a racer whose recording never materialised', () => {
+    // A run can lose one racer's video (the browser crashed, the file was never
+    // written): its path arrives as null, and the film plays the others.
+    const html = buildConditionIndexHtml('lauda vs hunt', [
+      { ...recorded('none-cpu1x', 1, 'lauda'), videoFiles: ['lauda/lauda.race.webm', null] },
+      { ...recorded('none-cpu4x', 4, 'hunt'), videoFiles: [null, null] },
+    ]);
+    const conditions = filmConditionsOf(html);
+
+    // The condition with no recordings at all is not in the film.
+    expect(conditions.map(c => c.label)).toEqual(['none-cpu1x']);
+    expect(conditions[0].racers.map(r => r.name)).toEqual(['lauda']);
+  });
+
   it('skips a condition that raced without video but keeps the rest', () => {
     const html = buildConditionIndexHtml('lauda vs hunt', [
       { label: 'no-video', network: 'none', cpu: 1, summary: summaryOf({ lauda: 1, hunt: 2 }, 'lauda') },
