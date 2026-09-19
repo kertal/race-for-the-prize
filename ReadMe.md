@@ -80,36 +80,13 @@ What does caching cost, and when does it pay back? [HushHushDB](https://kertal.g
 race-for-the-prize demo:caching-comparison
 ```
 
-Both halves are timed, because encryption is not free on either side of the cache. **Fetch and store** is the price paid up front — the app renders only once the write finishes. **Return to data** is the payback — the app reopens the mode against the warm cache without reloading the page — and it separates the two costs cleanly: decrypting is a CPU cost that ignores the network, refetching is a network cost that ignores the CPU.
 
-```text
-  ⏱ Return to data     encrypted   plain   no-cache
-  none    · CPU 1x       0.190s   0.133s     0.068s
-  slow-3g · CPU 1x       0.189s   0.150s     4.332s   ← same CPU, 25x slower link
-  none    · CPU 4x       0.496s   0.306s     0.127s   ← same link, 4x slower CPU
-```
+## The calibration! To test multi clip alignment works
 
-Six conditions (three networks x two CPU rates), three runs each, reported as medians — the whole thing takes about nine minutes:
+![The calibration— side-by-side race replay](assets/demos/race_alpha_vs_bravo_vs_charlie_vs_delta.gif)
 
-```text
-  ⚡ Performance Matrix
-  Network  CPU 1x                     CPU 4x
-  none     🏆 no-cache        0.171s  🏆 no-cache        0.345s
-              plain-cache     0.300s     plain-cache     0.849s
-              encrypted-cache 0.393s     encrypted-cache 1.179s
+[The summary](assets/demos/race_alpha_vs_bravo_vs_charlie_vs_delta.html)
 
-  fast-3g  🏆 plain-cache     2.059s  🏆 plain-cache     2.571s
-              encrypted-cache 2.138s     no-cache        2.867s
-              no-cache        3.164s     encrypted-cache 2.920s
-
-  slow-3g  🏆 plain-cache     4.583s  🏆 plain-cache     5.062s
-              encrypted-cache 4.667s     encrypted-cache 5.404s
-              no-cache        8.217s     no-cache        7.917s
-```
-
-On a free network the write cost makes caching pure overhead and skipping it wins outright; by slow-3g caching wins by three and a half seconds. Encryption is the smaller effect but a remarkably steady one: on the read it costs 40–60ms at CPU 1x and around 190ms at CPU 4x, in every network condition. Switch the metric picker in `index.html` to **Network Transfer** under *Total Recording* for the blunt version: the cached racers move 380 KB over the whole run, no-cache 594 KB — the extra 214 KB is the dataset, fetched a second time.
-
-Single runs of a live site wobble enough to flip cells, so `settings.json` asks for three. Drop it to `"runs": 1` if you would rather have the answer in three minutes.
 
 ## Demo Races
 

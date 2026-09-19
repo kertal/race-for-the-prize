@@ -54,7 +54,7 @@ style: |
 <br>
 
 - Lighthouse score: **72 → 81** — *which change did it?*
-- LCP improved by 34% — *can you actually see that?*
+- LCP (Largest Contentful Paint) improved by 34% — *can you actually see that?*
 - CI is red — *what exactly regressed?*
 
 <br>
@@ -70,8 +70,8 @@ style: |
 
 <br>
 
-- Write **Playwright `.spec.js` scripts** — one per contender
-- Add **3 race API calls** to define start, stop, recording
+- Write **Playwright `.spec.js` scripts** — one per racer
+- Add simple **API calls** to define start, stop, recording
 - Run the CLI — get video, timings, and a full report
 
 <br>
@@ -125,7 +125,6 @@ await page.raceRecordingEnd();
 <br>
 
 - **Production vs. Staging** — checkout flow, login, search
-- **React vs. Svelte vs. Angular** — same app, real numbers
 - **Feature flag on vs. off** — lazy loading, third-party scripts
 - **Weekly in CI** — fail the build if performance regresses
 
