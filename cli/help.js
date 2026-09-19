@@ -36,10 +36,10 @@ export function resolveInvocation(argv1 = process.argv[1]) {
   // `npx race-for-the-prize` stages the package in a cache dir; the shim is
   // gone once the command finishes, so npx is the only way to run it again.
   if (posix.includes('/_npx/')) return { cmd: `npx ${PKG_NAME}`, installed: true };
-  // A global install puts the bin on PATH under its own name.
-  if (base === PKG_NAME) return { cmd: PKG_NAME, installed: true };
   // A project dependency: reachable through npx (or package.json scripts).
   if (posix.includes('/node_modules/')) return { cmd: `npx ${PKG_NAME}`, installed: true };
+  // A global install puts the bin on PATH under its own name.
+  if (base === PKG_NAME) return { cmd: PKG_NAME, installed: true };
 
   return local;
 }
