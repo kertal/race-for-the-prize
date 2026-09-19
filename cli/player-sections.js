@@ -423,7 +423,7 @@ export function buildFilesHtml(racers, videoFiles, options) {
   }
   if (raceScriptFiles && raceScriptFiles.length > 0) {
     for (const f of raceScriptFiles) {
-      links.push(render(T['file-link'], { href: escHtml(f), attrs: 'title="Race script \u2014 rerun with: node race.js &lt;dir&gt;"', text: `${escHtml(f)} (script)` }));
+      links.push(render(T['file-link'], { href: escHtml(f), attrs: 'title="Race script \u2014 rerun with: race-for-the-prize &lt;dir&gt;"', text: `${escHtml(f)} (script)` }));
     }
   }
   if (settingsFileCopied) {

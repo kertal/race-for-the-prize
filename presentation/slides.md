@@ -44,7 +44,7 @@ style: |
 
 <br>
 
-*A Playwright-powered CLI benchmarking tool*
+*A Playwright-powered CLI benchmarking tool — `npx race-for-the-prize`*
 
 ---
 
@@ -77,7 +77,8 @@ style: |
 <br>
 
 ```bash
-node race.js ./races/lauda-vs-hunt
+npx race-for-the-prize demo:lauda-vs-hunt   # a bundled race, no clone needed
+npx race-for-the-prize ./races/my-race      # your own
 ```
 
 ---
@@ -167,16 +168,18 @@ await page.raceRecordingEnd();
 
 <br>
 
-**1.** `npm install && npx playwright install chromium`
+**1.** `npx race-for-the-prize demo:lauda-vs-hunt`
 
-**2.** `node race.js ./races/lauda-vs-hunt`
+**2.** `npx race-for-the-prize --init my-race`
 
 **3.** Pick a winner.
 
 <br>
 
-Built-in races: `lauda-vs-hunt` · `lebron-vs-curry` · `react-vs-angular`
+Racing often? `npm install -g race-for-the-prize` — then just `race-for-the-prize …`
+
+Bundled demos: `lauda-vs-hunt` · `lebron-vs-curry` · `react-vs-angular` · `caching-comparison`
 
 <br>
 
-> *"May the fastest browser win."*
+> *"May the fastest browser win."* — [npmjs.com/package/race-for-the-prize](https://www.npmjs.com/package/race-for-the-prize)
