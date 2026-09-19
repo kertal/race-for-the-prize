@@ -493,9 +493,15 @@ function filmClip(clip) {
  * then the path within it. Every segment is encoded on its own — racer names
  * come from file names and may carry a '#' or '?', which a browser would read
  * as the end of the path — while the slashes between them stay slashes.
+ *
+ * Null when the path cannot be expressed inside the condition's directory: a
+ * '.' or '..' segment is a step out of it however it is encoded (a browser
+ * normalises '%2e%2e' exactly like '..'), and an empty one is not a name.
  */
 function filmSrc(label, file) {
-  return [label, ...file.split('/')].map(encodeURIComponent).join('/');
+  const segments = [label, ...file.split('/')];
+  if (segments.some(segment => segment === '' || segment === '.' || segment === '..')) return null;
+  return segments.map(encodeURIComponent).join('/');
 }
 
 /**

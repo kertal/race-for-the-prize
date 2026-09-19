@@ -781,6 +781,19 @@ describe('buildConditionIndexHtml film', () => {
     ]);
   });
 
+  it('refuses a recording path that would step out of the condition directory', () => {
+    // A racer whose name is a dot segment (a file called "..spec.js" yields
+    // ".") has no URL inside its own directory — browsers normalise dot
+    // segments whether or not they are percent-encoded — so it stays out.
+    const html = buildConditionIndexHtml('lauda vs hunt', [{
+      ...recorded('none-cpu1x', 1, 'lauda'),
+      summary: summaryOf({ lauda: 1, '..': 2 }, 'lauda'),
+      videoFiles: ['lauda/lauda.race.webm', '../...race.webm'],
+    }]);
+
+    expect(filmConditionsOf(html)[0].racers.map(r => r.name)).toEqual(['lauda']);
+  });
+
   it('leaves out a racer whose recording never materialised', () => {
     // A run can lose one racer's video (the browser crashed, the file was never
     // written): its path arrives as null, and the film plays the others.

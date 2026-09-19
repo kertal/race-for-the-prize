@@ -1086,6 +1086,10 @@ function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts
 
   progress.done('Recordings processed');
 
+  // Nothing was recorded: no player to write, exactly as the normal-mode path
+  // has it, and nothing for a film to play either.
+  if (settings.noRecording) return { summary, clipTimes: null, videoFiles: null };
+
   const clipTimes = buildClipTimes(racerNames, (ri) => runRawResults[ri].browsers?.[0], ffmpeg);
 
   const videoFiles = racerNames.map(name => racerRelative(name, raceVideoFile(name)));
@@ -1101,10 +1105,9 @@ function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts
     raceDir: ctx.raceDir,
   });
 
-  // The paths above follow the naming convention whether or not anything was
-  // recorded. Report a racer's as a recording only where one actually landed —
-  // under --no-recording that is nowhere — so a condition overview never offers
-  // a film of files that don't exist.
+  // The paths above follow the naming convention whether or not a racer's
+  // recording landed. Report one only where it did, so a condition overview
+  // never offers a film of files that don't exist.
   const recordings = runMovedResults.map((moved, i) => (moved?.videoPath ? videoFiles[i] : null));
   return { summary, clipTimes, videoFiles: recordings };
 }
