@@ -46,7 +46,7 @@ h1 {
   height: var(--checker-size);
   background:
     repeating-conic-gradient(var(--checker-color-a) 0% 25%, var(--checker-color-b) 0% 50%)
-    0 0 / var(--checker-size) var(--checker-size);
+    0 0 / var(--checker-tile) var(--checker-tile);
   position: fixed;
   top: 0;
   left: 0;

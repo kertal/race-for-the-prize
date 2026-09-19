@@ -14,7 +14,7 @@
 body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-ui); }
 .checkered-bar { height: var(--checker-size);
                  background: repeating-conic-gradient(var(--checker-color-a) 0% 25%, var(--checker-color-b) 0% 50%)
-                             0 0 / var(--checker-size) var(--checker-size); }
+                             0 0 / var(--checker-tile) var(--checker-tile); }
 .wrap { max-width: 1200px; margin: 0 auto; padding: 2rem var(--gutter) 3rem; }
 h1 { font-family: var(--font-display); font-size: var(--font-size-4xl); color: var(--accent);
      text-align: center; text-transform: uppercase; letter-spacing: var(--tracking-widest); margin: 0 0 0.5rem; }

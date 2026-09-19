@@ -129,7 +129,16 @@
   --play-btn-width: 44px;
 
   /* --- Ornament --------------------------------------------------------- */
+  /* Height of the bar, and the gutter the page reserves so nothing hides
+     under it. Keep it a whole multiple of --checker-square or the last row of
+     the flag is clipped mid-square. */
   --checker-size: 20px;
+  /* One square of the flag. The bar stacks --checker-size / --checker-square
+     rows of them, so smaller squares read as more of a chequered flag and less
+     as a row of blocks. Whole pixels only — a fraction blurs at 1x. */
+  --checker-square: 5px;
+  /* One repeat of the conic gradient covers a 2x2 block of squares. */
+  --checker-tile: calc(var(--checker-square) * 2);
   --checker-color-a: var(--color-black);
   --checker-color-b: var(--color-white);
 

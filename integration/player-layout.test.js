@@ -190,6 +190,27 @@ describeMaybe('player controls layout', () => {
     expect(panels.settings.accent).not.toBe(panels.calibration.accent);
   });
 
+  it('fills the checkered bar with whole rows of squares', async () => {
+    // The bar draws a 2x2 conic tile, so it reads as a flag only if several
+    // rows of squares fit in its height — and only if they fit exactly. A
+    // height that is not a whole multiple clips the bottom row mid-square.
+    for (const skin of [undefined, ...listSkins()]) {
+      const url = writePlayer(`checkers-${skin || 'default'}`, skin ? { skin } : {});
+      await page.goto(url);
+      const flag = await page.evaluate(() => {
+        const bar = document.querySelector('.checkered-bar');
+        const style = getComputedStyle(bar);
+        const [tile] = style.backgroundSize.split(' ').map(Number.parseFloat);
+        return { height: Number.parseFloat(style.height), square: tile / 2 };
+      });
+      const rows = flag.height / flag.square;
+      expect.soft(rows, `${skin || 'default'} rows`).toBeGreaterThanOrEqual(4);
+      expect.soft(rows % 1, `${skin || 'default'} partial row`).toBe(0);
+      // Fractional squares blur, since they cannot land on device pixels at 1x.
+      expect.soft(flag.square % 1, `${skin || 'default'} square`).toBe(0);
+    }
+  });
+
   it('wraps rather than crushing the scrubber once the row runs out of width', async () => {
     await page.goto(writePlayer('wrap', { clipTimes }));
     await page.setViewportSize({ width: SINGLE_ROW_WIDTH, height: 800 });

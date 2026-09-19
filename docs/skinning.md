@@ -130,7 +130,8 @@ Ornament and media:
 
 | Token | Role |
 |---|---|
-| `--checker-size`, `--checker-color-a`, `--checker-color-b` | The chequered bars |
+| `--checker-size`, `--checker-color-a`, `--checker-color-b` | The chequered bars — bar height and the two square colours |
+| `--checker-square` | One square of the flag; the bar stacks `--checker-size / --checker-square` rows of them. Keep it a whole pixel that divides `--checker-size` evenly |
 | `--select-arrow` | Dropdown arrow, as a full `url()` — the fill colour is baked into the data URI, so replace the whole image |
 | `--video-bg`, `--video-border-width`, `--video-border-color` | The video frames |
 
