@@ -49,6 +49,28 @@ describe('buildGeminiPrompt', () => {
     expect(prompt).toContain('Overall winner: lauda');
   });
 
+  it('labels the percentage as how much slower the slowest racer was', () => {
+    // 1.2s vs 1.8s: diffPercent is 50 (relative to the winner), so the winner
+    // was not "50% faster" — the loser was 50% slower.
+    const prompt = buildGeminiPrompt(baseSummary);
+    expect(prompt).toContain('slowest was 50.0% slower');
+    expect(prompt).not.toContain('% faster');
+  });
+
+  it('counts wins against section measurements, not the synthetic total row', () => {
+    const summary = {
+      ...baseSummary,
+      comparisons: [
+        ...baseSummary.comparisons,
+        { name: 'Render', racers: [{ duration: 0.5 }, { duration: 0.9 }], winner: 'lauda', diff: 0.4, diffPercent: 80, rankings: ['lauda', 'hunt'] },
+        { name: 'Race', racers: [{ duration: 1.7 }, { duration: 2.7 }], winner: 'lauda', diff: 1.0, diffPercent: 58.8, rankings: ['lauda', 'hunt'], isSyntheticTotal: true },
+      ],
+      wins: { lauda: 2, hunt: 0 },
+    };
+    const prompt = buildGeminiPrompt(summary);
+    expect(prompt).toContain('won 2 of 2 measurements');
+  });
+
   it('includes machine info', () => {
     const prompt = buildGeminiPrompt(baseSummary);
     expect(prompt).toContain('Intel Core i9');
