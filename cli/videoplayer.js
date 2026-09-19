@@ -220,13 +220,9 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     debugPanel: debugPanelOut,
     results: buildResultsHtml(summary.comparisons || [], racers),
     runComparison: buildRunComparisonHtml(runSummaries || null, summary, racers),
-    profileSummary: buildProfileSummaryHtml({
-      ...profileComparison,
-      sectionComparisons: summary.comparisons || [],
-    }, racers),
+    profileSummary: buildProfileSummaryHtml(profileComparison, racers),
     profile: buildProfileHtml({
       ...profileComparison,
-      sectionComparisons: summary.comparisons || [],
       rawProfileMetrics: summary.profileMetrics || [],
     }, racers),
     files: buildFilesHtml(racers, videoFiles, {

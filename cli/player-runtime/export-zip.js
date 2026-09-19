@@ -97,7 +97,7 @@ function stripSlimSections(doc) {
   removeEl(doc, '#settingsPanel');
   removeEl(doc, '#settingsToggle');
   const shBtn = doc.querySelector('#shareToggle');
-  if (shBtn) { const group = shBtn.closest('.header-icon-group'); if (group) group.remove(); else shBtn.remove(); }
+  if (shBtn) { const group = shBtn.closest('.control-action-group'); if (group) group.remove(); else shBtn.remove(); }
 }
 
 // Clear dynamically-built UI so the script rebuilds it cleanly on load.

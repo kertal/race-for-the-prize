@@ -1,7 +1,7 @@
 {
   "name": "race-for-the-prize",
   "version": "0.10.0",
-  "description": "🏁 Race browsers head-to-head and crown a champion 🏆 ",
+  "description": "🏁 Race browsers head-to-head and crown a champion 🏆",
   "type": "module",
   "bin": {
     "race-for-the-prize": "./race.js"

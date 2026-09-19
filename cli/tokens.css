@@ -123,6 +123,9 @@
   --content-max: 900px;
   --gutter: 1.5rem;
   --control-size: 34px;
+  /* Secondary actions (fullscreen, export, settings, calibration) — smaller
+     than the transport buttons so the emoji glyphs stop dominating the bar. */
+  --control-size-sm: 26px;
   --play-btn-width: 44px;
 
   /* --- Ornament --------------------------------------------------------- */

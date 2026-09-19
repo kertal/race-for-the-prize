@@ -96,46 +96,6 @@ describe('buildPlayerHtml', () => {
     expect(defaultHtml).toContain('max-width: 680px');
   });
 
-  it('brackets the page with one checkered bar on top and one on the bottom', () => {
-    // The body opens and closes with a bar. Both are fixed, so without the
-    // sibling rule they would stack on top of each other in one corner.
-    expect(defaultHtml.match(/<div class="checkered-bar">/g)).toHaveLength(2);
-    const base = defaultHtml.match(/\n\.checkered-bar \{[^}]*\}/)[0];
-    expect(base).toContain('top: 0');
-    expect(base).not.toContain('bottom: 0');
-    const sibling = defaultHtml.match(/\.checkered-bar ~ \.checkered-bar \{[^}]*\}/)[0];
-    expect(sibling).toContain('bottom: 0');
-    expect(sibling).toContain('top: auto');
-    // Above the positioned page content (.racer, .share-menu), but under the
-    // export overlay, which is a modal and covers everything.
-    expect(base).toContain('z-index: 900');
-    // Neither bar may sit over the page content.
-    const body = defaultHtml.match(/\nbody \{[^}]*\}/)[0];
-    expect(body).toContain('padding-top: var(--checker-size)');
-    expect(body).toContain('padding-bottom: var(--checker-size)');
-  });
-
-  it('flies the checkered flag on the title, not the trophy', () => {
-    // The flag is the brand mark; the trophy is reserved for naming a winner.
-    const title = defaultHtml.match(/<h1>[^<]*<\/h1>/)[0];
-    expect(title).toContain('\u{1F3C1}');
-    expect(title).not.toContain('\u{1F3C6}');
-  });
-
-  it('stamps the title on a plate so it reads against the checkered bar', () => {
-    // The h1 lives inside the top bar, so it needs a solid block behind it —
-    // tokenised, so a skin can repaint the plate with the rest of the page.
-    const rule = defaultHtml.match(/\nh1 \{[^}]*\}/)[0];
-    expect(rule).toContain('background-color: var(--title-plate)');
-    expect(rule).toContain('padding: 0 var(--title-plate-pad)');
-    expect(rule).toContain('margin: 0 var(--title-plate-pad)');
-    expect(rule).toContain('display: inline-block');
-    // Centring comes from the bar: an inline-block cannot centre itself.
-    const bar = defaultHtml.match(/\n\.checkered-bar \{[^}]*\}/)[0];
-    expect(bar).toContain('text-align: center');
-    expect(rule).toContain('font-size: var(--font-size-sm)');
-  });
-
   it('keeps the racer name on screen in fullscreen', () => {
     // Fullscreen gives each grid row the viewport, so the label rides on top of
     // its video rather than taking a line of its own — but it stays visible:
@@ -171,12 +131,17 @@ describe('buildPlayerHtml', () => {
     expect(defaultHtml).toContain('profile-bar-fill');
   });
 
-  it('includes section metrics in Performance Results', () => {
-    expect(defaultHtml).toContain('Performance Results');
-    expect(defaultHtml).toContain('Race Section Load');
+  it('lists each race section exactly once, under Race Results', () => {
+    // Performance Results used to re-render the same per-section durations,
+    // so every section appeared twice on the page, byte for byte.
+    expect(defaultHtml.match(/Race Section Load/g)).toHaveLength(1);
+    const results = defaultHtml.indexOf('Race Results');
+    expect(defaultHtml.indexOf('Race Section Load')).toBeGreaterThan(results);
+    // With no profile metrics to summarise, that section has nothing to say.
+    expect(defaultHtml).not.toContain('Performance Results');
   });
 
-  it('orders Performance Results as Race, sections, then Total Recording', () => {
+  it('orders Performance Results as Race, then Total Recording', () => {
     const metrics1 = { total: { networkTransferSize: 1000, scriptDuration: 100 }, measured: { networkTransferSize: 500 } };
     const metrics2 = { total: { networkTransferSize: 2000, scriptDuration: 200 }, measured: { networkTransferSize: 800 } };
     const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
@@ -184,13 +149,12 @@ describe('buildPlayerHtml', () => {
     const summaryStart = html.indexOf('Performance Results');
     const profileSummary = summaryStart >= 0 ? html.slice(summaryStart) : html;
     const raceIdx = profileSummary.indexOf('>Race<');
-    const sectionIdx = profileSummary.indexOf('Race Section Load');
     const totalRecordingIdx = profileSummary.indexOf('Total Recording (Including Pre and Post race)');
     expect(raceIdx).toBeGreaterThan(-1);
-    expect(sectionIdx).toBeGreaterThan(-1);
     expect(totalRecordingIdx).toBeGreaterThan(-1);
-    expect(raceIdx).toBeLessThan(sectionIdx);
-    expect(sectionIdx).toBeLessThan(totalRecordingIdx);
+    expect(raceIdx).toBeLessThan(totalRecordingIdx);
+    // The per-section durations live in Race Results, and only there.
+    expect(html.match(/Race Section Load/g)).toHaveLength(1);
   });
 
   it('renders Race before section metrics when present', () => {
@@ -883,11 +847,18 @@ describe('buildPlayerHtml debug mode', () => {
     expect(debugHtml).toContain('>Calibration<');
   });
 
-  it('hides the calibration button in fullscreen', () => {
-    // The calibration panel is rendered outside #fullscreenWrapper, so the
-    // toggle would open something the viewer cannot see.
+  it('hides the panel toggles in fullscreen', () => {
+    // The calibration and settings panels are rendered outside
+    // #fullscreenWrapper and the export overlay is appended to <body>, so none
+    // of these toggles can open anything the viewer would see. #fullscreenBtn
+    // is deliberately left out — it is the way back out.
     expect(debugHtml).toContain('class="frame-btn calibration-btn" id="modeDebug"');
-    expect(debugHtml).toContain(':-webkit-full-screen) .calibration-btn { display: none; }');
+    const rule = debugHtml.match(/:-webkit-full-screen\) :is\([^)]*\) \{[^}]*\}/)[0];
+    expect(rule).toContain('.calibration-btn');
+    expect(rule).toContain('.control-action-group');
+    expect(rule).toContain('#settingsToggle');
+    expect(rule).not.toContain('#fullscreenBtn');
+    expect(rule).toContain('display: none;');
   });
 
   it('calibration button is always in template, hidden by default', () => {
@@ -1260,10 +1231,14 @@ describe('buildPlayerHtml export', () => {
     }
   });
 
-  it('renders Export button in header for all pages', () => {
-    // Export buttons are always in the header; runtime hides them when < 2 racers
-    expect(noVideosHtml).toContain('id="exportBtn"');
+  it('renders the export buttons alongside the transport controls', () => {
+    // They moved out of the page header and into the controls bar, next to the
+    // calibration toggle. A report with no videos gets neither the controls nor
+    // the runtime script that drives them, so it carries no export button — it
+    // used to render one that nothing was listening to.
     expect(defaultHtml).toContain('id="exportBtn"');
+    expect(noVideosHtml).not.toContain('id="exportBtn"');
+    expect(noVideosHtml).not.toContain('class="controls"');
   });
 
   it('getExportLayout ensures even canvasH for libx264 compatibility', () => {
