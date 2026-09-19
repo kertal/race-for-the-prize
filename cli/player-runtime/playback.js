@@ -761,19 +761,34 @@ document.addEventListener('keydown', (e) => {
 });
 
 // --- Notes: persist in localStorage ---
+//
+// The key is scoped to this one report: the build stamps every report with a
+// storageScope (its results path, e.g. "lauda-vs-hunt-3f9a2c1d/results-…/slow-3g/2"),
+// so the notes of one condition or run never show up on another — even when
+// the same local server later serves a different race at the same URL.
+// Reports built without a scope fall back to their path.
 
 const notesTextarea = document.getElementById('notesTextarea');
 if (notesTextarea) {
-  const notesKey = 'race-notes:' + location.pathname;
+  const notesKey = 'race-notes:' + (raceConfig.storageScope || location.pathname);
   try {
     const stored = localStorage.getItem(notesKey);
     // Use stored value if present; otherwise keep any baked-in content (from export)
     if (stored !== null) notesTextarea.value = stored;
   } catch (e) { /* storage unavailable (privacy mode / sandboxed) */ }
 
-  let notesTimer;
-  const saveNotes = () => { try { localStorage.setItem(notesKey, notesTextarea.value); } catch (e) {} };
-  notesTextarea.addEventListener('input', () => { clearTimeout(notesTimer); notesTimer = setTimeout(saveNotes, 400); });
+  // Only notes the viewer actually edited are written: browsing a multi-run or
+  // multi-condition race must not leave one empty entry per report behind.
+  let notesTimer, notesEdited = false;
+  const saveNotes = () => {
+    if (!notesEdited) return;
+    try { localStorage.setItem(notesKey, notesTextarea.value); } catch (e) {}
+  };
+  notesTextarea.addEventListener('input', () => {
+    notesEdited = true;
+    clearTimeout(notesTimer);
+    notesTimer = setTimeout(saveNotes, 400);
+  });
   notesTextarea.addEventListener('blur', saveNotes);
   window.addEventListener('beforeunload', saveNotes, { once: true });
 }
