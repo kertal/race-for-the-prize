@@ -14,40 +14,35 @@ const strip = s => s.replace(/\x1b\[[0-9;]*m/g, '');
 
 describe('resolveInvocation', () => {
   it('uses the bare bin name for a global install', () => {
-    expect(resolveInvocation(`/usr/local/bin/${PKG_NAME}`)).toEqual({ cmd: PKG_NAME, installed: true });
+    expect(resolveInvocation(`/usr/local/bin/${PKG_NAME}`)).toBe(PKG_NAME);
   });
 
   it('uses npx for a one-off npx run (the shim does not survive it)', () => {
-    const argv1 = `/home/me/.npm/_npx/9f3/node_modules/.bin/${PKG_NAME}`;
-    expect(resolveInvocation(argv1)).toEqual({ cmd: `npx ${PKG_NAME}`, installed: true });
+    expect(resolveInvocation(`/home/me/.npm/_npx/9f3/node_modules/.bin/${PKG_NAME}`)).toBe(`npx ${PKG_NAME}`);
   });
 
   it('uses npx for a project dependency', () => {
-    const argv1 = `/work/app/node_modules/${PKG_NAME}/race.js`;
-    expect(resolveInvocation(argv1)).toEqual({ cmd: `npx ${PKG_NAME}`, installed: true });
+    expect(resolveInvocation(`/work/app/node_modules/${PKG_NAME}/race.js`)).toBe(`npx ${PKG_NAME}`);
   });
 
   it('uses npx for a project-local bin shim, whose name matches the global one', () => {
-    const argv1 = `/work/app/node_modules/.bin/${PKG_NAME}`;
-    expect(resolveInvocation(argv1)).toEqual({ cmd: `npx ${PKG_NAME}`, installed: true });
+    expect(resolveInvocation(`/work/app/node_modules/.bin/${PKG_NAME}`)).toBe(`npx ${PKG_NAME}`);
   });
 
   it('handles the Windows bin shim and separators', () => {
-    expect(resolveInvocation(`C:\\Users\\me\\AppData\\npm\\${PKG_NAME}.cmd`))
-      .toEqual({ cmd: PKG_NAME, installed: true });
+    expect(resolveInvocation(`C:\\Users\\me\\AppData\\npm\\${PKG_NAME}.cmd`)).toBe(PKG_NAME);
   });
 
   it('falls back to node race.js for a git checkout', () => {
-    expect(resolveInvocation('/home/me/race-for-the-prize/race.js'))
-      .toEqual({ cmd: 'node race.js', installed: false });
-    expect(resolveInvocation('')).toEqual({ cmd: 'node race.js', installed: false });
-    expect(resolveInvocation(null)).toEqual({ cmd: 'node race.js', installed: false });
+    expect(resolveInvocation('/home/me/race-for-the-prize/race.js')).toBe('node race.js');
+    expect(resolveInvocation('')).toBe('node race.js');
+    expect(resolveInvocation(null)).toBe('node race.js');
   });
 });
 
 describe('buildHelp', () => {
-  const installedHelp = () => strip(buildHelp(resolveInvocation(`/usr/local/bin/${PKG_NAME}`)));
-  const checkoutHelp = () => strip(buildHelp(resolveInvocation('/repo/race.js')));
+  const installedHelp = () => strip(buildHelp(PKG_NAME));
+  const checkoutHelp = () => strip(buildHelp('node race.js'));
 
   it('spells every example with the command the reader actually has', () => {
     const help = installedHelp();
@@ -68,13 +63,14 @@ describe('buildHelp', () => {
     expect(help).toContain('npx playwright install chromium');
   });
 
-  it('points npm users at --init, not at the races/ shipped inside the install', () => {
-    expect(installedHelp()).toContain(`Start here:  ${PKG_NAME} --init my-race`);
-    expect(checkoutHelp()).toContain('Start here:  node race.js ./races/lauda-vs-hunt');
+  it('sends every reader to a demo race, which needs no races/ of their own', () => {
+    expect(installedHelp()).toContain(`Try a demo:  ${PKG_NAME} demo:lauda-vs-hunt`);
+    expect(checkoutHelp()).toContain('Try a demo:  node race.js demo:lauda-vs-hunt');
+    expect(installedHelp()).toContain(`${PKG_NAME} demo — to list them all`);
   });
 
   it('lists the built-in skins it was given', () => {
-    const help = strip(buildHelp({ cmd: PKG_NAME, installed: true, skins: ['light', 'neon'] }));
+    const help = strip(buildHelp(PKG_NAME, ['light', 'neon']));
     expect(help).toContain('light, neon, or a path to a .css file');
   });
 
@@ -124,7 +120,7 @@ describe('CLI parting screens', () => {
     expect(status).toBe(0);
     expect(stderr).toBe('');
     expect(stdout).toContain('Race two browsers');
-    expect(strip(stdout).trimEnd()).toMatch(/Start here: {2}node race\.js \.\/races\/lauda-vs-hunt$/);
+    expect(strip(stdout).trimEnd()).toMatch(/Try a demo: {2}node race\.js demo:lauda-vs-hunt$/);
   });
 
   it('prints the package version on stdout and exits 0', () => {
@@ -139,6 +135,6 @@ describe('CLI parting screens', () => {
     expect(status).toBe(1);
     expect(stdout).toBe('');
     expect(stderr).toContain('Race two browsers');
-    expect(strip(stderr).trimEnd()).toMatch(/Start here: {2}node race\.js \.\/races\/lauda-vs-hunt$/);
+    expect(strip(stderr).trimEnd()).toMatch(/Try a demo: {2}node race\.js demo:lauda-vs-hunt$/);
   });
 });

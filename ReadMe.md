@@ -114,6 +114,45 @@ npx race-for-the-prize --init my-race
 npx race-for-the-prize my-race
 ```
 
+### Demo races
+
+The races from this ReadMe ship with the package, so you can watch a real race before writing one:
+
+```bash
+race-for-the-prize demo                   # list the demo races
+race-for-the-prize demo:lauda-vs-hunt     # run one
+```
+
+| Command | Race |
+|---|---|
+| `demo:lauda-vs-hunt` | The classic rivalry — two Wikipedia pages, scrolled to the bottom |
+| `demo:lebron-vs-curry` | The GOAT debate — dribble three times, then race back to the top |
+| `demo:react-vs-angular` | Framework cage match — React, Angular, Svelte and htmx, four racers |
+| `demo:caching-comparison` | Encrypted cache vs plain cache vs no cache, both halves timed |
+
+The demo has to be copied out of the package into `./races/<name>/` before it can run, so results land next to your work and the specs are yours to edit. The first run lists the files and asks before writing anything:
+
+```text
+Demo race lauda-vs-hunt needs these files in races/lauda-vs-hunt/
+  hunt.spec.js
+  lauda.spec.js
+  settings.json
+Copy them there and start the race? [Y/n]
+```
+
+Answer `n` and nothing is written — the race is cancelled. A later run reuses your copy and never overwrites a file you edited, so it only asks again if something is missing. In scripts and CI, where there is nobody to ask, pass `--yes`:
+
+```bash
+race-for-the-prize demo:lauda-vs-hunt --yes
+```
+
+Every other flag works as usual:
+
+```bash
+race-for-the-prize demo:caching-comparison --network=slow-3g --runs=3
+race-for-the-prize demo:lauda-vs-hunt --results   # view past results
+```
+
 ## Building Your Own Grand Prix
 
 Every race needs at least two contenders (up to five). RaceForThePrize supports two modes:

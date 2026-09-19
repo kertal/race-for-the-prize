@@ -21,13 +21,10 @@ export const PKG_NAME = 'race-for-the-prize';
  * spell the command.
  *
  * @param {string} [argv1] - process.argv[1] (the script or bin shim path)
- * @returns {{ cmd: string, installed: boolean }} `cmd` is the command to put in
- *   front of every example; `installed` is true when running from an npm
- *   install, where the bundled `races/` directory is not in the user's cwd and
- *   examples must not point at it.
+ * @returns {string} the command to put in front of every example
  */
 export function resolveInvocation(argv1 = process.argv[1]) {
-  const local = { cmd: 'node race.js', installed: false };
+  const local = 'node race.js';
   if (!argv1) return local;
 
   const posix = String(argv1).replace(/\\/g, '/');
@@ -35,11 +32,11 @@ export function resolveInvocation(argv1 = process.argv[1]) {
 
   // `npx race-for-the-prize` stages the package in a cache dir; the shim is
   // gone once the command finishes, so npx is the only way to run it again.
-  if (posix.includes('/_npx/')) return { cmd: `npx ${PKG_NAME}`, installed: true };
+  if (posix.includes('/_npx/')) return `npx ${PKG_NAME}`;
   // A project dependency: reachable through npx (or package.json scripts).
-  if (posix.includes('/node_modules/')) return { cmd: `npx ${PKG_NAME}`, installed: true };
+  if (posix.includes('/node_modules/')) return `npx ${PKG_NAME}`;
   // A global install puts the bin on PATH under its own name.
-  if (base === PKG_NAME) return { cmd: PKG_NAME, installed: true };
+  if (base === PKG_NAME) return PKG_NAME;
 
   return local;
 }
@@ -47,20 +44,12 @@ export function resolveInvocation(argv1 = process.argv[1]) {
 /**
  * Render the help screen.
  *
- * @param {object} [options]
- * @param {string} [options.cmd] - command prefix for the examples
- * @param {boolean} [options.installed] - running from an npm install
- * @param {string[]} [options.skins] - built-in skin names
+ * @param {string} [cmd] - command prefix for every example
+ * @param {string[]} [skins] - built-in skin names
  * @returns {string} the full help text, ANSI-colored
  */
-export function buildHelp({ cmd, installed, skins = listSkins() } = resolveInvocation()) {
+export function buildHelp(cmd = resolveInvocation(), skins = listSkins()) {
   const run = cmd || 'node race.js';
-  const fromNpm = installed ?? run !== 'node race.js';
-  // The shipped races/ live inside the install, not in the user's project, so
-  // an npm reader gets --init as their starting line instead.
-  const firstRace = fromNpm
-    ? `${run} --init my-race`
-    : `${run} ./races/lauda-vs-hunt`;
   const rule = `${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}`;
 
   return `
@@ -75,6 +64,7 @@ ${c.dim}  Race two browsers. Measure everything. Crown a winner.  🏎️ 💨${
 ${c.bold}  Usage:${c.reset}
 ${rule}
   ${c.cyan}${run}${c.reset} ${c.cyan}<url> <url> [url...]${c.reset}   Race page loads head-to-head (2–5 URLs)
+  ${c.cyan}${run}${c.reset} ${c.magenta}demo:${c.cyan}<name>${c.reset}            Race one of the demos shipped with the CLI
   ${c.cyan}${run}${c.reset} ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset}           Scaffold a race directory (default: my-race/)
   ${c.cyan}${run}${c.reset} ${c.cyan}<dir>${c.reset} ${c.yellow}[flags]${c.reset}          Run a scripted race
 
@@ -97,6 +87,15 @@ ${rule}
   Pass 2+ URLs and RaceForThePrize writes the specs for you:
 
      ${c.bold}$${c.reset} ${c.cyan}${run} https://react.dev https://angular.dev${c.reset}
+
+${c.bold}  Demo Races:${c.reset}
+${rule}
+  No race of your own yet? Race one that ships with the CLI:
+
+     ${c.bold}$${c.reset} ${c.cyan}${run} ${c.magenta}demo:${c.cyan}lauda-vs-hunt${c.reset}   ${c.dim}# ${run} demo — to list them all${c.reset}
+
+  ${c.dim}The demo is copied to ./races/<name>/ first — it asks before writing,${c.reset}
+  ${c.dim}and --yes skips the question. Edit the copy and race it again.${c.reset}
 
 ${c.bold}  Scripted Race:${c.reset}
 ${rule}
@@ -160,11 +159,12 @@ ${rule}
   ${c.yellow}--serve${c.reset}=${c.green}0${c.reset}              Don't start local results server (CI/headless; open index.html manually)
   ${c.yellow}--gemini${c.reset}               Gemini CLI sports reporter commentary after race
   ${c.yellow}--gemini-spec${c.reset}=${c.green}"prompt"${c.reset} With ${c.yellow}--init${c.reset}: generate specs via Gemini + Playwright HTML research
+  ${c.yellow}--yes${c.reset}                  With ${c.magenta}demo:${c.cyan}<name>${c.reset}: copy the demo race without being asked
   ${c.yellow}--verbose${c.reset}              Print runner output as the race runs
   ${c.yellow}--help${c.reset}                 Show this help
   ${c.yellow}--version${c.reset}              Print the installed version
 
 ${c.dim}  All flags except --results work with both URL mode and directory mode.${c.reset}
-${c.dim}  Start here:  ${firstRace}${c.reset}
+${c.dim}  Try a demo:  ${run} demo:lauda-vs-hunt${c.reset}
 `;
 }

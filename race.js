@@ -39,6 +39,7 @@ import { buildPlayerHtml } from './cli/videoplayer.js';
 import { buildRunNavHtml } from './cli/player-sections.js';
 import { buildHelp, resolveInvocation } from './cli/help.js';
 import { runGeminiSummary, runGeminiSpec } from './cli/gemini-summary.js';
+import { parseDemoArg, planDemo, copyDemo, formatDemoList, UnknownDemoError } from './cli/demos.js';
 import { buildResultsPaths, createStaticHandler, serveResults } from './cli/serve.js';
 import { loadRaceDir, applySettingsOrExit } from './cli/race-loader.js';
 import { runScript as runTaskScript } from './cli/task-runner.js';
@@ -155,6 +156,58 @@ export async function waitForEnter(message) {
     process.stdin.once('data', onData);
     process.stdin.once('end', onDone);
     process.stdin.once('error', onDone);
+    process.once('SIGINT', onSigint);
+    process.once('SIGTERM', onSigterm);
+  });
+}
+
+/**
+ * Ask a yes/no question and resolve to the answer.
+ * - Bare Enter takes `defaultYes`; anything starting with y/n decides it.
+ * - Resolves to `null` in non-TTY environments — there is nobody to ask, so
+ *   the caller decides whether that is fatal or fine.
+ * - Throws AbortError if SIGINT/SIGTERM arrives (or already aborted).
+ */
+export async function confirm(message, { defaultYes = true, input = process.stdin, output = process.stderr } = {}) {
+  if (!input.isTTY) return null;
+  if (abortState.aborted) {
+    const sig = abortState.reason || 'SIGINT';
+    throw new AbortError(`Aborted (${sig})`, signalExitCode(sig));
+  }
+
+  output.write(message);
+  input.resume();
+
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      input.removeListener('data', onData);
+      input.removeListener('end', onDone);
+      input.removeListener('error', onDone);
+      process.removeListener('SIGINT', onSigint);
+      process.removeListener('SIGTERM', onSigterm);
+      input.pause();
+    };
+
+    const onData = (chunk) => {
+      cleanup();
+      const answer = String(chunk).trim().toLowerCase();
+      if (answer === '') return resolve(defaultYes);
+      resolve(answer.startsWith('y'));
+    };
+    // Closed stdin (EOF) is not a yes.
+    const onDone = () => { cleanup(); resolve(false); };
+    const abort = (sig) => {
+      abortState.aborted = true;
+      abortState.reason = sig;
+      cleanup();
+      reject(new AbortError(`Aborted by user (${sig})`, signalExitCode(sig)));
+    };
+    const onSigint = () => abort('SIGINT');
+    const onSigterm = () => abort('SIGTERM');
+
+    input.once('data', onData);
+    input.once('end', onDone);
+    input.once('error', onDone);
     process.once('SIGINT', onSigint);
     process.once('SIGTERM', onSigterm);
   });
@@ -751,7 +804,7 @@ ${c.green}${c.bold}✓ Race scaffolded with Gemini:${c.reset} ${c.cyan}${path.re
   ${c.dim}settings.json${c.reset}
 
 ${c.bold}Run it:${c.reset}
-  ${c.cyan}${invocation.cmd} ${path.relative(process.cwd(), targetDir)}${c.reset}
+  ${c.cyan}${invocation} ${path.relative(process.cwd(), targetDir)}${c.reset}
 `);
     } catch (e) {
       console.error(`${c.red}Gemini spec generation failed: ${e.message}${c.reset}`);
@@ -779,7 +832,7 @@ ${c.green}${c.bold}✓ Race scaffolded:${c.reset} ${c.cyan}${path.relative(proce
   ${c.dim}settings.json${c.reset}    — tune parallel, headless, runs, network, cpu
 
 ${c.bold}Run it:${c.reset}
-  ${c.cyan}${invocation.cmd} ${path.relative(process.cwd(), targetDir)}${c.reset}
+  ${c.cyan}${invocation} ${path.relative(process.cwd(), targetDir)}${c.reset}
 `);
   process.exit(0);
 }
@@ -795,11 +848,62 @@ if (positional.length === 0) {
   printAndExit(process.stderr, buildHelp(invocation), 1);
 }
 
+// --- demo:<name>: run a race bundled with the package ---
+// `npx race-for-the-prize demo:lauda-vs-hunt` works from an empty directory —
+// the demo is copied into ./races/<name>/ and raced from there.
+
+let demoDir = null;
+const demoArg = parseDemoArg(positional[0]);
+if (demoArg) {
+  if (!demoArg.name) {
+    console.log(formatDemoList(c, invocation));
+    process.exit(0);
+  }
+
+  let plan;
+  try {
+    plan = planDemo(demoArg.name, { rootDir: __dirname });
+  } catch (e) {
+    if (e instanceof UnknownDemoError) {
+      console.error(`${c.red}Error: Unknown demo race: ${e.demoName}${c.reset}`);
+      console.error(formatDemoList(c, invocation));
+      process.exit(1);
+    }
+    console.error(`${c.red}Error: ${e.message}${c.reset}`);
+    process.exit(1);
+  }
+
+  // Writing into the user's directory is their call — show the exact files
+  // first and copy nothing unless they say yes.
+  if (plan.files.length > 0) {
+    const where = path.relative(process.cwd(), plan.dir) || '.';
+    console.error(`\n${c.bold}Demo race ${c.cyan}${plan.demo.name}${c.reset}${c.bold} needs these files in ${c.cyan}${where}/${c.reset}`);
+    for (const file of plan.files) console.error(`  ${c.dim}${file}${c.reset}`);
+
+    const answer = boolFlags.has('yes')
+      ? true
+      : await confirm(`${c.bold}Copy them there and start the race? ${c.reset}${c.dim}[Y/n]${c.reset} `);
+
+    if (answer === null) {
+      console.error(`${c.red}Error: Cannot ask for confirmation — stdin is not a terminal.${c.reset}`);
+      console.error(`${c.dim}  Re-run with --yes to copy the demo race without being asked.${c.reset}`);
+      process.exit(1);
+    }
+    if (!answer) {
+      console.error(`${c.yellow}Cancelled — nothing was copied.${c.reset}`);
+      process.exit(0);
+    }
+    copyDemo(plan);
+    console.error(`${c.dim}Copied ${plan.files.length} file(s) to ${where}/${c.reset}\n`);
+  }
+  demoDir = plan.dir;
+}
+
 // --- Detect URL mode vs directory mode ---
 
 if (positional.length === 1 && isUrl(positional[0])) {
   console.error(`${c.red}Error: URL mode requires at least 2 URLs to race against each other${c.reset}`);
-  console.error(`${c.dim}  Example: ${invocation.cmd} https://react.dev https://angular.dev${c.reset}`);
+  console.error(`${c.dim}  Example: ${invocation} https://react.dev https://angular.dev${c.reset}`);
   process.exit(1);
 }
 
@@ -809,8 +913,8 @@ const urlMode = positional.length >= 2 && positional.every(p => isUrl(p));
 if (!urlMode && positional.length >= 2 && positional.some(p => isUrl(p))) {
   const nonUrls = positional.filter(p => !isUrl(p));
   console.error(`${c.red}Error: Cannot mix URLs and directory paths. These are not valid URLs: ${nonUrls.join(', ')}${c.reset}`);
-  console.error(`${c.dim}  For URL mode, pass only URLs: ${invocation.cmd} https://a.com https://b.com${c.reset}`);
-  console.error(`${c.dim}  For directory mode, pass a race directory: ${invocation.cmd} ./my-race${c.reset}`);
+  console.error(`${c.dim}  For URL mode, pass only URLs: ${invocation} https://a.com https://b.com${c.reset}`);
+  console.error(`${c.dim}  For directory mode, pass a race directory: ${invocation} ./my-race${c.reset}`);
   process.exit(1);
 }
 
@@ -865,7 +969,7 @@ if (urlMode) {
   if (positional.length > 1) {
     console.error(`${c.yellow}Warning: Directory mode expects 1 argument (the race directory), ignoring extra arguments: ${positional.slice(1).join(', ')}${c.reset}`);
   }
-  raceDir = path.resolve(positional[0]);
+  raceDir = demoDir || path.resolve(positional[0]);
 
   if (!fs.existsSync(raceDir)) {
     console.error(`${c.red}Error: Race directory not found: ${raceDir}${c.reset}`);
