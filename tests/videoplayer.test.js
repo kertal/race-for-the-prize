@@ -96,6 +96,17 @@ describe('buildPlayerHtml', () => {
     expect(defaultHtml).toContain('max-width: 680px');
   });
 
+  it('heads the title band with the product and the race', () => {
+    // The overview links here, and both pages title themselves the same way.
+    expect(defaultHtml).toContain('\u{1F3C1} Race for the Prize: lauda vs hunt</h1>');
+    // Long titles are cut short with an ellipsis, so the full one stays
+    // reachable on hover.
+    expect(defaultHtml).toContain('<h1 title="Race for the Prize: lauda vs hunt">');
+    // Racer names reach it escaped, like every other name on the page.
+    const nasty = buildPlayerHtml(makeSummary({ racers: ['<script>', 'b & c'] }), videoFiles);
+    expect(nasty).toContain('Race for the Prize: &lt;script&gt; vs b &amp; c');
+  });
+
   it('keeps the racer name on screen in fullscreen', () => {
     // Fullscreen gives each grid row the viewport, so the label rides on top of
     // its video rather than taking a line of its own — but it stays visible:

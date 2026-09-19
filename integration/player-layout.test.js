@@ -32,6 +32,12 @@ const clipTimes = [{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }];
 
 // One row of buttons plus the bar's own padding. Anything taller has wrapped.
 const ONE_ROW_MAX_HEIGHT = 56;
+// The title band's declared floor, read from the token so a restyle moves both.
+const BAND_MIN_HEIGHT = Number.parseFloat(
+  /^\s*--header-min-height:\s*([\d.]+)px;/m.exec(
+    fs.readFileSync(path.join(__dirname, '..', 'cli', 'tokens.css'), 'utf-8')
+  )[1]
+);
 // The width from which the bar is expected to hold a single row.
 const SINGLE_ROW_WIDTH = 860;
 
@@ -190,24 +196,75 @@ describeMaybe('player controls layout', () => {
     expect(panels.settings.accent).not.toBe(panels.calibration.accent);
   });
 
-  it('fills the checkered bar with whole rows of squares', async () => {
-    // The bar draws a 2x2 conic tile, so it reads as a flag only if several
-    // rows of squares fit in its height — and only if they fit exactly. A
-    // height that is not a whole multiple clips the bottom row mid-square.
+  it('keeps the title band in view, with the flag faded out behind the words', async () => {
+    await page.setViewportSize({ width: 1000, height: 600 });
+    await page.goto(writePlayer('title-band', { clipTimes }));
+    const atTop = await page.evaluate(() => {
+      const header = document.querySelector('.race-header');
+      const box = header.getBoundingClientRect();
+      const texture = getComputedStyle(header, '::before');
+      const title = document.querySelector('h1').getBoundingClientRect();
+      return {
+        top: box.top,
+        height: box.height,
+        // The band has to make room for itself; a fixed one would sit on top of
+        // whatever came first on the page.
+        position: getComputedStyle(header).position,
+        titleCentred: Math.abs((title.left + title.right) / 2 - box.width / 2) < 2,
+        // The mask is what stops the pattern running under the title.
+        masked: texture.maskImage !== 'none' || texture.webkitMaskImage !== 'none',
+        firstBelow: document.querySelector('.player-container').getBoundingClientRect().top,
+      };
+    });
+
+    expect(atTop.position).toBe('sticky');
+    expect(atTop.height).toBeGreaterThanOrEqual(BAND_MIN_HEIGHT);
+    // Compact: a title strip, not a hero banner.
+    expect(atTop.height).toBeLessThan(BAND_MIN_HEIGHT * 1.5);
+    expect(atTop.titleCentred).toBe(true);
+    expect(atTop.masked).toBe(true);
+    // Nothing starts underneath it.
+    expect(atTop.firstBelow).toBeGreaterThanOrEqual(atTop.height);
+
+    // …and it rides along instead of scrolling away.
+    await page.evaluate(() => window.scrollTo(0, 400));
+    const scrolled = await page.evaluate(() => document.querySelector('.race-header').getBoundingClientRect().top);
+    expect(scrolled).toBe(0);
+  });
+
+  it('flags both ends of the page with whole rows of squares', async () => {
+    // Head and foot wear the same band. Each draws a 2x2 conic tile, so it
+    // reads as a flag only if whole rows of squares fit its height — a height
+    // that is not a whole multiple clips the bottom row mid-square.
     for (const skin of [undefined, ...listSkins()]) {
       const url = writePlayer(`checkers-${skin || 'default'}`, skin ? { skin } : {});
       await page.goto(url);
-      const flag = await page.evaluate(() => {
-        const bar = document.querySelector('.checkered-bar');
-        const style = getComputedStyle(bar);
-        const [tile] = style.backgroundSize.split(' ').map(Number.parseFloat);
-        return { height: Number.parseFloat(style.height), square: tile / 2 };
-      });
-      const rows = flag.height / flag.square;
-      expect.soft(rows, `${skin || 'default'} rows`).toBeGreaterThanOrEqual(4);
-      expect.soft(rows % 1, `${skin || 'default'} partial row`).toBe(0);
-      // Fractional squares blur, since they cannot land on device pixels at 1x.
-      expect.soft(flag.square % 1, `${skin || 'default'} square`).toBe(0);
+      const bands = await page.evaluate(() => ['.race-header', '.checkered-bar'].map(sel => {
+        const el = document.querySelector(sel);
+        const texture = getComputedStyle(el, '::before');
+        const [tile] = texture.backgroundSize.split(' ').map(Number.parseFloat);
+        return {
+          sel,
+          height: el.getBoundingClientRect().height,
+          square: tile / 2,
+          washed: texture.backgroundImage.includes('conic'),
+          masked: texture.maskImage !== 'none' || texture.webkitMaskImage !== 'none',
+        };
+      }));
+
+      for (const band of bands) {
+        const where = `${skin || 'default'} ${band.sel}`;
+        expect.soft(band.washed, `${where} texture`).toBe(true);
+        expect.soft(band.masked, `${where} mask`).toBe(true);
+        expect.soft(band.height / band.square, `${where} rows`).toBeGreaterThanOrEqual(4);
+        // Fractional squares blur — they cannot land on device pixels at 1x.
+        expect.soft(band.square % 1, `${where} square`).toBe(0);
+      }
+
+      // Only the foot has a fixed height, so only there can a row be clipped
+      // by one that does not divide it. The head is sized by its title.
+      const foot = bands.find(b => b.sel === '.checkered-bar');
+      expect.soft((foot.height / foot.square) % 1, `${skin || 'default'} partial row`).toBe(0);
     }
   });
 

@@ -184,9 +184,11 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   const racers = summary.racers;
   const count = racers.length;
 
-  const title = count === 2
-    ? `Race: ${escHtml(racers[0])} vs ${escHtml(racers[1])}`
-    : `Race: ${racers.map(escHtml).join(' vs ')}`;
+  // Both reports head their title band with "Race for the Prize: <name>", so
+  // the name is derived once here. (The two-racer case used to be spelled out
+  // separately; it produced the same string as the join.)
+  const raceName = racers.map(escHtml).join(' vs ');
+  const title = `Race: ${raceName}`;
 
   const hasVideos = videoFiles && videoFiles.length > 0;
   const placementOrder = getPlacementOrder(summary);
@@ -205,13 +207,13 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   const resolvedSkin = resolveSkin(skin, skinBaseDir);
   return render(TEMPLATE, {
     title,
+    raceName,
     themeAttr: resolvedSkin ? ` data-theme="${escHtml(resolvedSkin.name)}"` : '',
     themeColor: resolvedSkin ? escHtml(resolvedSkin.themeColor) : DEFAULT_THEME_COLOR,
     styles: buildStyles(layoutCss),
     skinStyles: buildSkinStyles(resolvedSkin),
     runNav: buildRunNavHtml(runNavigation, racers, runSummaries),
     winnerBanner: '',
-    videoSourceNote: '',
     raceInfo: buildRaceInfoHtml(summary),
     machineInfo: buildMachineInfoHtml(summary.machineInfo),
     errors: buildErrorsHtml(summary.errors),

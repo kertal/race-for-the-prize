@@ -18,44 +18,83 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-top: var(--checker-size);
+  /* Only the foot needs reserving: the title band is sticky, so it takes its
+     own room in the flow rather than hovering over the first thing on the page. */
   padding-bottom: var(--checker-size);
 }
 
+/* --- Flag bands ----------------------------------------------------------
+   The page is flagged at both ends by the same band: a checker wash faded out
+   across the middle, hemmed by a hairline. The head carries the title, the
+   foot is ornament only. The z-index keeps the page passing underneath —
+   .racer and the share menu are positioned too, and would paint over them —
+   while staying under the export overlay (1000), a modal that covers all. */
+.race-header,
+.checkered-bar {
+  position: relative;
+  /* Contains the ::before, so its negative z-index cannot slip behind the
+     page background. */
+  isolation: isolate;
+  width: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  z-index: 900;
+}
+/* The flag reads as a texture here rather than a banner: low-alpha squares,
+   masked away across the middle so the title never competes with them. */
+.race-header::before,
+.checkered-bar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    repeating-conic-gradient(var(--checker-wash) 0% 25%, transparent 0% 50%)
+    0 0 / var(--checker-tile) var(--checker-tile);
+  -webkit-mask-image: var(--checker-fade);
+  mask-image: var(--checker-fade);
+}
+
+/* Sticky rather than fixed, so the band keeps its own room in the flow and
+   still rides along as the report scrolls. */
+.race-header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--header-min-height);
+  padding: 0.35rem var(--gutter);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+
+.checkered-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  height: var(--checker-size);
+  border-top: var(--border-width) solid var(--border-subtle);
+}
+
 h1 {
-  font-family: var(--font-display);
-  font-size: var(--font-size-sm);
-  color: var(--accent);
+  /* A quiet strapline, not a headline: the page's own content is the loud
+     part. Small, medium weight and muted, with the tracking opened up so it
+     still reads as a title at this size. */
+  color: var(--text-muted);
+  font-family: var(--font-banner);
+  font-size: clamp(0.7rem, 1.2vw, 0.85rem);
+  font-weight: 600;
+  font-style: italic;
   text-align: center;
   text-transform: uppercase;
   letter-spacing: var(--tracking-widest);
-  display: inline-block;
-  background-color: var(--title-plate);
-  padding: 0 var(--title-plate-pad);
-  margin: 0 var(--title-plate-pad);
-}
-
-/* The page is flagged off top and bottom. The body opens and closes with a
-   bar; the first one flies at the top of the viewport, any that follow at the
-   bottom — so the pair brackets the page instead of stacking in one corner.
-   The z-index keeps the page scrolling underneath: .racer and the share menu
-   are positioned too, and without it they would paint over the bars. It stays
-   under the export overlay (1000), which is a modal and covers everything. */
-.checkered-bar {
-  width: 100%;
-  height: var(--checker-size);
-  background:
-    repeating-conic-gradient(var(--checker-color-a) 0% 25%, var(--checker-color-b) 0% 50%)
-    0 0 / var(--checker-tile) var(--checker-tile);
-  position: fixed;
-  top: 0;
-  left: 0;
-  z-index: 900;
-  text-align: center;
-}
-.checkered-bar ~ .checkered-bar {
-  top: auto;
-  bottom: 0;
+  /* Five racers with long names would otherwise wrap and push the band to
+     three times its height. overflow:hidden does double duty here — it clips
+     to the ellipsis, and it drops this flex item's automatic minimum size to
+     zero so it can shrink below its own text in the first place. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* --- Shared control chrome ----------------------------------------------
@@ -356,12 +395,6 @@ h1 {
   vertical-align: middle;
 }
 
-.video-source-note {
-  text-align: center;
-  font-size: var(--font-size-base);
-  color: var(--text-faint);
-  padding-bottom: 0.5rem;
-}
 
 .errors {
   max-width: var(--content-max);

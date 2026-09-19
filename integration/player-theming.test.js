@@ -70,13 +70,24 @@ const canRun = hasChromiumInstalled(path.resolve(__dirname, '..'));
 const describeMaybe = canRun ? describe : describe.skip;
 
 /** Render a player page (optionally skinned) and return its file:// URL. */
-function writePlayer(name, options) {
+function writePlayer(name, options, racers = summary.racers) {
   const dir = path.join(tmpDir, name);
   fs.mkdirSync(dir, { recursive: true });
-  for (const vf of videoFiles) fs.mkdirSync(path.join(dir, path.dirname(vf)), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'index.html'), buildPlayerHtml(summary, videoFiles, null, null, options));
+  const files = racers.map(r => `${r}/${r}.race.webm`);
+  for (const vf of files) fs.mkdirSync(path.join(dir, path.dirname(vf)), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'index.html'),
+    buildPlayerHtml({ ...summary, racers }, files, null, null, options)
+  );
   return `file://${path.join(dir, 'index.html')}`;
 }
+
+// Five racers whose names are long enough that no viewport fits the title.
+const LONG_RACERS = [
+  'chromium-cold-cache-baseline', 'chromium-warm-cache-baseline',
+  'chromium-service-worker-precache', 'chromium-http2-push-variant',
+  'chromium-brotli-only-variant',
+];
 
 describeMaybe('player theming integration', () => {
   beforeAll(async () => {
@@ -190,14 +201,14 @@ describeMaybe('player theming integration', () => {
 
   describe('condition overview', () => {
     /** The cross-condition comparison page, which shares the player's tokens. */
-    function writeMatrix(name, options) {
+    function writeMatrix(name, options, raceTitle = 'lauda vs hunt') {
       const dir = path.join(tmpDir, name);
       fs.mkdirSync(dir, { recursive: true });
       const entries = [
         { label: 'none-cpu1', network: 'none', cpu: 1, summary },
         { label: 'slow-3g-cpu1', network: 'slow-3g', cpu: 1, summary: { ...summary, overallWinner: 'hunt' } },
       ];
-      fs.writeFileSync(path.join(dir, 'index.html'), buildConditionIndexHtml('lauda vs hunt', entries, options));
+      fs.writeFileSync(path.join(dir, 'index.html'), buildConditionIndexHtml(raceTitle, entries, options));
       return `file://${path.join(dir, 'index.html')}`;
     }
 
@@ -221,6 +232,96 @@ describeMaybe('player theming integration', () => {
       expect(seen.winner).toBe(rgb(resolve('--text')));
       // The verdict is tinted with the winning racer's own colour.
       expect(seen.verdict).toBe(rgb(RACER_CSS_COLORS[0]));
+    });
+
+    it('is framed exactly like the player it links to', async () => {
+      // "Dressed like the player" measured rather than inferred from shared
+      // tokens: a reader clicking a cell moves between these two pages, so the
+      // frame around the content — both bands and the column they bracket —
+      // has to be the same object, not merely a similar-looking one.
+      const readFrame = () => page.evaluate(() => {
+        const band = (selector) => {
+          const el = document.querySelector(selector);
+          if (!el) return null;
+          const style = getComputedStyle(el);
+          const texture = getComputedStyle(el, '::before');
+          return {
+            height: Math.round(el.getBoundingClientRect().height),
+            position: style.position,
+            background: style.backgroundColor,
+            borders: `${style.borderTopWidth} ${style.borderBottomWidth} ${style.borderBottomColor}`,
+            texture: texture.backgroundImage,
+            tile: texture.backgroundSize,
+            mask: texture.maskImage,
+          };
+        };
+        const title = getComputedStyle(document.querySelector('h1'));
+        // .wrap on the overview, .controls on the player: each page's own
+        // content column, which should come out the same width.
+        const column = document.querySelector('.wrap, .controls');
+        return {
+          head: band('.race-header'),
+          foot: band('.checkered-bar'),
+          columnWidth: getComputedStyle(column).maxWidth,
+          footGutter: getComputedStyle(document.body).paddingBottom,
+          titleFont: `${title.fontFamily}|${title.fontWeight}|${title.fontStyle}`,
+          titleColor: title.color,
+          titleText: document.querySelector('h1').textContent.trim(),
+        };
+      });
+
+      await page.goto(writePlayer('frame-player', {}));
+      const player = await readFrame();
+      await page.goto(writeMatrix('frame-matrix', {}));
+      const matrix = await readFrame();
+
+      expect(matrix).toEqual(player);
+      // Same words, too — the product, then the race, on both pages.
+      expect(matrix.titleText).toBe('\u{1F3C1} Race for the Prize: lauda vs hunt');
+      // Both ends are flagged, and the head rides along as the page scrolls.
+      expect(matrix.head.position).toBe('sticky');
+      expect(matrix.foot.position).toBe('fixed');
+      expect(matrix.head.mask).not.toBe('none');
+      expect(matrix.foot.mask).not.toBe('none');
+      // The foot is fixed, so the page has to reserve its height.
+      expect(matrix.footGutter).toBe(`${matrix.foot.height}px`);
+    });
+
+    it('cuts a title too long to fit short, without growing the band', async () => {
+      // Five long racer names used to wrap to four lines and push the overview's
+      // band from 36px to 156px. The h1 is a flex item, so it needs min-width:0
+      // before text-overflow can do anything.
+      const read = () => page.evaluate(() => {
+        const title = document.querySelector('h1');
+        return {
+          bandHeight: Math.round(document.querySelector('.race-header').getBoundingClientRect().height),
+          truncated: title.scrollWidth > title.clientWidth + 1,
+          ellipsis: getComputedStyle(title).textOverflow,
+          wraps: getComputedStyle(title).whiteSpace !== 'nowrap',
+          // Cut short on screen, still readable in full on hover.
+          tooltip: title.getAttribute('title'),
+        };
+      });
+
+      for (const width of [1400, 600, 360]) {
+        await page.setViewportSize({ width, height: 400 });
+
+        await page.goto(writePlayer(`long-player-${width}`, {}, LONG_RACERS));
+        const player = await read();
+        await page.goto(writeMatrix(`long-matrix-${width}`, {}, LONG_RACERS.join(' vs ')));
+        const matrix = await read();
+
+        for (const [name, band] of [['player', player], ['overview', matrix]]) {
+          expect.soft(band.bandHeight, `${name} @${width}px band height`).toBe(36);
+          expect.soft(band.truncated, `${name} @${width}px truncated`).toBe(true);
+          expect.soft(band.ellipsis, `${name} @${width}px`).toBe('ellipsis');
+          expect.soft(band.wraps, `${name} @${width}px wraps`).toBe(false);
+          expect.soft(band.tooltip, `${name} @${width}px tooltip`).toContain('chromium-brotli-only-variant');
+        }
+        // The two pages cut it short the same way, at every width.
+        expect.soft(matrix, `@${width}px`).toEqual(player);
+      }
+      await page.setViewportSize({ width: 1280, height: 720 });
     });
 
     it('follows a skin, so the whole report set themes together', async () => {
@@ -253,23 +354,28 @@ describeMaybe('player theming integration', () => {
 
   describe('skins', () => {
     it('repaints the page from token overrides alone', async () => {
-      const base = writePlayer('skin-none', {});
-      await page.goto(base);
-      const dark = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-
-      const skinned = writePlayer('skin-light', { skin: 'light' });
-      await page.goto(skinned);
-      const light = await page.evaluate(() => ({
+      const read = () => page.evaluate(() => ({
         theme: document.documentElement.dataset.theme,
         background: getComputedStyle(document.body).backgroundColor,
         heading: getComputedStyle(document.querySelector('h1')).color,
+        band: getComputedStyle(document.querySelector('.race-header'), '::before').backgroundImage,
       }));
 
+      await page.goto(writePlayer('skin-none', {}));
+      const dark = await read();
+
+      await page.goto(writePlayer('skin-light', { skin: 'light' }));
+      const light = await read();
+
       expect(light.theme).toBe('light');
-      expect(light.background).not.toBe(dark);
-      // The skin's own --bg / accent, not the default dark ones.
+      // The skin's own --bg and --text-muted, not the default dark ones.
+      expect(light.background).not.toBe(dark.background);
       expect(light.background).toBe(rgb('#f6f3ec'));
-      expect(light.heading).toBe(rgb('#8a6314'));
+      expect(light.heading).not.toBe(dark.heading);
+      expect(light.heading).toBe(rgb('#3d382e'));
+      // Right down to the wash in the title band, which would otherwise be a
+      // white texture laid over a cream ground.
+      expect(light.band).not.toBe(dark.band);
     });
 
     it('keeps racer tints independent of the skin', async () => {

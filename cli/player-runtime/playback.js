@@ -454,6 +454,29 @@ function onTimeUpdate() {
   }
 }
 
+// timeupdate is the only thing driving the clip-end clamp, and Chromium fires
+// it barely four times a second — long enough for playback to run a quarter of
+// a second past the end of the clip before being snapped back. The frame badge
+// updates on every painted frame, so it reported every frame of that overshoot
+// ("clip 46/40") and then jumped back to 40/40: one visible blink at the end of
+// every clip. Clamp on the frame clock instead, and leave the timeupdate
+// listener as the backstop for background tabs, where rAF does not run.
+let clipWatchRaf = null;
+
+function watchClipEnd() {
+  if (clipWatchRaf != null) return;
+  const tick = () => {
+    if (!playing) { clipWatchRaf = null; return; }
+    const ct = getAdjustedClipTimes() || clipTimes;
+    // Clamps each video to its own clip end as a side effect.
+    maxClipElapsed(ct);
+    // Settling the transport is the expensive half, and it happens once.
+    if (activeClip && allClipsFinished(ct)) onTimeUpdate();
+    clipWatchRaf = requestAnimationFrame(tick);
+  };
+  clipWatchRaf = requestAnimationFrame(tick);
+}
+
 function onEnded() {
   if (videos.every(vi => !vi || vi.paused || vi.ended)) {
     playing = false;
@@ -666,6 +689,7 @@ playBtn.addEventListener('click', () => {
     setPlayState(true);
   }
   playing = !playing;
+  if (playing) watchClipEnd();
 });
 
 scrubber.addEventListener('input', () => {

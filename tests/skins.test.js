@@ -248,18 +248,6 @@ describe('design tokens', () => {
     expect(missing).toEqual([]);
   });
 
-  it('tints the results surfaces flat, with no gradient', () => {
-    // Result panels read as data, not decoration: a flat tint keeps every row
-    // on the same background. The checkered ornament and the fullscreen scrim
-    // are the only gradients, and neither sits behind a result.
-    const sheets = [['tokens.css', css], ...listSkins().map(n => [n, resolveSkin(n).css])];
-    for (const [name, sheet] of sheets) {
-      const wash = sheet.match(/^\s*--accent-wash:\s*(.+);/m);
-      if (!wash) continue;
-      expect(wash[1], `${name} --accent-wash`).not.toMatch(/gradient/);
-    }
-  });
-
   it('declares no palette token that nothing consumes', () => {
     const themedCss = css + listSkins().map(name => resolveSkin(name).css).join('\n');
     const declared = [...rootBlock.matchAll(/^\s*(--color-[a-z0-9-]+):/gm)].map(m => m[1]);

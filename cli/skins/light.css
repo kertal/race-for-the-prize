@@ -33,7 +33,6 @@
   --accent-bright: var(--color-gold-bright);
   --accent-shadow: var(--color-gold-shadow);
   --accent-contrast: #ffffff;
-  --accent-wash: rgb(138 99 20 / 10%);
 
   /* Lines */
   --border: #d5cdbc;
@@ -47,8 +46,8 @@
   --tool-contrast: #ffffff;
 
   /* Ornament & chrome */
-  --checker-color-a: #2b2b2b;
-  --title-plate: var(--checker-color-a);
+  /* A white wash vanishes on the cream ground, so the band is tinted dark. */
+  --checker-wash: rgb(60 50 30 / 12%);
   --shadow-popover: 0 4px 12px rgb(60 50 30 / 18%);
   --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%235f584a'/%3E%3C/svg%3E");
 
