@@ -12,8 +12,12 @@
  * tests; in the browser build the guarded module.exports below is a no-op.
  */
 
-/** Seconds each info card holds the frame before its race starts. */
-const CARD_SECONDS = 2.5;
+/**
+ * Seconds each info card holds the frame before its race starts. Long enough
+ * to read a full field of racers — times, deltas and all — not just to notice
+ * that a card went by.
+ */
+const CARD_SECONDS = 4;
 
 const US_PER_SECOND = 1e6; // trace timestamps are in microseconds
 
@@ -58,15 +62,23 @@ function pickSeries(condition, metricKey) {
 /** The info card shown before one condition's race. */
 function buildFilmCard(condition, metricKey, position, total) {
   const series = pickSeries(condition, metricKey);
+  const metricName = series?.name || '';
+  const verdict = series?.verdict || '';
   return {
     title: condition.title || '',
-    metricName: series?.name || '',
-    verdict: series?.verdict || '',
+    metricName,
+    verdict,
+    // One line under the title: what is being compared, and who took it.
+    subtitle: [metricName, verdict].filter(Boolean).join(' · '),
     rows: (series?.rows || []).map(row => ({
+      medal: row.medal || '',
       name: row.name,
       color: row.color,
       value: row.value || '—',
       delta: row.delta ? `+${row.delta}` : '',
+      // How long this racer's bar runs, against the worst value in the matrix —
+      // the same scale the overview's own bars use.
+      fraction: Number.isFinite(row.fraction) ? Math.max(0, Math.min(1, row.fraction)) : null,
       win: !!row.win,
     })),
     footer: `${position} / ${total}`,

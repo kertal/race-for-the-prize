@@ -508,18 +508,25 @@ function filmRacers(entry, racers) {
   }).filter(racer => racer.src);
 }
 
-/** Every metric's card content for one condition, keyed the way the picker is. */
-function filmMetrics(cell, metrics) {
-  return Object.fromEntries(metrics.map(metric => {
+/**
+ * Every metric's card content for one condition, keyed the way the picker is.
+ * Bars are scaled against the worst value anywhere in the matrix, exactly as
+ * the cells are, so a card's bars mean the same thing as the page's.
+ */
+function filmMetrics(cell, matrix) {
+  return Object.fromEntries(matrix.metrics.map(metric => {
     const series = cell.metrics[metric.key];
+    const max = matrix.aggregates[metric.key].max;
     return [metric.key, {
       name: metric.name,
       verdict: filmVerdict(series),
       rows: series.racers.map(racer => ({
+        medal: racer.isWinner ? WIN_MEDAL : '',
         name: racer.name,
         color: racerColor(racer.index),
         value: racer.formatted || NO_DATA,
         delta: racer.delta ?? null,
+        fraction: max > 0 && racer.value != null ? racer.value / max : null,
         win: racer.isWinner,
       })),
     }];
@@ -543,7 +550,7 @@ function buildFilmConfig(matrix, entries) {
         label: cell.label,
         title: cell.title,
         racers,
-        metrics: filmMetrics(cell, matrix.metrics),
+        metrics: filmMetrics(cell, matrix),
       });
     }
   }

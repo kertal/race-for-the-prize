@@ -20,8 +20,8 @@ const conditionOf = (label, overrides = {}) => ({
       name: 'Total Time',
       verdict: '🏆 lauda',
       rows: [
-        { name: 'lauda', color: '#e74c3c', value: '1.200s', delta: null, win: true },
-        { name: 'hunt', color: '#3498db', value: '1.500s', delta: '0.300s', win: false },
+        { medal: '🏆', name: 'lauda', color: '#e74c3c', value: '1.200s', delta: null, fraction: 0.8, win: true },
+        { medal: '', name: 'hunt', color: '#3498db', value: '1.500s', delta: '0.300s', fraction: 1, win: false },
       ],
     },
   },
@@ -86,10 +86,11 @@ describe('buildFilmCard', () => {
 
     expect(card.metricName).toBe('Total Time');
     expect(card.verdict).toBe('🏆 lauda');
+    expect(card.subtitle).toBe('Total Time · 🏆 lauda');
     expect(card.footer).toBe('2 / 3');
     expect(card.rows).toEqual([
-      { name: 'lauda', color: '#e74c3c', value: '1.200s', delta: '', win: true },
-      { name: 'hunt', color: '#3498db', value: '1.500s', delta: '+0.300s', win: false },
+      { medal: '🏆', name: 'lauda', color: '#e74c3c', value: '1.200s', delta: '', fraction: 0.8, win: true },
+      { medal: '', name: 'hunt', color: '#3498db', value: '1.500s', delta: '+0.300s', fraction: 1, win: false },
     ]);
   });
 
@@ -100,7 +101,17 @@ describe('buildFilmCard', () => {
 
   it('survives a condition with no metrics at all', () => {
     const card = buildFilmCard({ title: 'x', metrics: {} }, 'duration', 1, 1);
-    expect(card).toMatchObject({ title: 'x', metricName: '', verdict: '', rows: [] });
+    expect(card).toMatchObject({ title: 'x', metricName: '', verdict: '', subtitle: '', rows: [] });
+  });
+
+  it('keeps a bar fraction inside the track it is drawn in', () => {
+    const odd = conditionOf('a', { metrics: { duration: { name: 'Total Time', verdict: '', rows: [
+      { name: 'over', value: '9s', fraction: 1.4 },
+      { name: 'under', value: '1s', fraction: -0.2 },
+      { name: 'unknown', value: '—', fraction: null },
+    ] } } });
+
+    expect(buildFilmCard(odd, 'duration', 1, 1).rows.map(r => r.fraction)).toEqual([1, 0, null]);
   });
 });
 
@@ -146,7 +157,7 @@ describe('buildFilmPlan', () => {
     expect(buildFilmPlan({ conditions: [] }, 'duration')).toEqual({ conditions: [], maxRacers: 0 });
   });
 
-  it('holds each card long enough to read', () => {
-    expect(CARD_SECONDS).toBeGreaterThanOrEqual(2);
+  it('holds each card long enough to read a full field', () => {
+    expect(CARD_SECONDS).toBeGreaterThanOrEqual(4);
   });
 });

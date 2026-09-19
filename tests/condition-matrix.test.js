@@ -736,9 +736,21 @@ describe('buildConditionIndexHtml film', () => {
     expect(card.name).toBe('Total Time');
     expect(card.verdict).toBe('🏆 hunt');
     expect(card.rows).toEqual([
-      { name: 'lauda', color: '#e74c3c', value: '4.000s', delta: null, win: false },
-      { name: 'hunt', color: '#3498db', value: '8.000s', delta: '4.000s', win: true },
+      { medal: '', name: 'lauda', color: '#e74c3c', value: '4.000s', delta: null, fraction: 0.5, win: false },
+      { medal: '🏆', name: 'hunt', color: '#3498db', value: '8.000s', delta: '4.000s', fraction: 1, win: true },
     ]);
+  });
+
+  it('scales the card bars against the whole matrix, as the cells are', () => {
+    // The 4x condition is twice as slow, so the 1x card's bars run at a
+    // quarter and a half of the track rather than filling it.
+    const conditions = filmConditionsOf(buildConditionIndexHtml('lauda vs hunt', [
+      recorded('none-cpu1x', 1, 'lauda'),
+      recorded('none-cpu4x', 4, 'hunt'),
+    ]));
+
+    expect(conditions[0].metrics.duration.rows.map(r => r.fraction)).toEqual([0.125, 0.25]);
+    expect(conditions[1].metrics.duration.rows.map(r => r.fraction)).toEqual([0.5, 1]);
   });
 
   it('embeds only the clip data the film needs', () => {

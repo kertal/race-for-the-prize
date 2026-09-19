@@ -54,7 +54,10 @@ function readTheme() {
     videoBg: themeValue('color', '--video-bg', '#000'),
     text: themeValue('color', '--text', '#e8e0d0'),
     dim: themeValue('color', '--text-dim', '#999'),
+    faint: themeValue('color', '--text-ghost', '#666'),
     accent: themeValue('color', '--accent', '#d4af37'),
+    track: themeValue('color', '--surface-raised', '#3a3a3a'),
+    rule: themeValue('color', '--border-subtle', '#333'),
     ui: themeValue('fontFamily', '--font-ui', 'monospace'),
     display: themeValue('fontFamily', '--font-display', 'Georgia, serif'),
   };
@@ -70,47 +73,119 @@ function cardLine(ctx, text, x, y, font, color) {
   ctx.fillText(text, x, y);
 }
 
-/** The info card: which condition is coming up, and how it went. */
-function drawCard(ctx, layout, theme, card) {
+/**
+ * The type scale and the column grid of one card, derived from the frame it
+ * has to fill: the same card has to read on a squat two-racer frame and on a
+ * tall six-racer one, so everything is sized off both dimensions.
+ */
+function cardMetrics(layout, rowCount) {
   const w = layout.canvasW;
   const h = layout.canvasH;
+  // Both dimensions get a say: a wide, short frame (two 16:9 racers) must not
+  // grow type it has no room for, and a narrow, tall one (four racers stacked)
+  // must not leave the card marooned in the middle of the picture.
+  const scale = Math.max(0.75, Math.min(1.8, Math.min(w / 1100, h / 520)));
+  const row = Math.round(22 * scale);
+  const blockW = Math.min(Math.round(w * 0.72), Math.round(860 * scale));
+  const gap = Math.round(row * 0.6);
+  const left = Math.round((w - blockW) / 2);
+  // Columns are sized in characters of the monospace UI face: a medal, a name,
+  // the bar taking what is left, then the value and the delta right-aligned.
+  const medalW = Math.round(row * 1.4);
+  const nameW = Math.round(row * 6.6);
+  const valueW = Math.round(row * 4.6);
+  const deltaW = Math.round(row * 4.6);
+  const barX = left + medalW + gap + nameW + gap;
+  const valueRight = left + blockW - deltaW - gap;
+
+  return {
+    w, h, left, blockW, gap, row, nameW,
+    title: Math.round(38 * scale),
+    label: Math.round(17 * scale),
+    lineH: Math.round(row * 1.55),
+    headH: Math.round(38 * scale) + Math.round(17 * scale * 2.1) + Math.round(row * 0.9),
+    rowsH: rowCount * Math.round(row * 1.55),
+    medalX: left,
+    nameX: left + medalW + gap,
+    barX,
+    barW: valueRight - valueW - gap - barX,
+    valueRight,
+    deltaRight: left + blockW,
+  };
+}
+
+/** Trim a name to the width its column allows, with an ellipsis when it must. */
+function fitText(ctx, text, maxWidth) {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let cut = text;
+  while (cut.length > 1 && ctx.measureText(`${cut}…`).width > maxWidth) cut = cut.slice(0, -1);
+  return `${cut}…`;
+}
+
+/** One racer's bar, on the matrix's own scale: full strength for the winner. */
+function drawCardBar(ctx, theme, m, row, y) {
+  if (m.barW < m.row) return; // no room for a bar worth drawing
+  const height = Math.max(3, Math.round(m.row * 0.3));
+  const top = y - Math.round(m.row * 0.32);
+  ctx.fillStyle = theme.track;
+  ctx.fillRect(m.barX, top, m.barW, height);
+  if (!Number.isFinite(row.fraction) || row.fraction <= 0) return;
+  ctx.globalAlpha = row.win ? 1 : 0.5;
+  ctx.fillStyle = row.color || theme.accent;
+  ctx.fillRect(m.barX, top, Math.max(2, Math.round(m.barW * row.fraction)), height);
+  ctx.globalAlpha = 1;
+}
+
+/** One row of the field: medal, racer, bar, value, delta. */
+function drawCardRow(ctx, theme, m, row, y) {
+  ctx.font = `${row.win ? 'bold ' : ''}${m.row}px ${theme.ui}`;
+  ctx.textAlign = 'left';
+  if (row.medal) {
+    ctx.fillStyle = theme.text;
+    ctx.fillText(row.medal, m.medalX, y);
+  }
+  ctx.fillStyle = row.color || theme.text;
+  ctx.fillText(fitText(ctx, row.name, m.nameW), m.nameX, y);
+
+  drawCardBar(ctx, theme, m, row, y);
+
+  ctx.textAlign = 'right';
+  ctx.fillStyle = row.win ? theme.text : theme.dim;
+  ctx.fillText(row.value, m.valueRight, y);
+  ctx.fillStyle = theme.faint;
+  ctx.fillText(row.delta, m.deltaRight, y);
+}
+
+/**
+ * The info card: which condition is coming up, and how it went. The whole
+ * block — title, subtitle, field — is centred in the frame, so a two-racer
+ * card doesn't sit in the top third of the picture with dead space below it.
+ */
+function drawCard(ctx, layout, theme, card) {
+  const m = cardMetrics(layout, card.rows.length);
   ctx.fillStyle = theme.bg;
-  ctx.fillRect(0, 0, w, h);
+  ctx.fillRect(0, 0, m.w, m.h);
 
-  const titleSize = Math.round(w * 0.032);
-  const labelSize = Math.round(w * 0.016);
-  const rowSize = Math.round(w * 0.021);
-  const blockW = Math.min(w * 0.58, 620);
-  const left = (w - blockW) / 2;
-
+  let y = Math.round((m.h - m.headH - m.rowsH) / 2) + m.title;
   ctx.textAlign = 'center';
-  let y = Math.round(h * 0.22);
-  cardLine(ctx, card.title, w / 2, y, `bold ${titleSize}px ${theme.display}`, theme.accent);
-  y += Math.round(titleSize * 0.95);
-  cardLine(ctx, card.metricName, w / 2, y, `${labelSize}px ${theme.ui}`, theme.dim);
-  y += titleSize;
-  cardLine(ctx, card.verdict, w / 2, y, `bold ${rowSize}px ${theme.ui}`, theme.text);
+  cardLine(ctx, card.title, m.w / 2, y, `bold ${m.title}px ${theme.display}`, theme.accent);
+  y += Math.round(m.label * 2.1);
+  cardLine(ctx, card.subtitle, m.w / 2, y, `${m.label}px ${theme.ui}`, theme.dim);
 
-  // Rows share the card's block: name on the left, value and delta right-aligned
-  // in their own columns, so the numbers line up the way the matrix cells do.
-  const rows = card.rows;
-  const lineH = Math.min(Math.round(rowSize * 1.7), Math.max(1, Math.round((h * 0.86 - y) / Math.max(rows.length, 1))));
-  y += Math.round(lineH * 1.2);
-  for (const row of rows) {
-    ctx.font = `${row.win ? 'bold ' : ''}${rowSize}px ${theme.ui}`;
-    ctx.textAlign = 'left';
-    ctx.fillStyle = row.color || theme.text;
-    ctx.fillText(row.name, left, y);
-    ctx.textAlign = 'right';
-    ctx.fillStyle = row.win ? theme.text : theme.dim;
-    ctx.fillText(row.value, left + blockW * 0.72, y);
-    ctx.fillStyle = theme.dim;
-    ctx.fillText(row.delta, left + blockW, y);
-    y += lineH;
+  // A hairline under the header, the same separator the matrix cells draw
+  // between their verdict and their times.
+  y += Math.round(m.row * 0.9);
+  ctx.fillStyle = theme.rule;
+  ctx.fillRect(m.left, y, m.blockW, 1);
+
+  y += m.lineH;
+  for (const row of card.rows) {
+    drawCardRow(ctx, theme, m, row, y);
+    y += m.lineH;
   }
 
   ctx.textAlign = 'center';
-  cardLine(ctx, card.footer, w / 2, Math.round(h * 0.94), `${labelSize}px ${theme.ui}`, theme.dim);
+  cardLine(ctx, card.footer, m.w / 2, m.h - Math.round(m.label * 1.4), `${m.label}px ${theme.ui}`, theme.faint);
 }
 
 /** A boxed line of text — the clock and the condition caption both use it. */
@@ -355,7 +430,9 @@ async function recordConditions(plan, ui, state, frame) {
     const condition = plan.conditions[i];
     // Load the next condition while this one's card is on screen, so the film
     // runs on from race to race instead of freezing between them.
-    const nextLoad = i + 1 < total ? loadCondition(plan.conditions[i + 1]) : null;
+    const nextLoad = i + 1 < total
+      ? loadCondition(plan.conditions[i + 1])
+      : Promise.resolve(null);
 
     ui.status(`Card ${i + 1} of ${total}: ${condition.title}`);
     ui.progress((i + 0.15) / total);
@@ -366,7 +443,7 @@ async function recordConditions(plan, ui, state, frame) {
     ui.progress((i + 1) / total);
 
     disposeCondition(loaded);
-    pending = nextLoad ? await nextLoad : null;
+    pending = await nextLoad;
   }
   return pending;
 }

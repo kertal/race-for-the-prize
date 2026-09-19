@@ -24,7 +24,7 @@ const CONDITIONS = [
   { label: 'none-cpu4x', title: 'Network: none · CPU: 4x', network: 'none', cpu: 4, winner: 'hunt' },
 ];
 const VIDEO_SECONDS = 1;
-const CARD_SECONDS = 2.5; // matches cli/matrix-runtime/film-plan.cjs
+const CARD_SECONDS = 4; // matches cli/matrix-runtime/film-plan.cjs
 
 function hasFfmpeg() {
   try { execSync('ffmpeg -version', { stdio: 'pipe', timeout: 5_000 }); return true; }
