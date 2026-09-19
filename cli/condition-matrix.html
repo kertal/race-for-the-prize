@@ -64,11 +64,11 @@
      an inline script that reads a variable nothing declares. -->
 <template id="build-film">
 <div class="film-overlay" id="filmOverlay" hidden>
-  <div class="film-modal">
-    <h2>Race Film</h2>
+  <div class="film-modal" role="dialog" aria-modal="true" aria-labelledby="filmTitle">
+    <h2 id="filmTitle">Race Film</h2>
     <canvas class="film-canvas"></canvas>
     <div class="film-progress-bar"><div class="film-progress-fill"></div></div>
-    <p class="film-status">Preparing…</p>
+    <p class="film-status" aria-live="polite">Preparing…</p>
     <div class="film-actions"><button type="button" class="film-cancel">Cancel</button></div>
   </div>
 </div>

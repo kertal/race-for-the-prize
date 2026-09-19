@@ -85,7 +85,15 @@ function cardMetrics(layout, rowCount) {
   // grow type it has no room for, and a narrow, tall one (four racers stacked)
   // must not leave the card marooned in the middle of the picture.
   const scale = Math.max(0.75, Math.min(1.8, Math.min(w / 1100, h / 520)));
+  const title = Math.round(38 * scale);
+  const label = Math.round(17 * scale);
   const row = Math.round(22 * scale);
+  // Vertical rhythm, top to bottom: title baseline, subtitle baseline, the
+  // rule, then one line per row. blockH is the sum, so centring stays honest.
+  const subtitleGap = Math.round(label * 2.1);
+  const ruleGap = Math.round(row * 0.9);
+  const lineH = Math.round(row * 1.55);
+
   const blockW = Math.min(Math.round(w * 0.72), Math.round(860 * scale));
   const gap = Math.round(row * 0.6);
   const left = Math.round((w - blockW) / 2);
@@ -99,12 +107,8 @@ function cardMetrics(layout, rowCount) {
   const valueRight = left + blockW - deltaW - gap;
 
   return {
-    w, h, left, blockW, gap, row, nameW,
-    title: Math.round(38 * scale),
-    label: Math.round(17 * scale),
-    lineH: Math.round(row * 1.55),
-    headH: Math.round(38 * scale) + Math.round(17 * scale * 2.1) + Math.round(row * 0.9),
-    rowsH: rowCount * Math.round(row * 1.55),
+    w, h, left, blockW, title, label, row, subtitleGap, ruleGap, lineH, nameW,
+    blockH: title + subtitleGap + ruleGap + rowCount * lineH,
     medalX: left,
     nameX: left + medalW + gap,
     barX,
@@ -166,15 +170,15 @@ function drawCard(ctx, layout, theme, card) {
   ctx.fillStyle = theme.bg;
   ctx.fillRect(0, 0, m.w, m.h);
 
-  let y = Math.round((m.h - m.headH - m.rowsH) / 2) + m.title;
+  let y = Math.round((m.h - m.blockH) / 2) + m.title;
   ctx.textAlign = 'center';
   cardLine(ctx, card.title, m.w / 2, y, `bold ${m.title}px ${theme.display}`, theme.accent);
-  y += Math.round(m.label * 2.1);
+  y += m.subtitleGap;
   cardLine(ctx, card.subtitle, m.w / 2, y, `${m.label}px ${theme.ui}`, theme.dim);
 
   // A hairline under the header, the same separator the matrix cells draw
   // between their verdict and their times.
-  y += Math.round(m.row * 0.9);
+  y += m.ruleGap;
   ctx.fillStyle = theme.rule;
   ctx.fillRect(m.left, y, m.blockW, 1);
 
@@ -203,6 +207,7 @@ function drawPlate(ctx, theme, text, x, y, align, size) {
   ctx.fillText(text, x, y);
 }
 
+/** mm:ss.mmm — a race is seconds long, so hours would only be noise. */
 function formatClock(seconds) {
   const t = Math.max(0, seconds);
   const m = Math.floor(t / 60);
@@ -218,7 +223,7 @@ function drawRaceFrame(ctx, layout, theme, loaded, elapsed) {
 
   loaded.videos.forEach((video, i) => {
     const pos = layout.positions[i];
-    if (!video || !pos) return;
+    if (!pos) return; // more racers than the layout has slots for
     const racer = loaded.condition.racers[i];
     ctx.fillStyle = racer.color || theme.text;
     ctx.font = `bold 16px ${theme.display}`;
@@ -348,14 +353,12 @@ function runPhase(state, onFrame, isDone) {
   });
 }
 
+/** How far into the race the field is: the furthest any racer has got. */
 function raceElapsed(loaded) {
-  let elapsed = 0;
-  loaded.videos.forEach((video, i) => {
-    elapsed = Math.max(elapsed, (video.currentTime || 0) - loaded.windows[i].start);
-  });
-  return elapsed;
+  return loaded.videos.reduce((most, video, i) => Math.max(most, video.currentTime - loaded.windows[i].start), 0);
 }
 
+/** Every racer has reached the end of its window — or the race has overrun its grace. */
 function raceFinished(loaded, elapsed) {
   const longest = loaded.windows.reduce((most, w) => Math.max(most, w.end - w.start), 0);
   if (elapsed > longest + RACE_GRACE_SECONDS) return true; // a stalled recording must not wedge the film
@@ -366,7 +369,10 @@ async function recordFilm(plan, ui, state) {
   const theme = readTheme();
   ui.status('Loading recordings…');
   let loaded = await loadCondition(plan.conditions[0]);
-  if (state.cancelled) return null;
+  if (state.cancelled) {
+    disposeCondition(loaded);
+    return null;
+  }
 
   const sample = loaded.videos.find(v => v.videoWidth);
   const aspect = sample ? sample.videoHeight / sample.videoWidth : 9 / 16;
@@ -483,7 +489,6 @@ function openFilmOverlay(state) {
 
   return {
     canvas,
-    close,
     status: text => { statusEl.textContent = text; },
     progress: value => { fill.style.width = `${Math.min(100, Math.max(0, value * 100)).toFixed(1)}%`; },
     finish: (blob) => {

@@ -115,5 +115,5 @@ function buildFilmPlan(config, metricKey) {
 
 // Node export for unit tests — a no-op in the browser build, where `module` is undefined.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { CARD_SECONDS, US_PER_SECOND, filmClipWindow, pickSeries, buildFilmCard, buildFilmPlan };
+  module.exports = { CARD_SECONDS, filmClipWindow, buildFilmCard, buildFilmPlan };
 }

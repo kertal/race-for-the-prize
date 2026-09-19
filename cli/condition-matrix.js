@@ -493,12 +493,13 @@ function filmClip(clip) {
  * video paths relative to their own results directory, which is the condition's
  * label — the same directory the cell links to.
  */
-function filmRacers(entry, racers) {
+function filmRacers(entry, matrixRacers) {
   const names = entry?.summary?.racers || [];
   const files = entry?.videoFiles;
   if (!Array.isArray(files)) return [];
   return names.map((name, i) => {
-    const index = racers.indexOf(name);
+    // Colour by matrix position, so a racer keeps its colour from cell to card.
+    const index = matrixRacers.indexOf(name);
     return {
       name,
       color: racerColor(index >= 0 ? index : i),
