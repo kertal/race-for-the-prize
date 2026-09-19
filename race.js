@@ -1097,7 +1097,10 @@ function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts
     raceDir: ctx.raceDir,
   });
 
-  return { summary, clipTimes, videoFiles };
+  // The paths above follow the naming convention whether or not anything was
+  // recorded; only report them as recordings when the run actually made some,
+  // so a condition overview doesn't offer a film of files that don't exist.
+  return { summary, clipTimes, videoFiles: settings.noRecording ? null : videoFiles };
 }
 
 /**

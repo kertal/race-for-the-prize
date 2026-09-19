@@ -59,14 +59,19 @@ function summaryOf(durations, winner) {
   };
 }
 
+/** Serve `dir` on a free port, resolving to the server and the URL to open. */
 function startServer(dir) {
   return new Promise(resolve => {
     const srv = http.createServer(createStaticHandler(dir));
-    srv.listen(0, '127.0.0.1', () => resolve(srv));
+    srv.listen(0, '127.0.0.1', () => {
+      const address = srv.address();
+      const port = address && typeof address === 'object' ? address.port : 0;
+      resolve({ server: srv, url: `http://127.0.0.1:${port}/` });
+    });
   });
 }
 
-let browser, context, page, server, tmpDir, setupError;
+let browser, context, page, server, baseUrl, tmpDir, setupError;
 
 beforeAll(async () => {
   if (!hasFfmpeg()) {
@@ -111,7 +116,7 @@ beforeAll(async () => {
     setupError = `Playwright launch failed: ${e.message}`;
   }
 
-  server = await startServer(tmpDir);
+  ({ server, url: baseUrl } = await startServer(tmpDir));
 }, 120_000);
 
 afterAll(async () => {
@@ -126,7 +131,7 @@ describe('condition matrix film', () => {
   it('records every condition into one downloadable video', async ({ skip }) => {
     if (setupError) skip(setupError);
 
-    await page.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil: 'load' });
+    await page.goto(baseUrl, { waitUntil: 'load' });
     await page.click('#filmBtn');
 
     // Both cards, both races, plus loading — generous room on a slow runner.
@@ -146,17 +151,26 @@ describe('condition matrix film', () => {
 
     // Long enough that both conditions are in there: two cards and two races.
     expect(decodedSeconds(filmPath)).toBeGreaterThan(CONDITIONS.length * CARD_SECONDS);
-  }, 180_000);
 
-  it('sizes the canvas for a side-by-side race', async ({ skip }) => {
-    if (setupError) skip(setupError);
-
+    // computeExportLayout(2, 1) — two 640-wide cells plus the label strip.
     const size = await page.evaluate(() => {
       const canvas = document.querySelector('.film-canvas');
-      return { width: canvas.width, height: canvas.height };
+      return canvas ? { width: canvas.width, height: canvas.height } : null;
     });
-    // computeExportLayout(2, 1) — two 640-wide cells plus the label strip.
-    expect(size.width).toBe(1280);
-    expect(size.height).toBe(670);
+    expect(size).toEqual({ width: 1280, height: 670 });
+  }, 180_000);
+
+  it('offers the film below the matrix', async ({ skip }) => {
+    if (setupError) skip(setupError);
+
+    await page.goto(baseUrl, { waitUntil: 'load' });
+    const order = await page.evaluate(() => {
+      const table = document.querySelector('table');
+      const button = document.getElementById('filmBtn');
+      if (!table || !button) return null;
+      // Node.DOCUMENT_POSITION_FOLLOWING — the button comes after the matrix.
+      return { after: Boolean(table.compareDocumentPosition(button) & 4) };
+    });
+    expect(order).toEqual({ after: true });
   });
 });

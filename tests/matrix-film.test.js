@@ -35,6 +35,10 @@ describe('filmClipWindow', () => {
 
   it('returns nothing when neither a clip nor a duration is known', () => {
     expect(filmClipWindow(null, undefined)).toBeNull();
+    // Chrome reports Infinity for a Playwright recording until the duration is
+    // forced; a window of 0 would end that part of the film before it started.
+    expect(filmClipWindow(null, Number.POSITIVE_INFINITY)).toBeNull();
+    expect(filmClipWindow(null, Number.NaN)).toBeNull();
   });
 
   it('uses the raw clip times when the recording carries no trace calibration', () => {

@@ -161,18 +161,45 @@ function drawRaceFrame(ctx, layout, theme, loaded, elapsed) {
 
 // --- Loading one condition's recordings -------------------------------------
 
-function onceWithTimeout(video, events, ready) {
+/**
+ * Wait until `ready()` holds, re-checking it whenever one of `events` fires.
+ * Always settles: a recording that never gets there is dropped by the caller
+ * rather than hanging the film.
+ */
+function waitFor(video, events, ready) {
   return new Promise(resolve => {
     if (ready()) return resolve();
     let timer = null;
     const done = () => {
       clearTimeout(timer);
-      events.forEach(name => video.removeEventListener(name, done));
+      events.forEach(name => video.removeEventListener(name, check));
       resolve();
     };
-    events.forEach(name => video.addEventListener(name, done));
+    const check = () => { if (ready()) done(); };
+    events.forEach(name => video.addEventListener(name, check));
     timer = setTimeout(done, LOAD_TIMEOUT_MS);
   });
+}
+
+/**
+ * Chrome reports duration = Infinity for a WebM with no Duration element in its
+ * header — which is every Playwright recording. Seeking far past the end makes
+ * it scan the file and report the real value, the same trick the player runtime
+ * uses (forceDurationScan in player-runtime/playback.js). Without it a
+ * recording that carries no clip times (they were trimmed by --ffmpeg) has no
+ * end to play to.
+ */
+function ensureFiniteDuration(video) {
+  const settled = () => Number.isFinite(video.duration) || !!video.error;
+  if (settled()) return Promise.resolve();
+  const scanned = waitFor(video, ['durationchange', 'error'], settled);
+  video.currentTime = 1e10;
+  return scanned;
+}
+
+/** A recording is usable once it has data to draw and an end to play to. */
+function isPlayable(video) {
+  return video.readyState >= 2 && Number.isFinite(video.duration);
 }
 
 /**
@@ -189,23 +216,25 @@ async function loadCondition(condition) {
     return video;
   });
 
-  await Promise.all(videos.map(v => onceWithTimeout(v, ['loadeddata', 'error'], () => v.readyState >= 2)));
+  await Promise.all(videos.map(v => waitFor(v, ['loadeddata', 'error'], () => v.readyState >= 2 || !!v.error)));
+  await Promise.all(videos.filter(v => v.readyState >= 2).map(ensureFiniteDuration));
 
   const playable = [], windows = [], racers = [];
   videos.forEach((video, i) => {
-    if (video.readyState < 2) {
+    if (!isPlayable(video)) {
       video.removeAttribute('src');
       return;
     }
     playable.push(video);
     racers.push(condition.racers[i]);
-    windows.push(filmClipWindow(condition.racers[i].clip, video.duration) || { start: 0, end: video.duration || 0 });
+    windows.push(filmClipWindow(condition.racers[i].clip, video.duration));
   });
 
   await Promise.all(playable.map((video, i) => {
-    if (Math.abs(video.currentTime - windows[i].start) < SEEK_TOLERANCE) return Promise.resolve();
-    const seeked = onceWithTimeout(video, ['seeked', 'error'], () => false);
-    video.currentTime = windows[i].start;
+    const target = windows[i].start;
+    if (Math.abs(video.currentTime - target) < SEEK_TOLERANCE) return Promise.resolve();
+    const seeked = waitFor(video, ['seeked', 'error'], () => Math.abs(video.currentTime - target) < SEEK_TOLERANCE || !!video.error);
+    video.currentTime = target;
     return seeked;
   }));
 
@@ -319,8 +348,10 @@ async function playRace(state, frame, loaded) {
  */
 async function recordConditions(plan, ui, state, frame) {
   const total = plan.conditions.length;
-  let loaded = frame.loaded;
+  let pending = frame.loaded;
   for (let i = 0; i < total && !state.cancelled; i++) {
+    const loaded = pending;
+    if (!loaded) break; // nothing left to play — the plan and the loads disagree
     const condition = plan.conditions[i];
     // Load the next condition while this one's card is on screen, so the film
     // runs on from race to race instead of freezing between them.
@@ -335,19 +366,30 @@ async function recordConditions(plan, ui, state, frame) {
     ui.progress((i + 1) / total);
 
     disposeCondition(loaded);
-    loaded = nextLoad ? await nextLoad : null;
+    pending = nextLoad ? await nextLoad : null;
   }
-  return loaded;
+  return pending;
 }
 
 // --- Overlay wiring ---------------------------------------------------------
 
+/**
+ * One part of the overlay, which the build-film fragment always ships together
+ * with the button. Missing means the markup and this runtime have drifted —
+ * worth failing loudly rather than throwing further down on null.
+ */
+function overlayPart(selector) {
+  const part = filmOverlay.querySelector(selector);
+  if (!part) throw new Error(`the film overlay has no ${selector}`);
+  return part;
+}
+
 function openFilmOverlay(state) {
-  const canvas = filmOverlay.querySelector('.film-canvas');
-  const statusEl = filmOverlay.querySelector('.film-status');
-  const fill = filmOverlay.querySelector('.film-progress-fill');
-  const actions = filmOverlay.querySelector('.film-actions');
-  const cancelBtn = filmOverlay.querySelector('.film-cancel');
+  const canvas = overlayPart('.film-canvas');
+  const statusEl = overlayPart('.film-status');
+  const fill = overlayPart('.film-progress-fill');
+  const actions = overlayPart('.film-actions');
+  const cancelBtn = overlayPart('.film-cancel');
 
   const close = () => {
     state.cancelled = true;

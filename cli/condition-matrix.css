@@ -34,8 +34,10 @@ p.desc { text-align: center; color: var(--text-faint); font-size: var(--font-siz
          margin: 0 auto 2rem; max-width: 68ch; min-height: 1.2em; }
 
 /* --- Film: one video of every condition ---------------------------------- */
+/* Below the matrix: the film is what you reach for after reading the results,
+   not before. */
 p.actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
-            gap: 0.6rem; margin: 0 0 1.6rem; }
+            gap: 0.6rem; margin: 1.6rem 0 0; }
 .film-btn { font: inherit; font-size: var(--font-size-base); font-weight: bold; cursor: pointer;
             background: var(--surface); color: var(--accent);
             border: var(--border-width) solid var(--border-strong); border-radius: var(--radius);
