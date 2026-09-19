@@ -302,7 +302,7 @@ async function loadCondition(condition) {
   const playable = [], windows = [], racers = [];
   videos.forEach((video, i) => {
     if (!isPlayable(video)) {
-      video.removeAttribute('src');
+      releaseVideo(video);
       return;
     }
     playable.push(video);
@@ -321,13 +321,20 @@ async function loadCondition(condition) {
   return { condition: { ...condition, racers }, videos: playable, windows };
 }
 
+/**
+ * Let go of a video element's network and decoder resources. Removing `src`
+ * alone is not enough: the element keeps what it has fetched until load()
+ * makes it start over from nothing.
+ */
+function releaseVideo(video) {
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
+}
+
 function disposeCondition(loaded) {
   if (!loaded) return;
-  for (const video of loaded.videos) {
-    video.pause();
-    video.removeAttribute('src');
-    video.load();
-  }
+  loaded.videos.forEach(releaseVideo);
 }
 
 /**

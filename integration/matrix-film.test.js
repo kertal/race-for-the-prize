@@ -11,6 +11,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execSync, spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -18,13 +19,17 @@ import path from 'node:path';
 import { createStaticHandler } from '../race.js';
 import { buildConditionIndexHtml } from '../cli/condition-matrix.js';
 
+// The card hold is the runtime's own number, so the length check below can
+// never drift from what the film actually does.
+const require = createRequire(import.meta.url);
+const { CARD_SECONDS } = require('../cli/matrix-runtime/film-plan.cjs');
+
 const RACERS = ['lauda', 'hunt'];
 const CONDITIONS = [
   { label: 'none-cpu1x', title: 'Network: none · CPU: 1x', network: 'none', cpu: 1, winner: 'lauda' },
   { label: 'none-cpu4x', title: 'Network: none · CPU: 4x', network: 'none', cpu: 4, winner: 'hunt' },
 ];
 const VIDEO_SECONDS = 1;
-const CARD_SECONDS = 4; // matches cli/matrix-runtime/film-plan.cjs
 
 function hasFfmpeg() {
   try { execSync('ffmpeg -version', { stdio: 'pipe', timeout: 5_000 }); return true; }
