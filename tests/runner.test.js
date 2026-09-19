@@ -2,8 +2,96 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { setupMetricsCollection, runMarkerMode } = require('../runner.cjs');
+const { setupMetricsCollection, runMarkerMode, selectRaceTiming } = require('../runner.cjs');
 const { SyncBarrier } = require('../sync-barrier.cjs');
+
+describe('cosmetic failures', () => {
+  it('keeps the measurements when an overlay update throws mid-race', async () => {
+    // A page that navigates while the overlay is being painted rejects the
+    // evaluate with "Execution context was destroyed". Trace marks pass a
+    // string; overlay writes pass an object — fail only the latter.
+    const page = makeBarePage();
+    page.evaluate = async (fn, arg) => {
+      if (arg && typeof arg === 'object') throw new Error('Execution context was destroyed');
+      return null;
+    };
+    const errors = [];
+    const original = console.error;
+    console.error = (...args) => errors.push(args.join(' '));
+    try {
+      const result = await runMarkerMode(page, {
+        id: 'nav',
+        script: "await page.raceStart('Load');\npage.raceEnd('Load');",
+      }, { noOverlay: false, noRecording: false });
+      expect(result.measurements.map(m => m.name)).toEqual(['Load']);
+      expect(result.segments).toHaveLength(1);
+      // Reported once, not once per overlay write.
+      expect(errors.filter(e => e.includes('overlay update failed'))).toHaveLength(1);
+    } finally {
+      console.error = original;
+    }
+  });
+});
+
+describe('script compilation', () => {
+  const runScript = (script) => {
+    const page = makeBarePage();
+    return runMarkerMode(page, { id: 'q', script }, { noOverlay: true, noRecording: true }).then(result => ({ page, result }));
+  };
+
+  it('keeps typographic quotes inside a script that already parses', async () => {
+    // A selector or message with an apostrophe must reach the page as typed.
+    const { page } = await runScript("page.note = 'Let’s go';");
+    expect(page.note).toBe('Let’s go');
+  });
+
+  it('still rescues a script pasted with smart quotes as string delimiters', async () => {
+    const { result } = await runScript('await page.raceStart(‘Load’);\npage.raceEnd(“Load”);');
+    expect(result.measurements.map(m => m.name)).toEqual(['Load']);
+  });
+
+  it('reports a genuine syntax error as a script failure', async () => {
+    await expect(runScript('await page.raceStart(;')).rejects.toThrow('Script execution failed');
+  });
+});
+
+describe('selectRaceTiming', () => {
+  const markerSegments = [{ start: 1.5, end: 3.5 }];
+  const markerMeasurements = [{ name: 'Load', startTime: 1.6, endTime: 3.4, duration: 1.8 }];
+  const traceSegments = [{ start: 0, end: 2.0, startTraceTs: 1_500_000, endTraceTs: 3_500_000 }];
+  const traceMeasurements = [{ name: 'Load', startTime: 0.1, endTime: 1.9, duration: 1.8, startTraceTs: 1_600_000, endTraceTs: 3_400_000 }];
+  const calibrated = { recordingSegments: traceSegments, measurements: traceMeasurements, ptsSegments: [{ start: 1.5, end: 3.5 }] };
+
+  it('prefers the trace when it is complete and calibratable', () => {
+    expect(selectRaceTiming(calibrated, markerSegments, markerMeasurements))
+      .toEqual({ recordingSegments: traceSegments, measurements: traceMeasurements });
+  });
+
+  it('falls back to marker segments when the trace has no frames to calibrate against', () => {
+    // Trace segments count from the recording-start mark, so without the
+    // first frame's timestamp their start of 0 would be read as video PTS 0.
+    const uncalibrated = { ...calibrated, ptsSegments: [] };
+    expect(selectRaceTiming(uncalibrated, markerSegments, markerMeasurements))
+      .toEqual({ recordingSegments: markerSegments, measurements: traceMeasurements });
+  });
+
+  it('falls back to marker measurements when a mark went missing', () => {
+    // Two sections measured, but the second measure:end mark was lost to a
+    // navigation: the trace pairs only one, so the marker clock keeps both.
+    const twoMarkers = [...markerMeasurements, { name: 'Render', startTime: 3.5, endTime: 4.0, duration: 0.5 }];
+    expect(selectRaceTiming(calibrated, markerSegments, twoMarkers).measurements).toBe(twoMarkers);
+  });
+
+  it('falls back to marker segments when the trace merged two of them', () => {
+    const twoMarkerSegments = [{ start: 1, end: 2 }, { start: 3, end: 4 }];
+    expect(selectRaceTiming(calibrated, twoMarkerSegments, markerMeasurements).recordingSegments).toBe(twoMarkerSegments);
+  });
+
+  it('uses the markers when there is no trace at all', () => {
+    expect(selectRaceTiming(null, markerSegments, markerMeasurements))
+      .toEqual({ recordingSegments: markerSegments, measurements: markerMeasurements });
+  });
+});
 
 /** The minimum a page has to offer runMarkerMode when overlays and metrics are off. */
 function makeBarePage() {

@@ -109,6 +109,57 @@ function sanitizeScript(script) {
     .replace(/\r\n?/g, '\n');
 }
 
+const SCRIPT_PARAMS = ['page', 'race', '__startRecording', '__stopRecording', '__startMeasure', '__endMeasure'];
+
+/**
+ * Compile a race script into an async function.
+ *
+ * A script pasted from a chat or a document can carry typographic quotes and
+ * odd spaces where JavaScript needs plain ones, so a script that does not
+ * parse gets a second try after sanitizeScript(). A script that parses as
+ * written is never rewritten: an apostrophe inside a selector or a message
+ * stays exactly as its author typed it.
+ *
+ * SECURITY: Race scripts execute with the full privileges of this Node.js
+ * process. Only run scripts you trust \u2014 this is equivalent to `node <file>`.
+ */
+function compileScript(source) {
+  const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor; // NOSONAR \u2014 intentional: executes user-provided race scripts
+  try {
+    return new AsyncFunction(...SCRIPT_PARAMS, source); // NOSONAR
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+  }
+  return new AsyncFunction(...SCRIPT_PARAMS, sanitizeScript(source)); // NOSONAR
+}
+
+/**
+ * Pick the timing the results are built from. The Playwright trace is the
+ * preferred source (its marks sit on the page's own clock and calibrate to the
+ * video frames), but only when it is complete: a mark lost to a navigation
+ * pairs the remaining ones wrongly, and without screenshot frames the trace's
+ * segments start at 0 rather than at the recording's position in the video,
+ * which is what the player's fallback and ffmpeg trimming would read them as.
+ * Otherwise the race API's own marker clock, which counts from context
+ * creation (video PTS 0), is the safer answer.
+ *
+ * @param {object|null} traceTiming - deriveTraceTiming() output, or null
+ * @param {Array} markerSegments - segments from the race API
+ * @param {Array} markerMeasurements - measurements from the race API
+ * @returns {{recordingSegments: Array, measurements: Array}}
+ */
+function selectRaceTiming(traceTiming, markerSegments, markerMeasurements) {
+  const traceSegments = traceTiming?.recordingSegments || [];
+  const traceMeasurements = traceTiming?.measurements || [];
+  const calibratable = (traceTiming?.ptsSegments?.length || 0) > 0;
+  const segmentsComplete = traceSegments.length > 0 && traceSegments.length === markerSegments.length;
+  const measurementsComplete = traceMeasurements.length > 0 && traceMeasurements.length === markerMeasurements.length;
+  return {
+    recordingSegments: calibratable && segmentsComplete ? traceSegments : markerSegments,
+    measurements: measurementsComplete ? traceMeasurements : markerMeasurements,
+  };
+}
+
 // --- Race API (marker mode) ---
 
 /**
@@ -188,6 +239,21 @@ async function runMarkerMode(page, config, {
 
   const encodeMeasureName = (name) => encodeURIComponent(String(name ?? 'default'));
 
+  // Overlays and cue flashes are cosmetic. A page that navigates or closes in
+  // the middle of one ("Execution context was destroyed") must not turn a
+  // racer whose measurements are already in hand into a failed racer — the
+  // trace marks and the race API are what the results are built from.
+  let cosmeticFailureReported = false;
+  const cosmetic = async (work) => {
+    try {
+      await work();
+    } catch (error) {
+      if (cosmeticFailureReported) return;
+      cosmeticFailureReported = true;
+      console.error(`[${id}] Warning: overlay update failed (${error.message}); the race continues without it`);
+    }
+  };
+
   const overlayCtrl = new OverlayController(page, { noOverlay, noRecording, wallClock, timeBase: recordingStartTime });
 
   // The state machine lives in race-api.cjs; everything runner-specific
@@ -216,10 +282,10 @@ async function runMarkerMode(page, config, {
         // immediately before calling this hook, so the two agree.
         const startEpochMs = Date.now();
         await markTrace(`${traceMarkPrefix}recording:start`);
-        await Promise.all([
+        await cosmetic(() => Promise.all([
           overlayCtrl.onStartRecording(startEpochMs),
           flashCues ? flashCue(page, CUE_COLOR_START) : null,
-        ]);
+        ]));
       },
       markRecordingEnd: async () => {
         // Flag first, mark second: the player trims the clip at this mark, so a
@@ -233,16 +299,16 @@ async function runMarkerMode(page, config, {
         await markTrace(`${traceMarkPrefix}recording:end`);
       },
       onRecordingStop: async ({ segmentEnd }) => {
-        await Promise.all([
+        await cosmetic(() => Promise.all([
           flashCues ? flashCue(page, CUE_COLOR_END) : null,
           // The clock stops with the recording, not on the finish: it ran
           // through the spec's untimed waits, so it counts the outro too.
           overlayCtrl.onStopRecording(segmentEnd),
-        ]);
+        ]));
       },
       onMeasureStart: async (name) => {
         await markTrace(`${traceMarkPrefix}measure:start:${encodeMeasureName(name)}`);
-        await overlayCtrl.onMeasureStart();
+        await cosmetic(() => overlayCtrl.onMeasureStart());
       },
       onMeasureEnd: (name, endTime, activeCount) => {
         queueTraceMark(`${traceMarkPrefix}measure:end:${encodeMeasureName(name)}`);
@@ -336,13 +402,9 @@ async function runMarkerMode(page, config, {
   const hasScript = Boolean(raceScript && raceScript.trim() !== '');
 
   if (hasScript) {
-    // SECURITY: Race scripts execute with the full privileges of this Node.js
-    // process. Only run scripts you trust — this is equivalent to `node <file>`.
-    const sanitized = sanitizeScript(raceScript);
     const raceContext = Object.freeze({ name: id, vars: Object.freeze(vars || {}) });
     try {
-      const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor; // NOSONAR — intentional: executes user-provided race scripts
-      const fn = new AsyncFunction('page', 'race', '__startRecording', '__stopRecording', '__startMeasure', '__endMeasure', sanitized); // NOSONAR
+      const fn = compileScript(raceScript);
       await fn(page, raceContext, api.startRecording, api.stopRecording, api.startMeasure, api.endMeasure);
     } catch (error) {
       console.error(`[${id}] Script failed: ${error.message}`);
@@ -439,9 +501,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
 
     const { tracePath, profileMetrics, traceText } = await collectProfilingResults(browser, metricsCollector, outputDir, id);
     const traceTiming = deriveTraceTiming(traceText);
-    const traceSegments = traceTiming?.recordingSegments || [];
-    const recordingSegments = traceSegments.length > 0 ? traceSegments : markerSegments;
-    const measurements = traceTiming?.measurements?.length > 0 ? traceTiming.measurements : markerMeasurements;
+    const { recordingSegments, measurements } = selectRaceTiming(traceTiming, markerSegments, markerMeasurements);
 
     await context.close();
     const wallClockDuration = (Date.now() - contextCreationStart) / 1000;
@@ -712,4 +772,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { RESULT_SENTINEL, setupMetricsCollection, runMarkerMode };  // Re-exported for back-compat with existing imports.
+module.exports = { RESULT_SENTINEL, setupMetricsCollection, runMarkerMode, selectRaceTiming };  // RESULT_SENTINEL/setupMetricsCollection re-exported for back-compat with existing imports.
