@@ -227,14 +227,18 @@ function buildClipTimes(racerNames, getBrowserData, ffmpeg) {
 }
 
 /**
- * The localStorage namespace of one report: the race directory's name plus the
- * report's results path within it ("lauda-vs-hunt/results-…/slow-3g/2"), so a
- * run, a condition and a whole race each keep their own notes even when served
- * from the same origin.
+ * The localStorage namespace of one report: the race directory's identity plus
+ * the report's results path within it ("lauda-vs-hunt-3f9a2c1d/results-…/slow-3g/2"),
+ * so a run, a condition and a whole race each keep their own notes even when
+ * served from the same origin. The identity is the directory's name for
+ * readability plus a short hash of its full path, so two race directories that
+ * merely share a name (races/lauda-vs-hunt and archive/lauda-vs-hunt) still get
+ * distinct scopes.
  */
 export function reportStorageScope(runDir, raceDir = null) {
-  const scope = raceDir ? path.join(path.basename(raceDir), path.relative(raceDir, runDir)) : runDir;
-  return scope.split(path.sep).join('/');
+  if (!raceDir) return runDir.split(path.sep).join('/');
+  const raceId = `${path.basename(raceDir)}-${crypto.createHash('sha1').update(path.resolve(raceDir)).digest('hex').slice(0, 8)}`;
+  return path.join(raceId, path.relative(raceDir, runDir)).split(path.sep).join('/');
 }
 
 /**

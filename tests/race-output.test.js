@@ -84,23 +84,33 @@ describe('buildResultsPaths', () => {
 });
 
 describe('reportStorageScope', () => {
+  const race = '/r/lauda-vs-hunt';
+  // "<race dir name>-<8 hex chars of its path hash>/<results path>"
+  const SCOPE = /^lauda-vs-hunt-[0-9a-f]{8}\/(.*)$/;
+  const resultsPath = scope => scope.match(SCOPE)?.[1];
+
   it('names a report by its race directory and results path', () => {
-    expect(reportStorageScope('/r/lauda-vs-hunt/results-2024', '/r/lauda-vs-hunt')).toBe('lauda-vs-hunt/results-2024');
+    const scope = reportStorageScope(`${race}/results-2024`, race);
+    expect(scope).toMatch(SCOPE);
+    expect(resultsPath(scope)).toBe('results-2024');
+  });
+
+  it('is stable for the same race directory', () => {
+    expect(reportStorageScope(`${race}/results-2024`, race)).toBe(reportStorageScope(`${race}/results-2024`, race));
   });
 
   it('keeps every run and condition of one race apart', () => {
-    const race = '/r/lauda-vs-hunt';
     const scopes = [
       reportStorageScope(`${race}/results-2024/slow-3g`, race),
       reportStorageScope(`${race}/results-2024/slow-3g/1`, race),
       reportStorageScope(`${race}/results-2024/slow-3g/2`, race),
       reportStorageScope(`${race}/results-2024/4g`, race),
     ];
-    expect(scopes).toEqual([
-      'lauda-vs-hunt/results-2024/slow-3g',
-      'lauda-vs-hunt/results-2024/slow-3g/1',
-      'lauda-vs-hunt/results-2024/slow-3g/2',
-      'lauda-vs-hunt/results-2024/4g',
+    expect(scopes.map(resultsPath)).toEqual([
+      'results-2024/slow-3g',
+      'results-2024/slow-3g/1',
+      'results-2024/slow-3g/2',
+      'results-2024/4g',
     ]);
     expect(new Set(scopes).size).toBe(scopes.length);
   });
@@ -108,6 +118,15 @@ describe('reportStorageScope', () => {
   it('keeps two races that reuse a results name apart', () => {
     expect(reportStorageScope('/r/a-vs-b/results-2024', '/r/a-vs-b'))
       .not.toBe(reportStorageScope('/r/c-vs-d/results-2024', '/r/c-vs-d'));
+  });
+
+  it('keeps two race directories that share a name apart', () => {
+    // Same basename, same results path — only the parent differs.
+    const current = reportStorageScope('/r/races/lauda-vs-hunt/results-2024', '/r/races/lauda-vs-hunt');
+    const archived = reportStorageScope('/r/archive/lauda-vs-hunt/results-2024', '/r/archive/lauda-vs-hunt');
+    expect(current).toMatch(SCOPE);
+    expect(archived).toMatch(SCOPE);
+    expect(current).not.toBe(archived);
   });
 
   it('uses the full path when no race directory is known', () => {

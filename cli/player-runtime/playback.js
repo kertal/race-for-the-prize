@@ -587,7 +587,7 @@ document.addEventListener('keydown', (e) => {
 // --- Notes: persist in localStorage ---
 //
 // The key is scoped to this one report: the build stamps every report with a
-// storageScope (its results path, e.g. "lauda-vs-hunt/results-…/slow-3g/2"),
+// storageScope (its results path, e.g. "lauda-vs-hunt-3f9a2c1d/results-…/slow-3g/2"),
 // so the notes of one condition or run never show up on another — even when
 // the same local server later serves a different race at the same URL.
 // Reports built without a scope fall back to their path.
