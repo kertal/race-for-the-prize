@@ -20,8 +20,25 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const RACERS = ['a', 'b'];
 const videoFiles = RACERS.map(n => `${n}/${n}.race.webm`);
 // Well inside the recording, so playback certainly reaches the end of the clip.
-const clipTimes = [{ start: 0.3, end: 1.2 }, { start: 0.3, end: 1.2 }];
+const CLIP_START = 0.3;
 const CLIP_END = 1.2;
+const clipTimes = [{ start: CLIP_START, end: CLIP_END }, { start: CLIP_START, end: CLIP_END }];
+
+// The finish badge needs a measured section and per-racer totals, which change
+// how the clip window resolves — so it gets a page of its own rather than
+// shifting the numbers the clamp tests above measure. The wall-clock fields put
+// the finish at 0.8s of video: inside the clip, with room to seek either side.
+const FINISH_AT = 0.8;
+const finishClip = () => ({
+  start: CLIP_START,
+  end: CLIP_END,
+  _wcStart: 1000,
+  _wcEnd: 1000 + (CLIP_END - CLIP_START),
+  measurements: [{ name: 'Load', startTime: 1000.1, endTime: 1000 + (FINISH_AT - CLIP_START) }],
+});
+const finishComparisons = [
+  { name: 'Load', racers: [{ duration: 1 }, { duration: 2 }], winner: 'a', rankings: RACERS },
+];
 // One frame of slack: the clamp cannot fire before the frame that overruns.
 const FRAME_STEP = 0.04;
 
@@ -184,4 +201,99 @@ describeMaybe('clip playback', () => {
     expect(frames.length).toBeGreaterThan(10);
     expect(Math.max(0, ...backSteps)).toBeLessThanOrEqual(1);
   }, 30000);
+
+  describe('finish badge', () => {
+    beforeAll(async () => {
+      fs.writeFileSync(
+        path.join(tmpDir, 'finish.html'),
+        buildPlayerHtml(
+          {
+            racers: RACERS, comparisons: finishComparisons, overallWinner: 'a',
+            timestamp: new Date().toISOString(), settings: {}, errors: [], wins: {}, videos: {},
+          },
+          videoFiles, null, null, { clipTimes: [finishClip(), finishClip()] }
+        )
+      );
+      await page.goto(baseUrl + 'finish.html');
+      await page.waitForFunction(
+        () => [...document.querySelectorAll('video')].every(v => v.readyState >= 2),
+        null,
+        { timeout: 20000 }
+      );
+    }, 30000);
+
+    /** Drive an interaction while sampling the badge every painted frame. */
+    const sampleWhile = (action) => page.evaluate(async (action) => {
+      const badge = document.getElementById('finishResult0');
+      const video = document.querySelectorAll('video')[0];
+      const samples = [];
+      const started = performance.now();
+      const sample = () => {
+        samples.push({ hidden: badge.hidden, seeking: video.seeking });
+        if (performance.now() - started < 1800) requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+
+      const pause = (ms) => new Promise(r => setTimeout(r, ms));
+      await pause(120);
+      if (action === 'step') {
+        for (let i = 0; i < 6; i++) { document.getElementById('prevFrame').click(); await pause(120); }
+      } else {
+        const scrubber = document.getElementById('scrubber');
+        for (let i = 0; i < 12; i++) {
+          scrubber.value = String(1000 - i * 10);
+          scrubber.dispatchEvent(new Event('input', { bubbles: true }));
+          await pause(60);
+        }
+      }
+      await pause(700);
+
+      let flips = 0;
+      for (let i = 1; i < samples.length; i++) if (samples[i].hidden !== samples[i - 1].hidden) flips++;
+      return {
+        flips,
+        seekingFrames: samples.filter(s => s.seeking).length,
+        endHidden: samples[samples.length - 1].hidden,
+      };
+    }, action);
+
+    /** Play from the clip start through the finish, leaving the badge up. */
+    async function playToFinish() {
+      await page.evaluate(() => document.getElementById('goStart').click());
+      await page.evaluate(() => new Promise(r => setTimeout(r, 250)));
+      await page.evaluate(() => document.getElementById('playBtn').click());
+      await page.evaluate(() => new Promise(r => setTimeout(r, 1600)));
+    }
+
+    const badgeHidden = () => page.evaluate(() => document.getElementById('finishResult0').hidden);
+
+    it('shows once playback passes the finish, and hides again before it', async () => {
+      await page.evaluate(() => document.getElementById('goStart').click());
+      await page.evaluate(() => new Promise(r => setTimeout(r, 400)));
+      expect(await badgeHidden()).toBe(true);
+
+      await playToFinish();
+      expect(await badgeHidden()).toBe(false);
+
+      // Seeking back before the finish must still take it down — holding the
+      // last answer through a seek must not make the badge sticky.
+      await page.evaluate(() => document.getElementById('goStart').click());
+      await page.evaluate(() => new Promise(r => setTimeout(r, 500)));
+      expect(await badgeHidden()).toBe(true);
+    }, 30000);
+
+    it.each(['step', 'scrub'])('does not blink while you %s past it', async (action) => {
+      // Regression: the badge was blanked for the whole of every seek, so
+      // frame-stepping flickered and a scrub strobed. Worse, a paused seek is
+      // followed by no timeupdate, so it could stay gone for good.
+      await playToFinish();
+      expect(await badgeHidden()).toBe(false);
+
+      const seen = await sampleWhile(action);
+
+      expect(seen.seekingFrames).toBeGreaterThan(0); // the seeks really happened
+      expect(seen.flips).toBe(0);
+      expect(seen.endHidden).toBe(false);
+    }, 30000);
+  });
 });
