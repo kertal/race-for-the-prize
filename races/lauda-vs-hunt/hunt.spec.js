@@ -1,4 +1,4 @@
-// 🏆 James Hunt - The Shunt
+// 🏁 James Hunt - The Shunt
 // 1976 World Champion. Raw speed, pure guts.
 // Race: Scroll to the bottom of his Wikipedia page — human-like speed.
 

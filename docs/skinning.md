@@ -33,9 +33,9 @@ set — the overview and every per-condition player it links to.
 ## Using a skin
 
 ```bash
-node race.js ./races/lauda-vs-hunt --skin=light      # built-in skin
-node race.js ./races/lauda-vs-hunt --skin=neon       # built-in skin
-node race.js ./races/lauda-vs-hunt --skin=./team.css # your own file
+race-for-the-prize ./races/lauda-vs-hunt --skin=light      # built-in skin
+race-for-the-prize ./races/lauda-vs-hunt --skin=neon       # built-in skin
+race-for-the-prize ./races/lauda-vs-hunt --skin=./team.css # your own file
 ```
 
 or in the race directory's `settings.json`:
@@ -106,7 +106,6 @@ Colour — accent and lines:
 | `--accent-bright` | Accent hover |
 | `--accent-shadow` | Border of the highlighted "total" metric card |
 | `--accent-contrast` | Text drawn *on* an accent fill |
-| `--accent-wash` | Gradient behind the "total" metric card |
 | `--border`, `--border-strong`, `--border-subtle` | Three line weights |
 | `--danger` | Racer error messages |
 | `--tool-accent`, `--tool-surface`, `--tool-contrast` | The calibration panel, which keeps its own accent so it reads as a tool rather than page chrome |
@@ -116,21 +115,24 @@ Type, shape, motion and layout:
 | Token | Role |
 |---|---|
 | `--font-ui`, `--font-display` | Body/monospace face and heading face |
-| `--font-size-xs` … `--font-size-4xl` | Nine-step type scale (plus `--font-size-marker` for disclosure triangles) |
+| `--font-size-xs` … `--font-size-3xl` | Eight-step type scale (plus `--font-size-marker` for disclosure triangles) |
 | `--tracking-tight` … `--tracking-widest` | Letter-spacing steps |
 | `--leading`, `--leading-loose` | Line heights |
 | `--radius-sm`, `--radius`, `--radius-md`, `--radius-lg` | Corner radii |
 | `--border-width`, `--border-width-thick` | Line weights |
 | `--shadow-popover`, `--focus-ring` | Menu shadow, focus outline |
 | `--duration-fast`, `--duration`, `--duration-slow` | Transition speeds |
-| `--page-max`, `--content-max`, `--gutter` | Page width, report column width, horizontal padding |
+| `--content-max`, `--gutter` | Report column width (both pages share it), horizontal padding |
 | `--control-size`, `--play-btn-width` | Transport button geometry |
 
 Ornament and media:
 
 | Token | Role |
 |---|---|
-| `--checker-size`, `--checker-color-a`, `--checker-color-b` | The chequered bars |
+| `--checker-size` | Height of the flag at the foot of the player, and the gutter the page reserves for it |
+| `--checker-square` | One square of the flag; the bar stacks `--checker-size / --checker-square` rows of them. Keep it a whole pixel that divides `--checker-size` evenly |
+| `--checker-wash`, `--checker-fade` | The flag texture on every band — one colour at low alpha, and the mask that fades it out behind the title. A light skin needs a dark wash, or the texture vanishes into the page |
+| `--header-min-height`, `--band-gap`, `--font-banner` | The title band's height, the space it leaves before the page starts, and its italic face |
 | `--select-arrow` | Dropdown arrow, as a full `url()` — the fill colour is baked into the data URI, so replace the whole image |
 | `--video-bg`, `--video-border-width`, `--video-border-color` | The video frames |
 

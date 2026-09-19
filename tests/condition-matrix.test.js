@@ -634,7 +634,10 @@ describe('buildConditionIndexHtml matrix', () => {
     ]);
     const tokens = fs.readFileSync(path.join(SKINS_DIR, '..', 'tokens.css'), 'utf-8');
 
-    expect(html).toContain('<div class="checkered-bar"></div>');
+    // The same title band the player wears, down to the masked checker wash.
+    expect(html).toContain('<header class="race-header">');
+    expect(html).toContain('mask-image: var(--checker-fade)');
+    expect(html).toContain('var(--checker-wash)');
     // Not "looks similar" — the page inlines the very same token file the
     // player does, so the two cannot drift apart.
     expect(html).toContain(tokens);

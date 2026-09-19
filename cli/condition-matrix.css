@@ -11,13 +11,41 @@
    =========================================================================== */
 
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-ui); }
-.checkered-bar { height: var(--checker-size);
-                 background: repeating-conic-gradient(var(--checker-color-a) 0% 25%, var(--checker-color-b) 0% 50%)
-                             0 0 / var(--checker-size) var(--checker-size); }
-.wrap { max-width: 1200px; margin: 0 auto; padding: 2rem var(--gutter) 3rem; }
-h1 { font-family: var(--font-display); font-size: var(--font-size-4xl); color: var(--accent);
-     text-align: center; text-transform: uppercase; letter-spacing: var(--tracking-widest); margin: 0 0 0.5rem; }
+/* The foot band is fixed, so the page reserves its height — same as the player. */
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-ui);
+       padding-bottom: var(--checker-size); }
+
+/* The same pair of bands the player wears: a checker wash faded out across the
+   middle so the title never competes with it, hemmed by a hairline. The head is
+   sticky, so the flag stays in view while a wide matrix scrolls; the foot is
+   fixed, and carries nothing. */
+.race-header, .checkered-bar { position: relative; isolation: isolate; width: 100%;
+                               overflow: hidden; background: var(--bg); z-index: 900; }
+.race-header::before, .checkered-bar::before {
+  content: ""; position: absolute; inset: 0; z-index: -1;
+  background: repeating-conic-gradient(var(--checker-wash) 0% 25%, transparent 0% 50%)
+              0 0 / var(--checker-tile) var(--checker-tile);
+  -webkit-mask-image: var(--checker-fade); mask-image: var(--checker-fade); }
+.race-header { position: sticky; top: 0;
+               display: flex; align-items: center; justify-content: center;
+               min-height: var(--header-min-height); padding: 0.35rem var(--gutter);
+               border-bottom: var(--border-width) solid var(--border-subtle);
+               /* See the player's .race-header: the gap is the band's, so both
+                  reports open the same way. */
+               margin-bottom: var(--band-gap); }
+.checkered-bar { position: fixed; bottom: 0; left: 0; height: var(--checker-size);
+                 border-top: var(--border-width) solid var(--border-subtle); }
+
+/* Same content column as the player, so clicking through from a cell does not
+   shift the page under the reader. Wide matrices scroll inside .scroll. */
+.wrap { max-width: var(--content-max); margin: 0 auto; padding: 0 var(--gutter) 3rem; }
+/* Kept in step with the player's h1 — a quiet strapline, not a headline. */
+h1 { color: var(--text-muted); font-family: var(--font-banner);
+     font-size: clamp(0.7rem, 1.2vw, 0.85rem); font-weight: 600; font-style: italic;
+     text-align: center; text-transform: uppercase; letter-spacing: var(--tracking-widest);
+     margin: 0;
+     /* Truncate rather than wrap — see the player's h1 for why overflow. */
+     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 p.sub { text-align: center; color: var(--text-dim); font-size: var(--font-size-base); margin: 0 0 1.8rem; }
 
 p.pick { display: flex; align-items: center; justify-content: center; gap: 0.6rem; margin: 0 0 0.6rem; }
@@ -121,8 +149,9 @@ p.tally { text-align: center; color: var(--text-subtle); font-size: var(--font-s
 p.legend { text-align: center; color: var(--text-ghost); font-size: var(--font-size-xs); margin: 0.9rem 0 0; }
 
 @media (max-width: 600px) {
-  .wrap { padding: 1.5rem 1rem 2rem; }
-  h1 { font-size: var(--font-size-3xl); }
+  .wrap { padding: 0 1rem 2rem; }
+  /* No h1 override here: the title clamps with the viewport already, and a
+     size set only on this page would drift from the player's band. */
   td a { width: 250px; }
 }
 @media (prefers-reduced-motion: reduce) {

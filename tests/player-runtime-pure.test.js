@@ -21,6 +21,7 @@ const {
   FRAME_STEP,
   timeToFrame,
   frameReadout,
+  displayedFrameTime,
   offsetRoom,
   planOffsetNudge,
   stepFrameTime,
@@ -273,6 +274,46 @@ describe('calibration timeToFrame', () => {
 
   it('honours a custom frame step', () => {
     expect(timeToFrame(1, 0.1)).toBe(10);
+  });
+});
+
+describe('calibration displayedFrameTime', () => {
+  const playing = (currentTime) => ({ currentTime, paused: false, seeking: false });
+  const paused = (currentTime) => ({ currentTime, paused: true, seeking: false });
+
+  it('names the painted frame while playing, however far currentTime has run on', () => {
+    // Regression: the readout used to prefer currentTime as soon as it drifted
+    // more than one FRAME_STEP from the painted frame, which on any recording
+    // whose frame step is not exactly 0.04s made the badge flip between two
+    // frame numbers several times a second.
+    expect(displayedFrameTime(1.0, playing(1.02))).toBe(1.0);
+    expect(displayedFrameTime(1.0, playing(1.09))).toBe(1.0);
+  });
+
+  it('does not flip between two readings as the media clock runs between paints', () => {
+    // One painted frame, currentTime creeping past it: every sample must agree.
+    const painted = 2.0;
+    const seen = new Set(
+      [2.0, 2.01, 2.03, 2.05, 2.08].map(t => displayedFrameTime(painted, playing(t)))
+    );
+    expect([...seen]).toEqual([painted]);
+  });
+
+  it('follows a seek while paused, where nothing is painting', () => {
+    // Within the same frame, the painted picture is still the truth.
+    expect(displayedFrameTime(1.0, paused(1.01))).toBe(1.0);
+    // A single frame step names the next frame straight away, rather than
+    // showing the old number until the new picture lands.
+    expect(displayedFrameTime(1.0, paused(1.04))).toBe(1.04);
+    // A real jump is the viewer's intent, so report where they went.
+    expect(displayedFrameTime(1.0, paused(5.0))).toBe(5.0);
+    // …and a seek in flight counts as paused, not as playback.
+    expect(displayedFrameTime(1.0, { currentTime: 5.0, paused: false, seeking: true })).toBe(5.0);
+  });
+
+  it('falls back to currentTime before the first frame has painted', () => {
+    expect(displayedFrameTime(null, playing(0.4))).toBe(0.4);
+    expect(displayedFrameTime(undefined, paused(0.4))).toBe(0.4);
   });
 });
 

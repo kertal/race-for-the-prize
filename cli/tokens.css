@@ -29,13 +29,11 @@
   --color-orange: #e67e22;
   --color-red: #e74c3c;
   --color-ink-900: #1a1a1a;
-  --color-ink-850: #222;
   --color-ink-800: #2a2a2a;
   --color-ink-700: #3a3a3a;
   --color-ink-650: #333;
   --color-ink-600: #444;
   --color-ink-500: #555;
-  --color-parchment: #e8e0d0;
   --color-white: #fff;
   --color-grey-100: #ccc;
   --color-grey-300: #999;
@@ -50,7 +48,7 @@
   --surface-inset: rgb(255 255 255 / 2%);
   --scrim: rgb(0 0 0 / 85%);
 
-  --text: var(--color-parchment);
+  --text: var(--color-white);
   --text-bright: var(--color-white);
   --text-muted: var(--color-grey-100);
   --text-dim: var(--color-grey-300);
@@ -58,11 +56,10 @@
   --text-faint: var(--color-grey-500);
   --text-ghost: var(--color-grey-600);
 
-  --accent: var(--color-gold);
-  --accent-bright: var(--color-gold-bright);
-  --accent-shadow: var(--color-gold-shadow);
+  --accent: var(--color-white);
+  --accent-bright: var(--color-grey-100);
+  --accent-shadow: var(--color-grey-600);
   --accent-contrast: var(--color-ink-900);
-  --accent-wash: linear-gradient(180deg, rgb(212 175 55 / 12%), rgb(212 175 55 / 3%));
 
   --border: var(--color-ink-600);
   --border-strong: var(--color-ink-500);
@@ -82,6 +79,9 @@
   /* --- Typography ------------------------------------------------------- */
   --font-ui: ui-monospace, 'Courier New', monospace;
   --font-display: Georgia, 'Times New Roman', serif;
+  /* The title band only. A heavy italic sans reads as racing livery, which the
+     serif display face used by every other heading does not. */
+  --font-banner: system-ui, -apple-system, 'Segoe UI', sans-serif;
 
   --font-size-marker: 0.55rem;
   --font-size-xs: 0.72rem;
@@ -92,7 +92,6 @@
   --font-size-xl: 1rem;
   --font-size-2xl: 1.1rem;
   --font-size-3xl: 1.2rem;
-  --font-size-4xl: 1.8rem;
 
   --tracking-tight: 0.05em;
   --tracking: 0.08em;
@@ -115,16 +114,33 @@
   --duration-slow: 0.3s;
 
   /* --- Layout ----------------------------------------------------------- */
-  --page-max: 1440px;
+  --header-min-height: 36px;
+  /* Space between the title band and the first thing on the page. */
+  --band-gap: 2rem;
   --content-max: 900px;
   --gutter: 1.5rem;
   --control-size: 34px;
+  /* Secondary actions (fullscreen, export, settings, calibration) — smaller
+     than the transport buttons so the emoji glyphs stop dominating the bar. */
+  --control-size-sm: 26px;
   --play-btn-width: 44px;
 
   /* --- Ornament --------------------------------------------------------- */
+  /* Height of the bar, and the gutter the page reserves so nothing hides
+     under it. Keep it a whole multiple of --checker-square or the last row of
+     the flag is clipped mid-square. */
   --checker-size: 20px;
-  --checker-color-a: var(--color-ink-850);
-  --checker-color-b: var(--accent);
+  /* One square of the flag. The bar stacks --checker-size / --checker-square
+     rows of them, so smaller squares read as more of a chequered flag and less
+     as a row of blocks. Whole pixels only — a fraction blurs at 1x. */
+  --checker-square: 5px;
+  /* One repeat of the conic gradient covers a 2x2 block of squares. */
+  --checker-tile: calc(var(--checker-square) * 2);
+  /* In the title band the flag is a texture, not a banner: one colour at low
+     alpha over the band, with the other square left transparent. */
+  --checker-wash: rgb(255 255 255 / 18%);
+  /* …and faded out across the middle so the pattern never fights the title. */
+  --checker-fade: linear-gradient(to right, black, transparent 38%, transparent 62%, black);
 
   /* Dropdown arrow. Skins replace the whole image (the fill colour is baked
      into the data URI, so it cannot be tokenised any further). */

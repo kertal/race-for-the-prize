@@ -18,30 +18,93 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
+  /* Only the foot needs reserving: the title band is sticky, so it takes its
+     own room in the flow rather than hovering over the first thing on the page. */
+  padding-bottom: var(--checker-size);
 }
 
-h1 {
-  font-family: var(--font-display);
-  font-size: var(--font-size-4xl);
-  color: var(--accent);
-  text-align: center;
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-widest);
+/* --- Flag bands ----------------------------------------------------------
+   The page is flagged at both ends by the same band: a checker wash faded out
+   across the middle, hemmed by a hairline. The head carries the title, the
+   foot is ornament only. The z-index keeps the page passing underneath —
+   .racer and the share menu are positioned too, and would paint over them —
+   while staying under the export overlay (1000), a modal that covers all. */
+.race-header,
+.checkered-bar {
+  position: relative;
+  /* Contains the ::before, so its negative z-index cannot slip behind the
+     page background. */
+  isolation: isolate;
+  width: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  z-index: 900;
+}
+/* The flag reads as a texture here rather than a banner: low-alpha squares,
+   masked away across the middle so the title never competes with them. */
+.race-header::before,
+.checkered-bar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    repeating-conic-gradient(var(--checker-wash) 0% 25%, transparent 0% 50%)
+    0 0 / var(--checker-tile) var(--checker-tile);
+  -webkit-mask-image: var(--checker-fade);
+  mask-image: var(--checker-fade);
+}
+
+/* Sticky rather than fixed, so the band keeps its own room in the flow and
+   still rides along as the report scrolls. */
+.race-header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--header-min-height);
+  padding: 0.35rem var(--gutter);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  /* Breathing room before the page starts. It belongs to the band, not to
+     whatever follows, so both reports open with the same gap. */
+  margin-bottom: var(--band-gap);
 }
 
 .checkered-bar {
-  width: 100%;
+  position: fixed;
+  bottom: 0;
+  left: 0;
   height: var(--checker-size);
-  background:
-    repeating-conic-gradient(var(--checker-color-a) 0% 25%, var(--checker-color-b) 0% 50%)
-    0 0 / var(--checker-size) var(--checker-size);
+  border-top: var(--border-width) solid var(--border-subtle);
+}
+
+h1 {
+  /* A quiet strapline, not a headline: the page's own content is the loud
+     part. Small, medium weight and muted, with the tracking opened up so it
+     still reads as a title at this size. */
+  color: var(--text-muted);
+  font-family: var(--font-banner);
+  font-size: clamp(0.7rem, 1.2vw, 0.85rem);
+  font-weight: 600;
+  font-style: italic;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-widest);
+  /* Five racers with long names would otherwise wrap and push the band to
+     three times its height. overflow:hidden does double duty here — it clips
+     to the ellipsis, and it drops this flex item's automatic minimum size to
+     zero so it can shrink below its own text in the first place. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* --- Shared control chrome ----------------------------------------------
    Every clickable control starts from the same surface/border/type so a skin
    only has to move the tokens. Individual rules below declare what differs. */
 .run-nav-btn,
-.header-action-btn,
+.control-action-btn,
 .mode-btn,
 .racer-filter-btn,
 .frame-btn,
@@ -69,7 +132,7 @@ h1 {
 
 /* Hover: lift the surface, light the border. */
 .run-nav-btn:hover,
-.header-action-btn:hover,
+.control-action-btn:hover,
 .mode-btn:hover,
 .frame-btn:hover,
 .file-links a:hover,
@@ -81,7 +144,7 @@ h1 {
 
 /* …and, where the resting state is dimmed, brighten the label too. */
 .run-nav-btn:hover,
-.header-action-btn:hover,
+.control-action-btn:hover,
 .mode-btn:hover {
   color: var(--text);
 }
@@ -174,38 +237,30 @@ h1 {
 .run-nav-btn.has-winner:not(.active) { color: var(--text-bright); }
 .run-nav-btn.active { cursor: default; }
 
-/* --- Header -------------------------------------------------------------- */
-.header-bar {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  max-width: var(--page-max);
-  padding: 1.2rem var(--gutter) 0.3rem;
-}
-.header-icon-left { margin-right: 0.5rem; }
-.header-icon-right {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-.header-action-btn {
+/* --- Control action buttons --------------------------------------------- */
+.control-action-btn {
   border-color: var(--border);
-  width: var(--control-size);
-  height: var(--control-size);
-  font-size: var(--font-size-2xl);
+  width: var(--control-size-sm);
+  height: var(--control-size-sm);
+  font-size: var(--font-size-base);
   line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
-.header-action-btn.active {
+.control-action-btn.active {
   border-color: var(--accent);
   color: var(--accent);
 }
-.header-icon-group {
+.control-action-group {
   position: relative;
   display: inline-block;
+  flex-shrink: 0;
+}
+.frame-btn.calibration-btn {
+  width: var(--control-size-sm);
+  height: var(--control-size-sm);
 }
 
 /* --- Share menu ---------------------------------------------------------- */
@@ -241,18 +296,47 @@ h1 {
   color: var(--accent);
 }
 
-/* --- Settings panel ------------------------------------------------------ */
-.settings-panel {
+/* --- Panels --------------------------------------------------------------
+   Settings and calibration share a shape: a bordered block the width of the
+   content column, opened from the controls bar, headed by its name and a line
+   saying what it is for. Only the accent differs — calibration wears the tool
+   colour because it changes playback timing, settings stays page chrome. */
+.panel {
   display: none;
   width: 100%;
-  max-width: var(--page-max);
-  padding: 0.5rem var(--gutter);
-  gap: 0.8rem;
+  max-width: var(--content-max);
+  /* Top margin, not a gap on a wrapper: a closed panel is display:none and so
+     brings no space with it, which keeps two stacked panels honest. */
+  margin: 0.8rem auto 0;
+  padding: 0.8rem var(--gutter);
+  background: var(--surface);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-md);
+}
+.panel h3 {
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-size: var(--font-size-lg);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  margin-bottom: 0.6rem;
+}
+.panel-note {
+  color: var(--text-dim);
+  font-size: var(--font-size-base);
+  line-height: var(--leading-loose);
+  margin-bottom: 0.8rem;
+}
+
+/* --- Settings panel ------------------------------------------------------ */
+.settings-panel.visible { display: block; }
+.settings-row {
+  display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.8rem;
   flex-wrap: wrap;
 }
-.settings-panel.visible { display: flex; }
 .settings-left,
 .settings-right {
   display: flex;
@@ -314,12 +398,6 @@ h1 {
   vertical-align: middle;
 }
 
-.video-source-note {
-  text-align: center;
-  font-size: var(--font-size-base);
-  color: var(--text-faint);
-  padding-bottom: 0.5rem;
-}
 
 .errors {
   max-width: var(--content-max);
@@ -354,7 +432,9 @@ h1 {
   display: flex;
   flex-wrap: wrap;
   gap: 1rem;
-  padding: 0 var(--gutter);
+  /* Extra room above the racers, on top of the band's own gap. The fullscreen
+     rule below resets padding to 0, so the grid still fills the screen. */
+  padding: 1.5rem var(--gutter) 0;
   width: 100%;
   justify-content: center;
 }
@@ -450,18 +530,21 @@ video {
 .controls {
   max-width: var(--content-max);
   width: 100%;
-  padding: 1rem var(--gutter);
+  padding: 0.6rem var(--gutter);
   display: flex;
   align-items: center;
-  gap: 0.8rem;
+  gap: 0.5rem;
   flex-wrap: wrap;
 }
 .controls-row {
   display: flex;
   align-items: center;
-  gap: 0.8rem;
+  gap: 0.5rem;
   flex: 1;
-  min-width: 300px;
+  /* Everything rides one row at full width, so this is only the floor that
+     decides when the bar gives up and wraps: the transport buttons and their
+     gaps come to 212px, leaving a scrubber still worth dragging. */
+  min-width: 320px;
 }
 .play-btn {
   background: var(--accent);
@@ -483,6 +566,12 @@ video {
 }
 .scrubber {
   flex: 1;
+  /* A range input's intrinsic width is its automatic minimum, so without this
+     it refuses to shrink and overruns the time display instead. */
+  min-width: 0;
+  /* The thumb is a ~16px disc riding the end of the track, so the row gap
+     alone leaves it almost touching the time readout at the far right. */
+  margin-right: 0.5rem;
   accent-color: var(--accent);
   height: 6px;
   cursor: pointer;
@@ -492,14 +581,14 @@ video {
   font-size: var(--font-size-sm);
   text-align: center;
   flex-shrink: 0;
+  white-space: nowrap;
 }
 .time-display {
   color: var(--text-dim);
-  min-width: 140px;
 }
 .frame-display {
   color: var(--text-faint);
-  min-width: 80px;
+  min-width: 48px;
 }
 .speed-select {
   color: var(--text);
@@ -605,7 +694,6 @@ video {
 .profile-metric-total {
   border: var(--border-width) solid var(--accent-shadow);
   border-radius: var(--radius-md);
-  background: var(--accent-wash);
   padding: 0.55rem 0.65rem 0.35rem;
   margin-bottom: 0.8rem;
 }
@@ -710,31 +798,13 @@ video {
   padding: 0.4rem 0.8rem;
 }
 
-/* --- Calibration panel --------------------------------------------------- */
+/* --- Calibration panel ---------------------------------------------------
+   Shape comes from .panel; this is only what marks it out as a tool. */
 .debug-panel {
-  max-width: var(--content-max);
-  width: 100%;
-  padding: 0.8rem var(--gutter);
   background: var(--tool-surface);
-  border: var(--border-width) solid var(--tool-accent);
-  border-radius: var(--radius-md);
-  margin: 0 auto;
-  display: none;
+  border-color: var(--tool-accent);
 }
-.debug-panel h3 {
-  color: var(--tool-accent);
-  font-family: var(--font-display);
-  font-size: var(--font-size-lg);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-wide);
-  margin-bottom: 0.6rem;
-}
-.calibration-note {
-  color: var(--text-dim);
-  font-size: var(--font-size-base);
-  line-height: var(--leading-loose);
-  margin-bottom: 0.8rem;
-}
+.debug-panel h3 { color: var(--tool-accent); }
 .debug-row {
   display: flex;
   align-items: center;
@@ -1029,9 +1099,14 @@ video {
   pointer-events: none;
   z-index: 10;
 }
-/* The calibration panel is rendered outside the fullscreen wrapper, so its
-   toggle has nothing to open while fullscreen — hide it with the racer labels. */
-.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .calibration-btn { display: none; }
+/* The calibration and settings panels are rendered outside the fullscreen
+   wrapper, and the export overlay is appended to <body> — none of them are in
+   the fullscreen subtree, so these toggles have nothing to open while
+   fullscreen. Hide them with the racer labels. #fullscreenBtn stays: it is the
+   way back out. */
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) :is(.calibration-btn, .control-action-group, #settingsToggle) {
+  display: none;
+}
 .fullscreen-wrapper.fs-controls-visible .controls {
   opacity: 1;
   pointer-events: auto;
@@ -1053,5 +1128,7 @@ video {
 
 @media (max-width: 600px) {
   .controls-row { min-width: auto; flex-wrap: wrap; }
-  .time-display { min-width: auto; }
+  /* No width left to share, so give the scrubber its own line rather than
+     letting it shrink to a stub beside the transport buttons. */
+  .scrubber { flex-basis: 100%; }
 }

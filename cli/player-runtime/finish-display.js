@@ -14,11 +14,23 @@ function finishAhead(i) {
   return finishResultForVideo(i, Number.MAX_VALUE) !== null;
 }
 
+// Last settled answer per racer, so a seek in flight has something to hold.
+const lastFinishResult = raceVideos.map(() => null);
+
 function updateFinishDisplay(i) {
   const video = raceVideos[i];
   const badge = document.getElementById('finishResult' + i);
   if (!badge) return null;
-  const result = video?.seeking ? null : finishResultForVideo(i);
+  // While a seek is in flight currentTime already names the destination, but
+  // the frame on screen is still the old one — so the answer here would be
+  // guesswork. It used to blank the badge for the duration of every seek,
+  // which strobed through a scrub and flickered on each frame step, and left
+  // the badge gone for good when the video was paused (no timeupdate follows a
+  // paused seek to put it back). Hold the last settled answer instead; the
+  // seeked listener below refreshes it the moment the picture catches up.
+  if (video?.seeking) return lastFinishResult[i];
+  const result = finishResultForVideo(i);
+  lastFinishResult[i] = result;
   badge.hidden = !result;
   badge.textContent = result?.label || '';
   badge.setAttribute('aria-label', result ? `${racerNames[i]}: ${result.name}, ${result.label}` : '');

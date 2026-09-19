@@ -855,6 +855,47 @@ describe('getPlacementOrder', () => {
     expect(order[1]).toBe(0); // a second (rank 1)
     expect(order[2]).toBe(1); // b last (unranked)
   });
+
+  it('places the overall winner first when sections are split', () => {
+    // alpha wins load, beta wins render — one section each, so average rank
+    // ties them. Totals decide: beta 3.0s vs alpha 6.0s, so beta leads.
+    const summary = buildSummary(['alpha', 'beta'], [
+      { measurements: [{ name: 'load', duration: 1.0 }, { name: 'render', duration: 5.0 }] },
+      { measurements: [{ name: 'load', duration: 2.0 }, { name: 'render', duration: 1.0 }] },
+    ]);
+    expect(summary.overallWinner).toBe('beta');
+    expect(getPlacementOrder(summary)).toEqual([1, 0]); // beta, alpha
+  });
+
+  it('orders 3 racers by total time, not section wins', () => {
+    // a wins two of three sections but loses the race on total time.
+    const summary = buildSummary(['a', 'b', 'c'], [
+      { measurements: [{ name: 's1', duration: 1.0 }, { name: 's2', duration: 1.0 }, { name: 's3', duration: 9.0 }] },
+      { measurements: [{ name: 's1', duration: 2.0 }, { name: 's2', duration: 2.0 }, { name: 's3', duration: 1.0 }] },
+      { measurements: [{ name: 's1', duration: 3.0 }, { name: 's2', duration: 3.0 }, { name: 's3', duration: 1.5 }] },
+    ]);
+    expect(summary.overallWinner).toBe('b');       // b 5.0s, c 7.5s, a 11.0s
+    expect(getPlacementOrder(summary)).toEqual([1, 2, 0]);
+  });
+
+  it('falls back to average rank when totals are effectively tied', () => {
+    // Totals are within the tie epsilon (3.000s vs 2.998s), so the per-section
+    // evidence breaks the tie: b takes two of the three sections.
+    const summary = buildSummary(['a', 'b'], [
+      { measurements: [{ name: 's1', duration: 1.0 }, { name: 's2', duration: 1.0 }, { name: 's3', duration: 1.0 }] },
+      { measurements: [{ name: 's1', duration: 0.998 }, { name: 's2', duration: 0.998 }, { name: 's3', duration: 1.002 }] },
+    ]);
+    expect(getPlacementOrder(summary)).toEqual([1, 0]); // b: better average rank
+  });
+
+  it('places a racer missing a section behind racers with a total', () => {
+    const summary = buildSummary(['a', 'b', 'c'], [
+      { measurements: [{ name: 's1', duration: 3.0 }, { name: 's2', duration: 3.0 }] },
+      { measurements: [{ name: 's1', duration: 1.0 }] },
+      { measurements: [{ name: 's1', duration: 2.0 }, { name: 's2', duration: 2.0 }] },
+    ]);
+    expect(getPlacementOrder(summary)).toEqual([2, 0, 1]); // c, a, then b (no total)
+  });
 });
 
 describe('findMedianRunIndex', () => {

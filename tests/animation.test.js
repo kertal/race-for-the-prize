@@ -53,6 +53,8 @@ describe('RaceAnimation', () => {
     expect(anim.interval).not.toBeNull();
     expect(stderr.output()).toContain('\x1b[?25l'); // hide cursor
     expect(stderr.output()).toContain('RaceForThePrize');
+    expect(stderr.output()).toContain('\u{1F3C1}'); // the brand icon is the checkered flag
+    expect(stderr.output()).not.toContain('\u{1F3C6}'); // the trophy is only for winners
     expect(stderr.output()).toContain('a');
     expect(stderr.output()).toContain('b');
 
