@@ -133,6 +133,35 @@ describe('SyncBarrier', () => {
     }
   });
 
+  it('accepts the { timeoutMs } options form the runner passes', async () => {
+    // Regression: runner.cjs constructs its barriers with an options object.
+    // The constructor used to store that object as the deadline, and
+    // `{ timeoutMs } > 0` is false, so the backstop never fired in real races.
+    vi.useFakeTimers();
+    const sharedState = { hasError: false, errorMessage: null };
+    try {
+      const barrier = new SyncBarrier(2, sharedState, { timeoutMs: 200 });
+      expect(barrier.timeoutMs).toBe(200);
+
+      const p1 = barrier.wait('a');
+      await vi.advanceTimersByTimeAsync(250);
+      expect(await p1).toEqual({ aborted: true });
+      expect(sharedState.hasError).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('uses the default deadline for an empty options object', () => {
+    expect(new SyncBarrier(2, null, {}).timeoutMs).toBe(new SyncBarrier(2).timeoutMs);
+  });
+
+  it('rejects a deadline that is not a number', () => {
+    expect(() => new SyncBarrier(2, null, '200')).toThrow(TypeError);
+    expect(() => new SyncBarrier(2, null, { timeoutMs: 'soon' })).toThrow(TypeError);
+    expect(() => new SyncBarrier(2, null, -1)).toThrow(TypeError);
+  });
+
   it('never times out when timeoutMs is 0 (backstop explicitly disabled)', async () => {
     vi.useFakeTimers();
     try {
