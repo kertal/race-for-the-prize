@@ -461,6 +461,46 @@ function resolveViewportHeight(rawValue, label) {
   return rounded;
 }
 
+/** Only a string or a number can be a numeric setting: Number(true) is 1 and Number([3]) is 3. */
+function toNumberSetting(rawValue) {
+  return typeof rawValue === 'number' || typeof rawValue === 'string' ? Number(rawValue) : NaN;
+}
+
+/** Validate a run count (CLI --runs or settings.json `runs`): a positive integer, at most 100. */
+function resolveRuns(rawValue, label) {
+  const runs = toNumberSetting(rawValue);
+  if (!Number.isFinite(runs) || runs < 1) {
+    throw new InvalidSettingError(`${label} must be a positive integer, got "${rawValue}"`);
+  }
+  const rounded = Math.round(runs);
+  if (rounded > 100) {
+    console.error(`Warning: ${label} clamped from ${rounded} to 100 (maximum)`);
+    return 100;
+  }
+  return rounded;
+}
+
+/** Validate a slow-motion factor (CLI --slowmo or settings.json `slowmo`): 0 to 20. */
+function resolveSlowmo(rawValue, label) {
+  const slowmo = toNumberSetting(rawValue);
+  if (!Number.isFinite(slowmo) || slowmo < 0) {
+    throw new InvalidSettingError(`${label} must be a non-negative number, got "${rawValue}"`);
+  }
+  if (slowmo > 20) {
+    console.error(`Warning: ${label} clamped from ${slowmo} to 20 (maximum)`);
+    return 20;
+  }
+  return slowmo;
+}
+
+/** Validate an output format (CLI --format or settings.json `format`). */
+function resolveFormat(rawValue, label) {
+  if (!VALID_FORMATS.includes(rawValue)) {
+    throw new InvalidSettingError(`Unknown format "${rawValue}" (${label}). Valid values: ${VALID_FORMATS.join(', ')}`);
+  }
+  return rawValue;
+}
+
 /**
  * Apply CLI overrides to settings. Mutates neither input.
  * Throws InvalidSettingError for unrecoverable errors (for example, bad enum values
@@ -469,11 +509,16 @@ function resolveViewportHeight(rawValue, label) {
  */
 export function applyOverrides(settings, boolFlags, kvFlags) {
   const s = { ...settings };
-  // settings.json values reach the runner as they are, so the canonical key
-  // gets the same clamp, rounding and fallback as the alias and the flag.
+  // settings.json values reach the runner as they are, so each key gets the
+  // same validation, clamp and rounding as its CLI flag. Unchecked, a
+  // `"runs": "three"` ran zero runs and failed on the median, and a
+  // `"format": "avi"` fell back to .webm while every label said avi.
   if (s.viewportHeight != null) {
     s.viewportHeight = resolveViewportHeight(s.viewportHeight, '"viewportHeight" in settings.json');
   }
+  if (s.format != null) s.format = resolveFormat(s.format, '"format" in settings.json');
+  if (s.runs != null) s.runs = resolveRuns(s.runs, '"runs" in settings.json');
+  if (s.slowmo != null) s.slowmo = resolveSlowmo(s.slowmo, '"slowmo" in settings.json');
   // `height` is the settings.json alias for `viewportHeight`, mirroring the
   // --height CLI flag. A null value means "not set", as for every other key —
   // applyDefaults strips nulls, but it runs after this, so guard here too.
@@ -529,37 +574,9 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
     }
     s.skin = skin;
   }
-  if (kvFlags.format !== undefined) {
-    if (!VALID_FORMATS.includes(kvFlags.format)) {
-      throw new InvalidSettingError(`Unknown format "${kvFlags.format}". Valid values: ${VALID_FORMATS.join(', ')}`);
-    }
-    s.format = kvFlags.format;
-  }
-  if (kvFlags.runs !== undefined) {
-    const runs = Number(kvFlags.runs);
-    if (!Number.isFinite(runs) || runs < 1) {
-      throw new InvalidSettingError(`--runs must be a positive integer, got "${kvFlags.runs}"`);
-    }
-    const rounded = Math.round(runs);
-    if (rounded > 100) {
-      console.error(`Warning: --runs clamped from ${rounded} to 100 (maximum)`);
-      s.runs = 100;
-    } else {
-      s.runs = rounded;
-    }
-  }
-  if (kvFlags.slowmo !== undefined) {
-    const slowmo = Number(kvFlags.slowmo);
-    if (!Number.isFinite(slowmo) || slowmo < 0) {
-      throw new InvalidSettingError(`--slowmo must be a non-negative number, got "${kvFlags.slowmo}"`);
-    }
-    if (slowmo > 20) {
-      console.error(`Warning: --slowmo clamped from ${slowmo} to 20 (maximum)`);
-      s.slowmo = 20;
-    } else {
-      s.slowmo = slowmo;
-    }
-  }
+  if (kvFlags.format !== undefined) s.format = resolveFormat(kvFlags.format, '--format');
+  if (kvFlags.runs !== undefined) s.runs = resolveRuns(kvFlags.runs, '--runs');
+  if (kvFlags.slowmo !== undefined) s.slowmo = resolveSlowmo(kvFlags.slowmo, '--slowmo');
   if (kvFlags.height !== undefined) {
     s.viewportHeight = resolveViewportHeight(kvFlags.height, '--height');
   }
