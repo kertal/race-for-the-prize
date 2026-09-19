@@ -14,6 +14,10 @@ import { c } from './colors.js';
 import { startProgress } from './animation.js';
 import { varsToEnv } from './config.js';
 
+// How long to wait after a script exits for its stdio pipes to drain before
+// settling anyway (see the 'exit' handler in runScript).
+const PIPE_DRAIN_GRACE_MS = 100;
+
 /**
  * Run a setup or teardown script.
  * Supports both shell scripts (.sh) and Node.js scripts (.js).
@@ -104,6 +108,7 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
     let timedOut = false;
     let settled = false;
     let sigkillTimeoutId = null;
+    let drainTimeoutId = null;
 
     child.stdout.on('data', d => { if (verbose) process.stdout.write(d); });
     child.stderr.on('data', d => { stderr += d; if (verbose) process.stderr.write(d); });
@@ -117,7 +122,25 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
       }, 5000);
     }, timeout);
 
+    // 'close' normally follows 'exit' within a tick, once the stdio pipes have
+    // drained. A script that leaves a server running in the background
+    // (`npm start &`) hands that server our pipes, so 'close' only fires when
+    // the server dies — and the race would sit on "Running setup…" until then.
+    // So settle on 'exit', after a short grace for the pipes to drain, and
+    // unref the pipes so an inherited copy can't keep this process alive.
+    child.on('exit', (code, signal) => {
+      drainTimeoutId = setTimeout(() => {
+        child.stdout.unref();
+        child.stderr.unref();
+        onExit(code, signal);
+      }, PIPE_DRAIN_GRACE_MS);
+    });
     child.on('close', (code, signal) => {
+      clearTimeout(drainTimeoutId);
+      onExit(code, signal);
+    });
+
+    function onExit(code, signal) {
       clearTimeout(timeoutId);
       if (sigkillTimeoutId) clearTimeout(sigkillTimeoutId);
       if (settled) return;
@@ -203,11 +226,12 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
         if (stderr) console.error(`${c.dim}${stderr}${c.reset}`);
         reject(new Error(`${label} script exited with code ${code}`));
       }
-    });
+    }
 
     child.on('error', err => {
       clearTimeout(timeoutId);
       if (sigkillTimeoutId) clearTimeout(sigkillTimeoutId);
+      if (drainTimeoutId) clearTimeout(drainTimeoutId);
       if (settled) return;
       settled = true;
       progress.done(`${label} error: ${err.message}`);

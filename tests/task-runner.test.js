@@ -138,6 +138,22 @@ describe('runScript execution', () => {
     await expect(run('fail.js', 'Teardown')).rejects.toThrow('Teardown script exited with code 3');
   });
 
+  it('settles once the script exits even if a background child still holds its pipes', async () => {
+    // Regression: `npm start &` style setup scripts hand the server the
+    // script's stdout/stderr. runScript used to wait for 'close', which only
+    // fires once the server dies, so the race hung on "Running setup…".
+    fs.writeFileSync(path.join(tmpDir, 'bg.sh'), '#!/bin/sh\nsleep 5 &\nexit 0\n');
+    const started = Date.now();
+    await run({ command: 'bg.sh', timeout: 3000 });
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it('still reports the exit code and stderr of a script whose child holds its pipes', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'bg-fail.sh'), '#!/bin/sh\necho oops >&2\nsleep 5 &\nexit 7\n');
+    await expect(run({ command: 'bg-fail.sh', timeout: 3000 })).rejects.toThrow('exited with code 7');
+    expect(errorSpy.mock.calls.some(call => String(call[0]).includes('oops'))).toBe(true);
+  });
+
   it('rejects with a timeout error when the script exceeds its timeout', async () => {
     fs.writeFileSync(path.join(tmpDir, 'slow.js'), 'setTimeout(() => {}, 60000);');
     await expect(run({ command: 'slow.js', timeout: 300 })).rejects.toThrow(
