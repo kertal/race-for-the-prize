@@ -39,6 +39,7 @@ import { runGeminiSummary, runGeminiSpec } from './cli/gemini-summary.js';
 import { parseDemoArg, planDemo, copyDemo, formatDemoList, UnknownDemoError } from './cli/demos.js';
 import { buildResultsPaths, createStaticHandler, serveResults } from './cli/serve.js';
 import { loadRaceDir, applySettingsOrExit } from './cli/race-loader.js';
+import { buildRaceConfig, writeRaceConfig } from './cli/race-config.js';
 import { runScript as runTaskScript } from './cli/task-runner.js';
 import { buildConditionMatrix, printConditionMatrix, buildConditionIndexHtml } from './cli/condition-matrix.js';
 
@@ -221,10 +222,13 @@ export async function confirm(message, { defaultYes = true, input = process.stdi
 // --- Race execution (module-scope functions with explicit context) ---
 
 /**
- * Copy race scripts and settings.json from the race directory into runDir.
- * Returns { raceScriptFiles, settingsFileCopied }.
+ * Copy race scripts and settings.json from the race directory into runDir, and
+ * store the race record (config.json) beside them so the results carry the
+ * command and the merged configuration they were produced with.
+ * Returns { raceScriptFiles, settingsFileCopied, raceConfigFile }.
  */
-function copyRaceAssets(raceDir, racerFiles, runDir) {
+export function storeRaceAssets(ctx, runDir) {
+  const { raceDir, racerFiles, raceConfig } = ctx;
   const raceScriptFiles = [];
   let settingsFileCopied = false;
   if (raceDir && racerFiles) {
@@ -246,7 +250,7 @@ function copyRaceAssets(raceDir, racerFiles, runDir) {
       }
     }
   }
-  return { raceScriptFiles, settingsFileCopied };
+  return { raceScriptFiles, settingsFileCopied, raceConfigFile: writeRaceConfig(runDir, raceConfig) };
 }
 
 /**
@@ -471,7 +475,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
     const result = await spawnRunner(raceCtx);
 
     let results, summary, sideBySidePath = null, sideBySideName = null, clipTimes = null;
-    const { raceScriptFiles, settingsFileCopied } = copyRaceAssets(ctx.raceDir, ctx.racerFiles, runDir);
+    const { raceScriptFiles, settingsFileCopied, raceConfigFile } = storeRaceAssets(ctx, runDir);
     const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
 
     if (noRecording) {
@@ -561,6 +565,8 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
           harFiles,
           raceScriptFiles,
           settingsFileCopied,
+          raceConfig: ctx.raceConfig,
+          raceConfigFile,
           runNavigation,
           clipTimes,
           altFiles,
@@ -987,6 +993,9 @@ if (!urlMode && positional.length >= 2 && positional.some(p => isUrl(p))) {
 
 let raceDir;
 let ctx, settings, racerNames;
+// Raw settings.json contents, so the race record can tell a value that came
+// from the file apart from a default (URL mode has no file).
+let fileSettings = {};
 
 if (urlMode) {
   if (boolFlags.has('results')) {
@@ -1048,9 +1057,49 @@ if (urlMode) {
     process.exit(0);
   }
 
-  ({ ctx, settings, racerNames } = loadRace(raceDir));
+  ({ ctx, settings, racerNames, fileSettings } = loadRace(raceDir));
 }
 
+
+// --- Race record ---
+// Every results directory keeps the command and the merged configuration that
+// produced it (config.json), and the HTML report shows the same thing: a race's
+// numbers only mean something next to the settings they were measured under.
+
+/** The tool's own version, for the record. Absent if package.json is unreadable. */
+function readPackageVersion() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8')).version || null;
+  } catch {
+    return null;
+  }
+}
+const packageVersion = readPackageVersion();
+// The spec files stay the same for the whole invocation, unlike ctx, which is
+// rebuilt per throttling condition.
+const raceFiles = ctx.racerFiles;
+// Shared-spec mode races one race.spec.js under several names.
+const raceMode = urlMode
+  ? 'url'
+  : (raceFiles?.length === 1 && racerNames.length > 1 ? 'shared-spec' : 'directory');
+
+/** Snapshot the configuration a race is about to run with. */
+function raceConfigFor(activeSettings) {
+  return buildRaceConfig({
+    argv: process.argv,
+    settings: activeSettings,
+    fileSettings,
+    boolFlags,
+    kvFlags,
+    raceDir,
+    racerNames,
+    racerFiles: raceFiles,
+    mode: raceMode,
+    version: packageVersion,
+  });
+}
+
+ctx = { ...ctx, raceConfig: raceConfigFor(settings) };
 
 // --- Setup/Teardown discovery ---
 // URL mode uses a generated race dir with no user scripts; skip discovery to
@@ -1210,7 +1259,7 @@ function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts
   if (isFinalOutput) generateGeminiCommentary(summary, runDir);
   fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
 
-  const { raceScriptFiles, settingsFileCopied } = copyRaceAssets(ctx.raceDir, ctx.racerFiles, runDir);
+  const { raceScriptFiles, settingsFileCopied, raceConfigFile } = storeRaceAssets(ctx, runDir);
 
   progress.done('Recordings processed');
 
@@ -1223,6 +1272,7 @@ function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts
     runDir, summary, settings, videoFiles,
     playerExtras: {
       traceFiles, raceScriptFiles, settingsFileCopied,
+      raceConfig: ctx.raceConfig, raceConfigFile,
       runNavigation: runNav, clipTimes,
     },
     raceOptions: raceOpts,
@@ -1371,7 +1421,14 @@ async function main() {
     for (const { network, cpu, label, title } of raceConditions) {
       settings = { ...baseSettings, network, cpuThrottle: cpu };
       const throttle = { ...baseCtx.throttle, network, cpu };
-      ctx = { ...baseCtx, settings, throttle, runnerConfig: { ...baseCtx.runnerConfig, throttle } };
+      // The record follows the condition: each one raced a different network/CPU.
+      ctx = {
+        ...baseCtx,
+        settings,
+        throttle,
+        runnerConfig: { ...baseCtx.runnerConfig, throttle },
+        raceConfig: raceConfigFor(settings),
+      };
       if (multiCondition) {
         resultsDir = path.join(baseResultsDir, label);
         console.error(`\n  ${c.bold}${c.magenta}══ ${title} ══${c.reset}`);
@@ -1381,6 +1438,10 @@ async function main() {
 
     if (multiCondition) {
       resultsDir = baseResultsDir;
+      // The top-level record keeps the full network/CPU lists that were raced,
+      // not the last condition's single values.
+      fs.mkdirSync(baseResultsDir, { recursive: true });
+      writeRaceConfig(baseResultsDir, baseCtx.raceConfig);
       // Overview across every condition raced: how the field holds up as the
       // network and CPU get harder, not just who won each individual race.
       // The terminal shows total time; the HTML index can switch metrics.
@@ -1441,6 +1502,7 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
   const medianSummary = buildMedianSummary(summaries, resultsDir);
   generateGeminiCommentary(medianSummary, resultsDir);
   fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(medianSummary, null, 2));
+  const raceConfigFile = writeRaceConfig(resultsDir, ctx.raceConfig);
 
   if (!settings.noRecording) {
     // For each racer independently, pick the run closest to their median
@@ -1470,6 +1532,8 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
       mergedVideoFile: medianMergedFile,
       raceScriptFiles: ctx.racerFiles ? ctx.racerFiles.map(f => `${overallMedianRunDir}/${f}`) : null,
       settingsFileCopied: fs.existsSync(path.join(resultsDir, overallMedianRunDir, 'settings.json')),
+      raceConfig: ctx.raceConfig,
+      raceConfigFile,
       runNavigation: medianNav,
       medianRunLabel,
       clipTimes: medianClipTimes,
