@@ -132,7 +132,7 @@ Ornament and media:
 | `--checker-size` | Height of the flag at the foot of the player, and the gutter the page reserves for it |
 | `--checker-square` | One square of the flag; the bar stacks `--checker-size / --checker-square` rows of them. Keep it a whole pixel that divides `--checker-size` evenly |
 | `--checker-wash`, `--checker-fade` | The flag texture on every band — one colour at low alpha, and the mask that fades it out behind the title. A light skin needs a dark wash, or the texture vanishes into the page |
-| `--header-min-height`, `--font-banner` | The title band's height and its heavy italic face |
+| `--header-min-height`, `--band-gap`, `--font-banner` | The title band's height, the space it leaves before the page starts, and its italic face |
 | `--select-arrow` | Dropdown arrow, as a full `url()` — the fill colour is baked into the data URI, so replace the whole image |
 | `--video-bg`, `--video-border-width`, `--video-border-color` | The video frames |
 

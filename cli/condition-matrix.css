@@ -29,13 +29,16 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--
 .race-header { position: sticky; top: 0;
                display: flex; align-items: center; justify-content: center;
                min-height: var(--header-min-height); padding: 0.35rem var(--gutter);
-               border-bottom: var(--border-width) solid var(--border-subtle); }
+               border-bottom: var(--border-width) solid var(--border-subtle);
+               /* See the player's .race-header: the gap is the band's, so both
+                  reports open the same way. */
+               margin-bottom: var(--band-gap); }
 .checkered-bar { position: fixed; bottom: 0; left: 0; height: var(--checker-size);
                  border-top: var(--border-width) solid var(--border-subtle); }
 
 /* Same content column as the player, so clicking through from a cell does not
    shift the page under the reader. Wide matrices scroll inside .scroll. */
-.wrap { max-width: var(--content-max); margin: 0 auto; padding: 2rem var(--gutter) 3rem; }
+.wrap { max-width: var(--content-max); margin: 0 auto; padding: 0 var(--gutter) 3rem; }
 /* Kept in step with the player's h1 — a quiet strapline, not a headline. */
 h1 { color: var(--text-muted); font-family: var(--font-banner);
      font-size: clamp(0.7rem, 1.2vw, 0.85rem); font-weight: 600; font-style: italic;
@@ -109,7 +112,7 @@ p.tally { text-align: center; color: var(--text-subtle); font-size: var(--font-s
 p.legend { text-align: center; color: var(--text-ghost); font-size: var(--font-size-xs); margin: 0.9rem 0 0; }
 
 @media (max-width: 600px) {
-  .wrap { padding: 1.5rem 1rem 2rem; }
+  .wrap { padding: 0 1rem 2rem; }
   /* No h1 override here: the title clamps with the viewport already, and a
      size set only on this page would drift from the player's band. */
   td a { width: 250px; }

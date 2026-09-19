@@ -253,6 +253,8 @@ describeMaybe('player theming integration', () => {
             texture: texture.backgroundImage,
             tile: texture.backgroundSize,
             mask: texture.maskImage,
+            // The gap below belongs to the band, so both pages open alike.
+            gapBelow: style.marginBottom,
           };
         };
         const title = getComputedStyle(document.querySelector('h1'));
@@ -285,6 +287,8 @@ describeMaybe('player theming integration', () => {
       expect(matrix.foot.mask).not.toBe('none');
       // The foot is fixed, so the page has to reserve its height.
       expect(matrix.footGutter).toBe(`${matrix.foot.height}px`);
+      // …and the page does not start flush against the head.
+      expect(Number.parseFloat(matrix.head.gapBelow)).toBeGreaterThanOrEqual(24);
     });
 
     it('cuts a title too long to fit short, without growing the band', async () => {

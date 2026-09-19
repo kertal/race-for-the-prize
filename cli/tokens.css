@@ -115,6 +115,8 @@
 
   /* --- Layout ----------------------------------------------------------- */
   --header-min-height: 36px;
+  /* Space between the title band and the first thing on the page. */
+  --band-gap: 2rem;
   --content-max: 900px;
   --gutter: 1.5rem;
   --control-size: 34px;

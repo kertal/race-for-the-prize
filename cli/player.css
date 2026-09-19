@@ -66,6 +66,9 @@ body {
   min-height: var(--header-min-height);
   padding: 0.35rem var(--gutter);
   border-bottom: var(--border-width) solid var(--border-subtle);
+  /* Breathing room before the page starts. It belongs to the band, not to
+     whatever follows, so both reports open with the same gap. */
+  margin-bottom: var(--band-gap);
 }
 
 .checkered-bar {
@@ -429,7 +432,9 @@ h1 {
   display: flex;
   flex-wrap: wrap;
   gap: 1rem;
-  padding: 0 var(--gutter);
+  /* Extra room above the racers, on top of the band's own gap. The fullscreen
+     rule below resets padding to 0, so the grid still fills the screen. */
+  padding: 1.5rem var(--gutter) 0;
   width: 100%;
   justify-content: center;
 }
