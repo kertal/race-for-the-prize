@@ -70,10 +70,23 @@ const KEY_ORDER = [
  */
 const FILE_KEY_ALIASES = { viewportHeight: ['height'] };
 
+/** Nullable settings (like `setup`/`teardown`) preserve `null` to mean
+ * “explicitly disable discovery”, so property presence matters even when the
+ * value is null. For ordinary settings, null still means “not set”.
+ */
+const NULLABLE_FILE_KEYS = new Set(['setup', 'teardown']);
+
 /** Did settings.json supply this setting, under its own name or an alias? */
 function fileSupplied(fileSettings, key) {
-  if (fileSettings?.[key] != null) return true;
-  return (FILE_KEY_ALIASES[key] || []).some(alias => fileSettings?.[alias] != null);
+  if (!fileSettings) return false;
+  const hasOwnKey = Object.prototype.hasOwnProperty.call(fileSettings, key);
+  if (hasOwnKey) return NULLABLE_FILE_KEYS.has(key) || fileSettings[key] != null;
+  const aliases = FILE_KEY_ALIASES[key] || [];
+  for (const alias of aliases) {
+    const hasAlias = Object.prototype.hasOwnProperty.call(fileSettings, alias);
+    if (hasAlias) return NULLABLE_FILE_KEYS.has(key) || fileSettings[alias] != null;
+  }
+  return false;
 }
 
 /** Order setting keys: the well-known ones first, then the rest alphabetically. */

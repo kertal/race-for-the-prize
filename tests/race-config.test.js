@@ -16,7 +16,14 @@ import {
   SOURCE_DEFAULT,
   SOURCE_FILE,
 } from '../cli/race-config.js';
-import { FLAG_SETTING_KEYS, KNOWN_FLAGS, applyOverrides } from '../cli/config.js';
+import {
+  FLAG_SETTING_KEYS,
+  KNOWN_FLAGS,
+  applyOverrides,
+  buildRaceConditions,
+  parseCpuList,
+  parseNetworkList,
+} from '../cli/config.js';
 import { storeRaceAssets } from '../race.js';
 
 const withTempDir = (fn) => {
@@ -96,6 +103,14 @@ describe('resolveSettingSources', () => {
     expect(sources.skin).toBe(SOURCE_DEFAULT);
   });
 
+  it('treats an explicit null in settings.json as file-supplied for nullable settings', () => {
+    const sources = resolveSettingSources({ setup: null, teardown: null }, {
+      fileSettings: { setup: null, teardown: null },
+    });
+    expect(sources.setup).toBe(SOURCE_FILE);
+    expect(sources.teardown).toBe(SOURCE_FILE);
+  });
+
   it('credits settings.json for a viewport height written under its "height" alias', () => {
     // applyOverrides folds the file's `height` into viewportHeight and drops the
     // alias, so the effective settings no longer show where the value came from.
@@ -135,7 +150,7 @@ describe('FLAG_SETTING_KEYS', () => {
   // Flags that steer the CLI itself rather than a race setting. Every other
   // known flag must be in the map, so adding one without mapping it fails here
   // rather than silently reporting its setting as a "default" in the record.
-  const NON_SETTING_FLAGS = new Set(['results', 'init', 'verbose', 'help', 'version', 'gemini-spec']);
+  const NON_SETTING_FLAGS = new Set(['results', 'init', 'verbose', 'help', 'version', 'yes', 'gemini-spec']);
 
   it('maps every flag that is not purely a CLI switch', () => {
     const unmapped = [...KNOWN_FLAGS].filter(
@@ -255,6 +270,49 @@ describe('buildRaceConfig', () => {
     expect(config.command).toBe('node race.js');
     expect(config.racers).toEqual([]);
     expect(config.sources).toEqual({});
+  });
+});
+
+describe('multi-condition config loop', () => {
+  it('keeps the full raced lists on the parent record while each condition gets scalar values', () => {
+    const baseSettings = { network: ['slow-3g', '4g'], cpuThrottle: [1, 4], runs: 1 };
+    const baseConfig = buildRaceConfig({
+      argv: ['node', 'race.js', './races/duel'],
+      settings: { ...baseSettings },
+      fileSettings: {},
+      racerNames: ['lauda', 'hunt'],
+      racerFiles: ['lauda.spec.js', 'hunt.spec.js'],
+    });
+
+    const conditions = buildRaceConditions(
+      parseNetworkList(baseSettings.network),
+      parseCpuList(baseSettings.cpuThrottle)
+    );
+
+    const conditionConfigs = [];
+    for (const { network, cpu } of conditions) {
+      const settings = { ...baseSettings, network, cpuThrottle: cpu };
+      const config = buildRaceConfig({
+        argv: ['node', 'race.js', './races/duel'],
+        settings,
+        fileSettings: {},
+        racerNames: baseConfig.racers.map(r => r.name),
+        racerFiles: baseConfig.racers.map(r => r.script),
+      });
+      expect(config.settings.network).toBe(network);
+      expect(config.settings.cpuThrottle).toBe(cpu);
+      expect(baseConfig.settings.network).toEqual(['slow-3g', '4g']);
+      expect(baseConfig.settings.cpuThrottle).toEqual([1, 4]);
+      conditionConfigs.push(config);
+    }
+
+    expect(conditionConfigs).toHaveLength(4);
+    expect(conditionConfigs.map(c => `${c.settings.network}:${c.settings.cpuThrottle}`)).toEqual([
+      'slow-3g:1',
+      'slow-3g:4',
+      '4g:1',
+      '4g:4',
+    ]);
   });
 });
 
