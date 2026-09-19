@@ -1195,6 +1195,10 @@ function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts
 
   progress.done('Recordings processed');
 
+  // No recording means no video player (and no ffmpeg.wasm to ship with it) —
+  // the same as runSingleRace's no-recording path, which only saves measurements.
+  if (settings.noRecording) return { summary, clipTimes: null };
+
   const clipTimes = buildClipTimes(racerNames, (ri) => runRawResults[ri].browsers?.[0], ffmpeg);
 
   const videoFiles = racerNames.map(name => racerRelative(name, raceVideoFile(name)));
