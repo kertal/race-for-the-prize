@@ -33,7 +33,7 @@ import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, b
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
 import { buildPlayerHtml } from './cli/videoplayer.js';
-import { buildRunNavHtml } from './cli/player-sections.js';
+import { buildRunNavHtml, runNavPattern } from './cli/player-sections.js';
 import { listSkins } from './cli/skins.js';
 import { runGeminiSummary, runGeminiSpec } from './cli/gemini-summary.js';
 import { buildResultsPaths, createStaticHandler, serveResults } from './cli/serve.js';
@@ -1056,7 +1056,7 @@ function updateRunNavColors(summaries) {
     const htmlPath = path.join(resultsDir, String(i + 1), 'index.html');
     if (!fs.existsSync(htmlPath)) continue;
     let html = fs.readFileSync(htmlPath, 'utf-8');
-    const oldNavMatch = html.match(/<div class="run-nav">[\s\S]*?<\/div>/);
+    const oldNavMatch = html.match(runNavPattern());
     if (!oldNavMatch) continue;
     const runNav = { currentRun: i + 1, totalRuns: summaries.length, pathPrefix: '../' };
     const newNav = buildRunNavHtml(runNav, racerNames, summaries);

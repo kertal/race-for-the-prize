@@ -114,6 +114,21 @@ function buildSectionMeasuredComparisons(rawProfileMetrics, racers) {
 // Section Builders
 // ---------------------------------------------------------------------------
 
+/**
+ * Matches the run nav exactly as the `build-run-nav` fragment renders it, so
+ * `race.js` can swap a built report's nav for one that knows every run's
+ * winner. The opening and closing tags come from the fragment rather than a
+ * copy of them: when that element changed from a div to a nav, a pattern
+ * written out by hand elsewhere silently stopped matching, and because a miss
+ * just skips the rewrite, the winner colours quietly went missing.
+ */
+export function runNavPattern() {
+  const SPLIT = '\u0000';
+  const [open, close] = fill('run-nav', { items: SPLIT }).split(SPLIT);
+  const quote = (t) => t.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(quote(open) + '[\\s\\S]*?' + quote(close));
+}
+
 export function buildRunNavHtml(runNav, racers, runSummaries) {
   if (!runNav) return '';
   const { currentRun, totalRuns, pathPrefix } = runNav;

@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { buildPlayerHtml } from '../cli/videoplayer.js';
-import { buildRunNavHtml, buildResultsHtml, buildProfileHtml, RACER_CSS_COLORS } from '../cli/player-sections.js';
+import { buildRunNavHtml, buildResultsHtml, buildProfileHtml, RACER_CSS_COLORS, runNavPattern } from '../cli/player-sections.js';
 import { buildProfileComparison } from '../cli/profile-analysis.js';
 import { copyFFmpegFiles } from '../cli/results.js';
 import { fileURLToPath } from 'node:url';
@@ -639,6 +639,22 @@ describe('buildRunNavHtml winner colors', () => {
     const html = buildRunNavHtml(nav, racers, null);
     expect(html).toContain('Run 1');
     expect(html).not.toContain('border-color');
+  });
+
+  it('stays findable by the pattern race.js rewrites it with', () => {
+    // A multi-run race only learns each run's winner once every run is done, so
+    // race.js goes back and swaps this nav in each already-built report. When
+    // the element changed from a div to a nav, the pattern that finds it lived
+    // in race.js and quietly stopped matching — the swap is a no-op on a miss,
+    // so the winner colours just vanished. The pattern is derived from the
+    // fragment now, and this keeps the two in step.
+    const nav = { currentRun: 1, totalRuns: 2, pathPrefix: '../' };
+    const html = buildRunNavHtml(nav, racers, makeRunSummaries(['lauda', 'hunt']));
+    const page = `<main><h1>Race</h1>${html}<section>after</section></main>`;
+    const match = page.match(runNavPattern());
+    expect(match).not.toBeNull();
+    // It must capture the whole nav and stop there, or the swap eats the page.
+    expect(match[0]).toBe(html);
   });
 });
 

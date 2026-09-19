@@ -885,7 +885,7 @@ video {
   border-radius: var(--radius-lg);
   padding: var(--gutter);
   max-width: 90vw;
-  max-height: 90vh;
+  max-height: 90dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
