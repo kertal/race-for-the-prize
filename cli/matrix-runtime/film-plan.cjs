@@ -28,6 +28,11 @@ const US_PER_SECOND = 1e6; // trace timestamps are in microseconds
  * mutating anything: trace calibration moves the start onto the video's own
  * PTS timeline, and the segment's wall-clock length sets the end. A recording
  * with no clip entry (physically trimmed by --ffmpeg) plays whole.
+ *
+ * Neither edge ever lies past the end of the recording. A clip that starts
+ * after the recording stopped (a truncated file, a calibration the video
+ * cannot honour) collapses to an empty window at the end, so that part of the
+ * film finishes at once instead of seeking past EOF and waiting out the grace.
  */
 function filmClipWindow(clip, videoDuration) {
   const whole = Number.isFinite(videoDuration) ? { start: 0, end: videoDuration } : null;
@@ -42,6 +47,7 @@ function filmClipWindow(clip, videoDuration) {
     // came first; the raw times are the safer read.
     if (ptsStart >= 0) start = ptsStart;
   }
+  if (Number.isFinite(videoDuration)) start = Math.min(start, videoDuration);
   let end = start + segDuration;
   if (Number.isFinite(videoDuration)) end = Math.min(end, videoDuration);
   return { start, end: Math.max(start, end) };

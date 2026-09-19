@@ -74,6 +74,18 @@ describe('filmClipWindow', () => {
     expect(filmClipWindow(clip, 10)).toEqual({ start: 0.5, end: 2 });
   });
 
+  it('collapses a clip that starts after the recording ended to an empty window at the end', () => {
+    // Raw times past the end (a truncated recording)…
+    expect(filmClipWindow({ start: 12, end: 14 }, 10)).toEqual({ start: 10, end: 10 });
+    // …and a calibration that lands the start past the end.
+    const clip = {
+      start: 0,
+      end: 2,
+      traceCalibration: { recordingStartTs: 20_000_000, firstFrameTs: 1_000_000 },
+    };
+    expect(filmClipWindow(clip, 10)).toEqual({ start: 10, end: 10 });
+  });
+
   it('ignores a clip whose times are not usable', () => {
     expect(filmClipWindow({ start: 3, end: 1 }, 8)).toEqual({ start: 0, end: 8 });
     expect(filmClipWindow({ start: null, end: 2 }, 8)).toEqual({ start: 0, end: 8 });

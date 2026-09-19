@@ -330,6 +330,20 @@ function disposeCondition(loaded) {
   }
 }
 
+/**
+ * A load that a cancel must never wait for. Resolves to the loaded condition,
+ * or to null the moment the film is cancelled — a slow or broken recording
+ * would otherwise hold the Cancel button hostage for the whole load timeout.
+ * Whatever the abandoned load eventually produces is disposed behind it.
+ */
+function loadUnlessCancelled(state, loading) {
+  const abandoned = state.whenCancelled.then(() => {
+    loading.then(disposeCondition).catch(() => {});
+    return null;
+  });
+  return Promise.race([loading, abandoned]);
+}
+
 // --- Recording the film -----------------------------------------------------
 
 /**
@@ -368,8 +382,8 @@ function raceFinished(loaded, elapsed) {
 async function recordFilm(plan, ui, state) {
   const theme = readTheme();
   ui.status('Loading recordings…');
-  let loaded = await loadCondition(plan.conditions[0]);
-  if (state.cancelled) {
+  let loaded = await loadUnlessCancelled(state, loadCondition(plan.conditions[0]));
+  if (!loaded || state.cancelled) {
     disposeCondition(loaded);
     return null;
   }
@@ -437,7 +451,7 @@ async function recordConditions(plan, ui, state, frame) {
     // Load the next condition while this one's card is on screen, so the film
     // runs on from race to race instead of freezing between them.
     const nextLoad = i + 1 < total
-      ? loadCondition(plan.conditions[i + 1])
+      ? loadUnlessCancelled(state, loadCondition(plan.conditions[i + 1]))
       : Promise.resolve(null);
 
     ui.status(`Card ${i + 1} of ${total}: ${condition.title}`);
@@ -476,6 +490,7 @@ function openFilmOverlay(state) {
 
   const close = () => {
     state.cancelled = true;
+    state.cancel();
     if (state.recorder && state.recorder.state !== 'inactive') state.recorder.stop();
     if (state.url) URL.revokeObjectURL(state.url);
     state.url = null;
@@ -528,7 +543,9 @@ async function startFilm() {
     return;
   }
 
-  const state = { cancelled: false, recorder: null, url: null };
+  // `cancelled` is for code that polls; `whenCancelled` for code that waits.
+  const state = { cancelled: false, recorder: null, url: null, cancel: null, whenCancelled: null };
+  state.whenCancelled = new Promise(resolve => { state.cancel = resolve; });
   const ui = openFilmOverlay(state);
   filmBtn.disabled = true;
   try {
