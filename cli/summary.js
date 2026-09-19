@@ -398,16 +398,18 @@ export function buildMarkdownSummary(summary, sideBySideName) {
     lines.push(buildProfileMarkdown(profileComparison, racers));
   }
 
-  // Files
-  lines.push('### Files');
-  lines.push('');
-  for (const [key, val] of Object.entries(videos)) {
-    if (val) lines.push(`- **${key}**: [${path.basename(val)}](./${path.basename(path.dirname(val))}/${path.basename(val)})`);
+  // Files — only when there is something to link (a median summary has no
+  // videos of its own, and a --recording=0 race has none at all).
+  const fileLines = [];
+  for (const [key, val] of Object.entries(videos || {})) {
+    if (val) fileLines.push(`- **${key}**: [${path.basename(val)}](./${path.basename(path.dirname(val))}/${path.basename(val)})`);
   }
   if (sideBySideName) {
-    lines.push(`- **side-by-side**: [${sideBySideName}](./${sideBySideName})`);
+    fileLines.push(`- **side-by-side**: [${sideBySideName}](./${sideBySideName})`);
   }
-  lines.push('');
+  if (fileLines.length > 0) {
+    lines.push('### Files', '', ...fileLines, '');
+  }
 
   return lines.join('\n');
 }
