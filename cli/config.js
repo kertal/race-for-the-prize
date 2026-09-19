@@ -17,7 +17,7 @@ const BOOLEAN_VALUE_FLAGS = new Set([
 export const KNOWN_BOOL_FLAGS = new Set([
   'parallel', 'headless', 'overlay', 'recording',
   'ffmpeg', 'har', 'wasm', 'serve', 'pause', 'ignore-https-errors',
-  'gemini', 'results', 'init', 'verbose', 'help', 'version',
+  'gemini', 'results', 'init', 'verbose', 'help', 'version', 'yes',
   'cue-markers', 'wall-clock',
 ]);
 

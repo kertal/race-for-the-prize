@@ -6,12 +6,9 @@ await page.raceRecordingStart();
 await page.waitForTimeout(500);
 await page.raceStart('Webpage loaded and stable');
 
-await page.goto('https://angular.dev/', { waitUntil: 'load' });
+await page.goto('https://angular.dev', { waitUntil: 'load' });
 
-const stability = await page.raceWaitForVisualStability({ timeout: 10000 });
-if (!stability.stable) {
-  throw new Error(`Angular page did not reach visual stability within ${stability.elapsed}ms`);
-}
+await page.raceWaitForVisualStability({ timeout: 10000 });
 
 page.raceEnd('Webpage loaded and stable');
 

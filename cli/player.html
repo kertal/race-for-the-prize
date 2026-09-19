@@ -10,40 +10,28 @@
 </head>
 <body>
 
-<div class="checkered-bar"></div>
+<header class="race-header">
+  <h1 title="Race for the Prize: {{raceName}}">🏁 Race for the Prize: {{raceName}}</h1>
+</header>
 {{runNav}}
-<div class="header-bar">
-  <span class="header-icon header-icon-left">🏆</span>
-  <h1>Race for the Prize</h1>
-  <span class="header-icon header-icon-right">
-    <button class="header-action-btn" id="fullscreenBtn" title="Fullscreen (F)" aria-label="Toggle fullscreen">&#x26F6;</button>
-    <span class="header-icon-group">
-      <button class="header-action-btn" id="shareToggle" title="Export / Share" aria-label="Export and share menu">&#x1F4E4;</button>
-      <div class="share-menu" id="shareMenu">
-        <button class="share-menu-item" id="exportBtn">Export Recording</button>
-        <button class="share-menu-item" id="exportHtmlBtn">Export Zip</button>
-        <button class="share-menu-item" id="exportHtmlOnlyBtn">Export HTML</button>
-      </div>
-    </span>
-    <button class="header-action-btn" id="settingsToggle" title="Settings" aria-label="Toggle settings">&#x2699;</button>
-  </span>
-</div>
 <div class="winner-banner">{{winnerBanner}}</div>
-{{videoSourceNote}}
 {{errors}}
-<div class="settings-panel" id="settingsPanel">
-  <div class="settings-left">
-    <div id="racerFilter" class="racer-filter"></div>
-  </div>
-  <div class="settings-right">
-    <select id="segmentNav" class="segment-nav" aria-label="Recording segment"></select>
-    {{modeToggle}}
-  </div>
-</div>
-
 {{playerSection}}
 
 {{debugPanel}}
+<div class="panel settings-panel" id="settingsPanel">
+  <h3>Settings</h3>
+  <p class="panel-note">Changes how the recording is presented, never what was measured. Drop a racer to compare just the others, jump to a single timed section instead of the whole run, or switch to the pre-composed side-by-side video.</p>
+  <div class="settings-row">
+    <div class="settings-left">
+      <div id="racerFilter" class="racer-filter"></div>
+    </div>
+    <div class="settings-right">
+      <select id="segmentNav" class="segment-nav" aria-label="Recording segment"></select>
+      {{modeToggle}}
+    </div>
+  </div>
+</div>
 
 <details class="section" open>
   <summary><h2>Race Results</h2></summary>
@@ -230,6 +218,16 @@
     <option value="2">🏎️ 2x</option>
   </select>
   <button class="frame-btn calibration-btn" id="modeDebug" title="Calibration" aria-label="Toggle calibration" style="display:none">🎛️</button>
+  <button class="control-action-btn" id="fullscreenBtn" title="Fullscreen (F)" aria-label="Toggle fullscreen">&#x26F6;</button>
+  <span class="control-action-group">
+    <button class="control-action-btn" id="shareToggle" title="Export / Share" aria-label="Export and share menu">&#x1F4E4;</button>
+    <div class="share-menu" id="shareMenu">
+      <button class="share-menu-item" id="exportBtn">Export Recording</button>
+      <button class="share-menu-item" id="exportHtmlBtn">Export Zip</button>
+      <button class="share-menu-item" id="exportHtmlOnlyBtn">Export HTML</button>
+    </div>
+  </span>
+  <button class="control-action-btn" id="settingsToggle" title="Settings" aria-label="Toggle settings">&#x2699;</button>
 </div>
 </div>
 </template>
@@ -271,9 +269,9 @@
 </template>
 
 <template id="build-debug-panel">
-<div class="debug-panel" id="debugPanel">
+<div class="panel debug-panel" id="debugPanel">
   <h3>Calibration</h3>
-  <p class="calibration-note">Video recordings don't start at exactly the same moment &mdash; each browser context begins capturing slightly earlier or later. Use the frame offsets below to align the starting points so racers are visually synchronized during playback.</p>
+  <p class="panel-note">Video recordings don't start at exactly the same moment &mdash; each browser context begins capturing slightly earlier or later. Use the frame offsets below to align the starting points so racers are visually synchronized during playback.</p>
   {{debugRows}}
   <div class="debug-stats" id="debugStats">
     <div class="debug-stats-header">VIDEO INFO</div>

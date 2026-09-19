@@ -9,9 +9,10 @@
 {{skinStyles}}
 </head>
 <body>
-<div class="checkered-bar"></div>
+<header class="race-header">
+  <h1 title="Race for the Prize: {{title}}">🏁 Race for the Prize: {{title}}</h1>
+</header>
 <div class="wrap">
-  <h1>{{title}}</h1>
   <p class="sub">One race per throttling condition — pick a cell to view its results.</p>
   <p class="pick"><label for="metric">Compare</label> <select id="metric">{{pickerGroups}}</select></p>
   <p class="desc">{{descriptions}}</p>
@@ -23,6 +24,7 @@
   </div>
 {{legend}}  <p class="tally">{{tallies}}</p>
 </div>
+<div class="checkered-bar"></div>
 <!-- Trailing whitespace up to one newline is trimmed, so the blank line below
      is what keeps this fragment's own line break before the tally that follows. -->
 <template id="build-legend">  <p class="legend">{{text}}</p>
