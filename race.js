@@ -595,6 +595,31 @@ export async function findMissingBrowser({
 
 // --- CLI entry point ---
 
+/**
+ * Write one of the CLI's parting screens to a standard stream, then exit.
+ *
+ * `process.exit()` drops whatever is still buffered, and writes to a pipe
+ * (`race-for-the-prize --help | less`) are buffered, so these go out through a
+ * synchronous write rather than console.log/error. EPIPE means the reader
+ * already walked away — there is nothing left to flush.
+ *
+ * @param {NodeJS.WriteStream|{fd: number}} stream - process.stdout or process.stderr
+ */
+export function printAndExit(stream, text, code) {
+  const buf = Buffer.from(`${text}\n`);
+  let written = 0;
+  while (written < buf.length) {
+    try {
+      written += fs.writeSync(stream.fd, buf, written);
+    } catch (e) {
+      if (e.code === 'EAGAIN') continue;  // pipe full — the reader will catch up
+      if (e.code === 'EPIPE') break;      // reader hung up (e.g. `| head -5`)
+      throw e;
+    }
+  }
+  process.exit(code);
+}
+
 // Check if running as main module (not imported)
 const isMainModule = process.argv[1] && (() => {
   try {
@@ -633,13 +658,11 @@ if (valuelessFlags.length > 0) {
 const invocation = resolveInvocation();
 
 if (boolFlags.has('help')) {
-  console.log(buildHelp(invocation));
-  process.exit(0);
+  printAndExit(process.stdout, buildHelp(invocation), 0);
 }
 
 if (boolFlags.has('version')) {
-  console.log(createRequire(import.meta.url)('./package.json').version);
-  process.exit(0);
+  printAndExit(process.stdout, createRequire(import.meta.url)('./package.json').version, 0);
 }
 
 const verbose = boolFlags.has('verbose');
@@ -769,8 +792,7 @@ const loadRace = (dir) => loadRaceDir(dir, { boolFlags, kvFlags, rootDir: __dirn
 if (positional.length === 0) {
   // No arguments: same screen as --help, but on stderr with a non-zero exit
   // so a script that forgot its arguments still fails.
-  console.error(buildHelp(invocation));
-  process.exit(1);
+  printAndExit(process.stderr, buildHelp(invocation), 1);
 }
 
 // --- Detect URL mode vs directory mode ---

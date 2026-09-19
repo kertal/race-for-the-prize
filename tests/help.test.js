@@ -1,6 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { spawnSync } from 'child_process';
 import { buildHelp, resolveInvocation, PKG_NAME } from '../cli/help.js';
 import { KNOWN_FLAGS } from '../cli/config.js';
+import { printAndExit } from '../race.js';
+
+const RACE_JS = fileURLToPath(new URL('../race.js', import.meta.url));
 
 const strip = s => s.replace(/\x1b\[[0-9;]*m/g, '');
 
@@ -16,6 +24,11 @@ describe('resolveInvocation', () => {
 
   it('uses npx for a project dependency', () => {
     const argv1 = `/work/app/node_modules/${PKG_NAME}/race.js`;
+    expect(resolveInvocation(argv1)).toEqual({ cmd: `npx ${PKG_NAME}`, installed: true });
+  });
+
+  it('uses npx for a project-local bin shim, whose name matches the global one', () => {
+    const argv1 = `/work/app/node_modules/.bin/${PKG_NAME}`;
     expect(resolveInvocation(argv1)).toEqual({ cmd: `npx ${PKG_NAME}`, installed: true });
   });
 
@@ -82,5 +95,50 @@ describe('buildHelp', () => {
       const description = line.replace(/^ {2}\S+ +/, '');
       expect(line.length - description.length, `misaligned: ${line}`).toBe(25);
     }
+  });
+});
+
+describe('printAndExit', () => {
+  it('writes the whole text, with a trailing newline, before exiting', () => {
+    const exit = vi.spyOn(process, 'exit').mockImplementation(() => {});
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'rftp-exit-')), 'out.txt');
+    const fd = fs.openSync(file, 'w');
+    try {
+      printAndExit({ fd }, 'bye', 3);
+      expect(fs.readFileSync(file, 'utf-8')).toBe('bye\n');
+      expect(exit).toHaveBeenCalledWith(3);
+    } finally {
+      fs.closeSync(fd);
+      exit.mockRestore();
+    }
+  });
+});
+
+describe('CLI parting screens', () => {
+  // Spawned, not called in-process: the point is that the screens survive a
+  // piped stdout, which only a real child process with a real pipe can show.
+  const run = args => spawnSync(process.execPath, [RACE_JS, ...args], { encoding: 'utf-8' });
+
+  it('prints the whole help on stdout and exits 0', () => {
+    const { status, stdout, stderr } = run(['--help']);
+    expect(status).toBe(0);
+    expect(stderr).toBe('');
+    expect(stdout).toContain('Race two browsers');
+    expect(strip(stdout).trimEnd()).toMatch(/Start here: {2}node race\.js \.\/races\/lauda-vs-hunt$/);
+  });
+
+  it('prints the package version on stdout and exits 0', () => {
+    const version = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf-8')).version;
+    const { status, stdout } = run(['--version']);
+    expect(status).toBe(0);
+    expect(stdout.trim()).toBe(version);
+  });
+
+  it('prints the help on stderr and exits 1 when given no arguments', () => {
+    const { status, stdout, stderr } = run([]);
+    expect(status).toBe(1);
+    expect(stdout).toBe('');
+    expect(stderr).toContain('Race two browsers');
+    expect(strip(stderr).trimEnd()).toMatch(/Start here: {2}node race\.js \.\/races\/lauda-vs-hunt$/);
   });
 });
