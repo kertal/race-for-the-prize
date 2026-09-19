@@ -55,16 +55,16 @@ node race.js ./races/react-vs-angular
 
 ## 🤫 Encrypted cache vs plain cache vs no cache
 
-What does caching cost, and when does it pay back? [HushHushDB](https://kertal.github.io/hush-hush-db/) downloads a dataset and can keep it in IndexedDB — encrypted with a key in `sessionStorage`, stored as plaintext, or not kept at all. Three racers boot the same app into a different cache handling mode, fetch the dataset, then ask for it a second time.
+What does caching cost, and when does it pay back? [HushHushDB](https://kertal.github.io/hush-hush-db/) downloads a dataset and can keep it in IndexedDB — encrypted with a key in `sessionStorage`, stored as plaintext, or not kept at all. Three racers boot the same app into a different cache handling mode, fetch the dataset, step back to the start screen through the app's own back link, and start the demo again.
 
 ```bash
 node race.js ./races/caching-comparison
 ```
 
-Both halves are timed, because encryption is not free on either side of the cache. **Fetch and store** is the price paid up front — the app renders only once the write finishes. **Reload to data** is the payback, and it separates the two costs cleanly: decrypting is a CPU cost that ignores the network, refetching is a network cost that ignores the CPU.
+Both halves are timed, because encryption is not free on either side of the cache. **Fetch and store** is the price paid up front — the app renders only once the write finishes. **Return to data** is the payback — the app reopens the mode against the warm cache without reloading the page — and it separates the two costs cleanly: decrypting is a CPU cost that ignores the network, refetching is a network cost that ignores the CPU.
 
 ```text
-  ⏱ Reload to data     encrypted   plain   no-cache
+  ⏱ Return to data     encrypted   plain   no-cache
   none    · CPU 1x       0.190s   0.133s     0.068s
   slow-3g · CPU 1x       0.189s   0.150s     4.332s   ← same CPU, 25x slower link
   none    · CPU 4x       0.496s   0.306s     0.127s   ← same link, 4x slower CPU
@@ -112,6 +112,45 @@ Use `npx` if you prefer not to install globally:
 ```bash
 npx race-for-the-prize --init my-race
 npx race-for-the-prize my-race
+```
+
+### Demo races
+
+The races from this ReadMe ship with the package, so you can watch a real race before writing one:
+
+```bash
+race-for-the-prize demo                   # list the demo races
+race-for-the-prize demo:lauda-vs-hunt     # run one
+```
+
+| Command | Race |
+|---|---|
+| `demo:lauda-vs-hunt` | The classic rivalry — two Wikipedia pages, scrolled to the bottom |
+| `demo:lebron-vs-curry` | The GOAT debate — dribble three times, then race back to the top |
+| `demo:react-vs-angular` | Framework cage match — React, Angular, Svelte and htmx, four racers |
+| `demo:caching-comparison` | Encrypted cache vs plain cache vs no cache, both halves timed |
+
+The demo has to be copied out of the package into `./races/<name>/` before it can run, so results land next to your work and the specs are yours to edit. The first run lists the files and asks before writing anything:
+
+```text
+Demo race lauda-vs-hunt needs these files in races/lauda-vs-hunt/
+  hunt.spec.js
+  lauda.spec.js
+  settings.json
+Copy them there and start the race? [Y/n]
+```
+
+Answer `n` and nothing is written — the race is cancelled. A later run reuses your copy and never overwrites a file you edited, so it only asks again if something is missing. In scripts and CI, where there is nobody to ask, pass `--yes`:
+
+```bash
+race-for-the-prize demo:lauda-vs-hunt --yes
+```
+
+Every other flag works as usual:
+
+```bash
+race-for-the-prize demo:caching-comparison --network=slow-3g --runs=3
+race-for-the-prize demo:lauda-vs-hunt --results   # view past results
 ```
 
 ## Building Your Own Grand Prix
@@ -366,10 +405,17 @@ node race.js <dir> --serve=false          # Don't start local results server or 
 node race.js <dir> --pause                # Pause between racers — run all laps for each racer, then press Enter for the next
 node race.js <dir> --height=900           # Set viewport/recording height in pixels (480–4320, default 720)
 node race.js <dir> --ignore-https-errors  # Accept invalid/self-signed TLS certificates
+node race.js <dir> --wall-clock           # Burn a ticking wall clock into the recording
 node race.js <dir> --skin=light           # Skin the results player (light, neon, or a path to a .css file)
 ```
 
 CLI flags always override `settings.json`. For boolean flags, you can pass explicit values like `--parallel=false` or `--ffmpeg=true`.
+
+### The Recorded Wall Clock
+
+`--wall-clock` burns a ticking `M:SS.T` readout into the top-left corner of every recording, next to the red recording dot. It counts wall-clock time from the moment recording starts — the same origin the segment and measurement times use, so the digits track the reported numbers closely (the results themselves are calibrated from the Playwright trace afterwards, which can shift them by a tenth or so). In `--parallel` mode, where all racers leave the line together, the same frame reads the same time for everyone. It runs for the whole recording — a spec that measures several sections keeps one clock across all of them, ticking through the untimed waits in between, because that time passes in the video too. When the recording ends the clock freezes on that moment instead of disappearing, so the last frames show how long the lap took.
+
+It's off by default because it isn't free: repainting the digits ten times a second adds style recalculations and paints to the very metrics you're measuring, and the constant activity keeps `page.raceWaitForVisualStability()` from ever seeing the page settle. Turn it on for a video you want to show people, not for a run whose numbers you want to trust. It follows the other overlays, so `--overlay=false` and `--recording=false` switch it off too.
 
 ### Network Throttling Presets
 
@@ -407,6 +453,8 @@ races/my-race/results-2026-01-31_14-30-00/
 By default, the HTML player handles virtual trimming via clip times and uses CDP screencast metadata or canvas-based calibration for frame-accurate playback — no external dependencies needed. When neither calibration source is available, it falls back to linear time-mapping which is less precise. With `--ffmpeg`, videos are physically trimmed, a side-by-side merged video is created, and format conversion (mov/gif) is available.
 
 The player includes segment navigation buttons — **Race Recording** (all measurements combined), individual named segments (one per `raceStart`/`raceEnd` pair), and **Whole Recording** (full unclipped video when available). This lets you scrub directly to any specific measurement.
+
+The moment a racer's own finish frame plays, a placement badge appears under its video — `🥈 2nd · 3.000s total` — computed from the final results rather than from recording order, so it matches the summary (including joint places). With `--runs`, that total is the summary's median while the video is one representative run, so the badge can read a little off from the frames it sits over; it is the race result, not a stopwatch on that clip. The in-browser side-by-side export draws the same label. `--ffmpeg` output (trimmed videos, the merged side-by-side file, MOV/GIF) carries no placement; the results table is the record there.
 
 Disclaimer: Due to the nature of the way the video is transformed, the aim here is not accuracy, it's to showcase, to visualize performance. To compare between different network and browser settings.
 Do double check and question the metrics and findings. It should be a helpful tool supporting performance related narratives, but don't assume 100% accuracy. However, this generally applies to many 
@@ -460,6 +508,7 @@ The terminal delivers the verdict in style:
   "noServe": false,
   "pauseBetweenRuns": false,
   "ignoreHTTPSErrors": false,
+  "wallClock": false,
   "viewportHeight": 720,
   "skin": "light"
 }
@@ -482,7 +531,8 @@ The terminal delivers the verdict in style:
 | `noServe` | `--serve` | `true` / `false` (inverted: `serve=false` => `noServe=true`) | `false` |
 | `pauseBetweenRuns` | `--pause` | `true` / `false` | `false` |
 | `ignoreHTTPSErrors` | `--ignore-https-errors` | `true` / `false` | `false` |
-| `viewportHeight` | `--height=<px>` | integer, 480–4320 | `720` |
+| `wallClock` | `--wall-clock` | `true` / `false` | `false` |
+| `viewportHeight` | `--height=<px>` | integer, 480–4320 (also accepted as `height` in settings.json) | `720` |
 | `skin` | `--skin=<name\|path>` | `light`, `neon`, or a path to a `.css` file — see [Skinning the player](docs/skinning.md) | not set (built-in dark theme) |
 | `racers` | — | optional object keyed by racer name | not present by default |
 
