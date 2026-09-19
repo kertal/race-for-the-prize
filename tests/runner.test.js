@@ -29,7 +29,7 @@ describe('parallel checkpoints', () => {
   }
 
   const runRacer = (id, script, barriers, sharedState) =>
-    runMarkerMode(makeBarePage(), null, { id, script }, barriers, true, sharedState, Date.now(), true, null, true);
+    runMarkerMode(makeBarePage(), { id, script }, { barriers, isParallel: true, noOverlay: true, noRecording: true });
 
   it.each([
     ['an empty script', ''],
@@ -119,26 +119,15 @@ describe('runner metrics collection', () => {
     };
 
     const metricsCollector = await setupMetricsCollection(page, 'lauda');
-    await runMarkerMode(
-      page,
-      null,
-      {
-        id: 'lauda',
-        script: `
-          for (const name of ['__proto__', 'constructor', 'hasOwnProperty']) {
-            await page.raceStart(name);
-            page.raceEnd(name);
-          }
-        `,
-      },
-      null,
-      false,
-      {},
-      Date.now(),
-      true,
-      metricsCollector,
-      true
-    );
+    await runMarkerMode(page, {
+      id: 'lauda',
+      script: `
+        for (const name of ['__proto__', 'constructor', 'hasOwnProperty']) {
+          await page.raceStart(name);
+          page.raceEnd(name);
+        }
+      `,
+    }, { noOverlay: true, metricsCollector, noRecording: true });
 
     const profileMetrics = await metricsCollector.collect();
 
@@ -200,29 +189,18 @@ describe('runner metrics collection', () => {
     };
 
     const metricsCollector = await setupMetricsCollection(page, 'no-cache');
-    await runMarkerMode(
-      page,
-      null,
-      {
-        id: 'no-cache',
-        script: `
-          await page.raceStart('Fetch and store');
-          page.download(100);
-          page.raceEnd('Fetch and store');
-          page.download(1);
-          await page.raceStart('Reload to data');
-          page.download(200);
-          page.raceEnd('Reload to data');
-        `,
-      },
-      null,
-      false,
-      {},
-      Date.now(),
-      true,
-      metricsCollector,
-      true
-    );
+    await runMarkerMode(page, {
+      id: 'no-cache',
+      script: `
+        await page.raceStart('Fetch and store');
+        page.download(100);
+        page.raceEnd('Fetch and store');
+        page.download(1);
+        await page.raceStart('Reload to data');
+        page.download(200);
+        page.raceEnd('Reload to data');
+      `,
+    }, { noOverlay: true, metricsCollector, noRecording: true });
 
     const profileMetrics = await metricsCollector.collect();
 
@@ -264,24 +242,13 @@ describe('runner metrics collection', () => {
     };
 
     const metricsCollector = await setupMetricsCollection(page, 'flaky');
-    await runMarkerMode(
-      page,
-      null,
-      {
-        id: 'flaky',
-        script: `
-          await page.raceStart('only');
-          page.raceEnd('only');
-        `,
-      },
-      null,
-      false,
-      {},
-      Date.now(),
-      true,
-      metricsCollector,
-      true
-    );
+    await runMarkerMode(page, {
+      id: 'flaky',
+      script: `
+        await page.raceStart('only');
+        page.raceEnd('only');
+      `,
+    }, { noOverlay: true, metricsCollector, noRecording: true });
 
     const profileMetrics = await metricsCollector.collect();
 

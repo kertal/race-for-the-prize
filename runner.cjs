@@ -129,8 +129,29 @@ function sanitizeScript(script) {
  * wraps from the first raceStart to the last raceEnd.
  *
  * Returns { segments, measurements } for video trimming and result comparison.
+ *
+ * @param {import('playwright').Page} page
+ * @param {{id: string, script: string, vars?: object}} config - this racer's entry from the RunnerConfig
+ * @param {object} [options]
+ * @param {object|null} [options.barriers] - parallel-mode checkpoints (ready, recordingStart, stop)
+ * @param {boolean} [options.isParallel]
+ * @param {number} [options.recordingStartTime] - epoch ms the race clock counts from (context creation)
+ * @param {boolean} [options.noOverlay]
+ * @param {object|null} [options.metricsCollector] - from startProfiling(), or null
+ * @param {boolean} [options.noRecording]
+ * @param {boolean} [options.cueMarkers]
+ * @param {boolean} [options.wallClock]
  */
-async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay = false, metricsCollector = null, noRecording = false, cueMarkers = false, wallClock = false) {
+async function runMarkerMode(page, config, {
+  barriers = null,
+  isParallel = false,
+  recordingStartTime = Date.now(),
+  noOverlay = false,
+  metricsCollector = null,
+  noRecording = false,
+  cueMarkers = false,
+  wallClock = false,
+} = {}) {
   const { id, script: raceScript, vars } = config;
 
   // --- Visual cues (opt-in via --cue-markers) ---
@@ -410,7 +431,9 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
 
     metricsCollector = await startProfiling(page, browser, id);
 
-    const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay, metricsCollector, noRecording, cueMarkers, wallClock);
+    const result = await runMarkerMode(page, config, {
+      barriers, isParallel, recordingStartTime, noOverlay, metricsCollector, noRecording, cueMarkers, wallClock,
+    });
     const markerSegments = result?.segments || [];
     const markerMeasurements = result?.measurements || [];
 

@@ -46,10 +46,7 @@ const UNMEASURED_SCRIPT = `
 `;
 
 function run(page, { noOverlay = false, noRecording = false, script = SCRIPT } = {}) {
-  return runMarkerMode(
-    page, {}, { id: 'alpha', script, vars: {} },
-    null, false, null, Date.now(), noOverlay, null, noRecording, false, false
-  );
+  return runMarkerMode(page, { id: 'alpha', script, vars: {} }, { noOverlay, noRecording });
 }
 
 describe('runMarkerMode finish ordering', () => {
