@@ -182,6 +182,12 @@ describe('PROFILE_METRICS', () => {
     }
   });
 
+  it('clamps to the largest unit instead of printing "undefined"', () => {
+    const def = PROFILE_METRICS['total.networkTransferSize'];
+    expect(def.format(2 * 1024 ** 4)).toBe('2.0 TB');
+    expect(def.format(3 * 1024 ** 5)).toBe('3072.0 TB');
+  });
+
   it('formats bytes correctly', () => {
     const format = PROFILE_METRICS['total.networkTransferSize'].format;
     expect(format(0)).toBe('0 B');
@@ -223,7 +229,7 @@ describe('buildProfileComparison percentage calculations', () => {
       measured: {}
     };
     const metrics2 = {
-      total: { networkTransferSize: 100 },
+      total: { networkTransferSize: 2048 },
       measured: {}
     };
     const result = buildProfileComparison(['a', 'b'], [metrics1, metrics2]);
@@ -231,6 +237,39 @@ describe('buildProfileComparison percentage calculations', () => {
     const comp = result.total.comparisons.find(c => c.key === 'total.networkTransferSize');
     expect(comp.winner).toBe('a');
     expect(comp.diffPercent).toBeNull(); // Division by zero — percentage is meaningless
+  });
+
+  describe('absolute noise floor', () => {
+    // A percentage threshold says nothing when the best value is 0 or both
+    // values are tiny, so a difference below the metric's floor is no win.
+    const compare = (metric, a, b) => {
+      const result = buildProfileComparison(['a', 'b'], [
+        { total: { [metric]: a }, measured: {} },
+        { total: { [metric]: b }, measured: {} },
+      ]);
+      return result.total.comparisons.find(c => c.key === `total.${metric}`);
+    };
+
+    it('does not award a 0 CLS a win over a barely nonzero one', () => {
+      const comp = compare('cls', 0, 0.004);
+      expect(comp.winner).toBeNull();
+      expect(comp.diff).toBeCloseTo(0.004);
+    });
+
+    it('still awards 0 CLS a win over a real shift', () => {
+      expect(compare('cls', 0, 0.05).winner).toBe('a');
+    });
+
+    it('ignores sub-millisecond differences whatever their percentage', () => {
+      // 0.2ms vs 0.6ms is "200% worse" but well inside timing jitter.
+      expect(compare('layoutDuration', 0.2, 0.6).winner).toBeNull();
+      expect(compare('layoutDuration', 0.2, 1.6).winner).toBe('a');
+    });
+
+    it('treats a few dozen bytes of transfer as noise', () => {
+      expect(compare('networkTransferSize', 0, 50).winner).toBeNull();
+      expect(compare('networkTransferSize', 50_000, 60_000).winner).toBe('a');
+    });
   });
 });
 
