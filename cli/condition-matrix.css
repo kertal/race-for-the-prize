@@ -43,9 +43,8 @@ p.actions { display: flex; flex-wrap: wrap; align-items: center; justify-content
             border: var(--border-width) solid var(--border-strong); border-radius: var(--radius);
             padding: 0.35rem 0.9rem;
             transition: background-color var(--duration), border-color var(--duration); }
-.film-btn:hover:enabled { background: var(--surface-raised); border-color: var(--accent); }
+.film-btn:hover { background: var(--surface-raised); border-color: var(--accent); }
 .film-btn:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
-.film-btn:disabled { opacity: 0.5; cursor: progress; }
 .film-hint { color: var(--text-ghost); font-size: var(--font-size-xs); }
 
 .film-overlay { position: fixed; inset: 0; z-index: 1000; background: var(--scrim);

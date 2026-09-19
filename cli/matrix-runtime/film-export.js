@@ -488,12 +488,44 @@ function overlayPart(selector) {
   return part;
 }
 
+/** The dialog's controls, in tab order — the buttons and, once it exists, the download link. */
+function dialogControls(modal) {
+  return [...modal.querySelectorAll('button, a[href]')];
+}
+
+/**
+ * Keyboard handling for the dialog while it is open: Escape closes it, and Tab
+ * wraps within its controls rather than wandering off behind the scrim.
+ */
+function dialogKeydown(modal, close, event) {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    close();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const controls = dialogControls(modal);
+  if (controls.length === 0) return;
+  const first = controls[0];
+  const last = controls.at(-1);
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 function openFilmOverlay(state) {
+  const modal = overlayPart('.film-modal');
   const canvas = overlayPart('.film-canvas');
   const statusEl = overlayPart('.film-status');
   const fill = overlayPart('.film-progress-fill');
   const actions = overlayPart('.film-actions');
   const cancelBtn = overlayPart('.film-cancel');
+  // Whatever had focus when the dialog opened gets it back when it closes.
+  const opener = document.activeElement;
 
   const close = () => {
     state.cancelled = true;
@@ -501,13 +533,19 @@ function openFilmOverlay(state) {
     if (state.recorder && state.recorder.state !== 'inactive') state.recorder.stop();
     if (state.url) URL.revokeObjectURL(state.url);
     state.url = null;
+    filmOverlay.removeEventListener('keydown', onKeydown);
     filmOverlay.hidden = true;
+    if (opener instanceof HTMLElement) opener.focus();
   };
+  const onKeydown = event => dialogKeydown(modal, close, event);
+
   cancelBtn.textContent = 'Cancel';
   cancelBtn.onclick = close;
   actions.replaceChildren(cancelBtn);
   fill.style.width = '0%';
+  filmOverlay.addEventListener('keydown', onKeydown);
   filmOverlay.hidden = false;
+  cancelBtn.focus();
 
   return {
     canvas,
@@ -526,6 +564,7 @@ function openFilmOverlay(state) {
       closeBtn.textContent = 'Close';
       closeBtn.onclick = close;
       actions.replaceChildren(link, closeBtn);
+      link.focus(); // the film is ready: land on the one thing left to do
     },
     fail: message => {
       statusEl.textContent = message;
@@ -534,7 +573,12 @@ function openFilmOverlay(state) {
   };
 }
 
+// One film at a time. The modal scrim already keeps a second click off the
+// button; this covers the moments while a cancelled film is still winding down.
+let filmRunning = false;
+
 async function startFilm() {
+  if (filmRunning) return;
   if (!HTMLCanvasElement.prototype.captureStream || !window.MediaRecorder) {
     alert('The film needs a browser with Canvas.captureStream and MediaRecorder (Chrome, Firefox or Edge).');
     return;
@@ -554,14 +598,14 @@ async function startFilm() {
   const state = { cancelled: false, recorder: null, url: null, cancel: null, whenCancelled: null };
   state.whenCancelled = new Promise(resolve => { state.cancel = resolve; });
   const ui = openFilmOverlay(state);
-  filmBtn.disabled = true;
+  filmRunning = true;
   try {
     const blob = await recordFilm(plan, ui, state);
     if (blob) ui.finish(blob);
   } catch (err) {
     ui.fail(`Could not record the film: ${err.message}`);
   } finally {
-    filmBtn.disabled = false;
+    filmRunning = false;
   }
 }
 
