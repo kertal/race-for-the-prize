@@ -16,7 +16,7 @@
 
 That's how the README opens, and I mean it literally. What I'm about to show you is a tool that turns browser performance testing into a race — 2 to 5 browsers, side by side, competing on a track you define. No statistics degree required. No dashboard to configure. Just: write your scripts, fire the starting gun, and the browser that finishes first wins.
 
-The tool is called **RaceForThePrize**. It runs on Node.js, it's powered by Playwright, and you can be up and running in under a minute.
+The tool is called **RaceForThePrize**. It runs on Node.js, it's powered by Playwright, and it's on npm — one `npx` command and you're racing in under a minute. Nothing to clone.
 
 ---
 
@@ -41,12 +41,14 @@ Each racer gets its own Chromium browser. They all execute their user journey: c
 *[Point to the code.]*
 
 ```bash
-npm install && npx playwright install chromium
-node race.js --init my-race          # scaffold a starter race
-node race.js ./races/lauda-vs-hunt   # run a built-in race
+npx race-for-the-prize demo:lauda-vs-hunt   # run a bundled demo race
+npx race-for-the-prize --init my-race       # scaffold a starter race
+npx race-for-the-prize ./races/my-race      # run your own
 ```
 
-You can scaffold a new race with `--init`, or jump straight into one of the built-in examples. Browsers launch, the race runs, and the winner is declared. Any existing Playwright test can become a racer in minutes.
+There is no setup step to show here: `npx` pulls the package from npm, the package pulls the Chromium build it needs, and the demo copies itself into `./races/` after asking. You can jump straight into one of the bundled demos, or scaffold a new race with `--init`. Browsers launch, the race runs, and the winner is declared. Any existing Playwright test can become a racer in minutes.
+
+*[If people are following along on their laptops, this is the moment to have them type the first line.]*
 
 ---
 
@@ -154,17 +156,17 @@ Performance becomes a pass/fail criterion — just like your unit tests. That's 
 
 *[End with energy.]*
 
-Three steps:
+Three steps, and the first one is the whole install:
 
-1. Clone the repo and install
-2. Run `node race.js ./races/lauda-vs-hunt`
-3. Explore the built-ins: `lauda-vs-hunt`, `lebron-vs-curry`, `react-vs-angular`
+1. `npx race-for-the-prize demo:lauda-vs-hunt` — nothing to clone, Chromium comes with the package
+2. `npx race-for-the-prize --init my-race` — scaffold your own race, point the two specs at your app
+3. Pick a winner.
 
-You can also install globally with `npm install -g race-for-the-prize` and run `race-for-the-prize --init my-race` from any directory.
+If you'll be racing more than once, `npm install -g race-for-the-prize` gives you a `race-for-the-prize` command you can run from any directory. The four demos — `lauda-vs-hunt`, `lebron-vs-curry`, `react-vs-angular`, `caching-comparison` — ship inside the package, so `race-for-the-prize demo` lists them wherever you are.
 
 You'll have your first race running in under a minute. I'm happy to take questions — on the tool, the architecture, or use cases.
 
-*[If time permits, offer to live-demo `node race.js ./races/lauda-vs-hunt`.]*
+*[If time permits, offer to live-demo `npx race-for-the-prize demo:lauda-vs-hunt --yes` in an empty directory — `--yes` skips the copy confirmation so nothing interrupts the demo.]*
 
 ---
 
@@ -172,7 +174,7 @@ You'll have your first race running in under a minute. I'm happy to take questio
 
 **Timing:** ~12 minutes at a comfortable pace. Each slide is roughly 60–90 seconds. Allow 3–5 minutes buffer for questions or a live demo.
 
-**Demo opportunity:** After Slide 5, offer to run a live race if the environment allows it. `node race.js ./races/lauda-vs-hunt --headless` takes about 20–30 seconds and makes a strong impression.
+**Demo opportunity:** After Slide 5, offer to run a live race if the environment allows it. `npx race-for-the-prize demo:lauda-vs-hunt --yes` takes about 20–30 seconds from an empty directory and makes a strong impression — the audience sees the install and the race in one command. Run it once before the talk so the package and Chromium are cached and the download doesn't eat your demo time. Add `--headless` if the browser windows would fight with your screen share.
 
 **Short version:** For a 7-minute talk, skip Slides 6 (Use Cases), 8 (Advanced Features), and 9 (CI Integration). The core story flows naturally from Title → Positioning → How It Works → API → Demo → What You Get → Get Started.
 
@@ -182,6 +184,7 @@ You'll have your first race running in under a minute. I'm happy to take questio
 - *For DevOps/platform:* Focus on Slides 8 and 9 (advanced features, CI integration).
 
 **Key phrases to land:**
+- "One `npx` command. Nothing to clone."
 - "Any existing Playwright test can become a racer in minutes."
 - "The video shows exactly what was measured."
 - "Performance is now a pass/fail criterion, just like your unit tests."
