@@ -130,7 +130,23 @@ race-for-the-prize demo:lauda-vs-hunt     # run one
 | `demo:react-vs-angular` | Framework cage match — React, Angular, Svelte and htmx, four racers |
 | `demo:caching-comparison` | Encrypted cache vs plain cache vs no cache, both halves timed |
 
-The demo is copied into `./races/<name>/` on first run, so results land next to your work and the specs are yours to edit — a second run reuses your copy instead of overwriting it. Every flag works as usual:
+The demo has to be copied out of the package into `./races/<name>/` before it can run, so results land next to your work and the specs are yours to edit. The first run lists the files and asks before writing anything:
+
+```text
+Demo race lauda-vs-hunt needs these files in races/lauda-vs-hunt/
+  hunt.spec.js
+  lauda.spec.js
+  settings.json
+Copy them there and start the race? [Y/n]
+```
+
+Answer `n` and nothing is written — the race is cancelled. A later run reuses your copy and never overwrites a file you edited, so it only asks again if something is missing. In scripts and CI, where there is nobody to ask, pass `--yes`:
+
+```bash
+race-for-the-prize demo:lauda-vs-hunt --yes
+```
+
+Every other flag works as usual:
 
 ```bash
 race-for-the-prize demo:caching-comparison --network=slow-3g --runs=3

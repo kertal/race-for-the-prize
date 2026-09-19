@@ -48,7 +48,7 @@ node race.js demo:lauda-vs-hunt                   # Run a bundled demo race (`de
 - `player-sections.js` — build-time HTML section builders (results table, comparisons, profile tables)
 - `player-runtime/` — browser-side player runtime split into concern-scoped files (playback, calibration, debug panel, finish results, export, ZIP) concatenated by `videoplayer.js` into one IIFE; the pure `.cjs` cores (calibration, finish results, export layout, export progress, ZIP/CRC32) are also requirable from Node for tests
 - `skins.js` — resolves `--skin` (built-in name or `.css` path) to inlinable CSS; built-in skins live in `skins/`
-- `demos.js` — the `demo:<name>` command: the curated list of bundled demo races and the copy-into-`./races/<name>` step that makes them runnable from a global/npx install
+- `demos.js` — the `demo:<name>` command: the curated list of bundled demo races, plus `planDemo` (what a demo would copy into `./races/<name>`, so `race.js` can ask before writing) and `copyDemo` (does it, once the user says yes or passes `--yes`)
 - `gemini-summary.js` — optional Gemini CLI integration (post-race commentary, spec generation)
 - `colors.js` — ANSI color codes (media constants re-exported for compatibility; import them from `media-config.js`)
 - `media-config.js` — shared media/video constants (`FORMAT_EXTENSIONS`, `VIDEO_DEFAULTS`, `SCREEN`, `codecArgs`, `CUE_DETECTION`)

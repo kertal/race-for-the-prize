@@ -51,14 +51,14 @@ export class UnknownDemoError extends Error {
 }
 
 /**
- * Make a demo race runnable from `cwd`.
+ * Work out what running a demo would copy, without touching the filesystem.
  *
- * Copies the bundled race into `<cwd>/races/<name>` (skipping files that are
- * already there, so local edits survive) and returns the directory to race.
- * Running from the repo itself resolves to the bundled directory, so nothing
- * is copied.
+ * Returns the directory to race from plus the files that are missing there —
+ * the CLI shows that list and asks before anything is written. Files already
+ * in place are left out, so local edits survive. Running from the package
+ * itself races the bundled directory and copies nothing.
  */
-export function prepareDemo(name, { rootDir, cwd = process.cwd() } = {}) {
+export function planDemo(name, { rootDir, cwd = process.cwd() } = {}) {
   const demo = findDemo(name);
   if (!demo) throw new UnknownDemoError(name);
 
@@ -69,21 +69,28 @@ export function prepareDemo(name, { rootDir, cwd = process.cwd() } = {}) {
 
   const targetDir = path.join(cwd, 'races', demo.name);
   if (path.resolve(targetDir) === path.resolve(sourceDir)) {
-    return { demo, dir: sourceDir, copied: [] };
+    return { demo, sourceDir, dir: sourceDir, files: [] };
   }
 
-  fs.mkdirSync(targetDir, { recursive: true });
-  const copied = [];
-  for (const file of fs.readdirSync(sourceDir)) {
-    if (file.startsWith('.')) continue;
-    const src = path.join(sourceDir, file);
-    if (!fs.statSync(src).isFile()) continue;
-    const dest = path.join(targetDir, file);
-    if (fs.existsSync(dest)) continue;
-    fs.copyFileSync(src, dest);
-    copied.push(file);
+  const files = fs.readdirSync(sourceDir).filter(file => {
+    if (file.startsWith('.')) return false;
+    if (!fs.statSync(path.join(sourceDir, file)).isFile()) return false;
+    return !fs.existsSync(path.join(targetDir, file));
+  });
+  return { demo, sourceDir, dir: targetDir, files };
+}
+
+/**
+ * Carry out a plan from `planDemo` — only ever called once the user has said
+ * yes. Returns the files copied.
+ */
+export function copyDemo(plan) {
+  if (plan.files.length === 0) return [];
+  fs.mkdirSync(plan.dir, { recursive: true });
+  for (const file of plan.files) {
+    fs.copyFileSync(path.join(plan.sourceDir, file), path.join(plan.dir, file));
   }
-  return { demo, dir: targetDir, copied };
+  return plan.files;
 }
 
 /** Human-readable list of the demo races, for `demo` and error messages. */

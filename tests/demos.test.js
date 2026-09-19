@@ -8,7 +8,8 @@ import {
   parseDemoArg,
   findDemo,
   demoSourceDir,
-  prepareDemo,
+  planDemo,
+  copyDemo,
   formatDemoList,
   UnknownDemoError,
 } from '../cli/demos.js';
@@ -76,49 +77,45 @@ describe('findDemo', () => {
   });
 });
 
-describe('prepareDemo', () => {
-  it('copies the bundled race into <cwd>/races/<name>', () => {
+describe('planDemo', () => {
+  it('lists the files a demo would copy into <cwd>/races/<name>, without writing them', () => {
     withTempCwd(cwd => {
-      const { demo, dir, copied } = prepareDemo('lauda-vs-hunt', { rootDir: ROOT, cwd });
-      expect(demo.name).toBe('lauda-vs-hunt');
-      expect(dir).toBe(path.join(cwd, 'races', 'lauda-vs-hunt'));
-      expect(copied).toContain('lauda.spec.js');
-      expect(copied).toContain('hunt.spec.js');
-      expect(fs.readFileSync(path.join(dir, 'lauda.spec.js'), 'utf-8'))
-        .toBe(fs.readFileSync(path.join(demoSourceDir('lauda-vs-hunt', ROOT), 'lauda.spec.js'), 'utf-8'));
+      const plan = planDemo('lauda-vs-hunt', { rootDir: ROOT, cwd });
+      expect(plan.demo.name).toBe('lauda-vs-hunt');
+      expect(plan.dir).toBe(path.join(cwd, 'races', 'lauda-vs-hunt'));
+      expect(plan.files).toEqual(expect.arrayContaining(['lauda.spec.js', 'hunt.spec.js']));
+      // Planning alone must never touch the user's directory — the CLI asks first.
+      expect(fs.existsSync(path.join(cwd, 'races'))).toBe(false);
     });
   });
 
-  it('keeps local edits — existing files are never overwritten', () => {
+  it('leaves out files that are already there, so local edits survive', () => {
     withTempCwd(cwd => {
       const target = path.join(cwd, 'races', 'lauda-vs-hunt');
       fs.mkdirSync(target, { recursive: true });
       fs.writeFileSync(path.join(target, 'lauda.spec.js'), '// my edit\n');
 
-      const { copied } = prepareDemo('lauda-vs-hunt', { rootDir: ROOT, cwd });
+      const plan = planDemo('lauda-vs-hunt', { rootDir: ROOT, cwd });
 
-      expect(copied).not.toContain('lauda.spec.js');
-      expect(copied).toContain('hunt.spec.js');
-      expect(fs.readFileSync(path.join(target, 'lauda.spec.js'), 'utf-8')).toBe('// my edit\n');
+      expect(plan.files).not.toContain('lauda.spec.js');
+      expect(plan.files).toContain('hunt.spec.js');
     });
   });
 
-  it('copies nothing when run from the package itself', () => {
-    const { dir, copied } = prepareDemo('lauda-vs-hunt', { rootDir: ROOT, cwd: ROOT });
-    expect(dir).toBe(demoSourceDir('lauda-vs-hunt', ROOT));
-    expect(copied).toEqual([]);
+  it('plans no copy at all when run from the package itself', () => {
+    const plan = planDemo('lauda-vs-hunt', { rootDir: ROOT, cwd: ROOT });
+    expect(plan.dir).toBe(demoSourceDir('lauda-vs-hunt', ROOT));
+    expect(plan.files).toEqual([]);
   });
 
-  it('never copies results directories', () => {
+  it('never plans to copy results directories', () => {
     withTempCwd(cwd => {
       const source = fs.mkdtempSync(path.join(os.tmpdir(), 'rftp-demo-src-'));
       const srcRace = path.join(source, 'races', 'lauda-vs-hunt');
       fs.mkdirSync(path.join(srcRace, 'results-2025-01-01_00-00-00'), { recursive: true });
       fs.writeFileSync(path.join(srcRace, 'lauda.spec.js'), '// spec\n');
       try {
-        const { dir, copied } = prepareDemo('lauda-vs-hunt', { rootDir: source, cwd });
-        expect(copied).toEqual(['lauda.spec.js']);
-        expect(fs.readdirSync(dir)).toEqual(['lauda.spec.js']);
+        expect(planDemo('lauda-vs-hunt', { rootDir: source, cwd }).files).toEqual(['lauda.spec.js']);
       } finally {
         fs.rmSync(source, { recursive: true, force: true });
       }
@@ -127,17 +124,37 @@ describe('prepareDemo', () => {
 
   it('throws UnknownDemoError for a name that is not a demo', () => {
     withTempCwd(cwd => {
-      expect(() => prepareDemo('nope', { rootDir: ROOT, cwd })).toThrow(UnknownDemoError);
+      expect(() => planDemo('nope', { rootDir: ROOT, cwd })).toThrow(UnknownDemoError);
       // Path traversal can never reach the filesystem — the list is a whitelist.
-      expect(() => prepareDemo('../../etc', { rootDir: ROOT, cwd })).toThrow(UnknownDemoError);
+      expect(() => planDemo('../../etc', { rootDir: ROOT, cwd })).toThrow(UnknownDemoError);
       expect(fs.existsSync(path.join(cwd, 'races'))).toBe(false);
     });
   });
 
   it('reports a demo missing from the install', () => {
     withTempCwd(cwd => {
-      expect(() => prepareDemo('lauda-vs-hunt', { rootDir: cwd, cwd }))
+      expect(() => planDemo('lauda-vs-hunt', { rootDir: cwd, cwd }))
         .toThrow(/missing from this install/);
+    });
+  });
+});
+
+describe('copyDemo', () => {
+  it('copies exactly the planned files', () => {
+    withTempCwd(cwd => {
+      const plan = planDemo('lauda-vs-hunt', { rootDir: ROOT, cwd });
+      expect(copyDemo(plan)).toEqual(plan.files);
+      expect(fs.readdirSync(plan.dir).sort()).toEqual([...plan.files].sort());
+      expect(fs.readFileSync(path.join(plan.dir, 'lauda.spec.js'), 'utf-8'))
+        .toBe(fs.readFileSync(path.join(demoSourceDir('lauda-vs-hunt', ROOT), 'lauda.spec.js'), 'utf-8'));
+    });
+  });
+
+  it('writes nothing for an empty plan', () => {
+    withTempCwd(cwd => {
+      const plan = { ...planDemo('lauda-vs-hunt', { rootDir: ROOT, cwd }), files: [] };
+      expect(copyDemo(plan)).toEqual([]);
+      expect(fs.existsSync(path.join(cwd, 'races'))).toBe(false);
     });
   });
 });

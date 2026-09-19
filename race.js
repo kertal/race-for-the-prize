@@ -36,7 +36,7 @@ import { buildPlayerHtml } from './cli/videoplayer.js';
 import { buildRunNavHtml } from './cli/player-sections.js';
 import { listSkins } from './cli/skins.js';
 import { runGeminiSummary, runGeminiSpec } from './cli/gemini-summary.js';
-import { parseDemoArg, prepareDemo, formatDemoList, UnknownDemoError } from './cli/demos.js';
+import { parseDemoArg, planDemo, copyDemo, formatDemoList, UnknownDemoError } from './cli/demos.js';
 import { buildResultsPaths, createStaticHandler, serveResults } from './cli/serve.js';
 import { loadRaceDir, applySettingsOrExit } from './cli/race-loader.js';
 import { runScript as runTaskScript } from './cli/task-runner.js';
@@ -153,6 +153,58 @@ export async function waitForEnter(message) {
     process.stdin.once('data', onData);
     process.stdin.once('end', onDone);
     process.stdin.once('error', onDone);
+    process.once('SIGINT', onSigint);
+    process.once('SIGTERM', onSigterm);
+  });
+}
+
+/**
+ * Ask a yes/no question and resolve to the answer.
+ * - Bare Enter takes `defaultYes`; anything starting with y/n decides it.
+ * - Resolves to `null` in non-TTY environments — there is nobody to ask, so
+ *   the caller decides whether that is fatal or fine.
+ * - Throws AbortError if SIGINT/SIGTERM arrives (or already aborted).
+ */
+export async function confirm(message, { defaultYes = true, input = process.stdin, output = process.stderr } = {}) {
+  if (!input.isTTY) return null;
+  if (abortState.aborted) {
+    const sig = abortState.reason || 'SIGINT';
+    throw new AbortError(`Aborted (${sig})`, signalExitCode(sig));
+  }
+
+  output.write(message);
+  input.resume();
+
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      input.removeListener('data', onData);
+      input.removeListener('end', onDone);
+      input.removeListener('error', onDone);
+      process.removeListener('SIGINT', onSigint);
+      process.removeListener('SIGTERM', onSigterm);
+      input.pause();
+    };
+
+    const onData = (chunk) => {
+      cleanup();
+      const answer = String(chunk).trim().toLowerCase();
+      if (answer === '') return resolve(defaultYes);
+      resolve(answer.startsWith('y'));
+    };
+    // Closed stdin (EOF) is not a yes.
+    const onDone = () => { cleanup(); resolve(false); };
+    const abort = (sig) => {
+      abortState.aborted = true;
+      abortState.reason = sig;
+      cleanup();
+      reject(new AbortError(`Aborted by user (${sig})`, signalExitCode(sig)));
+    };
+    const onSigint = () => abort('SIGINT');
+    const onSigterm = () => abort('SIGTERM');
+
+    input.once('data', onData);
+    input.once('end', onDone);
+    input.once('error', onDone);
     process.once('SIGINT', onSigint);
     process.once('SIGTERM', onSigterm);
   });
@@ -809,7 +861,8 @@ ${c.bold}  Commands:${c.reset}
 ${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
   node race.js ${c.cyan}<url> <url> [url...]${c.reset}      Race page load times (2-5 URLs)
   node race.js ${c.magenta}demo${c.reset}                        List the demo races shipped with the CLI
-  node race.js ${c.magenta}demo:${c.cyan}<name>${c.reset}                 Run a demo race (copied to ./races/<name>/)
+  node race.js ${c.magenta}demo:${c.cyan}<name>${c.reset}                 Run a demo race (asks before copying it to ./races/<name>/)
+  node race.js ${c.magenta}demo:${c.cyan}<name>${c.reset} ${c.yellow}--yes${c.reset}           Copy the demo race without being asked
   node race.js ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset}               Scaffold a starter race (default: my-race/)
   node race.js ${c.cyan}<dir>${c.reset}                       Run a scripted race
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--results${c.reset}            View recent results
@@ -854,13 +907,10 @@ if (demoArg) {
     console.log(formatDemoList(c));
     process.exit(0);
   }
+
+  let plan;
   try {
-    const { demo, dir, copied } = prepareDemo(demoArg.name, { rootDir: __dirname });
-    demoDir = dir;
-    const where = path.relative(process.cwd(), dir) || '.';
-    if (copied.length > 0) {
-      console.error(`${c.dim}Copied demo race ${c.reset}${c.cyan}${demo.name}${c.reset}${c.dim} to ${where}/${c.reset}`);
-    }
+    plan = planDemo(demoArg.name, { rootDir: __dirname });
   } catch (e) {
     if (e instanceof UnknownDemoError) {
       console.error(`${c.red}Error: Unknown demo race: ${e.demoName}${c.reset}`);
@@ -870,6 +920,31 @@ if (demoArg) {
     console.error(`${c.red}Error: ${e.message}${c.reset}`);
     process.exit(1);
   }
+
+  // Writing into the user's directory is their call — show the exact files
+  // first and copy nothing unless they say yes.
+  if (plan.files.length > 0) {
+    const where = path.relative(process.cwd(), plan.dir) || '.';
+    console.error(`\n${c.bold}Demo race ${c.cyan}${plan.demo.name}${c.reset}${c.bold} needs these files in ${c.cyan}${where}/${c.reset}`);
+    for (const file of plan.files) console.error(`  ${c.dim}${file}${c.reset}`);
+
+    const answer = boolFlags.has('yes')
+      ? true
+      : await confirm(`${c.bold}Copy them there and start the race? ${c.reset}${c.dim}[Y/n]${c.reset} `);
+
+    if (answer === null) {
+      console.error(`${c.red}Error: Cannot ask for confirmation — stdin is not a terminal.${c.reset}`);
+      console.error(`${c.dim}  Re-run with --yes to copy the demo race without being asked.${c.reset}`);
+      process.exit(1);
+    }
+    if (!answer) {
+      console.error(`${c.yellow}Cancelled — nothing was copied.${c.reset}`);
+      process.exit(0);
+    }
+    copyDemo(plan);
+    console.error(`${c.dim}Copied ${plan.files.length} file(s) to ${where}/${c.reset}\n`);
+  }
+  demoDir = plan.dir;
 }
 
 // --- Detect URL mode vs directory mode ---
