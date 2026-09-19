@@ -9,6 +9,7 @@
  * Usage (published as the `race-for-the-prize` bin; from a checkout it is
  * `node race.js` — cli/help.js picks the spelling the help screen shows):
  *   race-for-the-prize https://a.com https://b.com  Race page load times (URL mode)
+ *   race-for-the-prize demo:lauda-vs-hunt           Race a demo shipped with the CLI
  *   race-for-the-prize --init my-race               Scaffold a race directory
  *   race-for-the-prize ./my-race                    Run a scripted race
  *   race-for-the-prize ./my-race --results          View recent results
