@@ -5,7 +5,9 @@
  *
  * The contract has three channels:
  *
- * 1. Config (argv): race.js passes a RunnerConfig as JSON in argv[2].
+ * 1. Config: race.js writes a RunnerConfig as JSON to a temp file and passes
+ *    `--config-file <path>` (inline JSON in argv[2] still works for direct
+ *    invocation, but large race scripts overflow the OS argv limit).
  * 2. Result (stdout): runner.cjs prints exactly one authoritative line,
  *    prefixed with RESULT_SENTINEL, containing a RunnerResult as JSON.
  * 3. Progress (stderr): human-readable logs, plus two machine-parsed line
@@ -24,6 +26,8 @@
  * @property {boolean} [noRecording]
  * @property {boolean} [ffmpeg]
  * @property {boolean} [har]
+ * @property {boolean} [cueMarkers]
+ * @property {boolean} [wallClock]
  * @property {string} [recordingsDir]
  * @property {boolean} [ignoreHTTPSErrors]
  * @property {number|null} [viewportHeight]
@@ -124,9 +128,14 @@ function confinePath(baseDir, ...segments) {
   return resolved;
 }
 
-/** Build the stderr line for page.raceMessage(text). */
+/**
+ * Build the stderr line for page.raceMessage(text). The parser reads one line,
+ * so a newline in the text would truncate the message and leave its tail as
+ * stray stderr — fold it onto one line instead.
+ */
 function formatRaceMessage(id, elapsedSeconds, text) {
-  return `[${id}] ${RACE_MESSAGE_MARKER}[${elapsedSeconds}]:${text}`;
+  const oneLine = String(text).replace(/\r\n|\r|\n/g, ' ');
+  return `[${id}] ${RACE_MESSAGE_MARKER}[${elapsedSeconds}]:${oneLine}`;
 }
 
 /** Regex matching formatRaceMessage lines for one racer; captures (elapsed, text). */

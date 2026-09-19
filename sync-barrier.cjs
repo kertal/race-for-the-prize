@@ -16,15 +16,30 @@ const POLL_INTERVAL_MS = 100;
 // checkpoints (heavy page loads before a sync point) are never tripped.
 const BARRIER_TIMEOUT_MS = 300000;
 
+/**
+ * The deadline argument is either a number of milliseconds or an options
+ * object `{ timeoutMs }`. Anything else is a caller bug: an object compared
+ * with `> 0` is NaN-false, which would silently disable the backstop, so it
+ * throws instead.
+ */
+function resolveTimeoutMs(timeout) {
+  const value = timeout !== null && typeof timeout === 'object' ? timeout.timeoutMs : timeout;
+  if (value === undefined) return BARRIER_TIMEOUT_MS;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new TypeError(`SyncBarrier timeout must be a non-negative number of ms, got ${JSON.stringify(timeout)}`);
+  }
+  return value;
+}
+
 class SyncBarrier {
-  constructor(count, sharedState = null, timeoutMs = BARRIER_TIMEOUT_MS) {
+  constructor(count, sharedState = null, timeout = BARRIER_TIMEOUT_MS) {
     this.count = count;
     this.waiting = 0;
     this.resolvers = [];
     this.sharedState = sharedState;
     this.released = false;
     this.checkIntervals = [];
-    this.timeoutMs = timeoutMs;
+    this.timeoutMs = resolveTimeoutMs(timeout);
   }
 
   releaseAll() {
