@@ -1,8 +1,9 @@
 /**
  * runner.cjs — Playwright browser automation engine for RaceForThePrize.
  *
- * Launched as a child process by race.js. Receives a JSON config via argv,
- * runs two Playwright-driven browsers (parallel or sequential), records video,
+ * Launched as a child process by race.js. Receives a JSON config (a temp file
+ * named by `--config-file`, or inline in argv[2]), runs two to five
+ * Playwright-driven browsers (parallel or sequential), records video,
  * collects measurements and click events, and outputs a JSON result on stdout.
  *
  * CommonJS because Playwright requires it; the rest of the project is ESM.
@@ -171,11 +172,22 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   // The state machine lives in race-api.cjs; everything runner-specific
   // (trace marks, overlays, cues, CDP metrics, barriers, stderr protocol)
   // is injected as hooks.
+  // Whether this racer has arrived at the recording-start checkpoint. A script
+  // that never records (empty, comments only, no raceStart) must still show up
+  // there before it leaves, or the partner waits at that checkpoint until the
+  // barrier's deadlock backstop fails the whole race.
+  let arrivedAtRecordingStart = false;
+  const arriveAtRecordingStart = async (label) => {
+    const result = await barriers.recordingStart.wait(`${id} ${label}`);
+    arrivedAtRecordingStart = true;
+    return result;
+  };
+
   const api = createRaceApi({
     recordingStartTime,
     hooks: {
       gateRecordingStart: isParallel && barriers
-        ? () => barriers.recordingStart.wait(`${id} startRecording`)
+        ? () => arriveAtRecordingStart('startRecording')
         : null,
       onRecordingStart: async () => {
         // The clock's zero, read before the trace mark's page round-trip so a
@@ -298,30 +310,35 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     }
   }
 
-  if (!raceScript || raceScript.trim() === '') return { segments: [], measurements: [] };
+  // An empty script has nothing to run, but still takes part in every
+  // checkpoint below so its partner is never left waiting.
+  const hasScript = Boolean(raceScript && raceScript.trim() !== '');
 
-  // SECURITY: Race scripts execute with the full privileges of this Node.js
-  // process. Only run scripts you trust — this is equivalent to `node <file>`.
-  const sanitized = sanitizeScript(raceScript);
-  const raceContext = Object.freeze({ name: id, vars: Object.freeze(vars || {}) });
-  try {
-    const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor; // NOSONAR — intentional: executes user-provided race scripts
-    const fn = new AsyncFunction('page', 'race', '__startRecording', '__stopRecording', '__startMeasure', '__endMeasure', sanitized); // NOSONAR
-    await fn(page, raceContext, api.startRecording, api.stopRecording, api.startMeasure, api.endMeasure);
-  } catch (error) {
-    console.error(`[${id}] Script failed: ${error.message}`);
-    throw new Error(`Script execution failed: ${error.message}`);
-  } finally {
-    // Clean up CDP session used by raceWaitForVisualStability
-    if (cdpSession) {
-      try { await cdpSession.detach(); } catch {}
-      cdpSession = null;
+  if (hasScript) {
+    // SECURITY: Race scripts execute with the full privileges of this Node.js
+    // process. Only run scripts you trust — this is equivalent to `node <file>`.
+    const sanitized = sanitizeScript(raceScript);
+    const raceContext = Object.freeze({ name: id, vars: Object.freeze(vars || {}) });
+    try {
+      const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor; // NOSONAR — intentional: executes user-provided race scripts
+      const fn = new AsyncFunction('page', 'race', '__startRecording', '__stopRecording', '__startMeasure', '__endMeasure', sanitized); // NOSONAR
+      await fn(page, raceContext, api.startRecording, api.stopRecording, api.startMeasure, api.endMeasure);
+    } catch (error) {
+      console.error(`[${id}] Script failed: ${error.message}`);
+      throw new Error(`Script execution failed: ${error.message}`);
+    } finally {
+      // Clean up CDP session used by raceWaitForVisualStability
+      if (cdpSession) {
+        try { await cdpSession.detach(); } catch {}
+        cdpSession = null;
+      }
     }
   }
 
   await api.finalize();
 
   if (isParallel && barriers) {
+    if (!arrivedAtRecordingStart) await arriveAtRecordingStart('finished without recording');
     await barriers.stop.wait(`${id} finished`);
   }
 
@@ -348,15 +365,18 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
   let metricsCollector = null;
   let error = null;
 
-  fs.mkdirSync(outputDir, { recursive: true }); // NOSONAR — outputDir comes from confinePath (id validated by isSafeRacerId at config entry)
-  cleanupOldVideos(outputDir);
-
   const layout = calculateWindowLayout(browserIndex, totalBrowsers, { screen: SCREEN, windowHeight: WINDOW_HEIGHT });
   const windowArgs = isParallel
     ? [`--window-position=${layout.x},${layout.y}`, `--window-size=${layout.width},${layout.height}`]
     : [];
 
+  // Everything that can fail runs inside the try: the catch below releases the
+  // barriers, and a failure before it (say, an unwritable recordings dir) would
+  // otherwise leave a parallel partner waiting at its first checkpoint.
   try {
+    fs.mkdirSync(outputDir, { recursive: true }); // NOSONAR — outputDir comes from confinePath (id validated by isSafeRacerId at config entry)
+    cleanupOldVideos(outputDir);
+
     const launchOpts = { headless, args: windowArgs };
     if (slowmo > 0) launchOpts.slowMo = slowmo * SLOWMO_MULTIPLIER;
     browser = await chromium.launch(launchOpts);

@@ -3,6 +3,51 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 const { setupMetricsCollection, runMarkerMode } = require('../runner.cjs');
+const { SyncBarrier } = require('../sync-barrier.cjs');
+
+/** The minimum a page has to offer runMarkerMode when overlays and metrics are off. */
+function makeBarePage() {
+  return {
+    on() {},
+    context() { return { newCDPSession: async () => ({ async send() { return {}; }, async detach() {} }) }; },
+    async evaluate() { return null; },
+    async addInitScript() {},
+    async waitForTimeout() {},
+  };
+}
+
+describe('parallel checkpoints', () => {
+  // Two racers, real barriers, a short deadlock backstop: if a checkpoint is
+  // ever left one racer short, the barrier times out and flags sharedState.
+  function makeBarriers(sharedState) {
+    const opts = { timeoutMs: 500 };
+    return {
+      ready: new SyncBarrier(2, sharedState, opts),
+      recordingStart: new SyncBarrier(2, sharedState, opts),
+      stop: new SyncBarrier(2, sharedState, opts),
+    };
+  }
+
+  const runRacer = (id, script, barriers, sharedState) =>
+    runMarkerMode(makeBarePage(), null, { id, script }, barriers, true, sharedState, Date.now(), true, null, true);
+
+  it.each([
+    ['an empty script', ''],
+    ['a script that never calls raceStart', '// warming up only\nawait page.waitForTimeout(1);'],
+  ])('lets a racer with %s finish without stranding its partner at a checkpoint', async (_, script) => {
+    const sharedState = { hasError: false, errorMessage: null };
+    const barriers = makeBarriers(sharedState);
+
+    const [idle, racing] = await Promise.all([
+      runRacer('idle', script, barriers, sharedState),
+      runRacer('racing', "await page.raceStart('Load');\npage.raceEnd('Load');", barriers, sharedState),
+    ]);
+
+    expect(sharedState.hasError).toBe(false);
+    expect(idle.measurements).toEqual([]);
+    expect(racing.measurements.map(m => m.name)).toEqual(['Load']);
+  });
+});
 
 function makePerformanceMetrics({
   jsHeapUsedSize = 0,
