@@ -36,6 +36,7 @@ node race.js demo:lauda-vs-hunt                   # Run a bundled demo race (`de
 
 **CLI modules (`cli/`):**
 - `config.js` — arg parsing, racer/`.spec.js` discovery, settings defaults/validation/override logic
+- `help.js` — the `--help` screen: `resolveInvocation()` works out whether the reader types `race-for-the-prize`, `npx race-for-the-prize` or `node race.js`, and `buildHelp()` renders every example with it
 - `animation.js` — live terminal race animation
 - `summary.js` — summary data model, terminal output, JSON/Markdown report generation
 - `race-utils.js` — overall-winner computation and `TIE_THRESHOLD_PERCENT`
