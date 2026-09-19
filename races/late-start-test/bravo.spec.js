@@ -16,5 +16,5 @@ await page.raceStart('Task');
 await page.waitForTimeout(500);
 page.raceEnd('Task');
 
-await page.waitForTimeout(200);
+await page.waitForTimeout(1500);
 await page.raceRecordingEnd();

@@ -61,6 +61,43 @@ select:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 p.desc { text-align: center; color: var(--text-faint); font-size: var(--font-size-base); line-height: var(--leading-loose);
          margin: 0 auto 2rem; max-width: 68ch; min-height: 1.2em; }
 
+/* --- Film: one video of every condition ---------------------------------- */
+/* Below the matrix: the film is what you reach for after reading the results,
+   not before. */
+p.actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+            gap: 0.6rem; margin: 1.6rem 0 0; }
+.film-btn { font: inherit; font-size: var(--font-size-base); font-weight: bold; cursor: pointer;
+            background: var(--surface); color: var(--accent);
+            border: var(--border-width) solid var(--border-strong); border-radius: var(--radius);
+            padding: 0.35rem 0.9rem;
+            transition: background-color var(--duration), border-color var(--duration); }
+.film-btn:hover { background: var(--surface-raised); border-color: var(--accent); }
+.film-btn:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.film-hint { color: var(--text-ghost); font-size: var(--font-size-xs); }
+
+.film-overlay { position: fixed; inset: 0; z-index: 1000; background: var(--scrim);
+                display: flex; align-items: center; justify-content: center; }
+.film-overlay[hidden] { display: none; }
+.film-modal { display: flex; flex-direction: column; align-items: center; gap: 1rem;
+              max-width: 90vw; max-height: 90vh; padding: var(--gutter);
+              background: var(--bg); border: var(--border-width-thick) solid var(--accent);
+              border-radius: var(--radius-lg); }
+.film-modal h2 { margin: 0; font-family: var(--font-display); font-size: var(--font-size-xl);
+                 color: var(--accent); text-transform: uppercase; letter-spacing: var(--tracking-wide); }
+.film-canvas { max-width: 100%; max-height: 50vh; object-fit: contain; background: var(--video-bg);
+               border: var(--border-width) solid var(--border-subtle); border-radius: var(--radius); }
+.film-progress-bar { width: 100%; height: 8px; background: var(--surface);
+                     border-radius: var(--radius); overflow: hidden; }
+.film-progress-fill { width: 0%; height: 100%; background: var(--accent); border-radius: var(--radius);
+                      transition: width var(--duration); }
+.film-status { margin: 0; color: var(--text-dim); font-size: var(--font-size-md); text-align: center; }
+.film-actions { display: flex; align-items: center; gap: 0.8rem; }
+.film-actions button, .film-actions a { font: inherit; font-size: var(--font-size-base); cursor: pointer;
+                                        background: var(--surface); color: var(--text); text-decoration: none;
+                                        border: var(--border-width) solid var(--border-strong);
+                                        border-radius: var(--radius); padding: 0.4rem 1rem; }
+.film-actions button:hover, .film-actions a:hover { border-color: var(--accent); color: var(--accent); }
+
 .scroll { overflow-x: auto; }
 /* Cards keep a fixed, readable width instead of stretching with the viewport;
    a wide field overflows into .scroll rather than smearing the bars out. */
@@ -120,4 +157,5 @@ p.legend { text-align: center; color: var(--text-ghost); font-size: var(--font-s
 @media (prefers-reduced-motion: reduce) {
   td a { transition: none; }
   td a:hover { transform: none; }
+  .film-btn, .film-progress-fill { transition: none; }
 }
