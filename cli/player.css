@@ -369,9 +369,32 @@ h1 {
   justify-content: center;
 }
 .racer {
+  position: relative;
   flex: 1;
   min-width: 280px;
   text-align: center;
+  /* Anchors the calibration frame badge and the finish result over this
+     racer's video. The label sits above the video at a height fixed by
+     design (see .racer-label), so overlays that hang off the top of the
+     video clear it with --racer-label-height rather than guessing. */
+  --racer-label-pad: 0.5rem;
+  --racer-label-height: calc(var(--font-size-2xl) * var(--leading) + var(--racer-label-pad) * 2);
+}
+.finish-result {
+  position: absolute;
+  bottom: 0.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.2rem 0.45rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--racer-color, var(--border));
+  border-radius: var(--radius);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-sm);
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
 }
 .racer-label {
   font-family: var(--font-display);
@@ -382,13 +405,49 @@ h1 {
   line-height: var(--leading);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
-  padding: 0.5rem 0;
+  padding: var(--racer-label-pad) 0;
 }
 video {
   width: 100%;
   border: var(--video-border-width) solid var(--video-border-color);
   border-radius: var(--radius);
   background: var(--video-bg);
+}
+/* Block layout drops the inline descender gap under the video, so the frame
+   badge sits flush against the bottom of the picture. */
+.racer video { display: block; }
+
+/* --- Calibration frame badge --------------------------------------------- */
+/* Which frame each racer is showing, painted over the video while the
+   calibration panel is open. Hidden the rest of the time. */
+.frame-badge { display: none; }
+.player-container.show-frame-badges .frame-badge {
+  display: flex;
+  position: absolute;
+  top: calc(var(--racer-label-height) + 0.6rem);
+  left: 50%;
+  transform: translateX(-50%);
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding: 0.1rem 0.3rem;
+  background: var(--scrim);
+  border: var(--border-width) solid var(--tool-accent);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  /* A readout, not a headline: it sits over the recording, so it stays small
+     enough to leave the racer's own page visible behind it. */
+  line-height: var(--leading);
+  pointer-events: none;
+}
+.frame-badge-num {
+  color: var(--tool-accent);
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+}
+.frame-badge-clip {
+  color: var(--text-dim);
+  font-size: var(--font-size-marker);
 }
 .merged-container {
   max-width: 1200px;
@@ -925,7 +984,25 @@ video {
   max-width: none;
   overflow: hidden;
 }
-.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .racer-label { display: none; }
+/* Out of the flow and onto the video: the fullscreen grid gives each row the
+   viewport, so a label that still took its own line would shrink every video
+   by its height. Centred at the top, where it clears the recording dot and the
+   wall clock burned into the footage's top-left corner. */
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .racer-label {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  max-width: 100%;
+  padding: 0.25rem 0.75rem;
+  background: var(--scrim);
+  border-radius: 0 0 var(--radius) var(--radius);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
 .fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) video {
   width: 100%;
   height: 100%;
@@ -962,6 +1039,9 @@ video {
   pointer-events: none;
   z-index: 10;
 }
+/* The calibration panel is rendered outside the fullscreen wrapper, so its
+   toggle has nothing to open while fullscreen — hide it with the racer labels. */
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .calibration-btn { display: none; }
 .fullscreen-wrapper.fs-controls-visible .controls {
   opacity: 1;
   pointer-events: auto;

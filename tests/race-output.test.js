@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { formatTimestamp, buildResultsPaths, reportStorageScope, buildConditionIndexHtml, waitForEnter, findMissingBrowser } from '../race.js';
+import { EventEmitter } from 'events';
+import { formatTimestamp, buildResultsPaths, reportStorageScope, buildConditionIndexHtml, waitForEnter, confirm, findMissingBrowser } from '../race.js';
 
 describe('findMissingBrowser', () => {
   const playwright = executablePath => async () => ({ chromium: { executablePath: () => executablePath } });
@@ -275,5 +276,68 @@ describe('waitForEnter', () => {
     await promise;
 
     vi.useRealTimers();
+  });
+});
+
+describe('confirm', () => {
+  // A stand-in for stdin: confirm() only needs isTTY, resume/pause and events.
+  function fakeInput({ isTTY = true } = {}) {
+    const input = new EventEmitter();
+    input.isTTY = isTTY;
+    input.resume = vi.fn();
+    input.pause = vi.fn();
+    return input;
+  }
+  const fakeOutput = () => ({ write: vi.fn() });
+
+  async function ask(answer, opts = {}) {
+    const input = fakeInput();
+    const output = fakeOutput();
+    const promise = confirm('Copy them? ', { input, output, ...opts });
+    input.emit('data', answer);
+    return { result: await promise, input, output };
+  }
+
+  it('asks on the given output and takes yes', async () => {
+    const { result, output } = await ask('y\n');
+    expect(result).toBe(true);
+    expect(output.write).toHaveBeenCalledWith('Copy them? ');
+  });
+
+  it.each(['n\n', 'N', 'no\n', '  no  \n'])('takes %j as no', async (answer) => {
+    expect((await ask(answer)).result).toBe(false);
+  });
+
+  it.each(['y', 'Y\n', 'yes\n', ' yes \n'])('takes %j as yes', async (answer) => {
+    expect((await ask(answer)).result).toBe(true);
+  });
+
+  it('takes a bare Enter as the default', async () => {
+    expect((await ask('\n')).result).toBe(true);
+    expect((await ask('\n', { defaultYes: false })).result).toBe(false);
+  });
+
+  it('treats an unrecognised answer as no', async () => {
+    expect((await ask('maybe\n')).result).toBe(false);
+  });
+
+  it('treats closed stdin as no', async () => {
+    const input = fakeInput();
+    const promise = confirm('Copy them? ', { input, output: fakeOutput() });
+    input.emit('end');
+    expect(await promise).toBe(false);
+  });
+
+  it('releases stdin once answered', async () => {
+    const { input } = await ask('y\n');
+    expect(input.resume).toHaveBeenCalled();
+    expect(input.pause).toHaveBeenCalled();
+    expect(input.listenerCount('data')).toBe(0);
+  });
+
+  it('returns null when there is nobody to ask (non-TTY)', async () => {
+    const output = fakeOutput();
+    expect(await confirm('Copy them? ', { input: fakeInput({ isTTY: false }), output })).toBeNull();
+    expect(output.write).not.toHaveBeenCalled();
   });
 });

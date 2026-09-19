@@ -10,15 +10,15 @@ const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'he
 const BOOLEAN_VALUE_FLAGS = new Set([
   'parallel', 'headless', 'overlay', 'recording',
   'ffmpeg', 'har', 'wasm', 'serve', 'pause', 'ignore-https-errors', 'gemini',
-  'cue-markers',
+  'cue-markers', 'wall-clock',
 ]);
 
 /** Boolean flags the CLI recognises. Unknown flags produce an error. */
 export const KNOWN_BOOL_FLAGS = new Set([
   'parallel', 'headless', 'overlay', 'recording',
   'ffmpeg', 'har', 'wasm', 'serve', 'pause', 'ignore-https-errors',
-  'gemini', 'results', 'init', 'verbose', 'help', 'version',
-  'cue-markers',
+  'gemini', 'results', 'init', 'verbose', 'help', 'version', 'yes',
+  'cue-markers', 'wall-clock',
 ]);
 
 /** Combined set of all valid flag names (bool + kv). */
@@ -241,6 +241,7 @@ const BOOLEAN_SETTING_KEYS = [
   'pauseBetweenRuns',
   'ignoreHTTPSErrors',
   'cueMarkers',
+  'wallClock',
 ];
 
 /**
@@ -281,6 +282,7 @@ export function applyDefaults(settings) {
     pauseBetweenRuns: false,
     ignoreHTTPSErrors: false,
     cueMarkers: false,
+    wallClock: false,
     viewportHeight: 720,
     format: 'webm',
     network: 'none',
@@ -431,6 +433,34 @@ export class InvalidSettingError extends Error {
   }
 }
 
+const VIEWPORT_HEIGHT_MIN = 480;
+const VIEWPORT_HEIGHT_MAX = 4320;
+const VIEWPORT_HEIGHT_DEFAULT = 720;
+
+/** Coerce a raw height value (CLI --height flag or settings.json `height`) to a valid viewportHeight. */
+function resolveViewportHeight(rawValue, label) {
+  // Only strings and numbers can be a height. settings.json keeps JSON types,
+  // and Number(true) is 1 and Number([900]) is 900 — a boolean or array would
+  // otherwise clamp or pass instead of taking the same non-numeric fallback the
+  // CLI's "true" gets.
+  const coercible = typeof rawValue === 'number' || typeof rawValue === 'string';
+  const height = coercible ? Number(rawValue) : NaN;
+  if (!Number.isFinite(height)) {
+    console.error(`Warning: ${label} "${rawValue}" is not numeric, using default ${VIEWPORT_HEIGHT_DEFAULT}`);
+    return VIEWPORT_HEIGHT_DEFAULT;
+  }
+  const rounded = Math.round(height);
+  if (rounded < VIEWPORT_HEIGHT_MIN) {
+    console.error(`Warning: ${label} clamped from ${rounded} to ${VIEWPORT_HEIGHT_MIN} (minimum)`);
+    return VIEWPORT_HEIGHT_MIN;
+  }
+  if (rounded > VIEWPORT_HEIGHT_MAX) {
+    console.error(`Warning: ${label} clamped from ${rounded} to ${VIEWPORT_HEIGHT_MAX} (maximum)`);
+    return VIEWPORT_HEIGHT_MAX;
+  }
+  return rounded;
+}
+
 /**
  * Apply CLI overrides to settings. Mutates neither input.
  * Throws InvalidSettingError for unrecoverable errors (for example, bad enum values
@@ -439,6 +469,18 @@ export class InvalidSettingError extends Error {
  */
 export function applyOverrides(settings, boolFlags, kvFlags) {
   const s = { ...settings };
+  // settings.json values reach the runner as they are, so the canonical key
+  // gets the same clamp, rounding and fallback as the alias and the flag.
+  if (s.viewportHeight != null) {
+    s.viewportHeight = resolveViewportHeight(s.viewportHeight, '"viewportHeight" in settings.json');
+  }
+  // `height` is the settings.json alias for `viewportHeight`, mirroring the
+  // --height CLI flag. A null value means "not set", as for every other key —
+  // applyDefaults strips nulls, but it runs after this, so guard here too.
+  if (s.height != null) {
+    s.viewportHeight = resolveViewportHeight(s.height, '"height" in settings.json');
+  }
+  delete s.height;
   if (boolFlags.has('parallel')) s.parallel = true;
   if (boolFlags.has('headless')) s.headless = true;
   if (boolFlags.has('overlay')) s.noOverlay = false;
@@ -451,6 +493,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('ignore-https-errors')) s.ignoreHTTPSErrors = true;
   if (boolFlags.has('gemini')) s.gemini = true;
   if (boolFlags.has('cue-markers')) s.cueMarkers = true;
+  if (boolFlags.has('wall-clock')) s.wallClock = true;
   // Explicit boolean values (for example --parallel=false) override presence flags.
   if (kvFlags.parallel !== undefined) s.parallel = parseCliBoolean(kvFlags.parallel, '--parallel');
   if (kvFlags.headless !== undefined) s.headless = parseCliBoolean(kvFlags.headless, '--headless');
@@ -467,6 +510,9 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (kvFlags.gemini !== undefined) s.gemini = parseCliBoolean(kvFlags.gemini, '--gemini');
   if (kvFlags['cue-markers'] !== undefined) {
     s.cueMarkers = parseCliBoolean(kvFlags['cue-markers'], '--cue-markers');
+  }
+  if (kvFlags['wall-clock'] !== undefined) {
+    s.wallClock = parseCliBoolean(kvFlags['wall-clock'], '--wall-clock');
   }
   if (kvFlags.network !== undefined) {
     const networks = parseNetworkList(kvFlags.network);
@@ -515,22 +561,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
     }
   }
   if (kvFlags.height !== undefined) {
-    const height = Number(kvFlags.height);
-    if (!Number.isFinite(height)) {
-      console.error(`Warning: --height "${kvFlags.height}" is not numeric, using default 720`);
-      s.viewportHeight = 720;
-    } else {
-      const rounded = Math.round(height);
-      if (rounded < 480) {
-        console.error(`Warning: --height clamped from ${rounded} to 480 (minimum)`);
-        s.viewportHeight = 480;
-      } else if (rounded > 4320) {
-        console.error(`Warning: --height clamped from ${rounded} to 4320 (maximum)`);
-        s.viewportHeight = 4320;
-      } else {
-        s.viewportHeight = rounded;
-      }
-    }
+    s.viewportHeight = resolveViewportHeight(kvFlags.height, '--height');
   }
   return s;
 }
