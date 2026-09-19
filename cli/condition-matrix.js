@@ -49,6 +49,15 @@ const FILM_RUNTIME = [
   path.join(__dirname, 'matrix-runtime', 'film-export.js'),
 ].map(file => fs.readFileSync(file, 'utf-8')).join('\n');
 
+/**
+ * The runtime as a whole script element, mirroring videoplayer.js. It is built
+ * here rather than filled into a script body in the markup file so that file
+ * never holds an inline script referring to a variable nothing declares.
+ */
+function buildFilmScript() {
+  return '<script>\n(function() {\n' + FILM_RUNTIME + '\n})();\n</script>';
+}
+
 const WIN_MEDAL = '🏆';
 const TIE_MEDAL = '🤝';
 // Same display width as the medals, so unmedalled lines stay aligned under them.
@@ -589,7 +598,7 @@ export function buildConditionIndexHtml(raceTitle, entries, options = {}) {
       const tally = tallyLine(matrix, metric.key);
       return tally ? `Conditions won: ${escHtml(tally)}` : '';
     }),
-    film: film ? fill('film', { config: serializeFilmConfig(film), runtime: FILM_RUNTIME }) : '',
+    film: film ? fill('film', { config: serializeFilmConfig(film), scriptTag: buildFilmScript() }) : '',
     scriptTag: fill('script'),
   });
 }

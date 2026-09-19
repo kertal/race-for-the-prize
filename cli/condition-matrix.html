@@ -58,7 +58,10 @@
 
 <!-- The overlay ships hidden rather than as a <template> the runtime clones:
      only one film is ever recorded at a time, and splitTemplates would stop at
-     a nested template's closing tag. -->
+     a nested template's closing tag. The runtime arrives as a whole <script>
+     element built in condition-matrix.js, the way player.html takes the
+     player's: a placeholder inside a script body would leave this file holding
+     an inline script that reads a variable nothing declares. -->
 <template id="build-film">
 <div class="film-overlay" id="filmOverlay" hidden>
   <div class="film-modal">
@@ -70,11 +73,7 @@
   </div>
 </div>
 <script id="film-config" type="application/json">{{config}}</script>
-<script>
-(function() {
-{{runtime}}
-})();
-</script>
+{{scriptTag}}
 </template>
 
 <template id="build-picker-group"><optgroup label="{{label}}">{{options}}</optgroup></template>
