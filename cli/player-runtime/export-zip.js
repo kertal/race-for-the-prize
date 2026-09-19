@@ -232,6 +232,7 @@ function offerDownload(ui, blob, filename, label, failedFiles) {
   dlLink.download = filename;
   dlLink.textContent = label;
   const closeBtn = document.createElement('button');
+  closeBtn.className = 'export-cancel';
   closeBtn.textContent = 'Close';
   closeBtn.addEventListener('click', () => { URL.revokeObjectURL(url); ui.overlay.remove(); });
   ui.actionsEl.replaceChildren(dlLink, closeBtn);

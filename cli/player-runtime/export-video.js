@@ -100,12 +100,17 @@ function loadFFmpeg() {
 function mountExportDialog(overlay) {
   const opener = document.activeElement;
   document.body.appendChild(overlay);
-  const focusable = () => [...overlay.querySelectorAll('button:not([disabled])')];
+  // Completed exports put a Download anchor next to the buttons, so the trap
+  // collects anything focusable — a button-only list let Shift+Tab off Download
+  // walk straight out of the dialog.
+  const focusable = () => [...overlay.querySelectorAll(
+    'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )];
   overlay.focus();
 
   function onKeyDown(e) {
     if (e.key === 'Escape') {
-      const cancel = overlay.querySelector('.export-cancel') || focusable()[0];
+      const cancel = overlay.querySelector('.export-cancel:not([disabled])');
       if (cancel) cancel.click();
       return;
     }
@@ -162,6 +167,7 @@ function convertWithFFmpeg(blob, format, ui, opts = {}) {
   function revokeOutUrl() { if (outUrl) { URL.revokeObjectURL(outUrl); outUrl = null; } }
 
   const dismissBtn = document.createElement('button');
+  dismissBtn.className = 'export-cancel';
   dismissBtn.textContent = 'Cancel';
   dismissBtn.addEventListener('click', () => { cancelled = true; revokeOutUrl(); overlay.remove(); });
   actionsEl.appendChild(dismissBtn);
@@ -230,6 +236,7 @@ function convertWithFFmpeg(blob, format, ui, opts = {}) {
       dlLink.textContent = 'Download ' + format.toUpperCase();
 
       const closeBtn = document.createElement('button');
+      closeBtn.className = 'export-cancel';
       closeBtn.textContent = 'Close';
       closeBtn.addEventListener('click', () => { revokeOutUrl(); overlay.remove(); });
 
@@ -360,6 +367,7 @@ async function startExport() {
     downloadLink.download = 'race-side-by-side.webm';
     downloadLink.textContent = 'Download';
     const closeBtn = document.createElement('button');
+    closeBtn.className = 'export-cancel';
     closeBtn.textContent = 'Close';
     closeBtn.addEventListener('click', () => { URL.revokeObjectURL(url); overlay.remove(); });
     const convertRow = document.createElement('div');

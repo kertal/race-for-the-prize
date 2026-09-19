@@ -1793,6 +1793,21 @@ describe('buildPlayerHtml semantics', () => {
     expect(defaultHtml.match(/document\.body\.appendChild\(overlay\);/g)).toHaveLength(1);
   });
 
+  it('keeps the download link inside the focus trap', () => {
+    // A finished export replaces the buttons with a Download anchor and a Close
+    // button. Trapping only buttons let Shift+Tab off Download leave the dialog.
+    expect(defaultHtml).toContain("'a[href], button:not([disabled]), [tabindex]:not([tabindex=\"-1\"])'");
+  });
+
+  it('gives Escape a control that can still dismiss the dialog', () => {
+    // A conversion disables the markup's Cancel and appends a live one, and a
+    // finished export leaves only Close — so Escape looks for the dismissal
+    // control that is currently enabled, and every one of them carries the class.
+    expect(defaultHtml).toContain("overlay.querySelector('.export-cancel:not([disabled])')");
+    expect(defaultHtml).toContain("dismissBtn.className = 'export-cancel';");
+    expect(defaultHtml.match(/closeBtn\.className = 'export-cancel';/g)).toHaveLength(3);
+  });
+
   it('marks the calibration button as the disclosure it is', () => {
     // It shows and hides #debugPanel, so it is aria-expanded like the settings
     // and share buttons — not the aria-pressed of a mode toggle.
