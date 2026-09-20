@@ -627,22 +627,32 @@ export function buildRaceContext({ racerNames, scripts, settings, rootDir = __di
  * and the answer is one actionable line naming the lighter chromium-only
  * download rather than Playwright's full-suite suggestion.
  *
+ * Playwright itself going missing is rarer and needs different advice: from a
+ * checkout it means `npm install` has not run, but someone who typed `npx
+ * race-for-the-prize` never ran an install to repeat — Playwright is a
+ * dependency of the package they just fetched, so what they have is a broken
+ * install to redo. `resolveInvocation` already knows which of the two they are.
+ *
  * Dependencies are injected so this is unit-testable without a real install.
  *
  * @param {object} [deps]
  * @param {() => Promise<object>} [deps.importPlaywright]
  * @param {(path: string) => boolean} [deps.exists]
+ * @param {string} [deps.invocation] - how the CLI was started (see cli/help.js)
  * @returns {Promise<string|null>} error message, or null when the browser is present
  */
 export async function findMissingBrowser({
   importPlaywright = () => import('playwright'),
   exists = fs.existsSync,
+  invocation = resolveInvocation(),
 } = {}) {
   let chromium;
   try {
     ({ chromium } = await importPlaywright());
   } catch {
-    return 'Playwright is not installed. Run "npm install" to install dependencies.';
+    return 'Playwright is not installed. ' + (invocation === 'node race.js'
+      ? 'Run "npm install" to install dependencies.'
+      : `It ships as a dependency of ${CLI_NAME}, so this install is incomplete — reinstall the package.`);
   }
   let executable;
   try {
