@@ -125,6 +125,20 @@ describe('selectRaceTiming', () => {
       .toEqual({ recordingSegments: twoMarkerSegments, measurements: markerMeasurements, usedTraceSegments: false });
   });
 
+  it('falls back to the markers when a segment has no frames of its own', () => {
+    // A segment that ended before the first captured frame clamps to nothing
+    // and drops out of ptsSegments. Trimming on what is left would lose it
+    // from the video, so the whole result goes back to the marker clock.
+    const twoTraceSegments = [
+      { start: 0, end: 0.2, startTraceTs: 1_000_000, endTraceTs: 1_200_000 },
+      ...traceSegments,
+    ];
+    const twoMarkerSegments = [{ start: 0.1, end: 0.3 }, ...markerSegments];
+    const partial = { ...calibrated, recordingSegments: twoTraceSegments };
+    expect(selectRaceTiming(partial, twoMarkerSegments, markerMeasurements))
+      .toEqual({ recordingSegments: twoMarkerSegments, measurements: markerMeasurements, usedTraceSegments: false });
+  });
+
   it('still takes the trace for a race that measures nothing', () => {
     // B-roll: a bare recording start/end pair with no raceStart. Both lists
     // are empty, so nothing went missing.

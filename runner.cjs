@@ -166,7 +166,12 @@ function compileScript(source) {
 function selectRaceTiming(traceTiming, markerSegments, markerMeasurements) {
   const traceSegments = traceTiming?.recordingSegments || [];
   const traceMeasurements = traceTiming?.measurements || [];
-  const calibratable = (traceTiming?.ptsSegments?.length || 0) > 0;
+  // Every segment needs a PTS counterpart, not just some of them: a segment
+  // that ended before the first captured frame collapses to nothing once
+  // clamped against it and drops out of ptsSegments, and ffmpeg would then
+  // trim on what is left and silently lose that segment from the video.
+  const ptsSegments = traceTiming?.ptsSegments || [];
+  const calibratable = ptsSegments.length > 0 && ptsSegments.length === traceSegments.length;
   const segmentsComplete = traceSegments.length > 0 && traceSegments.length === markerSegments.length;
   // Nothing the race API recorded went missing from the trace. Equality (not
   // `> 0`) so a race that measures nothing — b-roll, a bare recording

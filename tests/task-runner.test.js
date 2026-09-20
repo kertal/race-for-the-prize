@@ -213,6 +213,16 @@ describe('runScript execution', () => {
       // Rejects at the timeout, not when the background process finally lets go.
       expect(Date.now() - started).toBeLessThan(2000);
     });
+
+    it('does not hold up a plain script still running at its timeout', async () => {
+      // The script itself is alive at the timeout, so it is killed — but its
+      // descendant keeps the pipes, so 'close' never comes. Waiting for it
+      // would hang the race on a script that has already been given up on.
+      fs.writeFileSync(path.join(tmpDir, 'slow-bg.sh'), '#!/bin/sh\nsleep 5 &\nsleep 30\n');
+      const started = Date.now();
+      await expect(run({ command: 'slow-bg.sh', timeout: 300 })).rejects.toThrow(/timed out after 300ms/);
+      expect(Date.now() - started).toBeLessThan(3000);
+    }, 15000);
   });
 
   it('rejects with a timeout error when the script exceeds its timeout', async () => {

@@ -18,6 +18,9 @@ import { varsToEnv } from './config.js';
 // settling anyway (see the 'exit' handler in runScript).
 const PIPE_DRAIN_GRACE_MS = 100;
 
+// How long a timed-out script gets between SIGTERM and SIGKILL.
+const SIGKILL_GRACE_MS = 5000;
+
 // How much of a script's stderr to keep for its failure report. The tail is
 // the end a failure is diagnosed from.
 const STDERR_LIMIT = 64 * 1024;
@@ -168,10 +171,14 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
         return;
       }
       child.kill('SIGTERM');
-      // Give process 5s to clean up after SIGTERM, then SIGKILL
+      // Give the script 5s to clean up after SIGTERM, then SIGKILL — and
+      // settle either way. A script that ignores both would otherwise leave
+      // this promise pending for good.
       sigkillTimeoutId = setTimeout(() => {
-        if (child.exitCode === null) child.kill('SIGKILL');
-      }, 5000);
+        if (!exited) child.kill('SIGKILL');
+        releasePipes();
+        onExit(child.exitCode, child.signalCode);
+      }, SIGKILL_GRACE_MS);
     }, timeout);
 
     // A script settles on 'close': it has exited and its stdio pipes have
@@ -181,10 +188,12 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
     // holds the inherited pipes for as long as it lives, so 'close' would come
     // only when it dies. Its readiness is the URL, not the pipes: it settles
     // on 'exit', after a short grace for its own output to drain.
+    // Once the timeout has fired, nothing this script left behind is work
+    // worth waiting for either, so it stops waiting for `close` too.
     const settleOnExit = Boolean(waitFor);
     child.on('exit', (code, signal) => {
       exited = true;
-      if (!settleOnExit) return;
+      if (!settleOnExit && !timedOut) return;
       drainTimeoutId = setTimeout(() => {
         releasePipes();
         onExit(code, signal);
