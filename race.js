@@ -1070,15 +1070,13 @@ if (urlMode) {
 // produced it (config.json), and the HTML report shows the same thing: a race's
 // numbers only mean something next to the settings they were measured under.
 
-/** The tool's own version, for the record. Absent if package.json is unreadable. */
-function readPackageVersion() {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8')).version || null;
-  } catch {
-    return null;
-  }
-}
-const packageVersion = readPackageVersion();
+// The tool's own version, for the record. Absent if package.json is unreadable.
+// (Named apart from the module-level packageVersion(): a block-scoped const of
+// the same name shadowed it for the whole main block, so `--version` and the
+// help banner above threw a temporal-dead-zone ReferenceError.)
+const toolVersion = (() => {
+  try { return packageVersion() || null; } catch { return null; }
+})();
 // The spec files stay the same for the whole invocation, unlike ctx, which is
 // rebuilt per throttling condition.
 const raceFiles = ctx.racerFiles;
@@ -1099,7 +1097,7 @@ function raceConfigFor(activeSettings) {
     racerNames,
     racerFiles: raceFiles,
     mode: raceMode,
-    version: packageVersion,
+    version: toolVersion,
   });
 }
 
