@@ -15,7 +15,13 @@
     "races/*/*.html",
     "races/*/settings.json",
     "ReadMe.md",
+    "docs/cli.md",
+    "docs/demos.md",
+    "docs/development.md",
+    "docs/results.md",
     "docs/skinning.md",
+    "docs/use-cases.md",
+    "docs/writing-races.md",
     "INSTALLATION.md"
   ],
   "scripts": {
