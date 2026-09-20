@@ -575,6 +575,19 @@ describe('applyOverrides — invalid input throws InvalidSettingError', () => {
       expect(() => fromSettings({ runs: true })).toThrow(InvalidSettingError);
     });
 
+    it('rejects a run count that rounds down to zero', () => {
+      expect(() => fromSettings({ runs: 0.1 })).toThrow(InvalidSettingError);
+      expect(() => applyOverrides({}, new Set(), { runs: '0.4' })).toThrow(/--runs must be a positive integer/);
+      expect(fromSettings({ runs: 0.6 }).runs).toBe(1);
+    });
+
+    it('lets a valid flag override an invalid settings.json value', () => {
+      // Only the effective value has to be valid.
+      expect(applyOverrides({ format: 'avi' }, new Set(), { format: 'webm' }).format).toBe('webm');
+      expect(applyOverrides({ runs: 'three' }, new Set(), { runs: '2' }).runs).toBe(2);
+      expect(applyOverrides({ slowmo: 'x' }, new Set(), { slowmo: '2' }).slowmo).toBe(2);
+    });
+
     it('rounds and clamps runs like --runs', () => {
       expect(fromSettings({ runs: 2.5 }).runs).toBe(3);
       expect(fromSettings({ runs: '4' }).runs).toBe(4);

@@ -500,10 +500,11 @@ function toNumberSetting(rawValue) {
 /** Validate a run count (CLI --runs or settings.json `runs`): a positive integer, at most 100. */
 function resolveRuns(rawValue, label) {
   const runs = toNumberSetting(rawValue);
-  if (!Number.isFinite(runs) || runs < 1) {
+  // Check the rounded count: 0.4 is "≥ 0" but rounds to zero runs.
+  const rounded = Math.round(runs);
+  if (!Number.isFinite(rounded) || rounded < 1) {
     throw new InvalidSettingError(`${label} must be a positive integer, got "${rawValue}"`);
   }
-  const rounded = Math.round(runs);
   if (rounded > 100) {
     console.error(`Warning: ${label} clamped from ${rounded} to 100 (maximum)`);
     return 100;
@@ -544,12 +545,14 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   // same validation, clamp and rounding as its CLI flag. Unchecked, a
   // `"runs": "three"` ran zero runs and failed on the median, and a
   // `"format": "avi"` fell back to .webm while every label said avi.
+  // A key the CLI overrides is skipped: only the effective value has to be
+  // valid, so `--format webm` still rescues a bad settings.json entry.
   if (s.viewportHeight != null) {
     s.viewportHeight = resolveViewportHeight(s.viewportHeight, '"viewportHeight" in settings.json');
   }
-  if (s.format != null) s.format = resolveFormat(s.format, '"format" in settings.json');
-  if (s.runs != null) s.runs = resolveRuns(s.runs, '"runs" in settings.json');
-  if (s.slowmo != null) s.slowmo = resolveSlowmo(s.slowmo, '"slowmo" in settings.json');
+  if (s.format != null && kvFlags.format === undefined) s.format = resolveFormat(s.format, '"format" in settings.json');
+  if (s.runs != null && kvFlags.runs === undefined) s.runs = resolveRuns(s.runs, '"runs" in settings.json');
+  if (s.slowmo != null && kvFlags.slowmo === undefined) s.slowmo = resolveSlowmo(s.slowmo, '"slowmo" in settings.json');
   // `height` is the settings.json alias for `viewportHeight`, mirroring the
   // --height CLI flag. A null value means "not set", as for every other key —
   // applyDefaults strips nulls, but it runs after this, so guard here too.
