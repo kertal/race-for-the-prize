@@ -344,7 +344,7 @@ describe('buildProfileMarkdown', () => {
   });
 });
 
-describe('multi-racer support (3-5 racers)', () => {
+describe('multi-racer support (3-4 racers)', () => {
   it('compares all 4 racers and picks the best', () => {
     const data = [
       { total: { networkTransferSize: 3000 }, measured: { networkTransferSize: 1000 } },

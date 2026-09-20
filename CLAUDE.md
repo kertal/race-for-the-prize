@@ -21,14 +21,14 @@ node race.js demo:lauda-vs-hunt                   # Run a bundled demo race (`de
 
 **Entry point:** `race.js` (ESM) — parses CLI args, loads the race directory (multi-spec, shared-spec, or URL mode), spawns `runner.cjs` as a child process, drives the terminal animation, and generates results (summary, Markdown report, HTML player). Also contains the local results HTTP server, `--init` scaffolding, per-racer setup/teardown execution, and optional Gemini commentary.
 
-**Playwright engine:** `runner.cjs` (CommonJS) — launched as a subprocess by `race.js`. Owns the browser lifecycle: launches 2–5 Chromium instances (parallel or sequential), attaches the race API to pages, records video, collects traces, and prints one JSON result line on stdout. Its supporting modules:
+**Playwright engine:** `runner.cjs` (CommonJS) — launched as a subprocess by `race.js`. Owns the browser lifecycle: launches 2–4 Chromium instances (parallel or sequential), attaches the race API to pages, records video, collects traces, and prints one JSON result line on stdout. Its supporting modules:
 
 - `runner-protocol.cjs` — the versioned parent ↔ runner contract: `PROTOCOL_VERSION` (both sides reject a mismatch), the `RESULT_SENTINEL` stdout prefix, and builders/parsers for the machine-read stderr line formats (`__raceMessage__`, context-closed marker).
 - `race-api.cjs` — the `page.race*` state machine (segments, measurements, auto-recording). Pure and unit-tested; runner-specific side effects (trace marks, overlays, cues, metrics, barriers) are injected as hooks by `runner.cjs`.
 - `runner-metrics.cjs` — CDP metrics collector (network totals, Performance API deltas, web vitals, per-section metrics) and the tracing lifecycle.
 - `runner-video.cjs` — recording lookup, ffmpeg segment extraction/concatenation, stale-video cleanup.
 - `runner-throttling.cjs` — network presets and CPU throttling via CDP.
-- `runner-layout.cjs` — pure window-geometry math for 2–5 parallel browser windows.
+- `runner-layout.cjs` — pure window-geometry math for 2–4 parallel browser windows.
 - `sync-barrier.cjs` — synchronization barrier for parallel mode, with a timeout so a hung racer can't deadlock the run.
 - `overlay.cjs` — in-page status overlays, the finish flag, the opt-in wall clock, and the opt-in cue flashes.
 - `trace-calibration.cjs` — pure transform from Playwright trace JSON to recording segments, measurements, and video calibration data.
@@ -56,13 +56,14 @@ node race.js demo:lauda-vs-hunt                   # Run a bundled demo race (`de
 - `media-config.js` — shared media/video constants (`FORMAT_EXTENSIONS`, `VIDEO_DEFAULTS`, `SCREEN`, `codecArgs`, `CUE_DETECTION`)
 - `paths.js` — output filename convention builders (`<name>.race<ext>`, `.full<ext>`, `.trace.json`, `.har`)
 
-**Race definitions (`races/`):** Each race is a directory containing 2–5 `.spec.js` files (or a single shared `race.spec.js` plus `settings.racers`) and an optional `settings.json`. The spec files use the injected race API: `page.raceStart(name)`, `page.raceEnd(name)`, `page.raceRecordingStart()`, `page.raceRecordingEnd()`, `page.raceMessage(text)`, `page.raceWaitForVisualStability()`.
+**Race definitions (`races/`):** Each race is a directory containing 2–4 `.spec.js` files (or a single shared `race.spec.js` plus `settings.racers`) and an optional `settings.json`. The spec files use the injected race API: `page.raceStart(name)`, `page.raceEnd(name)`, `page.raceRecordingStart()`, `page.raceRecordingEnd()`, `page.raceMessage(text)`, `page.raceWaitForVisualStability()`.
 
 ## Key Design Details
 
 - `race.js` uses ESM; `runner.cjs` and its satellite modules use CommonJS (Playwright subprocess requirement). Everything both processes must agree on lives in `runner-protocol.cjs`.
 - Parallel mode uses `SyncBarrier` to synchronize browsers at checkpoints (ready, recordingStart, stop). Every barrier carries a generous deadlock backstop (default 300s) so a hung or out-of-sync racer fails the race instead of wedging the runner forever.
 - Timing and video calibration come from the Playwright trace (`trace-calibration.cjs`): the HTML player virtually trims via `traceCalibration`/clip times, and `--ffmpeg` physically trims using trace-derived PTS segments. The colored cue flashes are opt-in (`--cue-markers`) and exist only as ground truth for the ffprobe integration tests — they perturb metrics, so they're off by default. The recorded wall clock (`--wall-clock`) is opt-in for the same reason: its 10 Hz text update costs a style recalc and a paint per tick, and it keeps `raceWaitForVisualStability` from ever seeing the page settle.
+- `MAX_RACERS` (`cli/config.js`) is the one place the grid size is declared — spec discovery, `settings.racers` and URL mode all cap against it. Everything sized for it has one slot per racer: the parallel window grid (`runner-layout.cjs`), the side-by-side video layouts (`cli/sidebyside.js`) and the palettes `RACER_COLORS` (`cli/colors.js`) and `RACER_CSS_COLORS` (`cli/player-sections.js`). Raising the cap means widening all of them.
 - CLI flags override `settings.json` values (CLI takes priority). See `config.js` `applyOverrides()`.
 - Per-racer setup scripts (e.g. `racer-a.setup.sh`) trigger split execution: each racer's setup runs right before that racer's runs, not all upfront. Without per-racer setups, all racers run together per run.
 - Every results directory stores the configuration it actually ran with (`config.json`, from `race-config.js`). `cli/config.js` `FLAG_SETTING_KEYS` maps each CLI flag to the settings key it writes, which is what lets the record attribute a value to a flag, the file, or a default; a test cross-checks it against `applyOverrides()`.

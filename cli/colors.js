@@ -7,8 +7,8 @@ export const c = {
   hideCursor: '\x1b[?25l', showCursor: '\x1b[?25h',
 };
 
-// Color palette for up to 5 racers
-export const RACER_COLORS = [c.red, c.blue, c.green, c.yellow, c.magenta];
+// Color palette, one entry per racer slot (see MAX_RACERS in config.js)
+export const RACER_COLORS = [c.red, c.blue, c.green, c.yellow];
 
 // DEPRECATED: media/video configuration moved to ./media-config.js.
 // Re-exported here for backwards compatibility — import from media-config.js

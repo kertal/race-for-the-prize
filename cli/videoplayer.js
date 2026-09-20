@@ -1,6 +1,6 @@
 /**
  * Generates a self-contained HTML file with a retro Grand Prix styled
- * video player for race results. Supports 2-5 racers.
+ * video player for race results. Supports 2-4 racers.
  *
  * The HTML structure lives in player.html (a real HTML template).
  * The CSS lives in player.css (inlined into the exported HTML at build time),

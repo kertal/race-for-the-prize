@@ -14,7 +14,7 @@
 
 "Welcome to race day."
 
-That's how the README opens, and I mean it literally. What I'm about to show you is a tool that turns browser performance testing into a race — 2 to 5 browsers, side by side, competing on a track you define. No statistics degree required. No dashboard to configure. Just: write your scripts, fire the starting gun, and the browser that finishes first wins.
+That's how the README opens, and I mean it literally. What I'm about to show you is a tool that turns browser performance testing into a race — 2 to 4 browsers, side by side, competing on a track you define. No statistics degree required. No dashboard to configure. Just: write your scripts, fire the starting gun, and the browser that finishes first wins.
 
 The tool is called **RaceForThePrize**. It runs on Node.js, it's powered by Playwright, and it's on npm — one `npx` command and you're racing in under a minute. Nothing to clone.
 
@@ -34,7 +34,7 @@ Traditional benchmarking tools and RaceForThePrize are **complementary**. Lighth
 
 ## Slide 3 — How It Works
 
-At its core, RaceForThePrize is a CLI tool that takes 2 to 5 Playwright `.spec.js` files — your "racers" — and pits them against each other.
+At its core, RaceForThePrize is a CLI tool that takes 2 to 4 Playwright `.spec.js` files — your "racers" — and pits them against each other.
 
 Each racer gets its own Chromium browser. They all execute their user journey: clicking, scrolling, navigating. You mark the start and end of each measurement with a simple API call, and the tool does the rest: records the session, captures timings, and generates a full race report.
 
@@ -94,7 +94,7 @@ The built-in examples are fun, but the real power is in your own workflows.
 
 A/B testing: point two racers at production vs staging. Same checkout flow, different builds. You'll see the difference before your users do.
 
-Framework comparison: the `react-vs-angular` example ships with four racers — React, Angular, Svelte, and htmx — all loading the same benchmark. Up to five racers in a single heat.
+Framework comparison: the `react-vs-angular` example ships with four racers — React, Angular, Svelte, and htmx — all loading the same benchmark. Four racers is a full grid, the most you can put in a single heat.
 
 Single-change measurement: lazy loading on vs off? Feature flag enabled vs disabled? Two racers, same page, different query params.
 
@@ -188,5 +188,5 @@ You'll have your first race running in under a minute. I'm happy to take questio
 - "Any existing Playwright test can become a racer in minutes."
 - "The video shows exactly what was measured."
 - "Performance is now a pass/fail criterion, just like your unit tests."
-- "Up to five racers in a single heat."
+- "Up to four racers in a single heat."
 - "May the fastest browser win."

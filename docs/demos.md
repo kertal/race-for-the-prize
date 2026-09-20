@@ -48,7 +48,7 @@ The dribbles are perfectly synced. The difference? The scroll back to the top: L
 
 ## ⚛️ React vs Angular (and friends)
 
-The frontend framework cage match — four racers, one winner. React, Angular, Svelte, and htmx all load the same TodoMVC-style benchmark. RaceForThePrize supports up to five racers in a single heat.
+The frontend framework cage match — four racers, one winner. React, Angular, Svelte, and htmx all load the same TodoMVC-style benchmark. Four racers is a full grid — the most RaceForThePrize puts on the track in a single heat.
 
 ```bash
 race-for-the-prize demo:react-vs-angular

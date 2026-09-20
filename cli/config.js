@@ -6,6 +6,13 @@
 import fs from 'fs';
 import path from 'path';
 
+/**
+ * Most racers a single heat can hold. The grid layouts (terminal animation,
+ * parallel browser windows, side-by-side video) and the racer colour palettes
+ * are all sized for this many contenders.
+ */
+export const MAX_RACERS = 4;
+
 const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'height', 'gemini-spec', 'skin']);
 const BOOLEAN_VALUE_FLAGS = new Set([
   'parallel', 'headless', 'overlay', 'recording',
@@ -137,9 +144,9 @@ export function discoverRacers(raceDir) {
   }
 
   const totalFound = racerFiles.length;
-  const dropped = racerFiles.length > 5 ? racerFiles.slice(5) : [];
-  if (racerFiles.length > 5) {
-    racerFiles = racerFiles.slice(0, 5);
+  const dropped = racerFiles.length > MAX_RACERS ? racerFiles.slice(MAX_RACERS) : [];
+  if (racerFiles.length > MAX_RACERS) {
+    racerFiles = racerFiles.slice(0, MAX_RACERS);
   }
 
   const racerNames = racerFiles.map(f => f.replace(/\.spec\.js$/, '').replace(/\.js$/, ''));
@@ -156,7 +163,7 @@ export function discoverRacers(raceDir) {
  * Shared-spec mode uses one race.spec.js script and settings-defined racers.
  *
  * Rules:
- * - settings.racers must be an object with 2..5 keys
+ * - settings.racers must be an object with 2..MAX_RACERS keys
  * - racer names must be non-empty strings
  * - racer order follows declaration order in settings.racers
  *
@@ -174,8 +181,8 @@ export function resolveSharedRacerNames(settings) {
   if (names.length < 2) {
     throw new InvalidSettingError(`shared-spec mode requires at least 2 racers in settings.racers, found ${names.length}`);
   }
-  if (names.length > 5) {
-    throw new InvalidSettingError(`shared-spec mode supports up to 5 racers, found ${names.length}`);
+  if (names.length > MAX_RACERS) {
+    throw new InvalidSettingError(`shared-spec mode supports up to ${MAX_RACERS} racers, found ${names.length}`);
   }
   const emptyName = names.find(name => typeof name !== 'string' || name.trim() === '');
   if (emptyName !== undefined) {
