@@ -10,10 +10,9 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
-import http from 'node:http';
 import path from 'node:path';
 import { buildPlayerHtml } from '../cli/videoplayer.js';
-import { hasChromiumInstalled } from './test-helpers.js';
+import { hasChromiumInstalled, recordSampleVideo, serveDirectory } from './test-helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -47,46 +46,13 @@ let browser, page, server, baseUrl, tmpDir;
 const canRun = hasChromiumInstalled(path.resolve(__dirname, '..'));
 const describeMaybe = canRun ? describe : describe.skip;
 
-/** Record one short webm with Playwright, and copy it in for every racer. */
-async function recordSampleVideos(pw) {
-  const rawDir = path.join(tmpDir, 'raw');
-  const ctx = await browser.newContext({
-    viewport: { width: 320, height: 180 },
-    recordVideo: { dir: rawDir, size: { width: 320, height: 180 } },
-  });
-  const rec = await ctx.newPage();
-  // Repaint constantly, so the file holds real distinct frames.
-  await rec.setContent(
-    '<body style="margin:0;background:#111"><div id=x style="font:700 64px monospace;color:#0f0"></div>' +
-    '<script>let n=0;setInterval(()=>{x.textContent=n++;document.body.style.background="hsl("+(n*9%360)+" 60% 20%)"},33)<\/script></body>'
-  );
-  await rec.waitForTimeout(2200);
-  await ctx.close();
-
-  const recorded = fs.readdirSync(rawDir).find(f => f.endsWith('.webm'));
+/** One recording, copied in for every racer. */
+async function recordRacerVideos() {
+  const recorded = await recordSampleVideo(browser, path.join(tmpDir, 'raw'));
   for (const vf of videoFiles) {
     fs.mkdirSync(path.join(tmpDir, path.dirname(vf)), { recursive: true });
-    fs.copyFileSync(path.join(rawDir, recorded), path.join(tmpDir, vf));
+    fs.copyFileSync(recorded, path.join(tmpDir, vf));
   }
-  return pw;
-}
-
-/** Serve tmpDir, with the media types Chromium needs to decode the recording. */
-function startServer() {
-  const types = { '.html': 'text/html', '.webm': 'video/webm' };
-  server = http.createServer((req, res) => {
-    const rel = req.url === '/' ? 'index.html' : decodeURIComponent(req.url.split('?')[0]);
-    const file = path.join(tmpDir, rel);
-    if (!file.startsWith(tmpDir) || !fs.existsSync(file)) { res.writeHead(404); return res.end(); }
-    const body = fs.readFileSync(file);
-    res.writeHead(200, {
-      'Content-Type': types[path.extname(file)] || 'application/octet-stream',
-      'Content-Length': body.length,
-      'Accept-Ranges': 'bytes',
-    });
-    res.end(body);
-  });
-  return new Promise(resolve => server.listen(0, () => resolve(`http://localhost:${server.address().port}/`)));
 }
 
 /**
@@ -126,7 +92,7 @@ describeMaybe('clip playback', () => {
     fs.mkdirSync(tmpDir, { recursive: true });
     const pw = await import('playwright');
     browser = await pw.chromium.launch({ headless: true });
-    await recordSampleVideos(pw);
+    await recordRacerVideos();
     fs.writeFileSync(
       path.join(tmpDir, 'index.html'),
       buildPlayerHtml(
@@ -137,7 +103,7 @@ describeMaybe('clip playback', () => {
         videoFiles, null, null, { clipTimes }
       )
     );
-    baseUrl = await startServer();
+    ({ server, url: baseUrl } = await serveDirectory(tmpDir));
     page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     await page.goto(baseUrl);
     await page.waitForFunction(

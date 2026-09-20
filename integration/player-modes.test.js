@@ -11,10 +11,9 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
-import http from 'node:http';
 import path from 'node:path';
 import { buildPlayerHtml } from '../cli/videoplayer.js';
-import { hasChromiumInstalled } from './test-helpers.js';
+import { hasChromiumInstalled, recordSampleVideo, serveDirectory, readZipEntries } from './test-helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -43,56 +42,13 @@ let browser, context, page, server, baseUrl, tmpDir;
 const canRun = hasChromiumInstalled(path.resolve(__dirname, '..'));
 const describeMaybe = canRun ? describe : describe.skip;
 
-async function recordSampleVideos() {
-  const rawDir = path.join(tmpDir, 'raw');
-  const ctx = await browser.newContext({
-    viewport: { width: 320, height: 180 },
-    recordVideo: { dir: rawDir, size: { width: 320, height: 180 } },
-  });
-  const rec = await ctx.newPage();
-  await rec.setContent(
-    '<body style="margin:0;background:#111"><div id=x style="font:700 64px monospace;color:#0f0"></div>' +
-    '<script>let n=0;setInterval(()=>{x.textContent=n++},33)<\/script></body>'
-  );
-  await rec.waitForTimeout(2200);
-  await ctx.close();
-  const recorded = fs.readdirSync(rawDir).find(f => f.endsWith('.webm'));
+/** One recording, copied in for every racer. */
+async function recordRacerVideos() {
+  const recorded = await recordSampleVideo(browser, path.join(tmpDir, 'raw'));
   for (const vf of videoFiles) {
     fs.mkdirSync(path.join(tmpDir, path.dirname(vf)), { recursive: true });
-    fs.copyFileSync(path.join(rawDir, recorded), path.join(tmpDir, vf));
+    fs.copyFileSync(recorded, path.join(tmpDir, vf));
   }
-}
-
-function startServer() {
-  const types = { '.html': 'text/html', '.webm': 'video/webm' };
-  server = http.createServer((req, res) => {
-    const rel = req.url === '/' ? 'index.html' : decodeURIComponent(req.url.split('?')[0]);
-    const file = path.join(tmpDir, rel);
-    if (!file.startsWith(tmpDir) || !fs.existsSync(file)) { res.writeHead(404); return res.end(); }
-    const body = fs.readFileSync(file);
-    res.writeHead(200, {
-      'Content-Type': types[path.extname(file)] || 'application/octet-stream',
-      'Content-Length': body.length,
-      'Accept-Ranges': 'bytes',
-    });
-    res.end(body);
-  });
-  return new Promise(resolve => server.listen(0, () => resolve(`http://localhost:${server.address().port}/`)));
-}
-
-/** Read one stored (uncompressed) entry out of the export ZIP. */
-function readZipEntry(buf, wanted) {
-  let pos = 0;
-  while (pos + 30 <= buf.length && buf.readUInt32LE(pos) === 0x04034b50) {
-    const fnLen = buf.readUInt16LE(pos + 26);
-    const extraLen = buf.readUInt16LE(pos + 28);
-    const size = buf.readUInt32LE(pos + 18);
-    const name = buf.subarray(pos + 30, pos + 30 + fnLen).toString('utf8');
-    const dataStart = pos + 30 + fnLen + extraLen;
-    if (name === wanted) return buf.subarray(dataStart, dataStart + size);
-    pos = dataStart + size;
-  }
-  throw new Error(`${wanted} not found in export ZIP`);
 }
 
 const summary = () => ({
@@ -134,7 +90,7 @@ describeMaybe('player modes', () => {
     const pw = await import('playwright');
     browser = await pw.chromium.launch({ headless: true });
     context = await browser.newContext({ acceptDownloads: true, viewport: { width: 1280, height: 900 } });
-    await recordSampleVideos();
+    await recordRacerVideos();
     fs.writeFileSync(
       path.join(tmpDir, 'index.html'),
       buildPlayerHtml(summary(), videoFiles, null, null, {
@@ -142,7 +98,7 @@ describeMaybe('player modes', () => {
         mergedVideoFile: videoFiles[0],
       })
     );
-    baseUrl = await startServer();
+    ({ server, url: baseUrl } = await serveDirectory(tmpDir));
     page = await openPlayer(baseUrl);
   }, 90000);
 
@@ -209,7 +165,7 @@ describeMaybe('player modes', () => {
       page.waitForEvent('download', { timeout: 30000 }),
       link.click(),
     ]);
-    const html = readZipEntry(fs.readFileSync(await download.path()), 'index.html').toString('utf8');
+    const html = readZipEntries(fs.readFileSync(await download.path())).find(e => e.name === 'index.html').data.toString('utf8');
 
     const config = JSON.parse(html.match(/<script id="race-config" type="application\/json">(.*?)<\/script>/s)[1]);
     for (const ct of config.clipTimes) {
