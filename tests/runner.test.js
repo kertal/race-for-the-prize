@@ -7,18 +7,36 @@ const { SyncBarrier } = require('../sync-barrier.cjs');
 
 describe('attachSharedError', () => {
   const clean = [{ id: 'a', measurements: [{ name: 'Load' }], error: null }, { id: 'b', measurements: [], error: null }];
+  const checkpointTimeout = {
+    hasError: true,
+    checkpointTimedOut: true,
+    errorMessage: 'Synchronization checkpoint "a startRecording" timed out after 500ms',
+  };
 
   it('marks every racer with a checkpoint timeout nobody else reported', () => {
     // A timed-out barrier only flags sharedState; without this the race
     // would exit 0 with two racers that never synchronised.
-    const out = attachSharedError(clean, { hasError: true, errorMessage: 'Synchronization checkpoint "a startRecording" timed out after 500ms' });
+    const out = attachSharedError(clean, checkpointTimeout);
     expect(out.map(r => r.error)).toEqual([expect.stringContaining('timed out'), expect.stringContaining('timed out')]);
     expect(out[0].measurements).toEqual([{ name: 'Load' }]);
   });
 
-  it('leaves the results alone when a racer already explains the shared error', () => {
+  it('leaves the others alone when the shared error is one racer\'s own failure', () => {
+    // sharedState carries that racer's message; the rest did nothing wrong.
     const failed = [{ id: 'a', error: 'Script execution failed: boom' }, { id: 'b', error: null }];
-    expect(attachSharedError(failed, { hasError: true, errorMessage: 'boom' })).toBe(failed);
+    expect(attachSharedError(failed, { hasError: true, errorMessage: 'Script execution failed: boom' })).toBe(failed);
+  });
+
+  it('still names the checkpoint for racers beside an abandoned one', () => {
+    // An abandoned racer is a symptom of the same checkpoint failure, not an
+    // explanation for it, so it must not mask the cause for the others.
+    const mixed = [
+      { id: 'a', error: null },
+      { id: 'b', error: 'still running 30000ms after the race failed; abandoned (b never finished)' },
+    ];
+    const out = attachSharedError(mixed, checkpointTimeout);
+    expect(out[0].error).toContain('timed out');
+    expect(out[1].error).toContain('abandoned');
   });
 
   it('is a no-op without a shared error', () => {
@@ -137,6 +155,30 @@ describe('selectRaceTiming', () => {
     const partial = { ...calibrated, recordingSegments: twoTraceSegments };
     expect(selectRaceTiming(partial, twoMarkerSegments, markerMeasurements))
       .toEqual({ recordingSegments: twoMarkerSegments, measurements: markerMeasurements, usedTraceSegments: false });
+  });
+
+  it('falls back to the markers when the trace names different measurements', () => {
+    // Counting alone would accept a trace that paired the same name twice
+    // while losing another entirely.
+    const twoMarkers = [markerMeasurements[0], { name: 'Render', startTime: 3.5, endTime: 4.0, duration: 0.5 }];
+    const repeated = { ...calibrated, measurements: [traceMeasurements[0], { ...traceMeasurements[0] }] };
+    expect(selectRaceTiming(repeated, markerSegments, twoMarkers).usedTraceSegments).toBe(false);
+  });
+
+  it('accepts a trace whose measurements finished in a different order', () => {
+    // A measurement that finishes inside another is ordered by its end in the
+    // race API's list and by its start in the trace's, so names are compared
+    // as a multiset.
+    const nestedMarkers = [
+      { name: 'Inner', startTime: 1.7, endTime: 2.0, duration: 0.3 },
+      { name: 'Outer', startTime: 1.6, endTime: 3.4, duration: 1.8 },
+    ];
+    const nestedTrace = [
+      { name: 'Outer', startTime: 0.1, endTime: 1.9, startTraceTs: 1_600_000, endTraceTs: 3_400_000 },
+      { name: 'Inner', startTime: 0.2, endTime: 0.5, startTraceTs: 1_700_000, endTraceTs: 2_000_000 },
+    ];
+    const nested = { ...calibrated, measurements: nestedTrace };
+    expect(selectRaceTiming(nested, markerSegments, nestedMarkers).measurements).toBe(nestedTrace);
   });
 
   it('still takes the trace for a race that measures nothing', () => {

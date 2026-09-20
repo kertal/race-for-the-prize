@@ -159,6 +159,7 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
 
     // Lets go of the stdio pipes a background descendant inherited, so they
     // cannot keep this process alive once the script itself is done with.
+    // Safe to repeat: unref on an already-unref'd or closed stream is a no-op.
     const releasePipes = () => { child.stdout.unref(); child.stderr.unref(); };
 
     const timeoutId = setTimeout(() => {
@@ -166,7 +167,6 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
       if (exited) {
         // The script is long gone: only something it left behind, still
         // holding its output pipes, is keeping us here. Nothing to kill.
-        releasePipes();
         onExit(child.exitCode, child.signalCode);
         return;
       }
@@ -176,7 +176,6 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
       // this promise pending for good.
       sigkillTimeoutId = setTimeout(() => {
         if (!exited) child.kill('SIGKILL');
-        releasePipes();
         onExit(child.exitCode, child.signalCode);
       }, SIGKILL_GRACE_MS);
     }, timeout);
@@ -194,10 +193,7 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
     child.on('exit', (code, signal) => {
       exited = true;
       if (!settleOnExit && !timedOut) return;
-      drainTimeoutId = setTimeout(() => {
-        releasePipes();
-        onExit(code, signal);
-      }, PIPE_DRAIN_GRACE_MS);
+      drainTimeoutId = setTimeout(() => onExit(code, signal), PIPE_DRAIN_GRACE_MS);
     });
     child.on('close', (code, signal) => {
       clearTimeout(drainTimeoutId);
@@ -209,8 +205,11 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
       if (sigkillTimeoutId) clearTimeout(sigkillTimeoutId);
       if (settled) return;
       settled = true;
-      // Whatever still holds these pipes is no longer this script's business.
+      // Whatever still holds these pipes is no longer this script's business:
+      // stop buffering it, and stop letting it keep the CLI alive. Every
+      // settlement path comes through here, so the release cannot be missed.
       stderr.close();
+      releasePipes();
 
       if (timedOut) {
         progress.done(`${label} timed out after ${timeout}ms`);
@@ -310,6 +309,7 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
       if (settled) return;
       settled = true;
       stderr.close();
+      releasePipes();
       progress.done(`${label} error: ${err.message}`);
       reject(err);
     });

@@ -137,6 +137,14 @@ function compileScript(source) {
   return new AsyncFunction(...SCRIPT_PARAMS, sanitizeScript(source)); // NOSONAR
 }
 
+/** True when two measurement lists name the same measurements, ignoring order. */
+function sameMeasurementNames(a, b) {
+  if (a.length !== b.length) return false;
+  const left = a.map(m => m.name).sort();
+  const right = b.map(m => m.name).sort();
+  return left.every((name, i) => name === right[i]);
+}
+
 /**
  * Pick the timing the results are built from. The Playwright trace is the
  * preferred source (its marks sit on the page's own clock and calibrate to the
@@ -173,10 +181,13 @@ function selectRaceTiming(traceTiming, markerSegments, markerMeasurements) {
   const ptsSegments = traceTiming?.ptsSegments || [];
   const calibratable = ptsSegments.length > 0 && ptsSegments.length === traceSegments.length;
   const segmentsComplete = traceSegments.length > 0 && traceSegments.length === markerSegments.length;
-  // Nothing the race API recorded went missing from the trace. Equality (not
-  // `> 0`) so a race that measures nothing — b-roll, a bare recording
-  // start/end pair — still counts as complete rather than losing its trace.
-  const measurementsComplete = traceMeasurements.length === markerMeasurements.length;
+  // Nothing the race API recorded went missing from the trace: the same
+  // measurements by name, not merely as many. (A race that measures nothing —
+  // b-roll, a bare recording start/end pair — matches on two empty lists and
+  // keeps its trace.) Compared as a multiset, since a measurement that
+  // finishes inside another is ordered by its end in the race API's list and
+  // by its start in the trace's.
+  const measurementsComplete = sameMeasurementNames(traceMeasurements, markerMeasurements);
   const usedTraceSegments = calibratable && segmentsComplete && measurementsComplete;
   return {
     recordingSegments: usedTraceSegments ? traceSegments : markerSegments,
@@ -708,18 +719,24 @@ function settleRacers(promises, ids, sharedState, { graceMs = ABANDON_GRACE_MS, 
  * Make a checkpoint failure visible in the results. A barrier that times out
  * only hands its waiters `{ aborted: true }` and flags sharedState; the racers
  * then run on and can finish with no error of their own, so the race would
- * pass (exit 0) even though they never synchronised. When the shared error is
- * not already explained by a racer's own failure, every racer carries it —
- * with the measurements it did collect kept alongside.
+ * pass (exit 0) even though they never synchronised. Every racer without a
+ * failure of its own therefore carries it — with the measurements it did
+ * collect kept alongside.
+ *
+ * Only a checkpoint timeout spreads this way. When the shared error is one
+ * racer's own script failure, the others did nothing wrong and are left as
+ * they are. A racer abandoned for hanging keeps its own reason too, but is no
+ * longer taken as an explanation for the rest: it is a symptom of the same
+ * checkpoint failure, not its cause.
  *
  * @param {BrowserResult[]} results
- * @param {{hasError: boolean, errorMessage: string|null}} sharedState
+ * @param {{hasError: boolean, checkpointTimedOut?: boolean, errorMessage: string|null}} sharedState
  * @returns {BrowserResult[]}
  */
 function attachSharedError(results, sharedState) {
-  if (!sharedState?.hasError || !sharedState.errorMessage) return results;
-  if (results.some(r => r.error)) return results;
-  return results.map(r => ({ ...r, error: sharedState.errorMessage }));
+  if (!sharedState?.checkpointTimedOut || !sharedState.errorMessage) return results;
+  if (results.every(r => r.error)) return results;
+  return results.map(r => (r.error ? r : { ...r, error: sharedState.errorMessage }));
 }
 
 async function runSequential(browserConfigs, opts = {}) {

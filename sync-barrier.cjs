@@ -107,6 +107,10 @@ class SyncBarrier {
             // Signal the error so the other waiters and browser scripts unwind
             // instead of blocking indefinitely at their own checkpoints.
             this.sharedState.hasError = true;
+            // Distinct from a racer's own failure: a checkpoint that never
+            // filled is nobody's fault in particular, so the runner reports it
+            // against every racer that has no failure of its own.
+            this.sharedState.checkpointTimedOut = true;
             this.sharedState.errorMessage = this.sharedState.errorMessage
               || `Synchronization checkpoint${label ? ` "${label}"` : ''} timed out after ${this.timeoutMs}ms — racers are likely out of sync (mismatched recording segments?)`;
           }
