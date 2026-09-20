@@ -48,7 +48,9 @@ export function applySettingsOrExit(base, boolFlags, kvFlags, raceDir = null) {
  * @param {object} options.kvFlags - parsed CLI key=value flags
  * @param {string} options.rootDir - repo root (where runner.cjs lives)
  * @param {function} options.buildContext - buildRaceContext from race.js
- * @returns {{ ctx: object, settings: object, racerNames: string[] }}
+ * @returns {{ ctx: object, settings: object, racerNames: string[], fileSettings: object }}
+ *   `fileSettings` is the raw settings.json (`{}` when the file is absent), kept
+ *   so the race record can say which values came from the file.
  */
 export function loadRaceDir(raceDir, { boolFlags, kvFlags, rootDir, buildContext }) {
   if (!fs.existsSync(raceDir)) {
@@ -56,18 +58,18 @@ export function loadRaceDir(raceDir, { boolFlags, kvFlags, rootDir, buildContext
     process.exit(1);
   }
 
-  let settings = {};
+  let fileSettings = {};
   const settingsPath = path.join(raceDir, 'settings.json');
   if (fs.existsSync(settingsPath)) {
     try {
-      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      fileSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
     } catch (e) {
       console.error(`${c.red}Error: Could not parse settings.json: ${e.message}${c.reset}`);
       console.error(`${c.dim}  File: ${settingsPath}${c.reset}`);
       process.exit(1);
     }
   }
-  settings = applySettingsOrExit(settings, boolFlags, kvFlags, raceDir);
+  const settings = applySettingsOrExit(fileSettings, boolFlags, kvFlags, raceDir);
 
   const allFiles = fs.readdirSync(raceDir).filter(f => !f.startsWith('.'));
   const specFiles = allFiles.filter(f => f.endsWith('.spec.js')).sort();
@@ -194,5 +196,5 @@ export function loadRaceDir(raceDir, { boolFlags, kvFlags, rootDir, buildContext
   const scripts = scriptFiles.map(f => fs.readFileSync(path.join(raceDir, f), 'utf-8'));
 
   const ctx = buildContext({ racerNames, scripts, settings, rootDir, raceDir, racerFiles: effectiveRacerFiles });
-  return { ctx, settings, racerNames };
+  return { ctx, settings, racerNames, fileSettings };
 }

@@ -10,11 +10,17 @@
  */
 
 import path from 'path';
+import { createRequire } from 'module';
 import { c } from './colors.js';
 import { listSkins } from './skins.js';
 
-/** npm package name — the published bin has the same name. */
-export const PKG_NAME = 'race-for-the-prize';
+/** The command name the package installs (`bin` in package.json). */
+export const CLI_NAME = 'race-for-the-prize';
+
+/** The published version, straight from package.json, for `--version`. */
+export function packageVersion() {
+  return createRequire(import.meta.url)('../package.json').version;
+}
 
 /**
  * Work out how this process was started, and therefore how its help should
@@ -32,11 +38,11 @@ export function resolveInvocation(argv1 = process.argv[1]) {
 
   // `npx race-for-the-prize` stages the package in a cache dir; the shim is
   // gone once the command finishes, so npx is the only way to run it again.
-  if (posix.includes('/_npx/')) return `npx ${PKG_NAME}`;
+  if (posix.includes('/_npx/')) return `npx ${CLI_NAME}`;
   // A project dependency: reachable through npx (or package.json scripts).
-  if (posix.includes('/node_modules/')) return `npx ${PKG_NAME}`;
+  if (posix.includes('/node_modules/')) return `npx ${CLI_NAME}`;
   // A global install puts the bin on PATH under its own name.
-  if (base === PKG_NAME) return PKG_NAME;
+  if (base === CLI_NAME) return CLI_NAME;
 
   return local;
 }
@@ -70,14 +76,14 @@ ${rule}
 
 ${c.bold}  Install:${c.reset}
 ${rule}
-  ${c.bold}$${c.reset} ${c.cyan}npx ${PKG_NAME}@latest${c.reset} ${c.cyan}https://react.dev https://angular.dev${c.reset}
+  ${c.bold}$${c.reset} ${c.cyan}npx ${CLI_NAME}@latest${c.reset} ${c.cyan}https://react.dev https://angular.dev${c.reset}
     ${c.dim}One-off run — nothing to install, nothing left behind.${c.reset}
 
-  ${c.bold}$${c.reset} ${c.cyan}npm install -g ${PKG_NAME}${c.reset}
-    ${c.dim}Then race from anywhere:  ${PKG_NAME} <dir>${c.reset}
+  ${c.bold}$${c.reset} ${c.cyan}npm install -g ${CLI_NAME}${c.reset}
+    ${c.dim}Then race from anywhere:  ${CLI_NAME} <dir>${c.reset}
 
-  ${c.bold}$${c.reset} ${c.cyan}npm install -D ${PKG_NAME}${c.reset}
-    ${c.dim}Keep races in your repo:  npx ${PKG_NAME} <dir>${c.reset}
+  ${c.bold}$${c.reset} ${c.cyan}npm install -D ${CLI_NAME}${c.reset}
+    ${c.dim}Keep races in your repo:  npx ${CLI_NAME} <dir>${c.reset}
 
   ${c.dim}Installing downloads Chromium. If it is missing, fetch it with:${c.reset}
   ${c.bold}$${c.reset} ${c.cyan}npx playwright install chromium${c.reset}
@@ -166,5 +172,6 @@ ${rule}
 
 ${c.dim}  All flags except --results work with both URL mode and directory mode.${c.reset}
 ${c.dim}  Try a demo:  ${run} demo:lauda-vs-hunt${c.reset}
+${c.dim}  Version:     ${run} --version   (v${packageVersion()})${c.reset}
 `;
 }

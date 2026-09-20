@@ -249,10 +249,11 @@ describe('design tokens', () => {
   });
 
   it('declares no palette token that nothing consumes', () => {
+    const themedCss = css + listSkins().map(name => resolveSkin(name).css).join('\n');
     const declared = [...rootBlock.matchAll(/^\s*(--color-[a-z0-9-]+):/gm)].map(m => m[1]);
     expect(declared.length).toBeGreaterThan(0);
     const orphans = declared.filter(token => {
-      const uses = css.match(new RegExp(`var\\(\\s*${token}\\b`, 'g'));
+      const uses = themedCss.match(new RegExp(`var\\(\\s*${token}\\b`, 'g'));
       return !uses;
     });
     expect(orphans).toEqual([]);

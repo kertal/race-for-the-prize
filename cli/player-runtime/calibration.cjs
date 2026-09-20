@@ -87,6 +87,30 @@ function frameReadout(currentTime, clipEntry, frameStep = FRAME_STEP) {
   return { frame, clipFrame: frame - clipStart, clipTotal: clipEnd - clipStart, clipStart, clipEnd };
 }
 
+// Which media time the frame readouts should name for one video.
+//
+// requestVideoFrameCallback hands us the mediaTime of the frame the compositor
+// actually painted, so while a video is running that value is never stale — it
+// is refreshed on every paint. currentTime, by contrast, is the media clock and
+// sits somewhere between the last painted frame and the next one. Preferring
+// whichever was closer made the readout flip back and forth between two frame
+// numbers on any recording whose frame step is not exactly FRAME_STEP, which
+// reads as flicker.
+//
+// Paused is the other way round: nothing is painting, so a seek moves
+// currentTime while the presented frame stays behind until the new one lands.
+// There the answer is whichever frame the two times name — comparing frame
+// numbers rather than a distance in seconds, because one frame step lands
+// exactly on a seconds tolerance and floating point decides it either way.
+function displayedFrameTime(presented, video, frameStep = FRAME_STEP) {
+  const currentTime = video?.currentTime;
+  if (presented == null) return currentTime;
+  if (!Number.isFinite(currentTime)) return presented;
+  if (!video.paused && !video.seeking) return presented;
+  const samePicture = timeToFrame(presented, frameStep) === timeToFrame(currentTime, frameStep);
+  return samePicture ? presented : currentTime;
+}
+
 // Pure core of getSegmentClipTimes(name): maps each clip entry to the PTS
 // window of the named measurement segment, or null when it cannot be derived.
 function computeSegmentClipTimes(entries, name) {
@@ -214,6 +238,7 @@ if (typeof module !== 'undefined' && module.exports) {
     isValidClipEntry,
     timeToFrame,
     frameReadout,
+    displayedFrameTime,
     hasTraceCalibration,
     canApplyTraceCalibration,
     durationHoldsClip,

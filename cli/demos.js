@@ -10,7 +10,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { PKG_NAME } from './help.js';
+import { CLI_NAME } from './help.js';
 
 /** Demo races shipped in `races/`, in the order the ReadMe introduces them. */
 export const DEMO_RACES = [
@@ -100,7 +100,7 @@ export function copyDemo(plan) {
  * `cmd` is how the reader's install spells the command (see
  * `resolveInvocation`), so the hint at the bottom is one they can paste.
  */
-export function formatDemoList(colors = {}, cmd = PKG_NAME) {
+export function formatDemoList(colors = {}, cmd = CLI_NAME) {
   const { bold = '', cyan = '', dim = '', reset = '' } = colors;
   const width = Math.max(...DEMO_RACES.map(d => d.name.length));
   const lines = DEMO_RACES.map(
