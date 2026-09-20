@@ -263,6 +263,20 @@ describe('buildMarkdownSummary', () => {
     expect(md).toContain('```');
   });
 
+  it('lists the video files when there are any', () => {
+    const md = buildMarkdownSummary(makeSummary(), 'lauda-vs-hunt.webm');
+    expect(md).toContain('### Files');
+    expect(md).toContain('- **lauda**: [lauda.race.webm]');
+    expect(md).toContain('- **side-by-side**: [lauda-vs-hunt.webm]');
+  });
+
+  it('omits the Files section when there is nothing to link', () => {
+    // A median summary has no videos of its own, and a --recording=0 race
+    // has none at all: an empty "### Files" heading is just noise.
+    expect(buildMarkdownSummary(makeSummary({ videos: {} }), null)).not.toContain('### Files');
+    expect(buildMarkdownSummary(makeSummary({ videos: { lauda: null, hunt: null } }), null)).not.toContain('### Files');
+  });
+
   it('includes winner announcement', () => {
     const md = buildMarkdownSummary(makeSummary());
     expect(md).toContain('## Winner: lauda (1 - 0)');

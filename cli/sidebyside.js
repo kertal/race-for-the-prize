@@ -94,8 +94,11 @@ export function createSideBySide(videoPaths, outputPath, format = 'webm', slowmo
     progress.done(`Side-by-side: ${path.basename(outputPath)}`);
     return outputPath;
   } catch (e) {
+    // ffmpeg's stderr ends with a newline, so trim before taking the last line
+    // or the reason shown to the user is an empty string.
     const stderr = e.stderr?.toString() || e.message;
-    progress.fail(`Side-by-side skipped: ${stderr.split('\n').pop()}`);
+    const lastLine = stderr.trim().split('\n').pop();
+    progress.fail(`Side-by-side skipped: ${lastLine || e.message}`);
     return null;
   }
 }

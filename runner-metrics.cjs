@@ -185,8 +185,10 @@ async function setupMetricsCollection(page, id) {
      * Returns both total session metrics and measurement-scoped metrics.
      */
     async collect() {
-      // A script that threw between raceStart and raceEnd leaves a window open;
-      // close it here so the measured scope still covers what did run.
+      // A script that returned between raceStart and raceEnd (an unmatched
+      // raceStart) leaves a window open; close it here so the measured scope
+      // still covers what did run. (A script that threw never gets here: the
+      // runner only detaches the collector on the failure path.)
       closeMeasurementWindow();
       await Promise.all([
         ...[...sectionMeasurements.values()].map(s => s.endCdpPromise).filter(Boolean),
