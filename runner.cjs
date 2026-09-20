@@ -626,10 +626,28 @@ async function runParallel(browserConfigs, opts = {}) {
 
   const results = await Promise.allSettled(promises);
 
-  return results.map((r, i) => {
+  return attachSharedError(results.map((r, i) => {
     if (r.status === 'fulfilled') return r.value;
     return { id: browserConfigs[i].id, error: r.reason?.message || 'Unknown error' };
-  });
+  }), sharedState);
+}
+
+/**
+ * Make a checkpoint failure visible in the results. A barrier that times out
+ * only hands its waiters `{ aborted: true }` and flags sharedState; the racers
+ * then run on and can finish with no error of their own, so the race would
+ * pass (exit 0) even though they never synchronised. When the shared error is
+ * not already explained by a racer's own failure, every racer carries it —
+ * with the measurements it did collect kept alongside.
+ *
+ * @param {BrowserResult[]} results
+ * @param {{hasError: boolean, errorMessage: string|null}} sharedState
+ * @returns {BrowserResult[]}
+ */
+function attachSharedError(results, sharedState) {
+  if (!sharedState?.hasError || !sharedState.errorMessage) return results;
+  if (results.some(r => r.error)) return results;
+  return results.map(r => ({ ...r, error: sharedState.errorMessage }));
 }
 
 async function runSequential(browserConfigs, opts = {}) {
@@ -760,4 +778,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { RESULT_SENTINEL, setupMetricsCollection, runMarkerMode, selectRaceTiming };  // RESULT_SENTINEL/setupMetricsCollection re-exported for back-compat with existing imports.
+module.exports = { RESULT_SENTINEL, setupMetricsCollection, runMarkerMode, selectRaceTiming, attachSharedError };  // RESULT_SENTINEL/setupMetricsCollection re-exported for back-compat with existing imports.

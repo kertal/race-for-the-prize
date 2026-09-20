@@ -2,8 +2,44 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { setupMetricsCollection, runMarkerMode, selectRaceTiming } = require('../runner.cjs');
+const { setupMetricsCollection, runMarkerMode, selectRaceTiming, attachSharedError } = require('../runner.cjs');
 const { SyncBarrier } = require('../sync-barrier.cjs');
+
+describe('attachSharedError', () => {
+  const clean = [{ id: 'a', measurements: [{ name: 'Load' }], error: null }, { id: 'b', measurements: [], error: null }];
+
+  it('marks every racer with a checkpoint timeout nobody else reported', () => {
+    // A timed-out barrier only flags sharedState; without this the race
+    // would exit 0 with two racers that never synchronised.
+    const out = attachSharedError(clean, { hasError: true, errorMessage: 'Synchronization checkpoint "a startRecording" timed out after 500ms' });
+    expect(out.map(r => r.error)).toEqual([expect.stringContaining('timed out'), expect.stringContaining('timed out')]);
+    expect(out[0].measurements).toEqual([{ name: 'Load' }]);
+  });
+
+  it('leaves the results alone when a racer already explains the shared error', () => {
+    const failed = [{ id: 'a', error: 'Script execution failed: boom' }, { id: 'b', error: null }];
+    expect(attachSharedError(failed, { hasError: true, errorMessage: 'boom' })).toBe(failed);
+  });
+
+  it('is a no-op without a shared error', () => {
+    expect(attachSharedError(clean, { hasError: false, errorMessage: null })).toBe(clean);
+  });
+
+  it('turns a real checkpoint timeout into a failed race', async () => {
+    const sharedState = { hasError: false, errorMessage: null };
+    const opts = { timeoutMs: 300 };
+    // Three-way barriers with only two racers: the checkpoint can never fill.
+    const barriers = {
+      ready: new SyncBarrier(3, sharedState, opts),
+      recordingStart: new SyncBarrier(3, sharedState, opts),
+      stop: new SyncBarrier(3, sharedState, opts),
+    };
+    const run = (id) => runMarkerMode(makeBarePage(), { id, script: "await page.raceStart('Load');\npage.raceEnd('Load');" },
+      { barriers, isParallel: true, noOverlay: true, noRecording: true });
+    const results = attachSharedError(await Promise.all([run('a'), run('b')]), sharedState);
+    expect(results.every(r => /timed out/.test(r.error))).toBe(true);
+  });
+});
 
 describe('cosmetic failures', () => {
   it('keeps the measurements when an overlay update throws mid-race', async () => {
