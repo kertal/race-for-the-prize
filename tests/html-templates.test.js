@@ -140,7 +140,11 @@ describe('markup stays out of the JavaScript', () => {
   // Three doc lines still named an INDEX_CSS constant after the stylesheet it
   // held moved into a .css file. These two guards make that drift fail the
   // build rather than mislead the next reader.
-  const DOC_SOURCES = ['CLAUDE.md', 'ReadMe.md', 'docs/skinning.md', 'cli/skins.js', 'cli/html-templates.js'];
+  const DOC_SOURCES = [
+    'CLAUDE.md', 'ReadMe.md', 'cli/skins.js', 'cli/html-templates.js',
+    'docs/skinning.md', 'docs/demos.md', 'docs/writing-races.md', 'docs/use-cases.md',
+    'docs/cli.md', 'docs/results.md', 'docs/development.md',
+  ];
   const REPO_ROOT = path.join(CLI_DIR, '..');
   const docText = (rel) => fs.readFileSync(path.join(REPO_ROOT, rel), 'utf-8');
 

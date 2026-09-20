@@ -1,0 +1,324 @@
+/* ===========================================================================
+   RaceForThePrize — landing page (GitHub Pages)
+   ---------------------------------------------------------------------------
+   Same livery as a generated race report: black track, white type, monospace
+   UI face, and a chequered flag band at both ends of the page.
+
+   The token block below mirrors the matching declarations in `cli/tokens.css`.
+   The site is plain static HTML served straight from `docs/`, so it cannot
+   inline that file the way the reports do — instead `tests/site.test.js`
+   fails the build if a value here drifts from the one the reports use.
+   =========================================================================== */
+
+:root {
+  color-scheme: dark;
+
+  /* --- Palette (mirrors cli/tokens.css) --------------------------------- */
+  --color-gold: #d4af37;
+  --color-ink-900: #1a1a1a;
+  --color-ink-800: #2a2a2a;
+  --color-ink-700: #3a3a3a;
+  --color-ink-650: #333;
+  --color-ink-600: #444;
+  --color-ink-500: #555;
+  --color-white: #fff;
+  --color-grey-100: #ccc;
+  --color-grey-300: #999;
+  --color-grey-400: #888;
+
+  /* --- Semantic roles --------------------------------------------------- */
+  --bg: var(--color-ink-900);
+  --surface: var(--color-ink-800);
+  --surface-raised: var(--color-ink-700);
+  --text: var(--color-white);
+  --text-muted: var(--color-grey-100);
+  --text-dim: var(--color-grey-300);
+  --text-subtle: var(--color-grey-400);
+  --accent: var(--color-white);
+  --accent-contrast: var(--color-ink-900);
+  --gold: var(--color-gold);
+  --border: var(--color-ink-600);
+  --border-strong: var(--color-ink-500);
+  --border-subtle: var(--color-ink-650);
+
+  /* --- Typography ------------------------------------------------------- */
+  --font-ui: ui-monospace, 'Courier New', monospace;
+  --font-display: Georgia, 'Times New Roman', serif;
+  --font-banner: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --tracking-wide: 0.1em;
+  --tracking-widest: 0.15em;
+  --leading: 1.4;
+  /* Site-only: prose columns want more air than a data-dense report. */
+  --leading-prose: 1.6;
+
+  /* --- Shape & motion --------------------------------------------------- */
+  --radius: 4px;
+  --radius-lg: 8px;
+  --border-width: 1px;
+  --border-width-thick: 2px;
+  --duration: 0.2s;
+  --focus-ring: var(--border-width-thick) solid var(--accent);
+
+  /* --- Layout ----------------------------------------------------------- */
+  --header-min-height: 36px;
+  --content-max: 900px;
+  --gutter: 1.5rem;
+  --band-gap: 2rem;
+
+  /* --- The flag (mirrors cli/tokens.css) -------------------------------- */
+  --checker-size: 20px;
+  --checker-square: 5px;
+  --checker-tile: calc(var(--checker-square) * 2);
+  --checker-wash: rgb(255 255 255 / 18%);
+  --checker-fade: linear-gradient(to right, black, transparent 38%, transparent 62%, black);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  line-height: var(--leading-prose);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Room for the fixed foot band, so the last line never hides under it. */
+  padding-bottom: calc(var(--checker-size) + 1rem);
+}
+
+/* --- Flag bands ----------------------------------------------------------
+   Lifted straight from the results player: a low-alpha chequer wash, masked
+   away across the middle so it reads as texture rather than as a banner. The
+   head carries the strapline, the foot is pure ornament. */
+.race-header,
+.checkered-bar {
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  z-index: 900;
+}
+.race-header::before,
+.checkered-bar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    repeating-conic-gradient(var(--checker-wash) 0% 25%, transparent 0% 50%)
+    0 0 / var(--checker-tile) var(--checker-tile);
+  -webkit-mask-image: var(--checker-fade);
+  mask-image: var(--checker-fade);
+}
+
+.race-header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  min-height: var(--header-min-height);
+  padding: 0.35rem var(--gutter);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  margin-bottom: var(--band-gap);
+}
+.race-header .strapline {
+  color: var(--text-muted);
+  font-family: var(--font-banner);
+  font-size: clamp(0.7rem, 1.2vw, 0.85rem);
+  font-weight: 600;
+  font-style: italic;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-widest);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.race-header a {
+  color: var(--text-subtle);
+  font-size: 0.72rem;
+  text-decoration: none;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.race-header a:hover { color: var(--text); }
+
+.checkered-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  height: var(--checker-size);
+  border-top: var(--border-width) solid var(--border-subtle);
+}
+
+/* --- Page rhythm --------------------------------------------------------- */
+main {
+  width: 100%;
+  max-width: var(--content-max);
+  padding: 0 var(--gutter);
+}
+section { margin-bottom: 3.5rem; }
+section > h2 {
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: normal;
+  letter-spacing: var(--tracking-wide);
+  margin-bottom: 0.4rem;
+}
+section > h2 + .lede { color: var(--text-dim); margin-bottom: 1.4rem; }
+p { margin-bottom: 1rem; }
+a { color: var(--text); }
+
+/* --- Hero ---------------------------------------------------------------- */
+.hero { text-align: center; margin-bottom: 3rem; }
+.hero h1 {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 7vw, 3.4rem);
+  font-weight: normal;
+  line-height: var(--leading);
+  letter-spacing: var(--tracking-wide);
+}
+.hero .tagline {
+  color: var(--text-muted);
+  font-size: clamp(0.9rem, 2.2vw, 1.05rem);
+  max-width: 34rem;
+  margin: 0.8rem auto 1.6rem;
+}
+.hero .flag-line {
+  color: var(--text-subtle);
+  font-size: 0.75rem;
+  letter-spacing: var(--tracking-widest);
+  text-transform: uppercase;
+  margin-bottom: 1.4rem;
+}
+
+/* --- Command block ------------------------------------------------------- */
+.command {
+  display: block;
+  background: var(--surface);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 0.9rem 1.1rem;
+  font-size: 0.95rem;
+  text-align: left;
+  overflow-x: auto;
+  white-space: pre;
+}
+.command .prompt { color: var(--text-subtle); user-select: none; }
+.hero .command { max-width: 32rem; margin: 0 auto 1.6rem; }
+section > .command { margin-bottom: 1.6rem; }
+
+/* --- Buttons ------------------------------------------------------------- */
+.actions { display: flex; flex-wrap: wrap; gap: 0.6rem; justify-content: center; }
+.btn {
+  background: var(--surface);
+  color: var(--text-muted);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 0.5rem 1rem;
+  font-family: var(--font-ui);
+  font-size: 0.82rem;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  text-decoration: none;
+  transition: background var(--duration), border-color var(--duration), color var(--duration);
+}
+.btn:hover { background: var(--surface-raised); border-color: var(--accent); color: var(--text); }
+.btn.primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); font-weight: bold; }
+.btn.primary:hover { background: var(--text-muted); color: var(--accent-contrast); }
+a:focus-visible, .btn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+
+/* --- Replay -------------------------------------------------------------- */
+figure {
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--surface);
+}
+figure img { display: block; width: 100%; height: auto; }
+figcaption {
+  color: var(--text-subtle);
+  font-size: 0.75rem;
+  padding: 0.6rem 0.9rem;
+  border-top: var(--border-width) solid var(--border-subtle);
+}
+
+/* --- Card grids ---------------------------------------------------------- */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.9rem;
+}
+.card {
+  background: var(--surface);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.1rem;
+}
+.card h3 {
+  font-size: 0.82rem;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  margin-bottom: 0.4rem;
+}
+.card p { color: var(--text-dim); font-size: 0.85rem; margin: 0; }
+
+/* Doc cards are links, so they light up like the buttons do. */
+a.card { display: block; text-decoration: none; transition: border-color var(--duration), background var(--duration); }
+a.card:hover { border-color: var(--accent); background: var(--surface-raised); }
+a.card h3::after { content: " →"; color: var(--text-subtle); }
+
+/* --- Grid table (the demo line-up) --------------------------------------- */
+.lineup { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.lineup th, .lineup td {
+  text-align: left;
+  padding: 0.55rem 0.7rem;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  vertical-align: top;
+}
+.lineup th {
+  color: var(--text-subtle);
+  font-size: 0.72rem;
+  font-weight: normal;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+.lineup td:first-child { white-space: nowrap; color: var(--gold); }
+.lineup tr:last-child td { border-bottom: none; }
+
+/* --- Steward's note ------------------------------------------------------ */
+.note {
+  border-left: 3px solid var(--gold);
+  background: var(--surface);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 1rem 1.2rem;
+  color: var(--text-dim);
+  font-size: 0.88rem;
+}
+.note p:last-child { margin-bottom: 0; }
+
+/* --- Footer -------------------------------------------------------------- */
+footer {
+  color: var(--text-subtle);
+  font-size: 0.8rem;
+  text-align: center;
+  padding-bottom: 2rem;
+}
+footer a { color: var(--text-dim); }
+footer a:hover { color: var(--text); }
+
+@media (max-width: 540px) {
+  .race-header a.repo-link { display: none; }
+  section { margin-bottom: 2.5rem; }
+  /* A truncated command is a useless command: wrap rather than scroll. */
+  .command { white-space: pre-wrap; overflow-wrap: anywhere; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
