@@ -24,6 +24,37 @@ export const KNOWN_BOOL_FLAGS = new Set([
 /** Combined set of all valid flag names (bool + kv). */
 export const KNOWN_FLAGS = new Set([...KNOWN_BOOL_FLAGS, ...KV_FLAG_NAMES]);
 
+/**
+ * CLI flag name → the settings key `applyOverrides` writes for it. Flags that
+ * touch no setting (`--results`, `--help`, …) are absent.
+ *
+ * This is what lets a race record say where each effective setting came from
+ * (see `cli/race-config.js`) without re-running the overrides. A unit test
+ * cross-checks every entry against `applyOverrides`, so the two cannot drift.
+ */
+export const FLAG_SETTING_KEYS = {
+  parallel: 'parallel',
+  headless: 'headless',
+  overlay: 'noOverlay',
+  recording: 'noRecording',
+  ffmpeg: 'ffmpeg',
+  har: 'har',
+  wasm: 'noWasm',
+  serve: 'noServe',
+  pause: 'pauseBetweenRuns',
+  'ignore-https-errors': 'ignoreHTTPSErrors',
+  gemini: 'gemini',
+  'cue-markers': 'cueMarkers',
+  'wall-clock': 'wallClock',
+  network: 'network',
+  cpu: 'cpuThrottle',
+  skin: 'skin',
+  format: 'format',
+  runs: 'runs',
+  slowmo: 'slowmo',
+  height: 'viewportHeight',
+};
+
 function isBooleanLikeValue(value) {
   if (typeof value !== 'string') return false;
   const s = value.trim().toLowerCase();

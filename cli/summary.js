@@ -148,19 +148,33 @@ function computeComparison(name, vals, racerNames) {
 }
 
 /**
- * Compute display order from best to worst using average ranking position
- * across all comparisons. Each comparison's `rankings` array gives the full
- * order (fastest to slowest), so this captures 2nd vs 3rd, not just wins.
+ * Compute display order from best to worst — the finishing order.
+ *
+ * Total time across all sections decides it, exactly like the overall winner,
+ * so the racer wearing the trophy always comes first. Average ranking position
+ * across the sections only breaks ties: racers within TOTAL_TIE_EPSILON of each
+ * other, or racers with no usable total (a missing section leaves them out of
+ * the total-based standings, same as for the overall winner). Each comparison's
+ * `rankings` array gives the full per-section order, so that fallback still
+ * captures 2nd vs 3rd rather than just wins.
+ *
  * Returns array of original indices into summary.racers.
  */
 export function getPlacementOrder(summary) {
   const { racers, comparisons } = summary;
   if (!comparisons || comparisons.length === 0) return racers.map((_, i) => i);
 
-  // Exclude the synthetic total row: it is just the sum of the sections, so
-  // counting it here would double-weight the summed winner and skew 2nd-vs-3rd
-  // placement away from the per-section evidence.
+  // Work from the sections, not the synthetic total row: the total is their sum
+  // (recomputed here), and counting it in the average rank would double-weight
+  // the summed winner and skew 2nd-vs-3rd placement.
   const sectionComparisons = getSectionComparisons(comparisons);
+
+  const totals = racers.map((_, i) => {
+    const durs = sectionComparisons.map(comp => comp.racers?.[i]?.duration);
+    if (durs.length === 0 || durs.some(d => d == null)) return null;
+    return durs.reduce((a, b) => a + b, 0);
+  });
+
   const avgRank = racers.map((name) => {
     let totalRank = 0;
     let counted = 0;
@@ -174,8 +188,16 @@ export function getPlacementOrder(summary) {
     return counted > 0 ? totalRank / counted : racers.length;
   });
 
+  const byTotal = (a, b) => {
+    if (totals[a] == null && totals[b] == null) return 0;
+    if (totals[a] == null) return 1;  // no total: finishes behind anyone who has one
+    if (totals[b] == null) return -1;
+    const diff = totals[a] - totals[b];
+    return Math.abs(diff) <= TOTAL_TIE_EPSILON ? 0 : diff;
+  };
+
   const indices = racers.map((_, i) => i);
-  indices.sort((a, b) => (avgRank[a] - avgRank[b]) || (a - b));
+  indices.sort((a, b) => byTotal(a, b) || (avgRank[a] - avgRank[b]) || (a - b));
   return indices;
 }
 

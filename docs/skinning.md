@@ -33,9 +33,9 @@ set — the overview and every per-condition player it links to.
 ## Using a skin
 
 ```bash
-node race.js ./races/lauda-vs-hunt --skin=light      # built-in skin
-node race.js ./races/lauda-vs-hunt --skin=neon       # built-in skin
-node race.js ./races/lauda-vs-hunt --skin=./team.css # your own file
+race-for-the-prize ./races/lauda-vs-hunt --skin=light      # built-in skin
+race-for-the-prize ./races/lauda-vs-hunt --skin=neon       # built-in skin
+race-for-the-prize ./races/lauda-vs-hunt --skin=./team.css # your own file
 ```
 
 or in the race directory's `settings.json`:

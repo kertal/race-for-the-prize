@@ -7,14 +7,14 @@
  * spawns the Playwright runner, collects results, and prints a report.
  *
  * Usage:
- *   node race.js https://a.com https://b.com  Race page load times (URL mode)
- *   node race.js ./races/my-race              Run a scripted race
- *   node race.js ./races/my-race --results    View recent results
- *   node race.js ./races/my-race --parallel   Run both browsers simultaneously
- *   node race.js ./races/my-race --headless   Run headless
- *   node race.js ./races/my-race --network=fast-3g --cpu=4
- *   node race.js ./races/my-race --network=slow-3g,4g --cpu=1,4
- *   node race.js ./races/my-race --har --wasm=0 --serve=0
+ *   race-for-the-prize https://a.com https://b.com  Race page load times (URL mode)
+ *   race-for-the-prize ./races/my-race              Run a scripted race
+ *   race-for-the-prize ./races/my-race --results    View recent results
+ *   race-for-the-prize ./races/my-race --parallel   Run both browsers simultaneously
+ *   race-for-the-prize ./races/my-race --headless   Run headless
+ *   race-for-the-prize ./races/my-race --network=fast-3g --cpu=4
+ *   race-for-the-prize ./races/my-race --network=slow-3g,4g --cpu=1,4
+ *   race-for-the-prize ./races/my-race --har --wasm=0 --serve=0
  */
 
 import fs from 'fs';
@@ -39,6 +39,7 @@ import { runGeminiSummary, runGeminiSpec } from './cli/gemini-summary.js';
 import { parseDemoArg, planDemo, copyDemo, formatDemoList, UnknownDemoError } from './cli/demos.js';
 import { buildResultsPaths, createStaticHandler, serveResults } from './cli/serve.js';
 import { loadRaceDir, applySettingsOrExit } from './cli/race-loader.js';
+import { buildRaceConfig, writeRaceConfig } from './cli/race-config.js';
 import { runScript as runTaskScript } from './cli/task-runner.js';
 import { buildConditionMatrix, printConditionMatrix, buildConditionIndexHtml } from './cli/condition-matrix.js';
 
@@ -67,6 +68,14 @@ const {
   createRaceMessageRegex,
   formatContextClosed,
 } = runnerProtocol;
+
+/** The command name the package installs (`bin` in package.json). */
+export const CLI_NAME = 'race-for-the-prize';
+
+/** The published version, straight from package.json, for `--version`. */
+export function packageVersion() {
+  return createRequire(import.meta.url)('./package.json').version;
+}
 
 /**
  * Module-level abort state. Set on SIGINT so in-flight work can bail out
@@ -213,10 +222,13 @@ export async function confirm(message, { defaultYes = true, input = process.stdi
 // --- Race execution (module-scope functions with explicit context) ---
 
 /**
- * Copy race scripts and settings.json from the race directory into runDir.
- * Returns { raceScriptFiles, settingsFileCopied }.
+ * Copy race scripts and settings.json from the race directory into runDir, and
+ * store the race record (config.json) beside them so the results carry the
+ * command and the merged configuration they were produced with.
+ * Returns { raceScriptFiles, settingsFileCopied, raceConfigFile }.
  */
-function copyRaceAssets(raceDir, racerFiles, runDir) {
+export function storeRaceAssets(ctx, runDir) {
+  const { raceDir, racerFiles, raceConfig } = ctx;
   const raceScriptFiles = [];
   let settingsFileCopied = false;
   if (raceDir && racerFiles) {
@@ -238,7 +250,7 @@ function copyRaceAssets(raceDir, racerFiles, runDir) {
       }
     }
   }
-  return { raceScriptFiles, settingsFileCopied };
+  return { raceScriptFiles, settingsFileCopied, raceConfigFile: writeRaceConfig(runDir, raceConfig) };
 }
 
 /**
@@ -463,7 +475,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
     const result = await spawnRunner(raceCtx);
 
     let results, summary, sideBySidePath = null, sideBySideName = null, clipTimes = null;
-    const { raceScriptFiles, settingsFileCopied } = copyRaceAssets(ctx.raceDir, ctx.racerFiles, runDir);
+    const { raceScriptFiles, settingsFileCopied, raceConfigFile } = storeRaceAssets(ctx, runDir);
     const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
 
     // Lets the caller add to the summary (Gemini commentary) before it is
@@ -557,6 +569,8 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
           harFiles,
           raceScriptFiles,
           settingsFileCopied,
+          raceConfig: ctx.raceConfig,
+          raceConfigFile,
           runNavigation,
           clipTimes,
           altFiles,
@@ -667,7 +681,7 @@ const unknownFlags = findUnknownFlags(boolFlags, kvFlags);
 if (unknownFlags.length > 0) {
   const labels = unknownFlags.map(n => `--${n}`).join(', ');
   console.error(`${c.red}Error: Unknown flag(s): ${labels}${c.reset}`);
-  console.error(`${c.dim}  Run with no arguments to see the list of supported flags.${c.reset}`);
+  console.error(`${c.dim}  Run ${CLI_NAME} --help to see the list of supported flags.${c.reset}`);
   process.exit(2);
 }
 
@@ -682,6 +696,13 @@ if (valuelessFlags.length > 0) {
 }
 
 const verbose = boolFlags.has('verbose');
+
+// --- --version / --help ---
+
+if (boolFlags.has('version')) {
+  console.log(`${CLI_NAME} v${packageVersion()}`);
+  process.exit(0);
+}
 
 // --- --init: scaffold a starter race directory ---
 
@@ -805,7 +826,9 @@ ${c.bold}Run it:${c.reset}
 const applySettings = (base, raceDir) => applySettingsOrExit(base, boolFlags, kvFlags, raceDir);
 const loadRace = (dir) => loadRaceDir(dir, { boolFlags, kvFlags, rootDir: __dirname, buildContext: buildRaceContext });
 
-if (positional.length === 0) {
+// `--help` prints the usage banner and exits 0; no arguments at all prints the
+// same banner but exits 1, so a script that forgot its race directory fails.
+if (boolFlags.has('help') || positional.length === 0) {
   console.error(`
 ${c.yellow}    ____                   ____              _   _            ____       _          ${c.reset}
 ${c.yellow}   / __ \\____ _________   / __/___  _____   / |_/ /_  ___   / __ \\_____(_)_______   ${c.reset}
@@ -847,57 +870,59 @@ ${c.dim}  ───────────────────────�
 
   ${c.bold}3.${c.reset} Run it!
 
-     ${c.bold}$${c.reset} ${c.cyan}node race.js ./races/my-race${c.reset}
+     ${c.bold}$${c.reset} ${c.cyan}race-for-the-prize ./races/my-race${c.reset}
 
 ${c.bold}  Demo Races:${c.reset}
 ${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
   No race of your own yet? Run one that ships with the CLI:
 
-     ${c.bold}$${c.reset} ${c.cyan}node race.js demo:lauda-vs-hunt${c.reset}   ${c.dim}# node race.js demo — to list them all${c.reset}
+     ${c.bold}$${c.reset} ${c.cyan}race-for-the-prize demo:lauda-vs-hunt${c.reset}   ${c.dim}# race-for-the-prize demo — to list them all${c.reset}
 
 ${c.bold}  Quick Race (URL mode):${c.reset}
 ${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
   Pass 2+ URLs directly to measure page load times head-to-head:
 
-     ${c.bold}$${c.reset} ${c.cyan}node race.js https://react.dev https://angular.dev${c.reset}
+     ${c.bold}$${c.reset} ${c.cyan}race-for-the-prize https://react.dev https://angular.dev${c.reset}
 
 ${c.bold}  Commands:${c.reset}
 ${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
-  node race.js ${c.cyan}<url> <url> [url...]${c.reset}      Race page load times (2-5 URLs)
-  node race.js ${c.magenta}demo${c.reset}                        List the demo races shipped with the CLI
-  node race.js ${c.magenta}demo:${c.cyan}<name>${c.reset}                 Run a demo race (asks before copying it to ./races/<name>/)
-  node race.js ${c.magenta}demo:${c.cyan}<name>${c.reset} ${c.yellow}--yes${c.reset}           Copy the demo race without being asked
-  node race.js ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset}               Scaffold a starter race (default: my-race/)
-  node race.js ${c.cyan}<dir>${c.reset}                       Run a scripted race
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--results${c.reset}            View recent results
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--parallel${c.reset}           Run both browsers simultaneously
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--headless${c.reset}           Hide browsers
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--network${c.reset}=${c.green}slow-3g${c.reset}   Network: none, slow-3g, fast-3g, 4g
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--network${c.reset}=${c.green}slow-3g,4g${c.reset} Race each network condition separately
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}4${c.reset}              CPU slowdown: 4x slower (1=none)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}1,4${c.reset}            Race each CPU slowdown separately
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--format${c.reset}=${c.green}mov${c.reset}          Output format: webm (default), mov, gif
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--skin${c.reset}=${c.green}light${c.reset}          Skin the results player: ${listSkins().join(', ')}, or a path to a .css file
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--runs${c.reset}=${c.green}3${c.reset}            Run multiple times, report median
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--pause${c.reset}              Pause between runs (press Enter to continue)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--slowmo${c.reset}=${c.green}2${c.reset}           Slow-motion side-by-side replay (2x, 3x, etc.)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--overlay${c.reset}=${c.green}0${c.reset}        Disable overlays in recordings (1=enable, 0=disable)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--recording${c.reset}=${c.green}0${c.reset}      Skip video recording, just measure (1=enable, 0=disable)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ffmpeg${c.reset}             Enable FFmpeg processing (trim, merge, convert)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--har${c.reset}                Record network HAR files alongside videos
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--wasm${c.reset}=${c.green}0${c.reset}           Skip copying ffmpeg.wasm files (~25 MB) to results
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--height${c.reset}=${c.green}900${c.reset}          Viewport/recording height in pixels (480–4320, default 720)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ignore-https-errors${c.reset}  Accept invalid/self-signed TLS certificates
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--wall-clock${c.reset}         Burn a ticking wall clock into the recording (perturbs metrics)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cue-markers${c.reset}        Flash visual cues at segment boundaries (calibration testing; perturbs metrics)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--serve${c.reset}=${c.green}0${c.reset}          Don't start local results server (CI/headless; open index.html manually)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--gemini${c.reset}             Gemini CLI sports reporter commentary after race
-  node race.js ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset} ${c.yellow}--gemini-spec${c.reset}=${c.green}"prompt"${c.reset}  Generate specs via Gemini + Playwright HTML research
+  race-for-the-prize ${c.cyan}<url> <url> [url...]${c.reset}      Race page load times (2-5 URLs)
+  race-for-the-prize ${c.magenta}demo${c.reset}                        List the demo races shipped with the CLI
+  race-for-the-prize ${c.magenta}demo:${c.cyan}<name>${c.reset}                 Run a demo race (asks before copying it to ./races/<name>/)
+  race-for-the-prize ${c.magenta}demo:${c.cyan}<name>${c.reset} ${c.yellow}--yes${c.reset}           Copy the demo race without being asked
+  race-for-the-prize ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset}               Scaffold a starter race (default: my-race/)
+  race-for-the-prize ${c.cyan}<dir>${c.reset}                       Run a scripted race
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--results${c.reset}            View recent results
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--parallel${c.reset}           Run both browsers simultaneously
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--headless${c.reset}           Hide browsers
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--network${c.reset}=${c.green}slow-3g${c.reset}   Network: none, slow-3g, fast-3g, 4g
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--network${c.reset}=${c.green}slow-3g,4g${c.reset} Race each network condition separately
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}4${c.reset}              CPU slowdown: 4x slower (1=none)
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}1,4${c.reset}            Race each CPU slowdown separately
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--format${c.reset}=${c.green}mov${c.reset}          Output format: webm (default), mov, gif
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--skin${c.reset}=${c.green}light${c.reset}          Skin the results player: ${listSkins().join(', ')}, or a path to a .css file
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--runs${c.reset}=${c.green}3${c.reset}            Run multiple times, report median
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--pause${c.reset}              Pause between runs (press Enter to continue)
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--slowmo${c.reset}=${c.green}2${c.reset}           Slow-motion side-by-side replay (2x, 3x, etc.)
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--overlay${c.reset}=${c.green}0${c.reset}        Disable overlays in recordings (1=enable, 0=disable)
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--recording${c.reset}=${c.green}0${c.reset}      Skip video recording, just measure (1=enable, 0=disable)
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--ffmpeg${c.reset}             Enable FFmpeg processing (trim, merge, convert)
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--har${c.reset}                Record network HAR files alongside videos
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--wasm${c.reset}=${c.green}0${c.reset}           Skip copying ffmpeg.wasm files (~25 MB) to results
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--height${c.reset}=${c.green}900${c.reset}          Viewport/recording height in pixels (480–4320, default 720)
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--ignore-https-errors${c.reset}  Accept invalid/self-signed TLS certificates
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--wall-clock${c.reset}         Burn a ticking wall clock into the recording (perturbs metrics)
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--cue-markers${c.reset}        Flash visual cues at segment boundaries (calibration testing; perturbs metrics)
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--serve${c.reset}=${c.green}0${c.reset}          Don't start local results server (CI/headless; open index.html manually)
+  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--gemini${c.reset}             Gemini CLI sports reporter commentary after race
+  race-for-the-prize ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset} ${c.yellow}--gemini-spec${c.reset}=${c.green}"prompt"${c.reset}  Generate specs via Gemini + Playwright HTML research
 
 ${c.dim}  All flags except --results work with both URL mode and directory mode.${c.reset}
-${c.dim}  Try a demo:       node race.js demo:lauda-vs-hunt${c.reset}
+${c.dim}  Try a demo:       race-for-the-prize demo:lauda-vs-hunt${c.reset}
+${c.dim}  Not installed?    npx race-for-the-prize demo:lauda-vs-hunt${c.reset}
+${c.dim}  Version:          race-for-the-prize --version   (v${packageVersion()})${c.reset}
 `);
-  process.exit(1);
+  process.exit(boolFlags.has('help') ? 0 : 1);
 }
 
 // --- demo:<name>: run a race bundled with the package ---
@@ -955,23 +980,26 @@ if (demoArg) {
 
 if (positional.length === 1 && isUrl(positional[0])) {
   console.error(`${c.red}Error: URL mode requires at least 2 URLs to race against each other${c.reset}`);
-  console.error(`${c.dim}  Example: node race.js https://react.dev https://angular.dev${c.reset}`);
+  console.error(`${c.dim}  Example: race-for-the-prize https://react.dev https://angular.dev${c.reset}`);
   process.exit(1);
 }
 
 const urlMode = positional.length >= 2 && positional.every(p => isUrl(p));
 
-// Catch mixed URL/path inputs (e.g. "node race.js https://a.com ./dir")
+// Catch mixed URL/path inputs (e.g. "race-for-the-prize https://a.com ./dir")
 if (!urlMode && positional.length >= 2 && positional.some(p => isUrl(p))) {
   const nonUrls = positional.filter(p => !isUrl(p));
   console.error(`${c.red}Error: Cannot mix URLs and directory paths. These are not valid URLs: ${nonUrls.join(', ')}${c.reset}`);
-  console.error(`${c.dim}  For URL mode, pass only URLs: node race.js https://a.com https://b.com${c.reset}`);
-  console.error(`${c.dim}  For directory mode, pass a race directory: node race.js ./races/my-race${c.reset}`);
+  console.error(`${c.dim}  For URL mode, pass only URLs: race-for-the-prize https://a.com https://b.com${c.reset}`);
+  console.error(`${c.dim}  For directory mode, pass a race directory: race-for-the-prize ./races/my-race${c.reset}`);
   process.exit(1);
 }
 
 let raceDir;
 let ctx, settings, racerNames;
+// Raw settings.json contents, so the race record can tell a value that came
+// from the file apart from a default (URL mode has no file).
+let fileSettings = {};
 
 if (urlMode) {
   if (boolFlags.has('results')) {
@@ -1033,9 +1061,49 @@ if (urlMode) {
     process.exit(0);
   }
 
-  ({ ctx, settings, racerNames } = loadRace(raceDir));
+  ({ ctx, settings, racerNames, fileSettings } = loadRace(raceDir));
 }
 
+
+// --- Race record ---
+// Every results directory keeps the command and the merged configuration that
+// produced it (config.json), and the HTML report shows the same thing: a race's
+// numbers only mean something next to the settings they were measured under.
+
+/** The tool's own version, for the record. Absent if package.json is unreadable. */
+function readPackageVersion() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8')).version || null;
+  } catch {
+    return null;
+  }
+}
+const packageVersion = readPackageVersion();
+// The spec files stay the same for the whole invocation, unlike ctx, which is
+// rebuilt per throttling condition.
+const raceFiles = ctx.racerFiles;
+// Shared-spec mode races one race.spec.js under several names.
+const raceMode = urlMode
+  ? 'url'
+  : (raceFiles?.length === 1 && racerNames.length > 1 ? 'shared-spec' : 'directory');
+
+/** Snapshot the configuration a race is about to run with. */
+function raceConfigFor(activeSettings) {
+  return buildRaceConfig({
+    argv: process.argv,
+    settings: activeSettings,
+    fileSettings,
+    boolFlags,
+    kvFlags,
+    raceDir,
+    racerNames,
+    racerFiles: raceFiles,
+    mode: raceMode,
+    version: packageVersion,
+  });
+}
+
+ctx = { ...ctx, raceConfig: raceConfigFor(settings) };
 
 // --- Setup/Teardown discovery ---
 // URL mode uses a generated race dir with no user scripts; skip discovery to
@@ -1172,7 +1240,7 @@ function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts
   if (isFinalOutput) generateGeminiCommentary(summary, runDir);
   fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
 
-  const { raceScriptFiles, settingsFileCopied } = copyRaceAssets(ctx.raceDir, ctx.racerFiles, runDir);
+  const { raceScriptFiles, settingsFileCopied, raceConfigFile } = storeRaceAssets(ctx, runDir);
 
   progress.done('Recordings processed');
 
@@ -1189,6 +1257,7 @@ function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts
     runDir, summary, settings, videoFiles,
     playerExtras: {
       traceFiles, raceScriptFiles, settingsFileCopied,
+      raceConfig: ctx.raceConfig, raceConfigFile,
       runNavigation: runNav, clipTimes,
     },
     raceOptions: raceOpts,
@@ -1338,7 +1407,14 @@ async function main() {
     for (const { network, cpu, label, title } of raceConditions) {
       settings = { ...baseSettings, network, cpuThrottle: cpu };
       const throttle = { ...baseCtx.throttle, network, cpu };
-      ctx = { ...baseCtx, settings, throttle, runnerConfig: { ...baseCtx.runnerConfig, throttle } };
+      // The record follows the condition: each one raced a different network/CPU.
+      ctx = {
+        ...baseCtx,
+        settings,
+        throttle,
+        runnerConfig: { ...baseCtx.runnerConfig, throttle },
+        raceConfig: raceConfigFor(settings),
+      };
       if (multiCondition) {
         resultsDir = path.join(baseResultsDir, label);
         console.error(`\n  ${c.bold}${c.magenta}══ ${title} ══${c.reset}`);
@@ -1348,6 +1424,10 @@ async function main() {
 
     if (multiCondition) {
       resultsDir = baseResultsDir;
+      // The top-level record keeps the full network/CPU lists that were raced,
+      // not the last condition's single values.
+      fs.mkdirSync(baseResultsDir, { recursive: true });
+      writeRaceConfig(baseResultsDir, baseCtx.raceConfig);
       // Overview across every condition raced: how the field holds up as the
       // network and CPU get harder, not just who won each individual race.
       // The terminal shows total time; the HTML index can switch metrics.
@@ -1408,6 +1488,7 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
   const medianSummary = buildMedianSummary(summaries, resultsDir);
   generateGeminiCommentary(medianSummary, resultsDir);
   fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(medianSummary, null, 2));
+  const raceConfigFile = writeRaceConfig(resultsDir, ctx.raceConfig);
 
   if (!settings.noRecording) {
     // For each racer independently, pick the run closest to their median
@@ -1437,6 +1518,8 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
       mergedVideoFile: medianMergedFile,
       raceScriptFiles: ctx.racerFiles ? ctx.racerFiles.map(f => `${overallMedianRunDir}/${f}`) : null,
       settingsFileCopied: fs.existsSync(path.join(resultsDir, overallMedianRunDir, 'settings.json')),
+      raceConfig: ctx.raceConfig,
+      raceConfigFile,
       runNavigation: medianNav,
       medianRunLabel,
       clipTimes: medianClipTimes,
