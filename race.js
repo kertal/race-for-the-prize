@@ -297,7 +297,7 @@ function buildClipTimes(racerNames, getBrowserData, ffmpeg) {
  * @param {object} options.settings
  * @param {string[]} options.videoFiles
  * @param {object} options.playerExtras - additional fields merged into playerOptions (may include altFiles)
- * @param {object} options.raceOptions - { skipCopyFFmpeg, ffmpegPathPrefix }
+ * @param {object} options.raceOptions - { skipCopyFFmpeg, ffmpegPathPrefix, onSummary }
  * @param {string|null} options.raceDir - race directory, used to resolve a relative --skin path
  */
 function writePlayerAndAssets({ runDir, summary, settings, videoFiles, playerExtras, raceOptions, raceDir = null }) {
@@ -475,6 +475,10 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
     const { raceScriptFiles, settingsFileCopied, raceConfigFile } = storeRaceAssets(ctx, runDir);
     const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
 
+    // Lets the caller add to the summary (Gemini commentary) before it is
+    // written and before the player is built from it.
+    const finishSummary = (s) => { if (raceOptions.onSummary) raceOptions.onSummary(s); return s; };
+
     if (noRecording) {
       // No-recording mode: just save measurements, skip all video processing
       results = racerNames.map((name, i) => {
@@ -504,7 +508,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
         if (data.profileMetrics) fs.writeFileSync(path.join(racerRunDirs[i], 'profile-metrics.json'), JSON.stringify(data.profileMetrics, null, 2));
         return data;
       });
-      summary = buildSummary(racerNames, results, settings, runDir);
+      summary = finishSummary(buildSummary(racerNames, results, settings, runDir));
       fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
     } else {
       const progress = startProgress('Processing recordings…');
@@ -512,7 +516,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
         moveResults(recordingsDir, name, racerRunDirs[i], result.browsers?.[i] || {})
       );
 
-      summary = buildSummary(racerNames, results, settings, runDir);
+      summary = finishSummary(buildSummary(racerNames, results, settings, runDir));
       fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
       progress.done('Recordings processed');
 
@@ -1001,15 +1005,13 @@ if (urlMode) {
 // produced it (config.json), and the HTML report shows the same thing: a race's
 // numbers only mean something next to the settings they were measured under.
 
-/** The tool's own version, for the record. Absent if package.json is unreadable. */
-function readToolVersion() {
-  try {
-    return packageVersion() || null;
-  } catch {
-    return null;
-  }
-}
-const toolVersion = readToolVersion();
+// The tool's own version, for the record. Absent if package.json is unreadable.
+// (Named apart from the module-level packageVersion(): a block-scoped const of
+// the same name shadowed it for the whole main block, so `--version` and the
+// help banner above threw a temporal-dead-zone ReferenceError.)
+const toolVersion = (() => {
+  try { return packageVersion() || null; } catch { return null; }
+})();
 // The spec files stay the same for the whole invocation, unlike ctx, which is
 // rebuilt per throttling condition.
 const raceFiles = ctx.racerFiles;
@@ -1143,29 +1145,6 @@ function generateGeminiCommentary(summary, outputDir) {
   }
 }
 
-/** Inject gemini commentary into the notes textarea of an existing index.html. */
-function bakeNotesIntoHtml(dir, commentary) {
-  if (!commentary) return;
-  const htmlPath = path.join(dir, 'index.html');
-  if (!fs.existsSync(htmlPath)) return;
-  let html = fs.readFileSync(htmlPath, 'utf-8');
-  const escaped = commentary.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  // Replace the empty textarea with commentary content and open the notes section.
-  // Target the notes section specifically via the textarea id.
-  const placeholder = 'id="notesTextarea" placeholder="Add notes about this race..."></textarea>';
-  const replacement = `id="notesTextarea" placeholder="Add notes about this race...">\n🤖 Gemini Race Commentary\n${'─'.repeat(40)}\n${escaped}\n</textarea>`;
-  html = html.replace(placeholder, replacement);
-  // Uncollapse the notes section — match specifically the Notes section's <details>
-  // by anchoring on its unique <summary><h2>Notes</h2></summary> heading.
-  // This prevents accidentally opening a different section even if notesTextarea
-  // appears later in the document.
-  html = html.replace(
-    /(<details class="section" )(?=(?:(?!<\/details>)[\s\S])*?<summary><h2>Notes<\/h2><\/summary>(?:(?!<\/details>)[\s\S])*?id="notesTextarea")/,
-    '$1open'
-  );
-  fs.writeFileSync(htmlPath, html);
-}
-
 /** Update run nav in each run's index.html with winner colors now that all summaries are available. */
 function updateRunNavColors(summaries) {
   for (let i = 0; i < summaries.length; i++) {
@@ -1197,6 +1176,10 @@ function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts
   const { raceScriptFiles, settingsFileCopied, raceConfigFile } = storeRaceAssets(ctx, runDir);
 
   progress.done('Recordings processed');
+
+  // No recording means no video player (and no ffmpeg.wasm to ship with it) —
+  // the same as runSingleRace's no-recording path, which only saves measurements.
+  if (settings.noRecording) return { summary, clipTimes: null };
 
   const clipTimes = buildClipTimes(racerNames, (ri) => runRawResults[ri].browsers?.[0], ffmpeg);
 
@@ -1233,12 +1216,13 @@ async function runRaceSeries() {
 /** Normal mode: all racers run together, once per run. */
 async function runNormalModeSeries() {
   if (totalRuns === 1) {
-    const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir);
+    // Commentary is generated before summary.json and the player are written,
+    // so the player renders it into its notes at build time — the same path
+    // split mode takes — instead of patching the finished HTML afterwards.
+    const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir, null, {
+      onSummary: (s) => generateGeminiCommentary(s, resultsDir),
+    });
     printSummary(summary);
-    generateGeminiCommentary(summary, resultsDir);
-    // Re-write summary.json with gemini commentary included
-    fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(summary, null, 2));
-    bakeNotesIntoHtml(resultsDir, summary.geminiCommentary);
     fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summary, sideBySidePath ? sideBySideName : null));
     return summary;
   }

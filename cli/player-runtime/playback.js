@@ -214,6 +214,10 @@ function resolveClip() {
 }
 
 function resolveAdjustedClip() {
+  // Whole Recording has no clip window by definition: recomputing one here
+  // (after a racer-filter click, a calibration nudge, or a late metadata pass)
+  // would silently snap the player back to the race clip.
+  if (activeSegmentName === '__full__') return null;
   const adj = getAdjustedClipTimes();
   if (!adj) return resolveClip();
   return resolveClipWindow(adj, hiddenRacers);
@@ -664,7 +668,14 @@ function toggleCalibration() {
 
 if (modeRace) modeRace.addEventListener('click', switchToRace);
 if (modeFull) modeFull.addEventListener('click', switchToFull);
-if (modeMerged) modeMerged.addEventListener('click', switchToMerged);
+// Merged is the only mode button the page renders, so it has to toggle:
+// without the way back, the racer videos are gone until a reload.
+if (modeMerged) {
+  modeMerged.addEventListener('click', () => {
+    if (modeMerged.classList.contains('active')) switchToRace();
+    else switchToMerged();
+  });
+}
 if (modeDebug) modeDebug.addEventListener('click', toggleCalibration);
 if (mergedVideo) mergedVideo.addEventListener('loadedmetadata', () => {
   if (videos.includes(mergedVideo)) {

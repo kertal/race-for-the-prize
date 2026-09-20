@@ -111,16 +111,32 @@ function displayedFrameTime(presented, video, frameStep = FRAME_STEP) {
   return samePicture ? presented : currentTime;
 }
 
+// Where a moment inside a recording segment sits in the video, for a clip the
+// trace never calibrated. The runner keeps a measurement on the same clock as
+// its segment, and the segment was placed by that clock, so the measurement's
+// offset into the segment carries straight over.
+function markerSecondsToClipPts(ct, seconds) {
+  if (!Number.isFinite(seconds)) return null;
+  return ct.start + (seconds - ct._wcStart);
+}
+
 // Pure core of getSegmentClipTimes(name): maps each clip entry to the PTS
 // window of the named measurement segment, or null when it cannot be derived.
+//
+// Which clock the measurement is on follows the clip's own: with trace
+// calibration the section is placed by its trace timestamps, and without it by
+// the race API's seconds — the pairing the runner guarantees. A race with no
+// usable trace would otherwise offer sections in the picker that resolve to
+// nothing and play from the start of the recording.
 function computeSegmentClipTimes(entries, name) {
   if (!entries) return null;
   return entries.map(ct => {
     if (ct?._wcStart == null || ct._wcEnd == null) return null;
     const m = ct.measurements?.find(m => m.name === name);
-    if (!m || !Number.isFinite(m.startTraceTs) || !Number.isFinite(m.endTraceTs)) return null;
-    const startPts = traceTsToClipPts(ct, m.startTraceTs);
-    const endPts = traceTsToClipPts(ct, m.endTraceTs);
+    if (!m) return null;
+    const fromTrace = canApplyTraceCalibration(ct);
+    const startPts = fromTrace ? traceTsToClipPts(ct, m.startTraceTs) : markerSecondsToClipPts(ct, m.startTime);
+    const endPts = fromTrace ? traceTsToClipPts(ct, m.endTraceTs) : markerSecondsToClipPts(ct, m.endTime);
     if (!Number.isFinite(startPts) || !Number.isFinite(endPts) || endPts <= startPts) return null;
     return { start: startPts, end: endPts };
   });

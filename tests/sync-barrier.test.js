@@ -133,6 +133,82 @@ describe('SyncBarrier', () => {
     }
   });
 
+  it('accepts the { timeoutMs } options form the runner passes', async () => {
+    // Regression: runner.cjs constructs its barriers with an options object.
+    // The constructor used to store that object as the deadline, and
+    // `{ timeoutMs } > 0` is false, so the backstop never fired in real races.
+    vi.useFakeTimers();
+    const sharedState = { hasError: false, errorMessage: null };
+    try {
+      const barrier = new SyncBarrier(2, sharedState, { timeoutMs: 200 });
+      expect(barrier.timeoutMs).toBe(200);
+
+      const p1 = barrier.wait('a');
+      await vi.advanceTimersByTimeAsync(250);
+      expect(await p1).toEqual({ aborted: true });
+      expect(sharedState.hasError).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('uses the default deadline for an empty options object', () => {
+    expect(new SyncBarrier(2, null, {}).timeoutMs).toBe(new SyncBarrier(2).timeoutMs);
+  });
+
+  it('rejects a deadline that is not a number', () => {
+    expect(() => new SyncBarrier(2, null, '200')).toThrow(TypeError);
+    expect(() => new SyncBarrier(2, null, { timeoutMs: 'soon' })).toThrow(TypeError);
+    expect(() => new SyncBarrier(2, null, -1)).toThrow(TypeError);
+  });
+
+  it('rejects an options object that is not a deadline', () => {
+    // A misspelled or misplaced option must fail loudly rather than read as
+    // "no timeout given" and silently take the default.
+    expect(() => new SyncBarrier(2, null, { timeoutMS: 200 })).toThrow(TypeError);
+    expect(() => new SyncBarrier(2, null, { timeoutMs: 200, extra: 1 })).toThrow(TypeError);
+    expect(() => new SyncBarrier(2, null, [])).toThrow(TypeError);
+    expect(() => new SyncBarrier(2, null, [200])).toThrow(TypeError);
+  });
+
+  describe('leave', () => {
+    // A racer that has finished will never reach the checkpoint again. Saying
+    // so is what keeps a partner with more recording segments from waiting
+    // there for someone who has already left.
+    it('releases a waiter that is now the only one expected', async () => {
+      const barrier = new SyncBarrier(2);
+      const waiting = barrier.wait('partner');
+      barrier.leave();
+      expect(await waiting).toEqual({ aborted: false });
+    });
+
+    it('lets a later arrival through without waiting', async () => {
+      const barrier = new SyncBarrier(2);
+      barrier.leave();
+      expect(await barrier.wait('partner')).toEqual({ aborted: false });
+    });
+
+    it('still expects the racers that have not left', async () => {
+      const barrier = new SyncBarrier(3);
+      barrier.leave();
+      const first = barrier.wait('a');
+      let settled = false;
+      first.then(() => { settled = true; });
+      await new Promise(r => setTimeout(r, 50));
+      expect(settled).toBe(false); // one of two expected racers is here
+
+      expect(await barrier.wait('b')).toEqual({ aborted: false });
+      expect(await first).toEqual({ aborted: false });
+    });
+
+    it('leaves a released barrier alone', () => {
+      const barrier = new SyncBarrier(2);
+      barrier.releaseAll();
+      barrier.leave();
+      expect(barrier.count).toBe(2);
+    });
+  });
+
   it('never times out when timeoutMs is 0 (backstop explicitly disabled)', async () => {
     vi.useFakeTimers();
     try {
