@@ -18,6 +18,41 @@ import { varsToEnv } from './config.js';
 // settling anyway (see the 'exit' handler in runScript).
 const PIPE_DRAIN_GRACE_MS = 100;
 
+// How much of a script's stderr to keep for its failure report. The tail is
+// the end a failure is diagnosed from.
+const STDERR_LIMIT = 64 * 1024;
+
+/**
+ * The script's stderr, kept for the failure report — bounded at both ends.
+ *
+ * It holds only the last `limit` bytes, and stops accepting once closed. The
+ * pipes outlive the script: a `waitFor` service inherits them and keeps
+ * logging for as long as it runs, so without closing, a buffer nobody will
+ * ever read would grow for the whole life of that service.
+ *
+ * @param {number} [limit]
+ * @returns {{append: (chunk: *) => void, close: () => void, text: string}}
+ */
+export function createStderrBuffer(limit = STDERR_LIMIT) {
+  let text = '';
+  let dropped = false;
+  let open = true;
+  return {
+    append(chunk) {
+      if (!open) return;
+      text += chunk;
+      if (text.length > limit) {
+        text = text.slice(-limit);
+        dropped = true;
+      }
+    },
+    close() { open = false; },
+    get text() {
+      return dropped && text ? `…(earlier output dropped)\n${text}` : text;
+    },
+  };
+}
+
 /**
  * Run a setup or teardown script.
  * Supports both shell scripts (.sh) and Node.js scripts (.js).
@@ -104,7 +139,7 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
       env: { ...process.env, RACE_DIR: raceDir, ...varsToEnv(vars) },
     });
 
-    let stderr = '';
+    const stderr = createStderrBuffer();
     let timedOut = false;
     let exited = false;
     let settled = false;
@@ -112,7 +147,12 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
     let drainTimeoutId = null;
 
     child.stdout.on('data', d => { if (verbose) process.stdout.write(d); });
-    child.stderr.on('data', d => { stderr += d; if (verbose) process.stderr.write(d); });
+    // Keep draining after settlement, so a service that inherited these pipes
+    // is never blocked by a full buffer; the buffer itself closes below.
+    child.stderr.on('data', d => {
+      stderr.append(d);
+      if (verbose) process.stderr.write(d);
+    });
 
     // Lets go of the stdio pipes a background descendant inherited, so they
     // cannot keep this process alive once the script itself is done with.
@@ -160,6 +200,8 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
       if (sigkillTimeoutId) clearTimeout(sigkillTimeoutId);
       if (settled) return;
       settled = true;
+      // Whatever still holds these pipes is no longer this script's business.
+      stderr.close();
 
       if (timedOut) {
         progress.done(`${label} timed out after ${timeout}ms`);
@@ -179,7 +221,7 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
       // Handle process killed by signal (code is null)
       if (code === null && signal) {
         progress.done(`${label} killed by ${signal}`);
-        if (stderr) console.error(`${c.dim}${stderr}${c.reset}`);
+        if (stderr.text) console.error(`${c.dim}${stderr.text}${c.reset}`);
         reject(new Error(`${label} script was killed by ${signal}`));
         return;
       }
@@ -247,7 +289,7 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
         resolve();
       } else {
         progress.done(`${label} failed (exit code ${code})`);
-        if (stderr) console.error(`${c.dim}${stderr}${c.reset}`);
+        if (stderr.text) console.error(`${c.dim}${stderr.text}${c.reset}`);
         reject(new Error(`${label} script exited with code ${code}`));
       }
     }
@@ -258,6 +300,7 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
       if (drainTimeoutId) clearTimeout(drainTimeoutId);
       if (settled) return;
       settled = true;
+      stderr.close();
       progress.done(`${label} error: ${err.message}`);
       reject(err);
     });

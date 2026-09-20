@@ -3,7 +3,41 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import http from 'http';
-import { runScript } from '../cli/task-runner.js';
+import { runScript, createStderrBuffer } from '../cli/task-runner.js';
+
+describe('createStderrBuffer', () => {
+  it('keeps what the script wrote', () => {
+    const buf = createStderrBuffer();
+    buf.append('one\n');
+    buf.append('two\n');
+    expect(buf.text).toBe('one\ntwo\n');
+  });
+
+  it('ignores anything written after it closes', () => {
+    // The pipes outlive the script: a waitFor service inherits them and keeps
+    // logging for as long as it runs, into a buffer nobody will ever read.
+    const buf = createStderrBuffer();
+    buf.append('before\n');
+    buf.close();
+    buf.append('after\n');
+    expect(buf.text).toBe('before\n');
+  });
+
+  it('keeps only the tail of a chatty script, and says so', () => {
+    const buf = createStderrBuffer(100);
+    for (let i = 0; i < 200; i++) buf.append(`line ${i}\n`);
+    expect(buf.text).toContain('line 199');
+    expect(buf.text).not.toContain('line 0\n');
+    expect(buf.text).toContain('earlier output dropped');
+    expect(buf.text.length).toBeLessThan(200);
+  });
+
+  it('says nothing about dropping when nothing was dropped', () => {
+    const buf = createStderrBuffer(100);
+    buf.append('short\n');
+    expect(buf.text).toBe('short\n');
+  });
+});
 
 let tmpDir;
 let errorSpy;
