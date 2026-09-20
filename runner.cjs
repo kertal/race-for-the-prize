@@ -46,6 +46,10 @@ const PAGE_TIMEOUT_MS = 90000;          // Default page action/navigation timeou
 // first; it exists to catch pure-JS hangs those timeouts can't see, which would
 // otherwise deadlock the other racer at a sync point forever.
 const BARRIER_TIMEOUT_MS = PAGE_TIMEOUT_MS + 30000;
+// Once a checkpoint has failed the race, how long a racer still running gets
+// to unwind before the runner reports without it. Only ever spent on a race
+// that has already failed (see settleRacers).
+const ABANDON_GRACE_MS = 30000;
 
 // --- Constants (loaded from shared ESM module) ---
 
@@ -143,10 +147,16 @@ function compileScript(source) {
  * Otherwise the race API's own marker clock, which counts from context
  * creation (video PTS 0), is the safer answer.
  *
+ * `usedTraceSegments` reports which clock the segments came from, because
+ * everything else derived from the trace — the PTS segments ffmpeg trims on,
+ * the calibration the player recalibrates clip times with — is only valid for
+ * trace segments. Applied to marker segments it would trim or align against a
+ * different clock.
+ *
  * @param {object|null} traceTiming - deriveTraceTiming() output, or null
  * @param {Array} markerSegments - segments from the race API
  * @param {Array} markerMeasurements - measurements from the race API
- * @returns {{recordingSegments: Array, measurements: Array}}
+ * @returns {{recordingSegments: Array, measurements: Array, usedTraceSegments: boolean}}
  */
 function selectRaceTiming(traceTiming, markerSegments, markerMeasurements) {
   const traceSegments = traceTiming?.recordingSegments || [];
@@ -154,9 +164,11 @@ function selectRaceTiming(traceTiming, markerSegments, markerMeasurements) {
   const calibratable = (traceTiming?.ptsSegments?.length || 0) > 0;
   const segmentsComplete = traceSegments.length > 0 && traceSegments.length === markerSegments.length;
   const measurementsComplete = traceMeasurements.length > 0 && traceMeasurements.length === markerMeasurements.length;
+  const usedTraceSegments = calibratable && segmentsComplete;
   return {
-    recordingSegments: calibratable && segmentsComplete ? traceSegments : markerSegments,
+    recordingSegments: usedTraceSegments ? traceSegments : markerSegments,
     measurements: measurementsComplete ? traceMeasurements : markerMeasurements,
+    usedTraceSegments,
   };
 }
 
@@ -259,22 +271,11 @@ async function runMarkerMode(page, config, {
   // The state machine lives in race-api.cjs; everything runner-specific
   // (trace marks, overlays, cues, CDP metrics, barriers, stderr protocol)
   // is injected as hooks.
-  // Whether this racer has arrived at the recording-start checkpoint. A script
-  // that never records (empty, comments only, no raceStart) must still show up
-  // there before it leaves, or the partner waits at that checkpoint until the
-  // barrier's deadlock backstop fails the whole race.
-  let arrivedAtRecordingStart = false;
-  const arriveAtRecordingStart = async (label) => {
-    const result = await barriers.recordingStart.wait(`${id} ${label}`);
-    arrivedAtRecordingStart = true;
-    return result;
-  };
-
   const api = createRaceApi({
     recordingStartTime,
     hooks: {
       gateRecordingStart: isParallel && barriers
-        ? () => arriveAtRecordingStart('startRecording')
+        ? () => barriers.recordingStart.wait(`${id} startRecording`)
         : null,
       onRecordingStart: async () => {
         // The clock's zero, read before the trace mark's page round-trip so a
@@ -397,8 +398,8 @@ async function runMarkerMode(page, config, {
     }
   }
 
-  // An empty script has nothing to run, but still takes part in every
-  // checkpoint below so its partner is never left waiting.
+  // An empty script has nothing to run, but still reaches the checkpoints
+  // below so its partner is never left waiting for it.
   const hasScript = Boolean(raceScript && raceScript.trim() !== '');
 
   if (hasScript) {
@@ -421,7 +422,10 @@ async function runMarkerMode(page, config, {
   await api.finalize();
 
   if (isParallel && barriers) {
-    if (!arrivedAtRecordingStart) await arriveAtRecordingStart('finished without recording');
+    // Done racing: this racer will never open another segment. Saying so frees
+    // a partner that records more segments than it did — including a partner
+    // still waiting right now for a racer whose script has already ended.
+    barriers.recordingStart.leave();
     await barriers.stop.wait(`${id} finished`);
   }
 
@@ -501,7 +505,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
 
     const { tracePath, profileMetrics, traceText } = await collectProfilingResults(browser, metricsCollector, outputDir, id);
     const traceTiming = deriveTraceTiming(traceText);
-    const { recordingSegments, measurements } = selectRaceTiming(traceTiming, markerSegments, markerMeasurements);
+    const { recordingSegments, measurements, usedTraceSegments } = selectRaceTiming(traceTiming, markerSegments, markerMeasurements);
 
     await context.close();
     const wallClockDuration = (Date.now() - contextCreationStart) / 1000;
@@ -531,17 +535,20 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     // The parent finds the recordings by scanning the racer's directory
     // (cli/results.js moveResults), so the trimmed and full files are not
     // named in the result.
+    // Everything below is trace-derived, so it rides on the same decision that
+    // picked the segments: against marker segments, the trace's PTS segments
+    // would trim a different span and its calibration would move the player's
+    // clip to a frame the marker clock never meant.
     if (recordingSegments.length > 0 && ffmpeg) {
-      const trimSegments = traceTiming?.ptsSegments?.length > 0
-        ? traceTiming.ptsSegments
-        : recordingSegments;
+      const trimSegments = usedTraceSegments ? traceTiming.ptsSegments : recordingSegments;
       trimVideoWithFfmpeg(outputDir, trimSegments, id);
     } else if (recordingSegments.length > 0) {
       console.error(`[${id}] Skipping video trimming (no --ffmpeg)`);
     }
 
-    const calibratedStart = ffmpeg ? null : (traceTiming?.calibratedStartPts ?? null);
-    const traceCalibration = ffmpeg ? null : (traceTiming?.traceCalibration || null);
+    const publishCalibration = !ffmpeg && usedTraceSegments;
+    const calibratedStart = publishCalibration ? (traceTiming?.calibratedStartPts ?? null) : null;
+    const traceCalibration = publishCalibration ? (traceTiming?.traceCalibration || null) : null;
 
     return {
       id,
@@ -624,12 +631,64 @@ async function runParallel(browserConfigs, opts = {}) {
     runBrowserRecording(config, barriers, true, sharedState, { ...opts, browserIndex: i, totalBrowsers: count })
   );
 
-  const results = await Promise.allSettled(promises);
+  const results = await settleRacers(promises, browserConfigs.map(c => c.id), sharedState);
 
   return attachSharedError(results.map((r, i) => {
     if (r.status === 'fulfilled') return r.value;
     return { id: browserConfigs[i].id, error: r.reason?.message || 'Unknown error' };
   }), sharedState);
+}
+
+/**
+ * Wait for every racer to settle — but not forever once the race has already
+ * failed.
+ *
+ * A racer hung inside its own script (an unresolving promise, which no
+ * Playwright timeout can see) never settles. A plain Promise.allSettled would
+ * then stay pending even though a checkpoint has already timed out and failed
+ * the race, so the runner would never report it and the CLI would sit there.
+ * Once the shared error is set, whoever is still running gets `graceMs` to
+ * unwind; after that the race is reported without them.
+ *
+ * Nothing is waited on while the race is healthy, so a long but well-behaved
+ * race is never cut short.
+ *
+ * @param {Promise[]} promises - one per racer, as passed to Promise.allSettled
+ * @param {string[]} ids - racer ids, positionally matching `promises`
+ * @param {{hasError: boolean, errorMessage: string|null}} sharedState
+ * @returns {Promise<Array<{status: string, value?: object, reason?: Error}>>}
+ */
+function settleRacers(promises, ids, sharedState, { graceMs = ABANDON_GRACE_MS, pollMs = 250 } = {}) {
+  const outcomes = new Array(promises.length).fill(null);
+  promises.forEach((p, i) => {
+    p.then(
+      value => { outcomes[i] = { status: 'fulfilled', value }; },
+      reason => { outcomes[i] = { status: 'rejected', reason }; },
+    );
+  });
+
+  const abandoned = new Promise(resolve => {
+    let deadline = null;
+    const timer = setInterval(() => {
+      if (!sharedState?.hasError) return;
+      deadline ??= Date.now() + graceMs;
+      if (Date.now() < deadline) return;
+      clearInterval(timer);
+      const stuck = ids.filter((_, i) => !outcomes[i]);
+      console.error(
+        `[runner] Giving up on ${stuck.join(', ')} after ${graceMs}ms: still running with the race already failed` +
+        `${sharedState.errorMessage ? ` (${sharedState.errorMessage})` : ''}`
+      );
+      resolve(outcomes.map((outcome, i) => outcome || {
+        status: 'rejected',
+        reason: new Error(`still running ${graceMs}ms after the race failed; abandoned (${ids[i]} never finished)`),
+      }));
+    }, pollMs);
+    // Never a reason on its own to keep the process alive.
+    timer.unref();
+  });
+
+  return Promise.race([Promise.allSettled(promises), abandoned]);
 }
 
 /**
@@ -778,4 +837,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { RESULT_SENTINEL, setupMetricsCollection, runMarkerMode, selectRaceTiming, attachSharedError };  // RESULT_SENTINEL/setupMetricsCollection re-exported for back-compat with existing imports.
+module.exports = { RESULT_SENTINEL, setupMetricsCollection, runMarkerMode, selectRaceTiming, attachSharedError, settleRacers };  // RESULT_SENTINEL/setupMetricsCollection re-exported for back-compat with existing imports.

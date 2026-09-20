@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { setupMetricsCollection, runMarkerMode, selectRaceTiming, attachSharedError } = require('../runner.cjs');
+const { setupMetricsCollection, runMarkerMode, selectRaceTiming, attachSharedError, settleRacers } = require('../runner.cjs');
 const { SyncBarrier } = require('../sync-barrier.cjs');
 
 describe('attachSharedError', () => {
@@ -100,7 +100,7 @@ describe('selectRaceTiming', () => {
 
   it('prefers the trace when it is complete and calibratable', () => {
     expect(selectRaceTiming(calibrated, markerSegments, markerMeasurements))
-      .toEqual({ recordingSegments: traceSegments, measurements: traceMeasurements });
+      .toEqual({ recordingSegments: traceSegments, measurements: traceMeasurements, usedTraceSegments: true });
   });
 
   it('falls back to marker segments when the trace has no frames to calibrate against', () => {
@@ -108,7 +108,7 @@ describe('selectRaceTiming', () => {
     // first frame's timestamp their start of 0 would be read as video PTS 0.
     const uncalibrated = { ...calibrated, ptsSegments: [] };
     expect(selectRaceTiming(uncalibrated, markerSegments, markerMeasurements))
-      .toEqual({ recordingSegments: markerSegments, measurements: traceMeasurements });
+      .toEqual({ recordingSegments: markerSegments, measurements: traceMeasurements, usedTraceSegments: false });
   });
 
   it('falls back to marker measurements when a mark went missing', () => {
@@ -125,7 +125,15 @@ describe('selectRaceTiming', () => {
 
   it('uses the markers when there is no trace at all', () => {
     expect(selectRaceTiming(null, markerSegments, markerMeasurements))
-      .toEqual({ recordingSegments: markerSegments, measurements: markerMeasurements });
+      .toEqual({ recordingSegments: markerSegments, measurements: markerMeasurements, usedTraceSegments: false });
+  });
+
+  it('reports which clock the segments came from, for the trace-derived rest', () => {
+    // The PTS segments ffmpeg trims on and the calibration the player aligns
+    // with are only valid against trace segments, so they ride on this flag.
+    expect(selectRaceTiming(calibrated, markerSegments, markerMeasurements).usedTraceSegments).toBe(true);
+    const twoMarkerSegments = [{ start: 1, end: 2 }, { start: 3, end: 4 }];
+    expect(selectRaceTiming(calibrated, twoMarkerSegments, markerMeasurements).usedTraceSegments).toBe(false);
   });
 });
 
@@ -170,6 +178,77 @@ describe('parallel checkpoints', () => {
     expect(sharedState.hasError).toBe(false);
     expect(idle.measurements).toEqual([]);
     expect(racing.measurements.map(m => m.name)).toEqual(['Load']);
+  });
+
+  it('lets a racer record more segments than its partner', async () => {
+    // The recording-start checkpoint comes round once per segment. A racer
+    // that has finished must stop being expected there, or its partner's
+    // later segments wait for someone who has already left — which only the
+    // deadlock backstop could end, failing a merely asymmetric race.
+    const sharedState = { hasError: false, errorMessage: null };
+    const barriers = makeBarriers(sharedState);
+
+    const [twoSegments, idle] = await Promise.all([
+      runRacer('two', `
+        await page.raceRecordingStart();
+        await page.raceRecordingEnd();
+        await page.raceRecordingStart();
+        await page.raceRecordingEnd();
+      `, barriers, sharedState),
+      runRacer('idle', '', barriers, sharedState),
+    ]);
+
+    expect(sharedState.hasError).toBe(false);
+    expect(twoSegments.segments).toHaveLength(2);
+    expect(idle.segments).toEqual([]);
+  });
+});
+
+describe('settleRacers', () => {
+  const stuckForever = () => new Promise(() => {});
+
+  it('abandons a racer still running once the race has already failed', async () => {
+    // A racer hung in its own script never settles, and no Playwright timeout
+    // can see it. Without a deadline the runner would stay pending and the
+    // CLI would sit there, even though a checkpoint already failed the race.
+    const sharedState = { hasError: false, errorMessage: null };
+    const settled = settleRacers(
+      [Promise.resolve({ id: 'a' }), stuckForever()],
+      ['a', 'b'],
+      sharedState,
+      { graceMs: 60, pollMs: 10 },
+    );
+
+    sharedState.hasError = true;
+    sharedState.errorMessage = 'Synchronization checkpoint "b ready" timed out';
+
+    const results = await settled;
+    expect(results[0]).toEqual({ status: 'fulfilled', value: { id: 'a' } });
+    expect(results[1].status).toBe('rejected');
+    expect(results[1].reason.message).toMatch(/abandoned/);
+  });
+
+  it('waits as long as it takes while the race is healthy', async () => {
+    const sharedState = { hasError: false, errorMessage: null };
+    let finish;
+    const slow = new Promise(resolve => { finish = resolve; });
+    const settled = settleRacers([slow], ['a'], sharedState, { graceMs: 10, pollMs: 5 });
+
+    // Well past the grace period: a healthy race is never cut short.
+    await new Promise(r => setTimeout(r, 80));
+    finish({ id: 'a' });
+
+    expect(await settled).toEqual([{ status: 'fulfilled', value: { id: 'a' } }]);
+  });
+
+  it('returns as soon as everyone is done, without waiting out a poll', async () => {
+    const results = await settleRacers(
+      [Promise.resolve({ id: 'a' }), Promise.reject(new Error('boom'))],
+      ['a', 'b'],
+      { hasError: false, errorMessage: null },
+      { graceMs: 10_000, pollMs: 10_000 },
+    );
+    expect(results.map(r => r.status)).toEqual(['fulfilled', 'rejected']);
   });
 });
 
