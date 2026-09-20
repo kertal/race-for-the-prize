@@ -40,15 +40,34 @@ const MEASURED_METRICS = ['networkTransferSize', 'networkRequestCount', 'scriptD
 // Total metrics (entire session) — includes loading/memory which are total-only
 const TOTAL_METRICS = ['networkTransferSize', 'networkRequestCount', 'ttfb', 'fcp', 'lcp', 'cls', 'domContentLoaded', 'domComplete', 'jsHeapUsedSize', 'scriptDuration', 'taskDuration', 'layoutDuration', 'recalcStyleDuration'];
 
+// Absolute noise floors, in each metric's own unit. A percentage threshold
+// says nothing when the values are tiny or the best one is 0, so a difference
+// below the floor is never a win however large it is in relative terms.
+const PROFILE_NOISE_FLOOR = {
+  networkTransferSize: 100,       // bytes: header-sized jitter
+  networkRequestCount: 1,         // requests: any whole request counts
+  scriptDuration: 1,              // ms
+  taskDuration: 1,
+  layoutDuration: 1,
+  recalcStyleDuration: 1,
+  ttfb: 5,
+  fcp: 5,
+  lcp: 5,
+  domContentLoaded: 5,
+  domComplete: 5,
+  cls: 0.01,                      // layout-shift score
+  jsHeapUsedSize: 64 * 1024,      // bytes
+};
+
 // Build the full PROFILE_METRICS map with scope-prefixed keys
 export const PROFILE_METRICS = {};
 for (const metric of MEASURED_METRICS) {
   const def = metricDefs[metric];
-  PROFILE_METRICS[`measured.${metric}`] = { ...def, scope: 'measured' };
+  PROFILE_METRICS[`measured.${metric}`] = { ...def, scope: 'measured', noiseFloor: PROFILE_NOISE_FLOOR[metric] ?? 0 };
 }
 for (const metric of TOTAL_METRICS) {
   const def = metricDefs[metric];
-  PROFILE_METRICS[`total.${metric}`] = { ...def, scope: 'total' };
+  PROFILE_METRICS[`total.${metric}`] = { ...def, scope: 'total', noiseFloor: PROFILE_NOISE_FLOOR[metric] ?? 0 };
 }
 
 // Metric significance thresholds (all below or equal to 4%).
@@ -89,9 +108,14 @@ export function determineProfileMetricOutcome(metric, racerNames, values) {
     ? (outcome.diff / bestVal * 100)
     : null;
 
+  // A win needs a difference that clears both the category's percentage
+  // threshold and the metric's absolute noise floor. The floor is what keeps a
+  // best value of 0 (where the percentage is undefined) or a pair of tiny
+  // values (0.2ms vs 0.6ms is "200% worse") from counting as a win.
   const thresholdPercent = getProfileCategoryThresholdPercent(metric.category);
-  const isSignificant = outcome.diffPercent == null || outcome.diffPercent >= thresholdPercent;
-  if (isSignificant) {
+  const clearsFloor = outcome.diff >= (metric.noiseFloor ?? 0);
+  const clearsPercent = outcome.diffPercent == null || outcome.diffPercent >= thresholdPercent;
+  if (clearsFloor && clearsPercent) {
     outcome.winner = racerNames[racersWithData[0].index];
   }
 
@@ -102,7 +126,8 @@ export function determineProfileMetricOutcome(metric, racerNames, values) {
 export function formatBytes(bytes) {
   if (bytes <= 0) return '0 B';
   const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  // Clamp to the largest unit so a value past it reads "1234.0 TB", not "1.2 undefined".
   const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
 }
@@ -151,7 +176,6 @@ export function buildProfileComparison(racerNames, profileData) {
       name: metric.name,
       category: metric.category,
       scope: metric.scope,
-      unit: metric.unit,
       values: vals,
       formatted: vals.map(v => v !== null ? metric.format(v) : '-'),
       winner: null,

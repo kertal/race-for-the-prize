@@ -3,7 +3,41 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import http from 'http';
-import { runScript } from '../cli/task-runner.js';
+import { runScript, createStderrBuffer } from '../cli/task-runner.js';
+
+describe('createStderrBuffer', () => {
+  it('keeps what the script wrote', () => {
+    const buf = createStderrBuffer();
+    buf.append('one\n');
+    buf.append('two\n');
+    expect(buf.text).toBe('one\ntwo\n');
+  });
+
+  it('ignores anything written after it closes', () => {
+    // The pipes outlive the script: a waitFor service inherits them and keeps
+    // logging for as long as it runs, into a buffer nobody will ever read.
+    const buf = createStderrBuffer();
+    buf.append('before\n');
+    buf.close();
+    buf.append('after\n');
+    expect(buf.text).toBe('before\n');
+  });
+
+  it('keeps only the tail of a chatty script, and says so', () => {
+    const buf = createStderrBuffer(100);
+    for (let i = 0; i < 200; i++) buf.append(`line ${i}\n`);
+    expect(buf.text).toContain('line 199');
+    expect(buf.text).not.toContain('line 0\n');
+    expect(buf.text).toContain('earlier output dropped');
+    expect(buf.text.length).toBeLessThan(200);
+  });
+
+  it('says nothing about dropping when nothing was dropped', () => {
+    const buf = createStderrBuffer(100);
+    buf.append('short\n');
+    expect(buf.text).toBe('short\n');
+  });
+});
 
 let tmpDir;
 let errorSpy;
@@ -136,6 +170,59 @@ describe('runScript execution', () => {
   it('rejects when the script exits non-zero', async () => {
     fs.writeFileSync(path.join(tmpDir, 'fail.js'), 'console.error("boom"); process.exit(3);');
     await expect(run('fail.js', 'Teardown')).rejects.toThrow('Teardown script exited with code 3');
+  });
+
+  describe('a background process holding the script pipes', () => {
+    // `npm start &` style setup scripts hand the server the script's own
+    // stdout/stderr, so 'close' only fires once the server dies.
+    let server, url;
+    beforeEach(async () => {
+      server = http.createServer((req, res) => { res.writeHead(200); res.end('ok'); });
+      await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+      url = `http://127.0.0.1:${server.address().port}/health`;
+    });
+    afterEach(() => new Promise(resolve => server.close(resolve)));
+
+    it('does not keep a waitFor script from settling', async () => {
+      // Regression: runScript waited for 'close', so the race hung on
+      // "Running setup…" for as long as the server lived.
+      fs.writeFileSync(path.join(tmpDir, 'bg.sh'), '#!/bin/sh\nsleep 5 &\nexit 0\n');
+      const started = Date.now();
+      await run({ command: 'bg.sh', timeout: 3000, waitFor: { url, interval: 50 } });
+      expect(Date.now() - started).toBeLessThan(2000);
+    });
+
+    it('still lets a waitFor script report its exit code and stderr', async () => {
+      fs.writeFileSync(path.join(tmpDir, 'bg-fail.sh'), '#!/bin/sh\necho oops >&2\nsleep 5 &\nexit 7\n');
+      await expect(run({ command: 'bg-fail.sh', timeout: 3000, waitFor: { url } })).rejects.toThrow('exited with code 7');
+      expect(errorSpy.mock.calls.some(call => String(call[0]).includes('oops'))).toBe(true);
+    });
+
+    it('is waited for by a plain script, so background work can finish', async () => {
+      // Without waitFor the script settles when its pipes close: work it
+      // backgrounded (writing race fixtures, say) is done by then.
+      fs.writeFileSync(path.join(tmpDir, 'bg-work.sh'), '#!/bin/sh\n(sleep 0.5; echo done > marker) &\nexit 0\n');
+      await run({ command: 'bg-work.sh', timeout: 5000 });
+      expect(fs.existsSync(path.join(tmpDir, 'marker'))).toBe(true);
+    });
+
+    it('is named in the timeout error of a plain script', async () => {
+      fs.writeFileSync(path.join(tmpDir, 'bg-forever.sh'), '#!/bin/sh\nsleep 5 &\nexit 0\n');
+      const started = Date.now();
+      await expect(run({ command: 'bg-forever.sh', timeout: 300 })).rejects.toThrow(/still holding its output.*waitFor/);
+      // Rejects at the timeout, not when the background process finally lets go.
+      expect(Date.now() - started).toBeLessThan(2000);
+    });
+
+    it('does not hold up a plain script still running at its timeout', async () => {
+      // The script itself is alive at the timeout, so it is killed — but its
+      // descendant keeps the pipes, so 'close' never comes. Waiting for it
+      // would hang the race on a script that has already been given up on.
+      fs.writeFileSync(path.join(tmpDir, 'slow-bg.sh'), '#!/bin/sh\nsleep 5 &\nsleep 30\n');
+      const started = Date.now();
+      await expect(run({ command: 'slow-bg.sh', timeout: 300 })).rejects.toThrow(/timed out after 300ms/);
+      expect(Date.now() - started).toBeLessThan(3000);
+    }, 15000);
   });
 
   it('rejects with a timeout error when the script exceeds its timeout', async () => {

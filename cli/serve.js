@@ -44,7 +44,10 @@ const MIME_TYPES = {
 function resolveServedPath(dir, url) {
   let urlPath;
   try {
-    urlPath = decodeURIComponent(url === '/' ? '/index.html' : url.split('?')[0]);
+    // Strip the query string before the root check, so `/?v=2` (a cache-buster
+    // or tracking parameter on the served root) still serves index.html.
+    const pathname = url.split('?')[0];
+    urlPath = decodeURIComponent(pathname === '/' ? '/index.html' : pathname);
   } catch {
     return { status: 400, message: 'Bad request' };
   }

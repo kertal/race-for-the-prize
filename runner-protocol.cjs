@@ -5,7 +5,9 @@
  *
  * The contract has three channels:
  *
- * 1. Config (argv): race.js passes a RunnerConfig as JSON in argv[2].
+ * 1. Config: race.js writes a RunnerConfig as JSON to a temp file and passes
+ *    `--config-file <path>` (inline JSON in argv[2] still works for direct
+ *    invocation, but large race scripts overflow the OS argv limit).
  * 2. Result (stdout): runner.cjs prints exactly one authoritative line,
  *    prefixed with RESULT_SENTINEL, containing a RunnerResult as JSON.
  * 3. Progress (stderr): human-readable logs, plus two machine-parsed line
@@ -24,16 +26,16 @@
  * @property {boolean} [noRecording]
  * @property {boolean} [ffmpeg]
  * @property {boolean} [har]
+ * @property {boolean} [cueMarkers]
+ * @property {boolean} [wallClock]
  * @property {string} [recordingsDir]
  * @property {boolean} [ignoreHTTPSErrors]
  * @property {number|null} [viewportHeight]
  *
  * @typedef {object} BrowserResult
  * @property {string} id
- * @property {string|null} videoPath
- * @property {string|null} fullVideoPath
- * @property {string|null} tracePath
- * @property {string|null} harPath
+ * @property {string|null} tracePath  Relative to recordingsDir; the parent copies it in --recording=0 mode.
+ *   (Videos and HAR files are not named here: the parent picks them up by scanning the racer's directory.)
  * @property {Array<{name: string, startTime: number, endTime: number, duration: number}>} measurements
  * @property {object|null} profileMetrics
  * @property {Array<{start: number, end: number}>|null} recordingSegments
@@ -55,7 +57,9 @@ const path = require('path');
 // rejects a config with a different version, and the parent rejects a result
 // with a different version, so a mismatched race.js/runner.cjs pair fails
 // with a clear error instead of silently-missing fields.
-const PROTOCOL_VERSION = 1;
+//   v2: BrowserResult dropped videoPath, fullVideoPath and harPath, which the
+//       parent never read (it scans the recordings directory instead).
+const PROTOCOL_VERSION = 2;
 
 // Prefix for the single authoritative result line on runner stdout.
 // Any stdout line not starting with this prefix is treated as noise
@@ -124,9 +128,14 @@ function confinePath(baseDir, ...segments) {
   return resolved;
 }
 
-/** Build the stderr line for page.raceMessage(text). */
+/**
+ * Build the stderr line for page.raceMessage(text). The parser reads one line,
+ * so a newline in the text would truncate the message and leave its tail as
+ * stray stderr — fold it onto one line instead.
+ */
 function formatRaceMessage(id, elapsedSeconds, text) {
-  return `[${id}] ${RACE_MESSAGE_MARKER}[${elapsedSeconds}]:${text}`;
+  const oneLine = String(text).replace(/\r\n|\r|\n/g, ' ');
+  return `[${id}] ${RACE_MESSAGE_MARKER}[${elapsedSeconds}]:${oneLine}`;
 }
 
 /** Regex matching formatRaceMessage lines for one racer; captures (elapsed, text). */

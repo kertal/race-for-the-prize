@@ -205,6 +205,38 @@ describe('calibration computeSegmentClipTimes', () => {
     expect(computeSegmentClipTimes([noTs], 'Load')).toEqual([null]); // non-finite trace ts
   });
 
+  describe('without trace calibration', () => {
+    // A race whose trace was unusable: the runner keeps the measurements on
+    // the same clock as the segments, and the segment was placed by that
+    // clock, so the measurement's offset into it carries straight over.
+    const markerEntry = {
+      start: 0.1,
+      end: 0.9,
+      _wcStart: 0.1,
+      _wcEnd: 0.9,
+      measurements: [{ name: 'Load', startTime: 0.3, endTime: 0.7 }],
+    };
+
+    it('places a section by the marker clock', () => {
+      const out = computeSegmentClipTimes([markerEntry], 'Load');
+      expect(out[0].start).toBeCloseTo(0.3, 9);
+      expect(out[0].end).toBeCloseTo(0.7, 9);
+    });
+
+    it('moves the section with a shifted clip start', () => {
+      // An exported page bakes each racer's frame offset into ct.start.
+      const shifted = { ...markerEntry, start: 1.1, end: 1.9 };
+      const out = computeSegmentClipTimes([shifted], 'Load');
+      expect(out[0].start).toBeCloseTo(1.3, 9);
+      expect(out[0].end).toBeCloseTo(1.7, 9);
+    });
+
+    it('returns null when the measurement carries no times at all', () => {
+      const noTimes = { ...markerEntry, measurements: [{ name: 'Load' }] };
+      expect(computeSegmentClipTimes([noTimes], 'Load')).toEqual([null]);
+    });
+  });
+
   it('rejects empty or inverted segments (endPts <= startPts)', () => {
     const zero = { ...entry, measurements: [{ name: 'Load', startTraceTs: 1_500_000, endTraceTs: 1_500_000 }] };
     expect(computeSegmentClipTimes([zero], 'Load')).toEqual([null]);

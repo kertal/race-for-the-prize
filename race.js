@@ -6,15 +6,19 @@
  * Orchestrates browser races: parses args, discovers racer scripts,
  * spawns the Playwright runner, collects results, and prints a report.
  *
- * Usage:
+ * Usage (published as the `race-for-the-prize` bin; from a checkout it is
+ * `node race.js` — cli/help.js picks the spelling the help screen shows):
  *   race-for-the-prize https://a.com https://b.com  Race page load times (URL mode)
- *   race-for-the-prize ./races/my-race              Run a scripted race
- *   race-for-the-prize ./races/my-race --results    View recent results
- *   race-for-the-prize ./races/my-race --parallel   Run both browsers simultaneously
- *   race-for-the-prize ./races/my-race --headless   Run headless
- *   race-for-the-prize ./races/my-race --network=fast-3g --cpu=4
- *   race-for-the-prize ./races/my-race --network=slow-3g,4g --cpu=1,4
- *   race-for-the-prize ./races/my-race --har --wasm=0 --serve=0
+ *   race-for-the-prize demo:lauda-vs-hunt           Race a demo shipped with the CLI
+ *   race-for-the-prize --init my-race               Scaffold a race directory
+ *   race-for-the-prize ./my-race                    Run a scripted race
+ *   race-for-the-prize ./my-race --results          View recent results
+ *   race-for-the-prize ./my-race --parallel         Run all browsers simultaneously
+ *   race-for-the-prize ./my-race --headless         Run headless
+ *   race-for-the-prize ./my-race --network=fast-3g --cpu=4
+ *   race-for-the-prize ./my-race --network=slow-3g,4g --cpu=1,4
+ *   race-for-the-prize ./my-race --har --wasm=0 --serve=0
+ *   race-for-the-prize --help | --version
  */
 
 import fs from 'fs';
@@ -34,7 +38,7 @@ import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
 import { buildPlayerHtml } from './cli/videoplayer.js';
 import { buildRunNavHtml } from './cli/player-sections.js';
-import { listSkins } from './cli/skins.js';
+import { buildHelp, resolveInvocation, CLI_NAME, packageVersion } from './cli/help.js';
 import { runGeminiSummary, runGeminiSpec } from './cli/gemini-summary.js';
 import { parseDemoArg, planDemo, copyDemo, formatDemoList, UnknownDemoError } from './cli/demos.js';
 import { buildResultsPaths, createStaticHandler, serveResults } from './cli/serve.js';
@@ -48,6 +52,7 @@ import { tryWriteSiteBundle } from './cli/site-bundle.js';
 // import these from race.js even though the implementations moved to
 // cli/serve.js and cli/condition-matrix.js.
 export { buildResultsPaths, createStaticHandler, serveResults, buildConditionIndexHtml };
+export { CLI_NAME, packageVersion };
 
 /** Format a Date as YYYY-MM-DD_HH-MM-SS for directory naming. */
 export function formatTimestamp(date) {
@@ -69,22 +74,6 @@ const {
   createRaceMessageRegex,
   formatContextClosed,
 } = runnerProtocol;
-
-/** The command name the package installs (`bin` in package.json). */
-export const CLI_NAME = 'race-for-the-prize';
-
-/**
- * The published version, straight from package.json, for `--version` and for
- * the config record every results directory keeps. Null when it can't be read,
- * so a packaging oddity downgrades the version line instead of failing a race.
- */
-export function packageVersion() {
-  try {
-    return createRequire(import.meta.url)('./package.json').version || null;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Module-level abort state. Set on SIGINT so in-flight work can bail out
@@ -309,7 +298,7 @@ function buildClipTimes(racerNames, getBrowserData, ffmpeg) {
  * @param {object} options.settings
  * @param {string[]} options.videoFiles
  * @param {object} options.playerExtras - additional fields merged into playerOptions (may include altFiles)
- * @param {object} options.raceOptions - { skipCopyFFmpeg, ffmpegPathPrefix }
+ * @param {object} options.raceOptions - { skipCopyFFmpeg, ffmpegPathPrefix, onSummary }
  * @param {string|null} options.raceDir - race directory, used to resolve a relative --skin path
  */
 function writePlayerAndAssets({ runDir, summary, settings, videoFiles, playerExtras, raceOptions, raceDir = null }) {
@@ -487,6 +476,10 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
     const { raceScriptFiles, settingsFileCopied, raceConfigFile } = storeRaceAssets(ctx, runDir);
     const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
 
+    // Lets the caller add to the summary (Gemini commentary) before it is
+    // written and before the player is built from it.
+    const finishSummary = (s) => { if (raceOptions.onSummary) raceOptions.onSummary(s); return s; };
+
     if (noRecording) {
       // No-recording mode: just save measurements, skip all video processing
       results = racerNames.map((name, i) => {
@@ -516,7 +509,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
         if (data.profileMetrics) fs.writeFileSync(path.join(racerRunDirs[i], 'profile-metrics.json'), JSON.stringify(data.profileMetrics, null, 2));
         return data;
       });
-      summary = buildSummary(racerNames, results, settings, runDir);
+      summary = finishSummary(buildSummary(racerNames, results, settings, runDir));
       fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
     } else {
       const progress = startProgress('Processing recordings…');
@@ -524,7 +517,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
         moveResults(recordingsDir, name, racerRunDirs[i], result.browsers?.[i] || {})
       );
 
-      summary = buildSummary(racerNames, results, settings, runDir);
+      summary = finishSummary(buildSummary(racerNames, results, settings, runDir));
       fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
       progress.done('Recordings processed');
 
@@ -668,6 +661,31 @@ export async function findMissingBrowser({
 
 // --- CLI entry point ---
 
+/**
+ * Write one of the CLI's parting screens to a standard stream, then exit.
+ *
+ * `process.exit()` drops whatever is still buffered, and writes to a pipe
+ * (`race-for-the-prize --help | less`) are buffered, so these go out through a
+ * synchronous write rather than console.log/error. EPIPE means the reader
+ * already walked away — there is nothing left to flush.
+ *
+ * @param {NodeJS.WriteStream|{fd: number}} stream - process.stdout or process.stderr
+ */
+export function printAndExit(stream, text, code) {
+  const buf = Buffer.from(`${text}\n`);
+  let written = 0;
+  while (written < buf.length) {
+    try {
+      written += fs.writeSync(stream.fd, buf, written);
+    } catch (e) {
+      if (e.code === 'EAGAIN') continue;  // pipe full — the reader will catch up
+      if (e.code === 'EPIPE') break;      // reader hung up (e.g. `| head -5`)
+      throw e;
+    }
+  }
+  process.exit(code);
+}
+
 // Check if running as main module (not imported)
 const isMainModule = process.argv[1] && (() => {
   try {
@@ -681,12 +699,17 @@ if (isMainModule) {
 
 const { positional, boolFlags, kvFlags } = parseArgs(process.argv.slice(2));
 
+// How this process was started ("race-for-the-prize", "npx race-for-the-prize"
+// or "node race.js") — every example in the help and every hint below is
+// printed with it, so copy-paste works wherever the tool came from.
+const invocation = resolveInvocation();
+
 // Reject unknown flags early — typos in CLI invocations have silently degraded benchmarks.
 const unknownFlags = findUnknownFlags(boolFlags, kvFlags);
 if (unknownFlags.length > 0) {
   const labels = unknownFlags.map(n => `--${n}`).join(', ');
   console.error(`${c.red}Error: Unknown flag(s): ${labels}${c.reset}`);
-  console.error(`${c.dim}  Run ${CLI_NAME} --help to see the list of supported flags.${c.reset}`);
+  console.error(`${c.dim}  Run ${invocation} --help to see the list of supported flags.${c.reset}`);
   process.exit(2);
 }
 
@@ -700,14 +723,15 @@ if (valuelessFlags.length > 0) {
   process.exit(2);
 }
 
-const verbose = boolFlags.has('verbose');
-
-// --- --version / --help ---
+if (boolFlags.has('help')) {
+  printAndExit(process.stdout, buildHelp(invocation), 0);
+}
 
 if (boolFlags.has('version')) {
-  console.log(`${CLI_NAME} v${packageVersion()}`);
-  process.exit(0);
+  printAndExit(process.stdout, `${CLI_NAME} v${packageVersion()}`, 0);
 }
+
+const verbose = boolFlags.has('verbose');
 
 // --- --init: scaffold a starter race directory ---
 
@@ -793,7 +817,7 @@ ${c.green}${c.bold}✓ Race scaffolded with Gemini:${c.reset} ${c.cyan}${path.re
   ${c.dim}settings.json${c.reset}
 
 ${c.bold}Run it:${c.reset}
-  ${c.cyan}npx race-for-the-prize ${path.relative(process.cwd(), targetDir)}${c.reset}
+  ${c.cyan}${invocation} ${path.relative(process.cwd(), targetDir)}${c.reset}
 `);
     } catch (e) {
       console.error(`${c.red}Gemini spec generation failed: ${e.message}${c.reset}`);
@@ -821,7 +845,7 @@ ${c.green}${c.bold}✓ Race scaffolded:${c.reset} ${c.cyan}${path.relative(proce
   ${c.dim}settings.json${c.reset}    — tune parallel, headless, runs, network, cpu
 
 ${c.bold}Run it:${c.reset}
-  ${c.cyan}npx race-for-the-prize ${path.relative(process.cwd(), targetDir)}${c.reset}
+  ${c.cyan}${invocation} ${path.relative(process.cwd(), targetDir)}${c.reset}
 `);
   process.exit(0);
 }
@@ -831,104 +855,10 @@ ${c.bold}Run it:${c.reset}
 const applySettings = (base, raceDir) => applySettingsOrExit(base, boolFlags, kvFlags, raceDir);
 const loadRace = (dir) => loadRaceDir(dir, { boolFlags, kvFlags, rootDir: __dirname, buildContext: buildRaceContext });
 
-// `--help` prints the usage banner and exits 0; no arguments at all prints the
-// same banner but exits 1, so a script that forgot its race directory fails.
-if (boolFlags.has('help') || positional.length === 0) {
-  console.error(`
-${c.yellow}    ____                   ____              _   _            ____       _          ${c.reset}
-${c.yellow}   / __ \\____ _________   / __/___  _____   / |_/ /_  ___   / __ \\_____(_)_______   ${c.reset}
-${c.yellow}  / /_/ / __ \`/ ___/ _ \\ / /_/ __ \\/ ___/  / __/ __ \\/ _ \\ / /_/ / ___/ / ___/ _ \\  ${c.reset}
-${c.yellow} / _, _/ /_/ / /__/  __// __/ /_/ / /     / /_/ / / /  __// ____/ /  / / /__/  __/  ${c.reset}
-${c.yellow}/_/ |_|\\__,_/\\___/\\___//_/  \\____/_/      \\__/_/ /_/\\___//_/   /_/  /_/\\___/\\___/   ${c.reset}
-
-${c.dim}  Race two browsers. Measure everything. Crown a winner.  🏎️ 💨${c.reset}
-
-${c.bold}  Quick Start:${c.reset}
-${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
-  ${c.bold}1.${c.reset} Choose a race mode:
-
-     ${c.cyan}races/my-race/${c.reset}
-       ${c.green}contender-a.spec.js${c.reset}  ${c.dim}# Multi-spec mode: one file per racer${c.reset}
-       ${c.blue}contender-b.spec.js${c.reset}  ${c.dim}# Racer 2${c.reset}
-       ${c.dim}OR${c.reset}
-       ${c.green}race.spec.js${c.reset}        ${c.dim}# Shared-spec mode: one file for all racers${c.reset}
-       ${c.dim}settings.json${c.reset}        ${c.dim}# shared mode racers + optional race settings${c.reset}
-       ${c.dim}setup.sh${c.reset}             ${c.dim}# Optional: global setup before race${c.reset}
-       ${c.dim}teardown.sh${c.reset}          ${c.dim}# Optional: global teardown after race${c.reset}
-       ${c.dim}contender-a.setup.sh${c.reset} ${c.dim}# Optional: per-racer setup (runs before this racer)${c.reset}
-       ${c.dim}contender-a.teardown.sh${c.reset} ${c.dim}# Optional: per-racer teardown${c.reset}
-
-  ${c.bold}2.${c.reset} Each script gets a Playwright ${c.cyan}page${c.reset} with race helpers:
-
-     ${c.dim}await${c.reset} page.goto(${c.green}'https://...'${c.reset});
-     ${c.dim}await${c.reset} page.raceRecordingStart();       ${c.dim}// optional: start video segment${c.reset}
-     ${c.dim}await${c.reset} page.raceStart(${c.green}'Load Time'${c.reset});     ${c.dim}// start measurement${c.reset}
-     ${c.dim}await${c.reset} page.click(${c.green}'.button'${c.reset});
-     ${c.dim}await${c.reset} page.waitForSelector(${c.green}'.result'${c.reset});
-     page.raceEnd(${c.green}'Load Time'${c.reset});              ${c.dim}// end measurement (sync)${c.reset}
-     page.raceMessage(${c.green}'I win!'${c.reset});              ${c.dim}// send message to CLI${c.reset}
-     ${c.dim}await${c.reset} page.raceRecordingEnd();          ${c.dim}// optional: end video segment${c.reset}
-     race.name                              ${c.dim}// this racer's name${c.reset}
-     race.vars                              ${c.dim}// per-racer vars from settings.json${c.reset}
-
-     ${c.dim}If raceRecordingStart/End are omitted, recording wraps raceStart to raceEnd.${c.reset}
-
-  ${c.bold}3.${c.reset} Run it!
-
-     ${c.bold}$${c.reset} ${c.cyan}race-for-the-prize ./races/my-race${c.reset}
-
-${c.bold}  Demo Races:${c.reset}
-${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
-  No race of your own yet? Run one that ships with the CLI:
-
-     ${c.bold}$${c.reset} ${c.cyan}race-for-the-prize demo:lauda-vs-hunt${c.reset}   ${c.dim}# race-for-the-prize demo — to list them all${c.reset}
-
-${c.bold}  Quick Race (URL mode):${c.reset}
-${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
-  Pass 2+ URLs directly to measure page load times head-to-head:
-
-     ${c.bold}$${c.reset} ${c.cyan}race-for-the-prize https://react.dev https://angular.dev${c.reset}
-
-${c.bold}  Commands:${c.reset}
-${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
-  race-for-the-prize ${c.cyan}<url> <url> [url...]${c.reset}      Race page load times (2-5 URLs)
-  race-for-the-prize ${c.magenta}demo${c.reset}                        List the demo races shipped with the CLI
-  race-for-the-prize ${c.magenta}demo:${c.cyan}<name>${c.reset}                 Run a demo race (asks before copying it to ./races/<name>/)
-  race-for-the-prize ${c.magenta}demo:${c.cyan}<name>${c.reset} ${c.yellow}--yes${c.reset}           Copy the demo race without being asked
-  race-for-the-prize ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset}               Scaffold a starter race (default: my-race/)
-  race-for-the-prize ${c.cyan}<dir>${c.reset}                       Run a scripted race
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--results${c.reset}            View recent results
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--parallel${c.reset}           Run both browsers simultaneously
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--headless${c.reset}           Hide browsers
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--network${c.reset}=${c.green}slow-3g${c.reset}   Network: none, slow-3g, fast-3g, 4g
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--network${c.reset}=${c.green}slow-3g,4g${c.reset} Race each network condition separately
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}4${c.reset}              CPU slowdown: 4x slower (1=none)
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}1,4${c.reset}            Race each CPU slowdown separately
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--format${c.reset}=${c.green}mov${c.reset}          Output format: webm (default), mov, gif
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--skin${c.reset}=${c.green}light${c.reset}          Skin the results player: ${listSkins().join(', ')}, or a path to a .css file
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--runs${c.reset}=${c.green}3${c.reset}            Run multiple times, report median
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--pause${c.reset}              Pause between runs (press Enter to continue)
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--slowmo${c.reset}=${c.green}2${c.reset}           Slow-motion side-by-side replay (2x, 3x, etc.)
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--overlay${c.reset}=${c.green}0${c.reset}        Disable overlays in recordings (1=enable, 0=disable)
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--recording${c.reset}=${c.green}0${c.reset}      Skip video recording, just measure (1=enable, 0=disable)
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--ffmpeg${c.reset}             Enable FFmpeg processing (trim, merge, convert)
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--har${c.reset}                Record network HAR files alongside videos
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--wasm${c.reset}=${c.green}0${c.reset}           Skip copying ffmpeg.wasm files (~25 MB) to results
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--height${c.reset}=${c.green}900${c.reset}          Viewport/recording height in pixels (480–4320, default 720)
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--ignore-https-errors${c.reset}  Accept invalid/self-signed TLS certificates
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--wall-clock${c.reset}         Burn a ticking wall clock into the recording (perturbs metrics)
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--cue-markers${c.reset}        Flash visual cues at segment boundaries (calibration testing; perturbs metrics)
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--bundle${c.reset}=${c.green}0${c.reset}         Don't zip a multi-condition race into a shareable static site
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--serve${c.reset}=${c.green}0${c.reset}          Don't start local results server (CI/headless; open index.html manually)
-  race-for-the-prize ${c.cyan}<dir>${c.reset} ${c.yellow}--gemini${c.reset}             Gemini CLI sports reporter commentary after race
-  race-for-the-prize ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset} ${c.yellow}--gemini-spec${c.reset}=${c.green}"prompt"${c.reset}  Generate specs via Gemini + Playwright HTML research
-
-${c.dim}  All flags except --results work with both URL mode and directory mode.${c.reset}
-${c.dim}  Try a demo:       race-for-the-prize demo:lauda-vs-hunt${c.reset}
-${c.dim}  Not installed?    npx race-for-the-prize demo:lauda-vs-hunt${c.reset}
-${c.dim}  Version:          race-for-the-prize --version   (v${packageVersion()})${c.reset}
-`);
-  process.exit(boolFlags.has('help') ? 0 : 1);
+if (positional.length === 0) {
+  // No arguments: same screen as --help, but on stderr with a non-zero exit
+  // so a script that forgot its arguments still fails.
+  printAndExit(process.stderr, buildHelp(invocation), 1);
 }
 
 // --- demo:<name>: run a race bundled with the package ---
@@ -939,7 +869,7 @@ let demoDir = null;
 const demoArg = parseDemoArg(positional[0]);
 if (demoArg) {
   if (!demoArg.name) {
-    console.log(formatDemoList(c));
+    console.log(formatDemoList(c, invocation));
     process.exit(0);
   }
 
@@ -949,7 +879,7 @@ if (demoArg) {
   } catch (e) {
     if (e instanceof UnknownDemoError) {
       console.error(`${c.red}Error: Unknown demo race: ${e.demoName}${c.reset}`);
-      console.error(formatDemoList(c));
+      console.error(formatDemoList(c, invocation));
       process.exit(1);
     }
     console.error(`${c.red}Error: ${e.message}${c.reset}`);
@@ -986,7 +916,7 @@ if (demoArg) {
 
 if (positional.length === 1 && isUrl(positional[0])) {
   console.error(`${c.red}Error: URL mode requires at least 2 URLs to race against each other${c.reset}`);
-  console.error(`${c.dim}  Example: race-for-the-prize https://react.dev https://angular.dev${c.reset}`);
+  console.error(`${c.dim}  Example: ${invocation} https://react.dev https://angular.dev${c.reset}`);
   process.exit(1);
 }
 
@@ -996,8 +926,8 @@ const urlMode = positional.length >= 2 && positional.every(p => isUrl(p));
 if (!urlMode && positional.length >= 2 && positional.some(p => isUrl(p))) {
   const nonUrls = positional.filter(p => !isUrl(p));
   console.error(`${c.red}Error: Cannot mix URLs and directory paths. These are not valid URLs: ${nonUrls.join(', ')}${c.reset}`);
-  console.error(`${c.dim}  For URL mode, pass only URLs: race-for-the-prize https://a.com https://b.com${c.reset}`);
-  console.error(`${c.dim}  For directory mode, pass a race directory: race-for-the-prize ./races/my-race${c.reset}`);
+  console.error(`${c.dim}  For URL mode, pass only URLs: ${invocation} https://a.com https://b.com${c.reset}`);
+  console.error(`${c.dim}  For directory mode, pass a race directory: ${invocation} ./my-race${c.reset}`);
   process.exit(1);
 }
 
@@ -1076,6 +1006,13 @@ if (urlMode) {
 // produced it (config.json), and the HTML report shows the same thing: a race's
 // numbers only mean something next to the settings they were measured under.
 
+// The tool's own version, for the record. Absent if package.json is unreadable.
+// (Named apart from the module-level packageVersion(): a block-scoped const of
+// the same name shadowed it for the whole main block, so `--version` and the
+// help banner above threw a temporal-dead-zone ReferenceError.)
+const toolVersion = (() => {
+  try { return packageVersion() || null; } catch { return null; }
+})();
 // The spec files stay the same for the whole invocation, unlike ctx, which is
 // rebuilt per throttling condition.
 const raceFiles = ctx.racerFiles;
@@ -1096,7 +1033,7 @@ function raceConfigFor(activeSettings) {
     racerNames,
     racerFiles: raceFiles,
     mode: raceMode,
-    version: packageVersion(),
+    version: toolVersion,
   });
 }
 
@@ -1209,29 +1146,6 @@ function generateGeminiCommentary(summary, outputDir) {
   }
 }
 
-/** Inject gemini commentary into the notes textarea of an existing index.html. */
-function bakeNotesIntoHtml(dir, commentary) {
-  if (!commentary) return;
-  const htmlPath = path.join(dir, 'index.html');
-  if (!fs.existsSync(htmlPath)) return;
-  let html = fs.readFileSync(htmlPath, 'utf-8');
-  const escaped = commentary.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  // Replace the empty textarea with commentary content and open the notes section.
-  // Target the notes section specifically via the textarea id.
-  const placeholder = 'id="notesTextarea" placeholder="Add notes about this race..."></textarea>';
-  const replacement = `id="notesTextarea" placeholder="Add notes about this race...">\n🤖 Gemini Race Commentary\n${'─'.repeat(40)}\n${escaped}\n</textarea>`;
-  html = html.replace(placeholder, replacement);
-  // Uncollapse the notes section — match specifically the Notes section's <details>
-  // by anchoring on its unique <summary><h2>Notes</h2></summary> heading.
-  // This prevents accidentally opening a different section even if notesTextarea
-  // appears later in the document.
-  html = html.replace(
-    /(<details class="section" )(?=(?:(?!<\/details>)[\s\S])*?<summary><h2>Notes<\/h2><\/summary>(?:(?!<\/details>)[\s\S])*?id="notesTextarea")/,
-    '$1open'
-  );
-  fs.writeFileSync(htmlPath, html);
-}
-
 /**
  * Write the multi-condition overview page, and — unless --bundle=0 — the zip
  * that makes the whole thing portable.
@@ -1291,6 +1205,10 @@ function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts
 
   progress.done('Recordings processed');
 
+  // No recording means no video player (and no ffmpeg.wasm to ship with it) —
+  // the same as runSingleRace's no-recording path, which only saves measurements.
+  if (settings.noRecording) return { summary, clipTimes: null };
+
   const clipTimes = buildClipTimes(racerNames, (ri) => runRawResults[ri].browsers?.[0], ffmpeg);
 
   const videoFiles = racerNames.map(name => racerRelative(name, raceVideoFile(name)));
@@ -1326,12 +1244,13 @@ async function runRaceSeries() {
 /** Normal mode: all racers run together, once per run. */
 async function runNormalModeSeries() {
   if (totalRuns === 1) {
-    const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir);
+    // Commentary is generated before summary.json and the player are written,
+    // so the player renders it into its notes at build time — the same path
+    // split mode takes — instead of patching the finished HTML afterwards.
+    const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir, null, {
+      onSummary: (s) => generateGeminiCommentary(s, resultsDir),
+    });
     printSummary(summary);
-    generateGeminiCommentary(summary, resultsDir);
-    // Re-write summary.json with gemini commentary included
-    fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(summary, null, 2));
-    bakeNotesIntoHtml(resultsDir, summary.geminiCommentary);
     fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summary, sideBySidePath ? sideBySideName : null));
     return summary;
   }

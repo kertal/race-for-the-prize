@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#1a1a1a">
+<title>RaceForThePrize — browsers, head to head</title>
+<meta name="description" content="A command-line showdown that pits browsers against each other in head-to-head performance battles. Live terminal animation, side-by-side video replay, and a race report that crowns the champion.">
+<meta property="og:title" content="RaceForThePrize">
+<meta property="og:description" content="Race browsers head-to-head and crown a champion. No judges, no bias — just cold, hard milliseconds on the clock.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://kertal.github.io/race-for-the-prize/">
+<meta property="og:image" content="https://raw.githubusercontent.com/kertal/race-for-the-prize/main/assets/screenshot-player-fullscreen.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%8F%81%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+
+<header class="race-header">
+  <span class="strapline">🏁 Race for the Prize</span>
+  <a class="repo-link" href="https://github.com/kertal/race-for-the-prize">github ↗</a>
+</header>
+
+<main>
+
+  <section class="hero">
+    <h1>Race browsers<br>head to head</h1>
+    <p class="tagline">A command-line showdown that pits 2&nbsp;to&nbsp;5 browsers against each other, records the whole thing, and crowns a champion.</p>
+    <p class="flag-line">No judges · no bias · just milliseconds</p>
+    <code class="command"><span class="prompt">$ </span>npx race-for-the-prize demo:lauda-vs-hunt</code>
+    <div class="actions">
+      <a class="btn primary" href="https://github.com/kertal/race-for-the-prize#the-starting-grid">Start your engines</a>
+      <a class="btn" href="https://github.com/kertal/race-for-the-prize/blob/main/docs/demos.md">Demo races</a>
+      <a class="btn" href="https://www.npmjs.com/package/race-for-the-prize">npm</a>
+    </div>
+  </section>
+
+  <section>
+    <h2>Roll the tape</h2>
+    <p class="lede">Every recorded race ends in the player: each racer's recording, trimmed to the same start gun and replayed side by side, with the clock running and a badge on whoever crosses the line.</p>
+    <figure>
+      <img src="https://raw.githubusercontent.com/kertal/race-for-the-prize/main/assets/demos/race_alpha_vs_bravo_vs_charlie_vs_delta.gif"
+           alt="Four browser recordings replayed side by side, each with a timer overlay, finishing at different moments"
+           loading="lazy" width="640" height="400">
+      <figcaption>Four racers, one shared clock, one chequered flag. <a href="https://github.com/kertal/race-for-the-prize/blob/main/assets/race-for-the-prize-hunt-vs-lauda.gif">Watch Lauda vs Hunt ↗</a></figcaption>
+    </figure>
+  </section>
+
+
+  <section>
+    <h2>What you get</h2>
+    <p class="lede">Every race ends with a podium, a folder you can reread months later, and — unless you switch recording off for the numbers alone — a replay.</p>
+    <div class="grid">
+      <div class="card">
+        <h3>🏎️ Live race animation</h3>
+        <p>The terminal calls the race while the browsers are still running — positions, messages, and the moment someone takes the lead.</p>
+      </div>
+      <div class="card">
+        <h3>🎬 Side-by-side replay</h3>
+        <p>An interactive HTML player with frame-accurate calibration, segment navigation, and placement badges as each racer crosses the line.</p>
+      </div>
+      <div class="card">
+        <h3>📊 Medals and bar charts</h3>
+        <p>Every timed section compared racer by racer, with an overall winner decided on total time — and ties called as ties.</p>
+      </div>
+      <div class="card">
+        <h3>📈 Performance profiles</h3>
+        <p>Transfer size, request count, script execution, layout time, TTFB, FCP, LCP, CLS — collected straight from the DevTools protocol.</p>
+      </div>
+      <div class="card">
+        <h3>🌧️ Track conditions</h3>
+        <p>Network throttling, CPU ballast, and repeated runs with a median. Race every combination and watch the winner flip.</p>
+      </div>
+      <div class="card">
+        <h3>🗂️ A results folder that keeps</h3>
+        <p>Videos, Chrome traces, a Markdown report card, and the exact command and settings the race ran with.</p>
+      </div>
+    </div>
+    <figure>
+      <img src="https://raw.githubusercontent.com/kertal/race-for-the-prize/main/assets/screenshot-player-fullscreen.png"
+           alt="The race report: results table with medals, per-section bar charts and the side-by-side video player"
+           loading="lazy" width="1280" height="900">
+      <figcaption>The report the CLI opens when the flag drops.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>The starting grid</h2>
+    <p class="lede">Four races ship with the tool. Watch a real one before you write your own.</p>
+    <table class="lineup">
+      <thead>
+        <tr><th scope="col">Command</th><th scope="col">The race</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>demo:lauda-vs-hunt</td><td>The classic rivalry — two Wikipedia pages, scrolled to the bottom</td></tr>
+        <tr><td>demo:lebron-vs-curry</td><td>The GOAT debate — dribble three times, then race back to the top</td></tr>
+        <tr><td>demo:react-vs-angular</td><td>Framework cage match — React, Angular, Svelte and htmx, four racers</td></tr>
+        <tr><td>demo:caching-comparison</td><td>Encrypted cache vs plain cache vs no cache, both halves timed</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Write your own in five minutes</h2>
+    <p class="lede">A race is a folder: either one Playwright script per racer, or one shared script plus the racers listed in <code>settings.json</code>. Either way your <code>page</code> arrives with a stopwatch already attached.</p>
+    <code class="command"><span class="prompt">$ </span>race-for-the-prize --init my-race
+<span class="prompt">$ </span>race-for-the-prize my-race --network=slow-3g --runs=3</code>
+    <div class="grid">
+      <a class="card" href="https://github.com/kertal/race-for-the-prize/blob/main/docs/writing-races.md">
+        <h3>Writing a race</h3>
+        <p>Multi-spec and shared-spec modes, the race API, setup and teardown scripts.</p>
+      </a>
+      <a class="card" href="https://github.com/kertal/race-for-the-prize/blob/main/docs/use-cases.md">
+        <h3>What to race</h3>
+        <p>A/B tests, framework shoot-outs, third-party script cost, mobile conditions.</p>
+      </a>
+      <a class="card" href="https://github.com/kertal/race-for-the-prize/blob/main/docs/cli.md">
+        <h3>Flags &amp; settings</h3>
+        <p>Every CLI flag, the throttling presets, and the full settings.json reference.</p>
+      </a>
+      <a class="card" href="https://github.com/kertal/race-for-the-prize/blob/main/docs/results.md">
+        <h3>Reading results</h3>
+        <p>The results folder, the HTML player, the performance matrix, the podium.</p>
+      </a>
+      <a class="card" href="https://github.com/kertal/race-for-the-prize/blob/main/docs/skinning.md">
+        <h3>Skinning the player</h3>
+        <p>Design tokens and how to put your own livery on a race report.</p>
+      </a>
+      <a class="card" href="https://github.com/kertal/race-for-the-prize/blob/main/docs/development.md">
+        <h3>Working on the tool</h3>
+        <p>Running from a clone, project structure, tests, and the slide deck.</p>
+      </a>
+    </div>
+  </section>
+
+  <section>
+    <h2>A word from the stewards</h2>
+    <div class="note">
+      <p>The aim here is not laboratory accuracy — it's to <em>showcase</em> performance, to make it visible, to compare how a page behaves under different conditions.</p>
+      <p>Screen recording and frame trimming are side effects stacked on top of the side effects every browser metric already carries. Question the numbers, double-check the findings, and treat the tool as a storyteller with a stopwatch rather than an oracle.</p>
+    </div>
+  </section>
+
+  <footer>
+    <p>Built by <a href="https://github.com/kertal">@kertal</a> on top of the mighty <a href="https://playwright.dev/">Playwright</a>, and named after the <a href="https://www.youtube.com/watch?v=bs56ygZplQA">Flaming Lips song</a> that plays in the paddock. MIT licensed.</p>
+  </footer>
+
+</main>
+
+<div class="checkered-bar"></div>
+
+</body>
+</html>

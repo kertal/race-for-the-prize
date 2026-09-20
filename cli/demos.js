@@ -10,6 +10,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { CLI_NAME } from './help.js';
 
 /** Demo races shipped in `races/`, in the order the ReadMe introduces them. */
 export const DEMO_RACES = [
@@ -93,8 +94,13 @@ export function copyDemo(plan) {
   return plan.files;
 }
 
-/** Human-readable list of the demo races, for `demo` and error messages. */
-export function formatDemoList(colors = {}) {
+/**
+ * Human-readable list of the demo races, for `demo` and error messages.
+ *
+ * `cmd` is how the reader's install spells the command (see
+ * `resolveInvocation`), so the hint at the bottom is one they can paste.
+ */
+export function formatDemoList(colors = {}, cmd = CLI_NAME) {
   const { bold = '', cyan = '', dim = '', reset = '' } = colors;
   const width = Math.max(...DEMO_RACES.map(d => d.name.length));
   const lines = DEMO_RACES.map(
@@ -104,7 +110,7 @@ export function formatDemoList(colors = {}) {
     `${bold}Demo races:${reset}`,
     ...lines,
     '',
-    `${dim}  Run one with:  race-for-the-prize demo:${DEMO_RACES[0].name}${reset}`,
+    `${dim}  Run one with:  ${cmd} demo:${DEMO_RACES[0].name}${reset}`,
     `${dim}  The race is copied to ./races/<name>/ so you can edit it and race again.${reset}`,
   ].join('\n');
 }

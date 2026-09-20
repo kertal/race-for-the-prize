@@ -36,6 +36,7 @@ node race.js demo:lauda-vs-hunt                   # Run a bundled demo race (`de
 
 **CLI modules (`cli/`):**
 - `config.js` — arg parsing, racer/`.spec.js` discovery, settings defaults/validation/override logic
+- `help.js` — the `--help` screen, plus `CLI_NAME` and `packageVersion()` (what `--version` prints): `resolveInvocation()` works out whether the reader types `race-for-the-prize`, `npx race-for-the-prize` or `node race.js`, and `buildHelp()` renders every example with it
 - `race-config.js` — the race record: the command line, the merged settings, and where each value came from (CLI flag / `settings.json` / default); written as `config.json` into every results directory and shown in the player
 - `animation.js` — live terminal race animation
 - `summary.js` — summary data model, terminal output, JSON/Markdown report generation
@@ -71,6 +72,8 @@ node race.js demo:lauda-vs-hunt                   # Run a bundled demo race (`de
 - The browser runtime builds DOM with `document.createElement`/`replaceChildren`, never `innerHTML`.
 - `tokens.css` holds the palette + semantic tokens shared by both reports; `player.css` and `condition-matrix.css` are component layers that inline it. A component layer must contain no literal colors/fonts/radii and must never reference a raw `--color-*` palette token — tests enforce both, on both stylesheets. Skins (`cli/skins/*.css`) only redefine tokens under `:root[data-theme="<name>"]`; see `docs/skinning.md`.
 - Per-racer colors reach the page as an inline `--racer-color` custom property, never as a hard-coded `color:` declaration.
+- **Docs live in `docs/`, the ReadMe stays a summary.** `ReadMe.md` is the pit-lane overview and links out; the handbook pages (`demos.md`, `writing-races.md`, `use-cases.md`, `cli.md`, `results.md`, `development.md`, `skinning.md`) carry the detail. When a change alters behaviour, update the page that owns it rather than growing the ReadMe back.
+- `docs/index.html` + `docs/site.css` are the GitHub Pages landing page (served from `main` → `/docs`, with `.nojekyll`). It is hand-written static HTML with no build step and no scripts, so it cannot inline `cli/tokens.css` the way the reports do — its token block mirrors those declarations instead, and `tests/site.test.js` fails if a mirrored value drifts. Race-report chrome it reuses (the chequered head and foot bands) is copied deliberately: the site should look like the thing it documents.
 - Unit tests live in `tests/` (`vitest.config.js` excludes `races/`, `my-races/`, `integration/`). Integration tests live in `integration/` (`vitest.integration.config.js`) and skip themselves when Chromium or ffprobe is unavailable.
 
 ## Guidelines
