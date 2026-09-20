@@ -64,6 +64,7 @@ Three more races are in the garage: the GOAT debate (`demo:lebron-vs-curry`), a 
 | **[Skinning the Player](docs/skinning.md)** | Design tokens and how to theme a report |
 | **[Installation Guide](INSTALLATION.md)** | Node, Chromium and FFmpeg on every platform |
 | **[Working on the Tool](docs/development.md)** | Running from a clone, project structure, tests, the slide deck |
+| **[Credits](docs/credits.md)** | The tools, the song and the people this whole thing stands on |
 
 ## A Word From the Stewards
 
@@ -74,6 +75,8 @@ The aim here is not laboratory accuracy — it's to *showcase* performance, to m
 - Built by [@kertal](https://github.com/kertal). More contributors very welcome!
 - Built on top of the mighty [Playwright](https://playwright.dev/) — the browser automation framework that makes all of this possible.
 - Built with support of the great "[Race for the Prize](https://www.youtube.com/watch?v=bs56ygZplQA)" song by [The Flaming Lips](https://www.flaminglips.com/).
+
+The full pit crew — every dependency, the pages the demos drive, and the people — is in **[Credits](docs/credits.md)**.
 
 ## License
 
