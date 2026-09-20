@@ -18,16 +18,26 @@ const BARRIER_TIMEOUT_MS = 300000;
 
 /**
  * The deadline argument is either a number of milliseconds or an options
- * object `{ timeoutMs }`. Anything else is a caller bug: an object compared
- * with `> 0` is NaN-false, which would silently disable the backstop, so it
- * throws instead.
+ * object `{ timeoutMs }` (`{}` takes the default). Anything else is a caller
+ * bug: an object compared with `> 0` is NaN-false, which would silently
+ * disable the backstop, so it throws instead. An array, or an object carrying
+ * any other key, is a misspelled or misplaced option rather than a deadline —
+ * reading a default out of it would hide the same mistake.
  */
 function resolveTimeoutMs(timeout) {
-  const value = timeout !== null && typeof timeout === 'object' ? timeout.timeoutMs : timeout;
-  if (value === undefined) return BARRIER_TIMEOUT_MS;
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-    throw new TypeError(`SyncBarrier timeout must be a non-negative number of ms, got ${JSON.stringify(timeout)}`);
+  const reject = () => {
+    throw new TypeError(
+      `SyncBarrier timeout must be a non-negative number of ms, or { timeoutMs }, got ${JSON.stringify(timeout)}`
+    );
+  };
+  let value = timeout;
+  if (typeof timeout === 'object' && timeout !== null) {
+    if (Array.isArray(timeout)) reject();
+    if (Object.keys(timeout).some(key => key !== 'timeoutMs')) reject();
+    value = timeout.timeoutMs;
   }
+  if (value === undefined) return BARRIER_TIMEOUT_MS;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) reject();
   return value;
 }
 
@@ -52,17 +62,38 @@ class SyncBarrier {
     this.resolvers = [];
   }
 
+  /** Let everyone waiting through, and reset for the next cycle. */
+  _releaseWaiters() {
+    // Clean up polling intervals from all waiters before resolving
+    this.checkIntervals.forEach(clearInterval);
+    this.checkIntervals = [];
+    this.resolvers.forEach(r => r({ aborted: false }));
+    this.waiting = 0;
+    this.resolvers = [];
+  }
+
+  /**
+   * Stop expecting one more caller here, for good.
+   *
+   * A racer that has finished its script will never reach this checkpoint
+   * again. Without saying so, a partner that opens more recording segments
+   * than it did would wait here for someone who has already left — the
+   * checkpoint could only ever be met by the deadlock backstop, turning a
+   * merely asymmetric race into a failed one. Whoever is waiting now goes
+   * through if the smaller count is already met.
+   */
+  leave() {
+    if (this.released || this.count <= 0) return;
+    this.count--;
+    if (this.waiting > 0 && this.waiting >= this.count) this._releaseWaiters();
+  }
+
   async wait(label = '') {
     if (this.released || this.sharedState?.hasError) return { aborted: true };
 
     this.waiting++;
     if (this.waiting >= this.count) {
-      // Clean up polling intervals from all waiters before resolving
-      this.checkIntervals.forEach(clearInterval);
-      this.checkIntervals = [];
-      this.resolvers.forEach(r => r({ aborted: false }));
-      this.waiting = 0;
-      this.resolvers = [];
+      this._releaseWaiters();
       return { aborted: false };
     }
 
