@@ -680,3 +680,34 @@ describe('buildConditionIndexHtml skinning', () => {
     expect(() => buildConditionIndexHtml('a vs b', entries, { skin: 'nope' })).toThrow(/Unknown skin/);
   });
 });
+
+describe('buildConditionIndexHtml shareable bundle link', () => {
+  const entries = [{ label: 'x', network: 'none', cpu: 1, summary: summaryOf({ a: 1, b: 2 }, 'a') }];
+
+  it('offers the bundle as a download when the race wrote one', () => {
+    const html = buildConditionIndexHtml('a vs b', entries, {
+      download: { href: 'results-2026-01-02-abc123-site.zip', size: '6.3 MB' },
+    });
+    expect(html).toContain('<a class="dl" href="results-2026-01-02-abc123-site.zip" download>');
+    expect(html).toContain('<span class="size">6.3 MB</span>');
+    // Worth saying what the zip is for, where the person is deciding to click.
+    expect(html).toMatch(/GitHub Pages/);
+  });
+
+  it('renders nothing when there is no bundle — the copy that goes inside it', () => {
+    // A zip cannot contain itself, so the bundled page must not link to one.
+    for (const options of [{}, { download: null }, { download: {} }]) {
+      const html = buildConditionIndexHtml('a vs b', entries, options);
+      expect(html).not.toContain('class="share"');
+      expect(html).not.toContain('{{download}}');
+    }
+  });
+
+  it('escapes the file name rather than letting it into the markup', () => {
+    const html = buildConditionIndexHtml('a vs b', entries, {
+      download: { href: 'a"><script>x</script>.zip', size: '1 KB' },
+    });
+    expect(html).not.toContain('<script>x</script>');
+    expect(html).toContain('&quot;&gt;&lt;script&gt;');
+  });
+});

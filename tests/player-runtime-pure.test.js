@@ -660,6 +660,46 @@ describe('createZipBuilder', () => {
     expect(name).toBe('dir/data.bin');
   });
 
+  it('stores every file when no compressor is supplied — the browser build', async () => {
+    const data = enc('x'.repeat(200));
+    const dv = await buildZip([['padding.txt', data]]);
+    expect(dv.getUint16(8, true)).toBe(0); // method: stored
+    expect(dv.getUint32(18, true)).toBe(data.length); // compressed size == the input
+  });
+
+  it('deflates a file when the compressor shrinks it, keeping the original CRC and size', async () => {
+    const zlib = await import('node:zlib');
+    const data = enc('x'.repeat(200));
+    const b = createZipBuilder({ compress: bytes => zlib.deflateRawSync(bytes) });
+    b.addFile('padding.txt', data);
+    const dv = new DataView(await b.toBlob().arrayBuffer());
+    expect(dv.getUint16(8, true)).toBe(8); // method: deflated
+    expect(dv.getUint32(14, true)).toBe(crc32(data)); // CRC is of the original bytes
+    expect(dv.getUint32(18, true)).toBeLessThan(data.length); // compressed size
+    expect(dv.getUint32(22, true)).toBe(data.length); // uncompressed size
+  });
+
+  it('keeps a file stored when compressing it would not make it smaller', async () => {
+    // Random bytes: deflate adds framing rather than saving anything.
+    const data = new Uint8Array(64);
+    for (let i = 0; i < data.length; i++) data[i] = (i * 97 + 13) % 256;
+    const zlib = await import('node:zlib');
+    const b = createZipBuilder({ compress: bytes => zlib.deflateRawSync(bytes) });
+    b.addFile('noise.bin', data);
+    const dv = new DataView(await b.toBlob().arrayBuffer());
+    expect(dv.getUint16(8, true)).toBe(0);
+    expect(dv.getUint32(18, true)).toBe(data.length);
+  });
+
+  it('lets the compressor opt a file out by name', async () => {
+    const seen = [];
+    const b = createZipBuilder({ compress: (bytes, name) => { seen.push(name); return null; } });
+    b.addFile('clip.webm', enc('y'.repeat(200)));
+    const dv = new DataView(await b.toBlob().arrayBuffer());
+    expect(seen).toEqual(['clip.webm']);
+    expect(dv.getUint16(8, true)).toBe(0); // stored, as the hook asked
+  });
+
   it('produces an archive that a real unzip implementation accepts', async () => {
     const dv = await buildZip([['index.html', enc('<html></html>')], ['notes.txt', enc('ok')]]);
     const { execFileSync } = await import('node:child_process');

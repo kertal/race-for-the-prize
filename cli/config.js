@@ -10,7 +10,7 @@ const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'he
 const BOOLEAN_VALUE_FLAGS = new Set([
   'parallel', 'headless', 'overlay', 'recording',
   'ffmpeg', 'har', 'wasm', 'serve', 'pause', 'ignore-https-errors', 'gemini',
-  'cue-markers', 'wall-clock',
+  'cue-markers', 'wall-clock', 'bundle',
 ]);
 
 /** Boolean flags the CLI recognises. Unknown flags produce an error. */
@@ -18,7 +18,7 @@ export const KNOWN_BOOL_FLAGS = new Set([
   'parallel', 'headless', 'overlay', 'recording',
   'ffmpeg', 'har', 'wasm', 'serve', 'pause', 'ignore-https-errors',
   'gemini', 'results', 'init', 'verbose', 'help', 'version', 'yes',
-  'cue-markers', 'wall-clock',
+  'cue-markers', 'wall-clock', 'bundle',
 ]);
 
 /** Combined set of all valid flag names (bool + kv). */
@@ -41,6 +41,7 @@ export const FLAG_SETTING_KEYS = {
   har: 'har',
   wasm: 'noWasm',
   serve: 'noServe',
+  bundle: 'noBundle',
   pause: 'pauseBetweenRuns',
   'ignore-https-errors': 'ignoreHTTPSErrors',
   gemini: 'gemini',
@@ -269,6 +270,7 @@ const BOOLEAN_SETTING_KEYS = [
   'har',
   'noWasm',
   'noServe',
+  'noBundle',
   'pauseBetweenRuns',
   'ignoreHTTPSErrors',
   'cueMarkers',
@@ -310,6 +312,7 @@ export function applyDefaults(settings) {
     har: false,
     noWasm: false,
     noServe: false,
+    noBundle: false,
     pauseBetweenRuns: false,
     ignoreHTTPSErrors: false,
     cueMarkers: false,
@@ -520,6 +523,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('har')) s.har = true;
   if (boolFlags.has('wasm')) s.noWasm = false;
   if (boolFlags.has('serve')) s.noServe = false;
+  if (boolFlags.has('bundle')) s.noBundle = false;
   if (boolFlags.has('pause')) s.pauseBetweenRuns = true;
   if (boolFlags.has('ignore-https-errors')) s.ignoreHTTPSErrors = true;
   if (boolFlags.has('gemini')) s.gemini = true;
@@ -534,6 +538,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (kvFlags.har !== undefined) s.har = parseCliBoolean(kvFlags.har, '--har');
   if (kvFlags.wasm !== undefined) s.noWasm = !parseCliBoolean(kvFlags.wasm, '--wasm');
   if (kvFlags.serve !== undefined) s.noServe = !parseCliBoolean(kvFlags.serve, '--serve');
+  if (kvFlags.bundle !== undefined) s.noBundle = !parseCliBoolean(kvFlags.bundle, '--bundle');
   if (kvFlags.pause !== undefined) s.pauseBetweenRuns = parseCliBoolean(kvFlags.pause, '--pause');
   if (kvFlags['ignore-https-errors'] !== undefined) {
     s.ignoreHTTPSErrors = parseCliBoolean(kvFlags['ignore-https-errors'], '--ignore-https-errors');

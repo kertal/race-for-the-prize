@@ -108,6 +108,21 @@ td a:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .d { color: var(--text-ghost); font-variant-numeric: tabular-nums; white-space: nowrap;
      text-align: right; overflow: hidden; text-overflow: ellipsis; }
 p.tally { text-align: center; color: var(--text-subtle); font-size: var(--font-size-base); margin: 2rem 0 0; }
+
+/* Take-the-whole-thing-with-you: a quiet closing action under the tally, not a
+   call to arms competing with the matrix above it. */
+p.share { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; margin: 1.6rem 0 0; }
+.share .dl { display: inline-flex; align-items: baseline; gap: 0.45rem;
+             font-size: var(--font-size-base); font-weight: bold; letter-spacing: var(--tracking-tight);
+             color: var(--accent); text-decoration: none;
+             background: var(--surface); border: var(--border-width) solid var(--border-strong);
+             border-radius: var(--radius); padding: 0.4rem 0.9rem;
+             transition: background var(--duration), border-color var(--duration); }
+.share .dl:hover { background: var(--surface-raised); border-color: var(--accent); }
+.share .dl:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.share .size { color: var(--text-subtle); font-size: var(--font-size-xs); font-weight: normal;
+               font-variant-numeric: tabular-nums; }
+.share .hint { color: var(--text-ghost); font-size: var(--font-size-xs); text-align: center; }
 /* A footnote to the table it explains, so it sits closer to it than the tally does. */
 p.legend { text-align: center; color: var(--text-ghost); font-size: var(--font-size-xs); margin: 0.9rem 0 0; }
 
@@ -120,4 +135,5 @@ p.legend { text-align: center; color: var(--text-ghost); font-size: var(--font-s
 @media (prefers-reduced-motion: reduce) {
   td a { transition: none; }
   td a:hover { transform: none; }
+  .share .dl { transition: none; }
 }

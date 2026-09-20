@@ -345,6 +345,12 @@ Afterwards you get a **performance matrix** — network presets down the side, C
 
 One race per condition tells you who won each; the matrix tells you how the field holds up as conditions get harder — and whether the winner flips somewhere along the way.
 
+### Sharing the Matrix
+
+A multi-condition race also writes one zip beside the matrix — `results-<timestamp>-site.zip` — and the matrix page offers it as a **Download this site** link. Inside is the whole thing as a static site: `index.html`, every condition's player, and the recordings they play, with all the links between them relative. Unzip it into a GitHub Pages branch (or any static host, or just open `index.html` from disk) and it works unchanged. A `PUBLISHING.md` and a `.nojekyll` ride along for whoever unzips it.
+
+Two things stay behind: the ffmpeg.wasm converter, which is tens of megabytes of tooling the reader never needs, and any HAR captures, which hold raw request and response headers. That typically takes an 80 MB results directory down to a 6 MB zip. Pass `--bundle=false` to skip writing it.
+
 The HTML matrix also has a **Compare** picker: switch the whole grid from total time to any performance-profile metric that was captured — network transfer, request count, script execution, layout time, TTFB, FCP, LCP, CLS, DOM timings, JS heap — for the measured section or the total recording. Bars rescale to the chosen metric, and a cell is only called a win when the difference clears that metric's significance threshold; anything smaller shows as a tie.
 
 The `--runs` flag takes the median, smoothing out noise and giving you a number you can trust. In multi-run mode, each racer independently picks the run closest to their own median — so if Racer A performed best in Run 2 and Racer B in Run 4, each gets their own representative video. The results page shows which runs were selected (e.g., "Runs 2, 4").
@@ -376,6 +382,7 @@ race-for-the-prize <dir> --recording=false      # Skip video recording, just mea
 race-for-the-prize <dir> --ffmpeg               # Enable FFmpeg processing (trim, merge, convert)
 race-for-the-prize <dir> --har                  # Record network HAR files alongside videos
 race-for-the-prize <dir> --wasm=false           # Skip copying ffmpeg.wasm files (~25 MB) to results
+race-for-the-prize <dir> --bundle=false         # Don't zip a multi-condition race into a shareable static site
 race-for-the-prize <dir> --serve=false          # Don't start local results server or auto-open; print results HTML path
 race-for-the-prize <dir> --pause                # Pause between racers — run all laps for each racer, then press Enter for the next
 race-for-the-prize <dir> --height=900           # Set viewport/recording height in pixels (480–4320, default 720)
@@ -639,6 +646,7 @@ RaceForThePrize/
 │   ├── condition-matrix.js # Cross-condition performance matrix (terminal + HTML)
 │   ├── condition-matrix.html # Condition matrix markup + build-time templates
 │   ├── condition-matrix.css  # Condition matrix component styles
+│   ├── site-bundle.js      # Zips a multi-condition results dir into a shareable static site
 │   ├── skins.js            # Skin resolution for --skin
 │   ├── skins/              # Built-in player skins (light, neon)
 │   ├── summary.js          # Results formatting & markdown reports

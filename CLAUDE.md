@@ -41,6 +41,7 @@ node race.js demo:lauda-vs-hunt                   # Run a bundled demo race (`de
 - `summary.js` — summary data model, terminal output, JSON/Markdown report generation
 - `race-utils.js` — overall-winner computation and `TIE_THRESHOLD_PERCENT`
 - `condition-matrix.js` — cross-condition overview for multi-condition races (network × CPU matrix model with a series per metric, terminal renderer, and the top-level `index.html` with its metric picker)
+- `site-bundle.js` — packs a finished multi-condition results directory into one `<name>-site.zip` the matrix page links as a download: the whole tree minus the ffmpeg.wasm converter and any HAR captures, plus `.nojekyll` and publishing notes, so it can be unzipped onto GitHub Pages
 - `profile-analysis.js` — CDP metric definitions (`PROFILE_METRICS`), comparison, terminal/Markdown rendering
 - `results.js` — moves recordings from temp dirs, video format conversion (WebM→MOV/GIF), ffmpeg.wasm asset copying
 - `sidebyside.js` — FFmpeg side-by-side video composition
@@ -60,6 +61,7 @@ node race.js demo:lauda-vs-hunt                   # Run a bundled demo race (`de
 ## Key Design Details
 
 - `race.js` uses ESM; `runner.cjs` and its satellite modules use CommonJS (Playwright subprocess requirement). Everything both processes must agree on lives in `runner-protocol.cjs`.
+- The shareable bundle reuses the player's own ZIP writer (`cli/player-runtime/zip.cjs`), which stores files as-is unless the caller passes a per-file `compress` hook — the browser passes none, `site-bundle.js` passes a zlib one that skips already-compressed video. The matrix page is rendered twice when a bundle is written: once without the download link, to go inside the zip, and once with it afterwards.
 - Parallel mode uses `SyncBarrier` to synchronize browsers at checkpoints (ready, recordingStart, stop). Every barrier carries a generous deadlock backstop (default 300s) so a hung or out-of-sync racer fails the race instead of wedging the runner forever.
 - Timing and video calibration come from the Playwright trace (`trace-calibration.cjs`): the HTML player virtually trims via `traceCalibration`/clip times, and `--ffmpeg` physically trims using trace-derived PTS segments. The colored cue flashes are opt-in (`--cue-markers`) and exist only as ground truth for the ffprobe integration tests — they perturb metrics, so they're off by default. The recorded wall clock (`--wall-clock`) is opt-in for the same reason: its 10 Hz text update costs a style recalc and a paint per tick, and it keeps `raceWaitForVisualStability` from ever seeing the page settle.
 - CLI flags override `settings.json` values (CLI takes priority). See `config.js` `applyOverrides()`.

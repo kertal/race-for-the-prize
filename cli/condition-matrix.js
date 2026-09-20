@@ -442,6 +442,23 @@ function pickerGroupsHtml(metrics) {
   })).join('');
 }
 
+/** Why the zip is worth clicking — the whole point is that it is portable. */
+const DOWNLOAD_HINT = 'Matrix, per-condition players and recordings — unzip onto GitHub Pages or any static host.';
+
+/**
+ * The link that offers the whole matrix as one zip. Rendered only for the copy
+ * that stays in the results directory: the bundled copy of this page ships
+ * inside that zip, where the link would point at nothing.
+ */
+function downloadHtml(download) {
+  if (!download?.href) return '';
+  return fill('download', {
+    href: escHtml(download.href),
+    size: escHtml(download.size || ''),
+    hint: escHtml(DOWNLOAD_HINT),
+  });
+}
+
 /**
  * Build the top-level index.html for a multi-condition race: a performance
  * matrix of every throttling condition, each cell linking to that condition's
@@ -453,6 +470,8 @@ function pickerGroupsHtml(metrics) {
  * @param {object} [options]
  * @param {string} [options.skin] - skin name or .css path, as for the player
  * @param {string} [options.skinBaseDir] - directory a relative skin path resolves against
+ * @param {{href: string, size?: string}} [options.download] - the shareable
+ *   bundle sitting beside this page; omitted for the copy that goes inside it
  * @returns {string} HTML document
  */
 export function buildConditionIndexHtml(raceTitle, entries, options = {}) {
@@ -474,6 +493,7 @@ export function buildConditionIndexHtml(raceTitle, entries, options = {}) {
       cells: row.cells.map(cell => cellHtml(cell, matrix)).join('\n'),
     })).join('\n'),
     legend: matrix.legend ? fill('legend', { text: escHtml(matrix.legend) }) : '',
+    download: downloadHtml(options.download),
     tallies: metricBlocks(matrix.metrics, metric => {
       const tally = tallyLine(matrix, metric.key);
       return tally ? `Conditions won: ${escHtml(tally)}` : '';

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { discoverRacers, resolveSharedRacerNames, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown, findValuelessKvFlags, findUnknownFlags, parseNetworkList, parseCpuList, buildRaceConditions, InvalidSettingError } from '../cli/config.js';
+import { discoverRacers, resolveSharedRacerNames, parseArgs, applyOverrides, applyDefaults, discoverSetupTeardown, discoverRacerSetupTeardown, findValuelessKvFlags, findUnknownFlags, parseNetworkList, parseCpuList, buildRaceConditions, InvalidSettingError } from '../cli/config.js';
 
 let tmpDir;
 
@@ -548,6 +548,13 @@ describe('settings override', () => {
     const s = applyOverrides({}, new Set(), { serve: '0', wasm: '1' });
     expect(s.noServe).toBe(true);
     expect(s.noWasm).toBe(false);
+  });
+
+  it('--bundle=0 turns off the shareable zip, and it is on by default', () => {
+    expect(applyOverrides({}, new Set(), { bundle: '0' }).noBundle).toBe(true);
+    expect(applyDefaults(applyOverrides({}, new Set(), {})).noBundle).toBe(false);
+    // settings.json can say so too, in either JSON's spelling or a string's.
+    expect(applyDefaults({ noBundle: 'true' }).noBundle).toBe(true);
   });
 
   it('kv boolean --gemini=false overrides bool flag --gemini', () => {
