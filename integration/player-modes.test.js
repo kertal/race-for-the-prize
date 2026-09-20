@@ -118,6 +118,39 @@ describeMaybe('player modes', () => {
     expect(await clipLength(page)).toBeCloseTo(0.9, 2);
   });
 
+  it('plays a measured section of a race that has no trace calibration', async () => {
+    // Without a usable trace the runner reports the race API's own clock for
+    // both the segments and the measurements. The picker offered those
+    // sections but could not place them, so choosing one played the whole
+    // recording from the start instead of the section.
+    const markerClip = () => ({
+      ...CLIP,
+      measurements: [
+        { name: 'Load', startTime: 0.6, endTime: 1.0 },
+        { name: 'Render', startTime: 1.1, endTime: 1.3 },
+      ],
+    });
+    fs.mkdirSync(path.join(tmpDir, 'markers'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, 'markers', 'index.html'),
+      buildPlayerHtml(summary(), videoFiles.map(v => `../${v}`), null, null, {
+        clipTimes: RACERS.map(markerClip),
+      })
+    );
+
+    const markerPage = await openPlayer(`${baseUrl}markers/index.html`);
+    try {
+      await pickSegment(markerPage, 'Load');
+      expect(await clipLength(markerPage)).toBeCloseTo(0.4, 2);
+      await pickSegment(markerPage, 'Render');
+      expect(await clipLength(markerPage)).toBeCloseTo(0.2, 2);
+      await pickSegment(markerPage, '__all__');
+      expect(await clipLength(markerPage)).toBeCloseTo(0.9, 2);
+    } finally {
+      await markerPage.close().catch(() => {});
+    }
+  });
+
   it('keeps Whole Recording selected when a racer is filtered out', async () => {
     await pickSegment(page, '__full__');
     const whole = await clipLength(page);

@@ -147,11 +147,16 @@ function compileScript(source) {
  * Otherwise the race API's own marker clock, which counts from context
  * creation (video PTS 0), is the safer answer.
  *
- * `usedTraceSegments` reports which clock the segments came from, because
- * everything else derived from the trace — the PTS segments ffmpeg trims on,
- * the calibration the player recalibrates clip times with — is only valid for
- * trace segments. Applied to marker segments it would trim or align against a
- * different clock.
+ * Segments and measurements always come from the same clock. The player places
+ * a measured section inside its recording segment, so a measurement timed on
+ * one and a segment on the other cannot be reconciled — a section would land
+ * nowhere. One incomplete half therefore demotes both.
+ *
+ * `usedTraceSegments` reports which clock they came from, because everything
+ * else derived from the trace — the PTS segments ffmpeg trims on, the
+ * calibration the player recalibrates clip times with — is only valid for the
+ * trace's. Applied to marker timing it would trim or align against a different
+ * clock.
  *
  * @param {object|null} traceTiming - deriveTraceTiming() output, or null
  * @param {Array} markerSegments - segments from the race API
@@ -163,11 +168,14 @@ function selectRaceTiming(traceTiming, markerSegments, markerMeasurements) {
   const traceMeasurements = traceTiming?.measurements || [];
   const calibratable = (traceTiming?.ptsSegments?.length || 0) > 0;
   const segmentsComplete = traceSegments.length > 0 && traceSegments.length === markerSegments.length;
-  const measurementsComplete = traceMeasurements.length > 0 && traceMeasurements.length === markerMeasurements.length;
-  const usedTraceSegments = calibratable && segmentsComplete;
+  // Nothing the race API recorded went missing from the trace. Equality (not
+  // `> 0`) so a race that measures nothing — b-roll, a bare recording
+  // start/end pair — still counts as complete rather than losing its trace.
+  const measurementsComplete = traceMeasurements.length === markerMeasurements.length;
+  const usedTraceSegments = calibratable && segmentsComplete && measurementsComplete;
   return {
     recordingSegments: usedTraceSegments ? traceSegments : markerSegments,
-    measurements: measurementsComplete ? traceMeasurements : markerMeasurements,
+    measurements: usedTraceSegments ? traceMeasurements : markerMeasurements,
     usedTraceSegments,
   };
 }

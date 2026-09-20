@@ -103,24 +103,34 @@ describe('selectRaceTiming', () => {
       .toEqual({ recordingSegments: traceSegments, measurements: traceMeasurements, usedTraceSegments: true });
   });
 
-  it('falls back to marker segments when the trace has no frames to calibrate against', () => {
+  it('falls back to the markers when the trace has no frames to calibrate against', () => {
     // Trace segments count from the recording-start mark, so without the
     // first frame's timestamp their start of 0 would be read as video PTS 0.
     const uncalibrated = { ...calibrated, ptsSegments: [] };
     expect(selectRaceTiming(uncalibrated, markerSegments, markerMeasurements))
-      .toEqual({ recordingSegments: markerSegments, measurements: traceMeasurements, usedTraceSegments: false });
+      .toEqual({ recordingSegments: markerSegments, measurements: markerMeasurements, usedTraceSegments: false });
   });
 
-  it('falls back to marker measurements when a mark went missing', () => {
+  it('keeps measurements on the same clock as the segments', () => {
     // Two sections measured, but the second measure:end mark was lost to a
-    // navigation: the trace pairs only one, so the marker clock keeps both.
+    // navigation: the trace pairs only one. The player places a section inside
+    // its segment, so taking one from each clock would put it nowhere —
+    // the incomplete half demotes both.
     const twoMarkers = [...markerMeasurements, { name: 'Render', startTime: 3.5, endTime: 4.0, duration: 0.5 }];
-    expect(selectRaceTiming(calibrated, markerSegments, twoMarkers).measurements).toBe(twoMarkers);
+    expect(selectRaceTiming(calibrated, markerSegments, twoMarkers))
+      .toEqual({ recordingSegments: markerSegments, measurements: twoMarkers, usedTraceSegments: false });
+
+    const twoMarkerSegments = [{ start: 1, end: 2 }, { start: 3, end: 4 }];
+    expect(selectRaceTiming(calibrated, twoMarkerSegments, markerMeasurements))
+      .toEqual({ recordingSegments: twoMarkerSegments, measurements: markerMeasurements, usedTraceSegments: false });
   });
 
-  it('falls back to marker segments when the trace merged two of them', () => {
-    const twoMarkerSegments = [{ start: 1, end: 2 }, { start: 3, end: 4 }];
-    expect(selectRaceTiming(calibrated, twoMarkerSegments, markerMeasurements).recordingSegments).toBe(twoMarkerSegments);
+  it('still takes the trace for a race that measures nothing', () => {
+    // B-roll: a bare recording start/end pair with no raceStart. Both lists
+    // are empty, so nothing went missing.
+    const noMeasurements = { ...calibrated, measurements: [] };
+    expect(selectRaceTiming(noMeasurements, markerSegments, []))
+      .toEqual({ recordingSegments: traceSegments, measurements: [], usedTraceSegments: true });
   });
 
   it('uses the markers when there is no trace at all', () => {
