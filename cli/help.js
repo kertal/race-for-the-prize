@@ -23,6 +23,12 @@ export function packageVersion() {
 }
 
 /**
+ * Where npm unpacks a global install: `<prefix>/lib/node_modules/<pkg>` on
+ * macOS and Linux, `<prefix>/npm/node_modules/<pkg>` on Windows.
+ */
+const GLOBAL_INSTALL = new RegExp(`/(?:lib|npm)/node_modules/${CLI_NAME}/`);
+
+/**
  * Work out how this process was started, and therefore how its help should
  * spell the command.
  *
@@ -39,9 +45,15 @@ export function resolveInvocation(argv1 = process.argv[1]) {
   // `npx race-for-the-prize` stages the package in a cache dir; the shim is
   // gone once the command finishes, so npx is the only way to run it again.
   if (posix.includes('/_npx/')) return `npx ${CLI_NAME}`;
-  // A project dependency: reachable through npx (or package.json scripts).
+  // A global install, reached through the file the shim points at rather than
+  // the shim itself — which is what Windows does. Both of npm's global roots
+  // are spelled out; a project directory named `lib` or `npm` would look the
+  // same, and gets told to type a command it may not have.
+  if (GLOBAL_INSTALL.test(posix)) return CLI_NAME;
+  // A project dependency, including its `node_modules/.bin` shim, whose name
+  // matches the global one: reachable through npx (or a package.json script).
   if (posix.includes('/node_modules/')) return `npx ${CLI_NAME}`;
-  // A global install puts the bin on PATH under its own name.
+  // A global install reached through its shim, which is named after the bin.
   if (base === CLI_NAME) return CLI_NAME;
 
   return local;

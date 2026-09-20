@@ -25,6 +25,15 @@ describe('resolveInvocation', () => {
     expect(resolveInvocation(`C:\\Users\\me\\AppData\\npm\\${CLI_NAME}.cmd`)).toBe(CLI_NAME);
   });
 
+  // A global install is only reached through its shim on macOS and Linux. The
+  // Windows shim hands node the unpacked path instead, which sits under
+  // node_modules and used to read as a project dependency.
+  it('uses the bare name for the unpacked path of a global install', () => {
+    expect(resolveInvocation(`C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\${CLI_NAME}\\race.js`)).toBe(CLI_NAME);
+    expect(resolveInvocation(`/usr/local/lib/node_modules/${CLI_NAME}/race.js`)).toBe(CLI_NAME);
+    expect(resolveInvocation(`/home/me/.nvm/versions/node/v22.0.0/lib/node_modules/${CLI_NAME}/race.js`)).toBe(CLI_NAME);
+  });
+
   it('falls back to node race.js for a git checkout', () => {
     expect(resolveInvocation('/home/me/race-for-the-prize/race.js')).toBe('node race.js');
     expect(resolveInvocation('')).toBe('node race.js');
