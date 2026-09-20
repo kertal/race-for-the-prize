@@ -60,9 +60,9 @@ describe('confinePath', () => {
 
 describe('stderr line formats', () => {
   it('folds a multi-line message onto one line so the parser keeps all of it', () => {
-    const line = formatRaceMessage('racer-a', '1.0', 'first\nsecond\r\nthird');
-    expect(line).not.toContain('\n');
-    expect(createRaceMessageRegex('racer-a').exec(line)?.[2]).toBe('first second third');
+    const line = formatRaceMessage('racer-a', '1.0', 'first\nsecond\r\nthird\rfourth');
+    expect(line).not.toMatch(/[\r\n]/);
+    expect(createRaceMessageRegex('racer-a').exec(line)?.[2]).toBe('first second third fourth');
   });
 
   it('formatRaceMessage round-trips through createRaceMessageRegex', () => {
