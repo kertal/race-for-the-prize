@@ -293,6 +293,8 @@ a.card:hover h3::after { color: var(--text); }
   text-transform: uppercase;
 }
 .lineup td:first-child { white-space: nowrap; color: var(--gold); }
+/* A linked first cell keeps the gold rather than reverting to body link white. */
+.lineup td:first-child a { color: inherit; }
 .lineup tr:last-child td { border-bottom: none; }
 
 /* --- Steward's note ------------------------------------------------------ */
