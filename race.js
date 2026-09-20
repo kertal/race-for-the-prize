@@ -1156,7 +1156,7 @@ function generateGeminiCommentary(summary, outputDir) {
  * itself. So the page is written twice: once plain, to be bundled, and once
  * again afterwards with the link and the size the bundle turned out to be.
  */
-async function writeConditionIndex(baseResultsDir, conditionSummaries) {
+function writeConditionIndex(baseResultsDir, conditionSummaries) {
   const indexPath = path.join(baseResultsDir, 'index.html');
   const renderIndex = download => buildConditionIndexHtml(racerNames.join(' vs '), conditionSummaries, {
     skin: settings.skin,
@@ -1167,7 +1167,7 @@ async function writeConditionIndex(baseResultsDir, conditionSummaries) {
   fs.writeFileSync(indexPath, renderIndex(null));
   if (settings.noBundle) return;
 
-  const bundle = await tryWriteSiteBundle(baseResultsDir);
+  const bundle = tryWriteSiteBundle(baseResultsDir);
   if (!bundle) return;
   fs.writeFileSync(indexPath, renderIndex({ href: bundle.name, size: bundle.size }));
   console.error(`  ${c.dim}📦 ${bundle.name} (${bundle.size}) — shareable copy, unzip onto GitHub Pages${c.reset}`);
@@ -1394,7 +1394,7 @@ async function main() {
       // The terminal shows total time; the HTML index can switch metrics.
       printConditionMatrix(buildConditionMatrix(conditionSummaries));
       if (!settings.noRecording) {
-        await writeConditionIndex(baseResultsDir, conditionSummaries);
+        writeConditionIndex(baseResultsDir, conditionSummaries);
       }
     }
 

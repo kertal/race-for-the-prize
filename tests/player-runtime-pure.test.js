@@ -732,6 +732,30 @@ describe('createZipBuilder', () => {
     expect(dv.getUint16(8, true)).toBe(0); // stored, as the hook asked
   });
 
+  it('hands each chunk to a sink as it is added, holding nothing back', async () => {
+    const seen = [];
+    const b = createZipBuilder({ sink: chunk => seen.push(chunk.length) });
+    b.addFile('one.txt', enc('hello'));
+    // Local header + body are already out before the archive is closed — this
+    // is what keeps a large bundle from ever existing in memory at once.
+    const afterFirst = seen.reduce((a, n) => a + n, 0);
+    expect(afterFirst).toBe(30 + 'one.txt'.length + 5);
+    b.addFile('two.txt', enc('bye'));
+    const total = b.finish();
+    expect(seen.reduce((a, n) => a + n, 0)).toBe(total);
+  });
+
+  it('a sinking builder writes the same bytes a buffering one would', async () => {
+    const files = [['index.html', enc('<html></html>')], ['dir/data.bin', new Uint8Array([0, 1, 2, 255])]];
+    const buffered = createZipBuilder();
+    const parts = [];
+    const sunk = createZipBuilder({ sink: chunk => parts.push(Buffer.from(chunk)) });
+    for (const [name, data] of files) { buffered.addFile(name, data); sunk.addFile(name, data); }
+    sunk.finish();
+    const fromBlob = Buffer.from(await buffered.toBlob().arrayBuffer());
+    expect(Buffer.concat(parts).equals(fromBlob)).toBe(true);
+  });
+
   it('produces an archive that a real unzip implementation accepts', async () => {
     const dv = await buildZip([['index.html', enc('<html></html>')], ['notes.txt', enc('ok')]]);
     const { execFileSync } = await import('node:child_process');

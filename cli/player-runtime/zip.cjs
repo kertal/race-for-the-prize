@@ -33,13 +33,22 @@ function crc32(data) {
  *   - raw deflate for one file's bytes, or null to leave that file stored.
  *   Called once per file, so the hook can skip what deflate can't improve. A
  *   result that isn't smaller than the input is discarded either way.
+ * @param {(chunk: Uint8Array) => void} [options.sink] - hands each chunk
+ *   straight out as it is built instead of holding it for `toBlob()`. The CLI
+ *   passes a file write so a bundle never exists in memory all at once; a
+ *   builder with a sink is finished with `finish()`, not `toBlob()`. Only the
+ *   central directory (a few dozen bytes per entry) is retained either way.
  */
 function createZipBuilder(options = {}) {
   const compress = options.compress || null;
+  const sink = options.sink || null;
   const chunks = [];
   const entries = [];
   const encoder = new TextEncoder();
   let offset = 0;
+
+  /** Out through the sink, or held for toBlob() when there isn't one. */
+  const emit = chunk => (sink ? sink(chunk) : chunks.push(chunk));
 
   function addFile(name, data) {
     const nameBytes = encoder.encode(name);
@@ -65,12 +74,14 @@ function createZipBuilder(options = {}) {
     view.setUint16(pos, 0, true); pos += 2;
     localHeader.set(nameBytes, pos);
 
-    chunks.push(localHeader, body);
+    emit(localHeader);
+    emit(body);
     entries.push({ name: nameBytes, size: data.length, packedSize: body.length, method, crc, offset });
     offset += localHeader.length + body.length;
   }
 
-  function toBlob() {
+  /** The central directory and EOCD record that close the archive. */
+  function buildTrailer() {
     const centralDirOffset = offset;
     let centralDirSize = 0;
     entries.forEach(e => { centralDirSize += 46 + e.name.length; });
@@ -113,12 +124,23 @@ function createZipBuilder(options = {}) {
     eocdView.setUint32(p, centralDirOffset, true); p += 4;
     eocdView.setUint16(p, 0, true);
     trailerChunks.push(eocd);
-
-    // Build zip from chunks to avoid creating one giant contiguous ArrayBuffer copy.
-    return new Blob([...chunks, ...trailerChunks], { type: 'application/zip' });
+    return trailerChunks;
   }
 
-  return { addFile, toBlob };
+  /** The whole archive as a Blob. Only for a builder without a sink. */
+  function toBlob() {
+    // Built from the chunk list rather than one contiguous ArrayBuffer copy.
+    return new Blob([...chunks, ...buildTrailer()], { type: 'application/zip' });
+  }
+
+  /** Close a sinking archive: emit the trailer, report the total byte length. */
+  function finish() {
+    const trailer = buildTrailer();
+    for (const chunk of trailer) emit(chunk);
+    return offset + trailer.reduce((sum, chunk) => sum + chunk.length, 0);
+  }
+
+  return { addFile, toBlob, finish };
 }
 
 // Node export for unit tests — a no-op in the browser build, where `module` is undefined.
