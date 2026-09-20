@@ -36,6 +36,7 @@ node race.js demo:lauda-vs-hunt                   # Run a bundled demo race (`de
 
 **CLI modules (`cli/`):**
 - `config.js` — arg parsing, racer/`.spec.js` discovery, settings defaults/validation/override logic
+- `help.js` — the `--help` screen, plus `CLI_NAME` and `packageVersion()` (what `--version` prints): `resolveInvocation()` works out whether the reader types `race-for-the-prize`, `npx race-for-the-prize` or `node race.js`, and `buildHelp()` renders every example with it
 - `race-config.js` — the race record: the command line, the merged settings, and where each value came from (CLI flag / `settings.json` / default); written as `config.json` into every results directory and shown in the player
 - `animation.js` — live terminal race animation
 - `summary.js` — summary data model, terminal output, JSON/Markdown report generation
