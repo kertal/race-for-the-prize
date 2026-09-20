@@ -34,10 +34,8 @@
  *
  * @typedef {object} BrowserResult
  * @property {string} id
- * @property {string|null} videoPath
- * @property {string|null} fullVideoPath
- * @property {string|null} tracePath
- * @property {string|null} harPath
+ * @property {string|null} tracePath  Relative to recordingsDir; the parent copies it in --recording=0 mode.
+ *   (Videos and HAR files are not named here: the parent picks them up by scanning the racer's directory.)
  * @property {Array<{name: string, startTime: number, endTime: number, duration: number}>} measurements
  * @property {object|null} profileMetrics
  * @property {Array<{start: number, end: number}>|null} recordingSegments
@@ -59,7 +57,9 @@ const path = require('path');
 // rejects a config with a different version, and the parent rejects a result
 // with a different version, so a mismatched race.js/runner.cjs pair fails
 // with a clear error instead of silently-missing fields.
-const PROTOCOL_VERSION = 1;
+//   v2: BrowserResult dropped videoPath, fullVideoPath and harPath, which the
+//       parent never read (it scans the recordings directory instead).
+const PROTOCOL_VERSION = 2;
 
 // Prefix for the single authoritative result line on runner stdout.
 // Any stdout line not starting with this prefix is treated as noise

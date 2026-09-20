@@ -23,7 +23,7 @@ const { deriveTraceTiming } = require('./trace-calibration.cjs');
 const { flashCue, OverlayController } = require('./overlay.cjs');
 const { createRaceApi } = require('./race-api.cjs');
 const { RESULT_SENTINEL, PROTOCOL_VERSION, isSafeRacerId, confinePath, formatRaceMessage, formatContextClosed } = require('./runner-protocol.cjs');
-const { getMostRecentVideo, cleanupOldVideos, trimVideoWithFfmpeg } = require('./runner-video.cjs');
+const { cleanupOldVideos, trimVideoWithFfmpeg } = require('./runner-video.cjs');
 const { setupMetricsCollection, startProfiling, collectProfilingResults } = require('./runner-metrics.cjs');
 const { applyThrottling } = require('./runner-throttling.cjs');
 const { calculateWindowLayout } = require('./runner-layout.cjs');
@@ -516,8 +516,6 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     if (noRecording) {
       return {
         id,
-        videoPath: null,
-        fullVideoPath: null,
         tracePath: tracePath ? path.join(id, path.basename(tracePath)) : null,
         measurements,
         profileMetrics,
@@ -530,28 +528,24 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
       };
     }
 
-    let fullVideoFile = null;
-
+    // The parent finds the recordings by scanning the racer's directory
+    // (cli/results.js moveResults), so the trimmed and full files are not
+    // named in the result.
     if (recordingSegments.length > 0 && ffmpeg) {
       const trimSegments = traceTiming?.ptsSegments?.length > 0
         ? traceTiming.ptsSegments
         : recordingSegments;
-      fullVideoFile = trimVideoWithFfmpeg(outputDir, trimSegments, id);
+      trimVideoWithFfmpeg(outputDir, trimSegments, id);
     } else if (recordingSegments.length > 0) {
       console.error(`[${id}] Skipping video trimming (no --ffmpeg)`);
     }
-
-    const videoFile = getMostRecentVideo(outputDir);
 
     const calibratedStart = ffmpeg ? null : (traceTiming?.calibratedStartPts ?? null);
     const traceCalibration = ffmpeg ? null : (traceTiming?.traceCalibration || null);
 
     return {
       id,
-      videoPath: videoFile ? path.join(id, videoFile) : null,
-      fullVideoPath: fullVideoFile ? path.join(id, fullVideoFile) : null,
       tracePath: tracePath ? path.join(id, path.basename(tracePath)) : null,
-      harPath: harPath && fs.existsSync(harPath) ? path.join(id, path.basename(harPath)) : null,
       measurements,
       profileMetrics,
       recordingSegments: recordingSegments.length > 0 ? recordingSegments : null,
@@ -603,10 +597,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
 
   return {
     id,
-    videoPath: null,
-    fullVideoPath: null,
     tracePath: null,
-    harPath: null,
     measurements: [],
     profileMetrics: null,
     recordingSegments: null,
@@ -637,7 +628,7 @@ async function runParallel(browserConfigs, opts = {}) {
 
   return results.map((r, i) => {
     if (r.status === 'fulfilled') return r.value;
-    return { id: browserConfigs[i].id, videoPath: null, error: r.reason?.message || 'Unknown error' };
+    return { id: browserConfigs[i].id, error: r.reason?.message || 'Unknown error' };
   });
 }
 
@@ -733,7 +724,7 @@ async function main() {
       ? await runParallel(browsers, runOpts)
       : await runSequential(browsers, runOpts);
   } catch (error) {
-    results = browsers.map(b => ({ id: b.id, videoPath: null, error: error.message }));
+    results = browsers.map(b => ({ id: b.id, error: error.message }));
   }
 
   const errors = results.filter(r => r.error).map(r => `${r.id}: ${r.error}`);
@@ -745,10 +736,7 @@ async function main() {
     protocolVersion: PROTOCOL_VERSION,
     browsers: results.map(r => ({
       id: r.id,
-      videoPath: r.videoPath || null,
-      fullVideoPath: r.fullVideoPath || null,
       tracePath: r.tracePath || null,
-      harPath: r.harPath || null,
       measurements: r.measurements || [],
       profileMetrics: r.profileMetrics || null,
       recordingSegments: r.recordingSegments || null,
