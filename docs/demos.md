@@ -21,7 +21,9 @@ race-for-the-prize demo:lauda-vs-hunt
 
 Two browsers launch. Two Wikipedia pages load. Then they scroll — human-like, pixel by pixel — to the bottom. Who reaches the finish line first?
 
-![Lauda vs Hunt — side-by-side race replay](https://raw.githubusercontent.com/kertal/race-for-the-prize/main/assets/race-for-the-prize-hunt-vs-lauda.gif)
+![Lauda vs Hunt — side-by-side race replay](https://raw.githubusercontent.com/kertal/race-for-the-prize/main/docs/demos/race_hunt_vs_lauda.gif)
+
+🎬 **[Open the replay ↗](https://kertal.github.io/race-for-the-prize/demos/race_hunt_vs_lauda.html)** — the report this race actually produced, player and all.
 
 ### What's in the race folder
 
@@ -46,6 +48,10 @@ race-for-the-prize demo:lebron-vs-curry
 
 The dribbles are perfectly synced. The difference? The scroll back to the top: LeBron uses a smooth ease-in-out, Curry snaps up with a cubic ease-out. Pure browser performance decides the winner.
 
+![LeBron vs Curry — side-by-side race replay](https://raw.githubusercontent.com/kertal/race-for-the-prize/main/docs/demos/race_curry_vs_lebron.gif)
+
+🎬 **[Open the replay ↗](https://kertal.github.io/race-for-the-prize/demos/race_curry_vs_lebron.html)**
+
 ## ⚛️ React vs Angular (and friends)
 
 The frontend framework cage match — four racers, one winner. React, Angular, Svelte, and htmx all load the same TodoMVC-style benchmark. RaceForThePrize supports up to five racers in a single heat.
@@ -53,6 +59,10 @@ The frontend framework cage match — four racers, one winner. React, Angular, S
 ```bash
 race-for-the-prize demo:react-vs-angular
 ```
+
+![React vs Angular vs Svelte vs htmx — four recordings replayed side by side](https://raw.githubusercontent.com/kertal/race-for-the-prize/main/docs/demos/race_frameworks.gif)
+
+🎬 **[Open the replay ↗](https://kertal.github.io/race-for-the-prize/demos/race_frameworks.html)**
 
 ## 🤫 Encrypted cache vs plain cache vs no cache
 
@@ -68,19 +78,22 @@ race-for-the-prize demo:caching-comparison
 Four racers, four clips, one shared clock — the run used to prove that multi-clip
 alignment in the player really lines up.
 
-![The calibration— side-by-side race replay](https://raw.githubusercontent.com/kertal/race-for-the-prize/main/assets/demos/race_alpha_vs_bravo_vs_charlie_vs_delta.gif)
+![The calibration lap — four recordings replayed side by side on one clock](https://raw.githubusercontent.com/kertal/race-for-the-prize/main/docs/demos/race_alpha_vs_bravo_vs_charlie_vs_delta.gif)
 
-[The summary](https://github.com/kertal/race-for-the-prize/blob/main/assets/demos/race_alpha_vs_bravo_vs_charlie_vs_delta.html)
+🎬 **[Open the replay ↗](https://kertal.github.io/race-for-the-prize/demos/race_alpha_vs_bravo_vs_charlie_vs_delta.html)**
 
 
 ## The grid at a glance
 
-| Command | Race |
-|---|---|
-| `demo:lauda-vs-hunt` | The classic rivalry — two Wikipedia pages, scrolled to the bottom |
-| `demo:lebron-vs-curry` | The GOAT debate — dribble three times, then race back to the top |
-| `demo:react-vs-angular` | Framework cage match — React, Angular, Svelte and htmx, four racers |
-| `demo:caching-comparison` | Encrypted cache vs plain cache vs no cache, both halves timed |
+| Command | Race | Replay |
+|---|---|---|
+| `demo:lauda-vs-hunt` | The classic rivalry — two Wikipedia pages, scrolled to the bottom | [watch ↗](https://kertal.github.io/race-for-the-prize/demos/race_hunt_vs_lauda.html) |
+| `demo:lebron-vs-curry` | The GOAT debate — dribble three times, then race back to the top | [watch ↗](https://kertal.github.io/race-for-the-prize/demos/race_curry_vs_lebron.html) |
+| `demo:react-vs-angular` | Framework cage match — React, Angular, Svelte and htmx, four racers | [watch ↗](https://kertal.github.io/race-for-the-prize/demos/race_frameworks.html) |
+| `demo:caching-comparison` | Encrypted cache vs plain cache vs no cache, both halves timed | run it yourself |
+
+The replays are the reports these races really produced, videos and all, so they
+are heavy pages (20–40 MB) — one tab at a time on a phone.
 
 The demo has to be copied out of the package into `./races/<name>/` before it can run, so results land next to your work and the specs are yours to edit. (Running from the repository itself is the exception: there `races/<name>/` already *is* the bundled race, so nothing is copied and nothing is asked.) The first run lists the files and asks before writing anything:
 

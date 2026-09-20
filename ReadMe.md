@@ -39,9 +39,11 @@ The classic rivalry. Niki Lauda — "The Computer" — against James Hunt — "T
 race-for-the-prize demo:lauda-vs-hunt
 ```
 
-![Lauda vs Hunt — side-by-side race replay](assets/race-for-the-prize-hunt-vs-lauda.gif)
+![Lauda vs Hunt — side-by-side race replay](docs/demos/race_hunt_vs_lauda.gif)
 
-Three more races are in the garage: the GOAT debate (`demo:lebron-vs-curry`), a four-way framework cage match (`demo:react-vs-angular`), and a cache bake-off (`demo:caching-comparison`). See **[Demo Races](docs/demos.md)** for the full grid.
+🎬 **[Open the replay ↗](https://kertal.github.io/race-for-the-prize/demos/race_hunt_vs_lauda.html)** — the actual report this race produced: scrub the video, jump between sections, read the profile.
+
+Three more races are in the garage, two of them with a replay to watch right now: the GOAT debate (`demo:lebron-vs-curry`, [replay ↗](https://kertal.github.io/race-for-the-prize/demos/race_curry_vs_lebron.html)), a four-way framework cage match (`demo:react-vs-angular`, [replay ↗](https://kertal.github.io/race-for-the-prize/demos/race_frameworks.html)), and a cache bake-off (`demo:caching-comparison`). See **[Demo Races](docs/demos.md)** for the full grid.
 
 ## What You Get
 
