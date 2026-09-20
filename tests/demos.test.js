@@ -167,4 +167,10 @@ describe('formatDemoList', () => {
       expect(out).toContain(demo.description);
     }
   });
+
+  it('spells the "run one with" hint the way the caller was started', () => {
+    expect(formatDemoList({}, 'node race.js'))
+      .toContain(`Run one with:  node race.js demo:${DEMO_RACES[0].name}`);
+    expect(formatDemoList()).toContain(`Run one with:  race-for-the-prize demo:${DEMO_RACES[0].name}`);
+  });
 });
