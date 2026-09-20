@@ -72,9 +72,17 @@ const {
 /** The command name the package installs (`bin` in package.json). */
 export const CLI_NAME = 'race-for-the-prize';
 
-/** The published version, straight from package.json, for `--version`. */
+/**
+ * The published version, straight from package.json, for `--version` and for
+ * the config record every results directory keeps. Null when it can't be read,
+ * so a packaging oddity downgrades the version line instead of failing a race.
+ */
 export function packageVersion() {
-  return createRequire(import.meta.url)('./package.json').version;
+  try {
+    return createRequire(import.meta.url)('./package.json').version || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -1066,15 +1074,6 @@ if (urlMode) {
 // produced it (config.json), and the HTML report shows the same thing: a race's
 // numbers only mean something next to the settings they were measured under.
 
-/** The tool's own version, for the record. Absent if package.json is unreadable. */
-function readPackageVersion() {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8')).version || null;
-  } catch {
-    return null;
-  }
-}
-const packageVersion = readPackageVersion();
 // The spec files stay the same for the whole invocation, unlike ctx, which is
 // rebuilt per throttling condition.
 const raceFiles = ctx.racerFiles;
@@ -1095,7 +1094,7 @@ function raceConfigFor(activeSettings) {
     racerNames,
     racerFiles: raceFiles,
     mode: raceMode,
-    version: packageVersion,
+    version: packageVersion(),
   });
 }
 
