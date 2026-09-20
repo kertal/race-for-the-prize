@@ -106,6 +106,7 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
 
     let stderr = '';
     let timedOut = false;
+    let exited = false;
     let settled = false;
     let sigkillTimeoutId = null;
     let drainTimeoutId = null;
@@ -113,8 +114,19 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
     child.stdout.on('data', d => { if (verbose) process.stdout.write(d); });
     child.stderr.on('data', d => { stderr += d; if (verbose) process.stderr.write(d); });
 
+    // Lets go of the stdio pipes a background descendant inherited, so they
+    // cannot keep this process alive once the script itself is done with.
+    const releasePipes = () => { child.stdout.unref(); child.stderr.unref(); };
+
     const timeoutId = setTimeout(() => {
       timedOut = true;
+      if (exited) {
+        // The script is long gone: only something it left behind, still
+        // holding its output pipes, is keeping us here. Nothing to kill.
+        releasePipes();
+        onExit(child.exitCode, child.signalCode);
+        return;
+      }
       child.kill('SIGTERM');
       // Give process 5s to clean up after SIGTERM, then SIGKILL
       sigkillTimeoutId = setTimeout(() => {
@@ -122,16 +134,19 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
       }, 5000);
     }, timeout);
 
-    // 'close' normally follows 'exit' within a tick, once the stdio pipes have
-    // drained. A script that leaves a server running in the background
-    // (`npm start &`) hands that server our pipes, so 'close' only fires when
-    // the server dies — and the race would sit on "Running setup…" until then.
-    // So settle on 'exit', after a short grace for the pipes to drain, and
-    // unref the pipes so an inherited copy can't keep this process alive.
+    // A script settles on 'close': it has exited and its stdio pipes have
+    // drained, so background work it started (a copy still writing race
+    // fixtures, say) has finished too. A script that declares `waitFor` is
+    // different — it starts a service and leaves it running, and that service
+    // holds the inherited pipes for as long as it lives, so 'close' would come
+    // only when it dies. Its readiness is the URL, not the pipes: it settles
+    // on 'exit', after a short grace for its own output to drain.
+    const settleOnExit = Boolean(waitFor);
     child.on('exit', (code, signal) => {
+      exited = true;
+      if (!settleOnExit) return;
       drainTimeoutId = setTimeout(() => {
-        child.stdout.unref();
-        child.stderr.unref();
+        releasePipes();
         onExit(code, signal);
       }, PIPE_DRAIN_GRACE_MS);
     });
@@ -148,6 +163,15 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
 
       if (timedOut) {
         progress.done(`${label} timed out after ${timeout}ms`);
+        if (code !== null) {
+          // Exited on its own (with `code`) but its output never closed.
+          reject(new Error(
+            `${label} script exited with code ${code} but something it started is still holding its output ` +
+            `${timeout}ms later. For a background service, add "waitFor" to the ${label.toLowerCase()} config ` +
+            `so readiness is checked by URL; otherwise redirect that process's output (> /dev/null 2>&1).`
+          ));
+          return;
+        }
         reject(new Error(`${label} script timed out after ${timeout}ms`));
         return;
       }
