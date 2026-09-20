@@ -50,8 +50,13 @@ describe('landing page', () => {
 
   it('loads no third-party scripts or stylesheets', () => {
     expect(indexHtml).not.toMatch(/<script/i);
-    expect([...indexHtml.matchAll(/<link[^>]+rel="stylesheet"[^>]+href="([^"]+)"/g)].map(m => m[1]))
-      .toEqual(['site.css']);
+    // Read every <link> tag whole: rel and href arrive in either order, and a
+    // remote stylesheet added after the local one has to fail this.
+    const stylesheets = [...indexHtml.matchAll(/<link\b[^>]*>/g)]
+      .map(([tag]) => tag)
+      .filter(tag => /\brel\s*=\s*"stylesheet"/i.test(tag))
+      .map(tag => tag.match(/\bhref\s*=\s*"([^"]*)"/i)?.[1]);
+    expect(stylesheets).toEqual(['site.css']);
   });
 
   it('links only to files that exist, or to absolute URLs', () => {
@@ -91,13 +96,15 @@ describe('ReadMe', () => {
 });
 
 describe('the split handbook', () => {
+  // Identifiers, never prose: a page may be rewritten freely, but the API,
+  // flags and filenames that moved out of the ReadMe have to still be here.
   const pages = {
     'demos.md': ['demo:lauda-vs-hunt', 'demo:caching-comparison'],
-    'writing-races.md': ['Mode 1: Multi-spec mode', 'raceWaitForVisualStability', 'Setup and Teardown Scripts'],
-    'use-cases.md': ['A/B testing different versions of your app'],
-    'cli.md': ['--network=slow-3g', '`settings.json` Reference', 'Network Throttling Presets'],
-    'results.md': ['summary.json', 'The Podium Ceremony'],
-    'development.md': ['Project Structure', 'Running Tests'],
+    'writing-races.md': ['race.spec.js', 'raceWaitForVisualStability', 'RACE_VAR_', 'teardown.sh'],
+    'use-cases.md': ['race.vars.URL', '--cpu=1,4'],
+    'cli.md': ['--network=slow-3g', '--cue-markers', 'cpuThrottle', 'fast-3g'],
+    'results.md': ['summary.json', 'config.json', 'measurements.json'],
+    'development.md': ['npm run test:integration', 'npm link', 'videoplayer.js', 'runner-protocol.cjs'],
   };
 
   for (const [page, needles] of Object.entries(pages)) {

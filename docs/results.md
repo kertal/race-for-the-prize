@@ -28,6 +28,11 @@ race mode and scripts, and every effective setting alongside where it came from
 the same thing under **Command & Configuration**, so a report read a month later
 says how to reproduce the race, not just who won.
 
+`--recording=false` is the exception to all of this: it keeps the measurements,
+the traces, `summary.json` and the Markdown report card, and writes no videos
+and no `index.html` at all. Nothing is served and nothing opens — the numbers
+are the whole output.
+
 By default, the HTML player handles virtual trimming via clip times and uses CDP screencast metadata or canvas-based calibration for frame-accurate playback — no external dependencies needed. When neither calibration source is available, it falls back to linear time-mapping which is less precise. With `--ffmpeg`, videos are physically trimmed, a side-by-side merged video is created, and format conversion (mov/gif) is available.
 
 The player includes segment navigation buttons — **Race Recording** (all measurements combined), individual named segments (one per `raceStart`/`raceEnd` pair), and **Whole Recording** (full unclipped video when available). This lets you scrub directly to any specific measurement.

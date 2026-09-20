@@ -21,7 +21,7 @@ race-for-the-prize demo:lauda-vs-hunt
 
 Two browsers launch. Two Wikipedia pages load. Then they scroll — human-like, pixel by pixel — to the bottom. Who reaches the finish line first?
 
-![Lauda vs Hunt — side-by-side race replay](../assets/race-for-the-prize-hunt-vs-lauda.gif)
+![Lauda vs Hunt — side-by-side race replay](https://raw.githubusercontent.com/kertal/race-for-the-prize/main/assets/race-for-the-prize-hunt-vs-lauda.gif)
 
 ### What's in the race folder
 
@@ -68,9 +68,9 @@ race-for-the-prize demo:caching-comparison
 Four racers, four clips, one shared clock — the run used to prove that multi-clip
 alignment in the player really lines up.
 
-![The calibration— side-by-side race replay](../assets/demos/race_alpha_vs_bravo_vs_charlie_vs_delta.gif)
+![The calibration— side-by-side race replay](https://raw.githubusercontent.com/kertal/race-for-the-prize/main/assets/demos/race_alpha_vs_bravo_vs_charlie_vs_delta.gif)
 
-[The summary](../assets/demos/race_alpha_vs_bravo_vs_charlie_vs_delta.html)
+[The summary](https://github.com/kertal/race-for-the-prize/blob/main/assets/demos/race_alpha_vs_bravo_vs_charlie_vs_delta.html)
 
 
 ## The grid at a glance
@@ -82,7 +82,7 @@ alignment in the player really lines up.
 | `demo:react-vs-angular` | Framework cage match — React, Angular, Svelte and htmx, four racers |
 | `demo:caching-comparison` | Encrypted cache vs plain cache vs no cache, both halves timed |
 
-The demo has to be copied out of the package into `./races/<name>/` before it can run, so results land next to your work and the specs are yours to edit. The first run lists the files and asks before writing anything:
+The demo has to be copied out of the package into `./races/<name>/` before it can run, so results land next to your work and the specs are yours to edit. (Running from the repository itself is the exception: there `races/<name>/` already *is* the bundled race, so nothing is copied and nothing is asked.) The first run lists the files and asks before writing anything:
 
 ```text
 Demo race lauda-vs-hunt needs these files in races/lauda-vs-hunt/

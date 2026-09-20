@@ -25,17 +25,29 @@ race-for-the-prize <dir> --format=gif           # Quick highlight reel (requires
 race-for-the-prize <dir> --runs=3               # Best of 3 — median wins
 race-for-the-prize <dir> --slowmo=2             # Slow-motion replay (2x, 3x, etc.)
 race-for-the-prize <dir> --overlay=false        # Record videos without overlays
-race-for-the-prize <dir> --recording=false      # Skip video recording, just measure
+race-for-the-prize <dir> --recording=false      # Skip video recording — measurements only, no videos and no HTML player
 race-for-the-prize <dir> --ffmpeg               # Enable FFmpeg processing (trim, merge, convert)
 race-for-the-prize <dir> --har                  # Record network HAR files alongside videos
 race-for-the-prize <dir> --wasm=false           # Skip copying ffmpeg.wasm files (~25 MB) to results
 race-for-the-prize <dir> --serve=false          # Don't start local results server or auto-open; print results HTML path
-race-for-the-prize <dir> --pause                # Pause between racers — run all laps for each racer, then press Enter for the next
+race-for-the-prize <dir> --pause                # Press Enter before each racer, and between that racer's runs (forces one racer at a time)
 race-for-the-prize <dir> --height=900           # Set viewport/recording height in pixels (480–4320, default 720)
 race-for-the-prize <dir> --ignore-https-errors  # Accept invalid/self-signed TLS certificates
 race-for-the-prize <dir> --wall-clock           # Burn a ticking wall clock into the recording
 race-for-the-prize <dir> --skin=light           # Skin the results player (light, neon, or a path to a .css file)
+race-for-the-prize <dir> --cue-markers          # Flash coloured cues at segment boundaries (calibration testing; perturbs metrics)
+race-for-the-prize <dir> --gemini               # Post-race commentary from the Gemini CLI, if you have it installed
+race-for-the-prize <dir> --verbose              # Echo the runner's own chatter instead of just the race
+race-for-the-prize --version                    # Print the installed version
+race-for-the-prize --help                       # The same list, from the horse's mouth
+race-for-the-prize --init [dir] --gemini-spec="prompt"   # Scaffold specs written by the Gemini CLI (--init only)
 ```
+
+`--cue-markers` and `--gemini*` are the two off-the-beaten-track flags. The cues
+exist as ground truth for the calibration integration tests and perturb the very
+metrics you are measuring, so leave them off for a race whose numbers you care
+about. The Gemini flags shell out to a separately installed `gemini` CLI and do
+nothing without it; `--gemini-spec` is only read alongside `--init`.
 
 CLI flags always override `settings.json`. For boolean flags, you can pass explicit values like `--parallel=false` or `--ffmpeg=true`.
 
@@ -59,8 +71,16 @@ By default, races run in **serial** (sequential) mode — one browser at a time.
 
 **Parallel mode** (`--parallel`) launches all browsers simultaneously and is purely for the show. It's demo day mode — the wizard-of-many-windows spectacle where browsers tear down the track side by side in real time. It looks fantastic in presentations and screen recordings, but since all browsers compete for the same system resources, the timings are less reliable. Use it when you want to impress an audience, not when you need to trust the stopwatch.
 
+Two things override it, because they mean "one racer at a time" by definition: a
+per-racer setup script, and `--pause`. With either in play the CLI says so and
+runs the racers one after another regardless of `--parallel`.
+
 
 ## `settings.json` Reference
+
+Every field, written out with the value the CLI uses when you leave it out —
+so this whole block is a no-op you can start editing. (`skin` is the exception:
+it has no default, and the entry below is an example.)
 
 ```json
 {
@@ -80,6 +100,7 @@ By default, races run in **serial** (sequential) mode — one browser at a time.
   "pauseBetweenRuns": false,
   "ignoreHTTPSErrors": false,
   "wallClock": false,
+  "cueMarkers": false,
   "viewportHeight": 720,
   "skin": "light"
 }
@@ -103,6 +124,8 @@ By default, races run in **serial** (sequential) mode — one browser at a time.
 | `pauseBetweenRuns` | `--pause` | `true` / `false` | `false` |
 | `ignoreHTTPSErrors` | `--ignore-https-errors` | `true` / `false` | `false` |
 | `wallClock` | `--wall-clock` | `true` / `false` | `false` |
+| `cueMarkers` | `--cue-markers` | `true` / `false` — calibration-test cues; they perturb the metrics | `false` |
+| `gemini` | `--gemini` | `true` / `false` — post-race commentary, needs the `gemini` CLI on your PATH | not set (off) |
 | `viewportHeight` | `--height=<px>` | integer, 480–4320 (also accepted as `height` in settings.json) | `720` |
 | `skin` | `--skin=<name\|path>` | `light`, `neon`, or a path to a `.css` file — see [Skinning the player](skinning.md) | not set (built-in dark theme) |
 | `racers` | — | optional object keyed by racer name | not present by default |

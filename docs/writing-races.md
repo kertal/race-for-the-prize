@@ -156,7 +156,7 @@ For more control, configure scripts in `settings.json` with timeouts and service
 3. Per-racer teardown (for each racer, even on failure)
 4. Global teardown (even on failure)
 
-When per-racer setup scripts exist, racers run one at a time (split mode) so each setup can prepare the environment before its racer's runs. Without per-racer setups, all racers run together in each run.
+Racers run one at a time (split mode) whenever a per-racer setup script exists — so each setup can prepare the environment before its racer's runs — and also whenever `--pause` is set, since that is the whole point of pausing between racers. Otherwise all racers run together in each run.
 
 Set `setup` or `teardown` to `false` or `""` in settings to explicitly disable a discovered script.
 

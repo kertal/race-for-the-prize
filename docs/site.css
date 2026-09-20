@@ -209,7 +209,7 @@ a { color: var(--text); }
   overflow-x: auto;
   white-space: pre;
 }
-.command .prompt { color: var(--text-subtle); user-select: none; }
+.command .prompt { color: var(--text-dim); user-select: none; }
 .hero .command { max-width: 32rem; margin: 0 auto 1.6rem; }
 section > .command { margin-bottom: 1.6rem; }
 
@@ -242,7 +242,9 @@ figure {
 }
 figure img { display: block; width: 100%; height: auto; }
 figcaption {
-  color: var(--text-subtle);
+  /* --text-subtle clears 4.5:1 on --bg but not on --surface, which is what a
+     figcaption sits on. Same for the command prompt and the card arrow. */
+  color: var(--text-dim);
   font-size: 0.75rem;
   padding: 0.6rem 0.9rem;
   border-top: var(--border-width) solid var(--border-subtle);
@@ -271,7 +273,9 @@ figcaption {
 /* Doc cards are links, so they light up like the buttons do. */
 a.card { display: block; text-decoration: none; transition: border-color var(--duration), background var(--duration); }
 a.card:hover { border-color: var(--accent); background: var(--surface-raised); }
-a.card h3::after { content: " →"; color: var(--text-subtle); }
+a.card h3::after { content: " →"; color: var(--text-dim); }
+/* …and --surface-raised is darker still, so the arrow goes full strength on hover. */
+a.card:hover h3::after { color: var(--text); }
 
 /* --- Grid table (the demo line-up) --------------------------------------- */
 .lineup { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
@@ -317,6 +321,8 @@ footer a:hover { color: var(--text); }
   section { margin-bottom: 2.5rem; }
   /* A truncated command is a useless command: wrap rather than scroll. */
   .command { white-space: pre-wrap; overflow-wrap: anywhere; }
+  /* The demo names are wide enough to push the whole page sideways here. */
+  .lineup td:first-child { white-space: normal; overflow-wrap: anywhere; }
 }
 
 @media (prefers-reduced-motion: reduce) {
