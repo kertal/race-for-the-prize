@@ -28,8 +28,10 @@
   --text-ghost: #564d85;
 
   /* Accents */
+  --accent: var(--color-gold);
+  --accent-bright: var(--color-gold-bright);
+  --accent-shadow: var(--color-gold-shadow);
   --accent-contrast: #0d0a1f;
-  --accent-wash: linear-gradient(180deg, rgb(255 45 149 / 18%), rgb(0 229 255 / 5%));
 
   /* Lines */
   --border: #2f2568;
@@ -51,8 +53,10 @@
   --tracking-widest: 0.22em;
 
   /* Ornament & chrome */
-  --checker-color-a: #00e5ff;
-  --checker-color-b: #ff2d95;
+  /* The band picks up the flag's cyan rather than a neutral white. */
+  --checker-wash: rgb(0 229 255 / 16%);
+  /* Both checker squares are bright here, so the title plate punches a hole
+     through the flag in the page colour instead of matching a square. */
   --shadow-popover: 0 6px 24px rgb(255 45 149 / 28%);
   --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%239a90c9'/%3E%3C/svg%3E");
 

@@ -96,6 +96,17 @@ describe('buildPlayerHtml', () => {
     expect(defaultHtml).toContain('max-width: 680px');
   });
 
+  it('heads the title band with the product and the race', () => {
+    // The overview links here, and both pages title themselves the same way.
+    expect(defaultHtml).toContain('\u{1F3C1} Race for the Prize: lauda vs hunt</h1>');
+    // Long titles are cut short with an ellipsis, so the full one stays
+    // reachable on hover.
+    expect(defaultHtml).toContain('<h1 title="Race for the Prize: lauda vs hunt">');
+    // Racer names reach it escaped, like every other name on the page.
+    const nasty = buildPlayerHtml(makeSummary({ racers: ['<script>', 'b & c'] }), videoFiles);
+    expect(nasty).toContain('Race for the Prize: &lt;script&gt; vs b &amp; c');
+  });
+
   it('keeps the racer name on screen in fullscreen', () => {
     // Fullscreen gives each grid row the viewport, so the label rides on top of
     // its video rather than taking a line of its own — but it stays visible:
@@ -131,12 +142,17 @@ describe('buildPlayerHtml', () => {
     expect(defaultHtml).toContain('profile-bar-fill');
   });
 
-  it('includes section metrics in Performance Results', () => {
-    expect(defaultHtml).toContain('Performance Results');
-    expect(defaultHtml).toContain('Race Section Load');
+  it('lists each race section exactly once, under Race Results', () => {
+    // Performance Results used to re-render the same per-section durations,
+    // so every section appeared twice on the page, byte for byte.
+    expect(defaultHtml.match(/Race Section Load/g)).toHaveLength(1);
+    const results = defaultHtml.indexOf('Race Results');
+    expect(defaultHtml.indexOf('Race Section Load')).toBeGreaterThan(results);
+    // With no profile metrics to summarise, that section has nothing to say.
+    expect(defaultHtml).not.toContain('Performance Results');
   });
 
-  it('orders Performance Results as Race, sections, then Total Recording', () => {
+  it('orders Performance Results as Race, then Total Recording', () => {
     const metrics1 = { total: { networkTransferSize: 1000, scriptDuration: 100 }, measured: { networkTransferSize: 500 } };
     const metrics2 = { total: { networkTransferSize: 2000, scriptDuration: 200 }, measured: { networkTransferSize: 800 } };
     const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
@@ -144,13 +160,12 @@ describe('buildPlayerHtml', () => {
     const summaryStart = html.indexOf('Performance Results');
     const profileSummary = summaryStart >= 0 ? html.slice(summaryStart) : html;
     const raceIdx = profileSummary.indexOf('>Race<');
-    const sectionIdx = profileSummary.indexOf('Race Section Load');
     const totalRecordingIdx = profileSummary.indexOf('Total Recording (Including Pre and Post race)');
     expect(raceIdx).toBeGreaterThan(-1);
-    expect(sectionIdx).toBeGreaterThan(-1);
     expect(totalRecordingIdx).toBeGreaterThan(-1);
-    expect(raceIdx).toBeLessThan(sectionIdx);
-    expect(sectionIdx).toBeLessThan(totalRecordingIdx);
+    expect(raceIdx).toBeLessThan(totalRecordingIdx);
+    // The per-section durations live in Race Results, and only there.
+    expect(html.match(/Race Section Load/g)).toHaveLength(1);
   });
 
   it('renders Race before section metrics when present', () => {
@@ -535,6 +550,77 @@ describe('buildPlayerHtml race info', () => {
   });
 });
 
+// --- Command & Configuration section ---
+
+describe('buildPlayerHtml command and configuration', () => {
+  const raceConfig = {
+    command: "node race.js ./races/duel --runs=2 --network 'slow-3g'",
+    version: '9.9.9',
+    mode: 'directory',
+    raceDir: 'races/duel',
+    racers: [{ name: 'a', script: 'a.spec.js' }, { name: 'b', script: 'b.spec.js' }],
+    settings: { runs: 2, headless: true, network: 'slow-3g' },
+    sources: { runs: 'cli', headless: 'settings.json', network: 'cli' },
+  };
+  const configHtml = (overrides = {}) =>
+    buildPlayerHtml(abSummary(), abVideoFiles, null, null, { raceConfig: { ...raceConfig, ...overrides } });
+
+  it('shows the command that ran the race', () => {
+    const html = configHtml();
+    expect(html).toContain('Command &amp; Configuration');
+    expect(html).toContain('node race.js ./races/duel --runs=2 --network &#39;slow-3g&#39;');
+  });
+
+  it('names the race directory, mode, version and each racer script', () => {
+    const html = configHtml();
+    expect(html).toContain('races/duel');
+    expect(html).toContain('directory');
+    expect(html).toContain('9.9.9');
+    expect(html).toContain('a.spec.js');
+    expect(html).toContain('b.spec.js');
+  });
+
+  it('lists every setting with its value and where it came from', () => {
+    const html = configHtml();
+    const section = html.slice(html.indexOf('Command &amp; Configuration'));
+    expect(section).toContain('<td class="config-key">runs</td><td class="config-value">2</td>');
+    expect(section).toContain('config-source-cli">CLI flag');
+    expect(section).toContain('config-source-settingsjson">settings.json');
+  });
+
+  it('falls back to "default" for a setting with no recorded source', () => {
+    const html = configHtml({ settings: { format: 'webm' }, sources: {} });
+    expect(html).toContain('config-source-default">default');
+  });
+
+  it('orders the settings a racer reads first before the rest', () => {
+    const html = configHtml({
+      settings: { format: 'mov', runs: 2, headless: true },
+      sources: {},
+    });
+    const section = html.slice(html.indexOf('Command &amp; Configuration'));
+    expect(section.indexOf('>runs<')).toBeLessThan(section.indexOf('>headless<'));
+    expect(section.indexOf('>headless<')).toBeLessThan(section.indexOf('>format<'));
+  });
+
+  it('escapes a value that came in from settings.json', () => {
+    const html = configHtml({ settings: { skin: '<script>x</script>' }, sources: {} });
+    expect(html).toContain('&lt;script&gt;x&lt;/script&gt;');
+  });
+
+  it('links the stored record from the files section', () => {
+    const html = buildPlayerHtml(abSummary(), abVideoFiles, null, null, { raceConfig, raceConfigFile: 'config.json' });
+    expect(html).toContain('href="config.json"');
+  });
+
+  it('omits the section entirely for a report built without a record', () => {
+    const html = buildPlayerHtml(abSummary(), abVideoFiles);
+    expect(html).not.toContain('Command &amp; Configuration');
+    // The stylesheet still carries the section's rules; the markup must not.
+    expect(html).not.toContain('<table class="config-table">');
+  });
+});
+
 // --- Machine Info section ---
 
 describe('buildPlayerHtml machine info', () => {
@@ -854,11 +940,18 @@ describe('buildPlayerHtml debug mode', () => {
     expect(debugHtml).toContain('>Calibration<');
   });
 
-  it('hides the calibration button in fullscreen', () => {
-    // The calibration panel is rendered outside #fullscreenWrapper, so the
-    // toggle would open something the viewer cannot see.
+  it('hides the panel toggles in fullscreen', () => {
+    // The calibration and settings panels are rendered outside
+    // #fullscreenWrapper and the export overlay is appended to <body>, so none
+    // of these toggles can open anything the viewer would see. #fullscreenBtn
+    // is deliberately left out — it is the way back out.
     expect(debugHtml).toContain('class="frame-btn calibration-btn" id="modeDebug"');
-    expect(debugHtml).toContain(':-webkit-full-screen) .calibration-btn { display: none; }');
+    const rule = debugHtml.match(/:-webkit-full-screen\) :is\([^)]*\) \{[^}]*\}/)[0];
+    expect(rule).toContain('.calibration-btn');
+    expect(rule).toContain('.control-action-group');
+    expect(rule).toContain('#settingsToggle');
+    expect(rule).not.toContain('#fullscreenBtn');
+    expect(rule).toContain('display: none;');
   });
 
   it('calibration button is always in template, hidden by default', () => {
@@ -1230,10 +1323,14 @@ describe('buildPlayerHtml export', () => {
     }
   });
 
-  it('renders Export button in header for all pages', () => {
-    // Export buttons are always in the header; runtime hides them when < 2 racers
-    expect(noVideosHtml).toContain('id="exportBtn"');
+  it('renders the export buttons alongside the transport controls', () => {
+    // They moved out of the page header and into the controls bar, next to the
+    // calibration toggle. A report with no videos gets neither the controls nor
+    // the runtime script that drives them, so it carries no export button — it
+    // used to render one that nothing was listening to.
     expect(defaultHtml).toContain('id="exportBtn"');
+    expect(noVideosHtml).not.toContain('id="exportBtn"');
+    expect(noVideosHtml).not.toContain('class="controls"');
   });
 
   it('getExportLayout ensures even canvasH for libx264 compatibility', () => {
@@ -1724,17 +1821,17 @@ describe('buildPlayerHtml semantics', () => {
     expect(defaultHtml).toContain('<a class="skip-link" href="#main">');
     expect(defaultHtml).toContain('<main id="main">');
     expect(defaultHtml).toContain('</main>');
-    expect(defaultHtml).toMatch(/<header class="header-bar">/);
+    expect(defaultHtml).toMatch(/<header class="race-header">/);
     expect(defaultHtml).toMatch(/<footer>[\s\S]*checkered-bar[\s\S]*<\/footer>/);
   });
 
   it('hides the purely decorative ornaments from assistive tech', () => {
+    // The foot band is pure ornament — the head band carries the title, so it
+    // stays readable.
     expect(defaultHtml).toContain('<div class="checkered-bar" aria-hidden="true">');
-    expect(defaultHtml).toContain('class="header-icon header-icon-left" aria-hidden="true"');
   });
 
-  it('names the two navigation regions', () => {
-    expect(defaultHtml).toContain('<nav class="header-icon header-icon-right" aria-label="Player actions">');
+  it('names the run navigation', () => {
     expect(multiRunHtml).toContain('<nav class="run-nav" aria-label="Race runs">');
   });
 
@@ -1793,7 +1890,7 @@ describe('buildPlayerHtml semantics', () => {
       { start: 1.2, end: 3.4, recordingOffset: 0.2, wallClockDuration: 2.2 },
     ];
     const debugHtml = withOptions({ clipTimes });
-    expect(debugHtml).toContain('<aside class="debug-panel" id="debugPanel" aria-label="Calibration">');
+    expect(debugHtml).toContain('<aside class="panel debug-panel" id="debugPanel" aria-label="Calibration">');
     expect(debugHtml).toContain('<h4 class="debug-stats-header">VIDEO INFO</h4>');
   });
 

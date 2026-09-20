@@ -34,7 +34,7 @@ style: |
 ---
 
 <!-- Slide 1: Title -->
-# 🏆 RaceForThePrize
+# 🏁 RaceForThePrize
 
 ## *Browser Performance. Head-to-Head.*
 
@@ -44,7 +44,7 @@ style: |
 
 <br>
 
-*A Playwright-powered CLI benchmarking tool*
+*A Playwright-powered CLI benchmarking tool — `npx race-for-the-prize`*
 
 ---
 
@@ -54,7 +54,7 @@ style: |
 <br>
 
 - Lighthouse score: **72 → 81** — *which change did it?*
-- LCP improved by 34% — *can you actually see that?*
+- LCP (Largest Contentful Paint) improved by 34% — *can you actually see that?*
 - CI is red — *what exactly regressed?*
 
 <br>
@@ -70,14 +70,15 @@ style: |
 
 <br>
 
-- Write **Playwright `.spec.js` scripts** — one per contender
-- Add **3 race API calls** to define start, stop, recording
+- Write **Playwright `.spec.js` scripts** — one per racer
+- Add simple **API calls** to define start, stop, recording
 - Run the CLI — get video, timings, and a full report
 
 <br>
 
 ```bash
-node race.js ./races/lauda-vs-hunt
+npx race-for-the-prize demo:lauda-vs-hunt   # a bundled race, no clone needed
+npx race-for-the-prize ./races/my-race      # your own
 ```
 
 ---
@@ -124,7 +125,6 @@ await page.raceRecordingEnd();
 <br>
 
 - **Production vs. Staging** — checkout flow, login, search
-- **React vs. Svelte vs. Angular** — same app, real numbers
 - **Feature flag on vs. off** — lazy loading, third-party scripts
 - **Weekly in CI** — fail the build if performance regresses
 
@@ -167,16 +167,18 @@ await page.raceRecordingEnd();
 
 <br>
 
-**1.** `npm install && npx playwright install chromium`
+**1.** `npx race-for-the-prize demo:lauda-vs-hunt`
 
-**2.** `node race.js ./races/lauda-vs-hunt`
+**2.** `npx race-for-the-prize --init my-race`
 
 **3.** Pick a winner.
 
 <br>
 
-Built-in races: `lauda-vs-hunt` · `lebron-vs-curry` · `react-vs-angular`
+Racing often? `npm install -g race-for-the-prize` — then just `race-for-the-prize …`
+
+Bundled demos: `lauda-vs-hunt` · `lebron-vs-curry` · `react-vs-angular` · `caching-comparison`
 
 <br>
 
-> *"May the fastest browser win."*
+> *"May the fastest browser win."* — [npmjs.com/package/race-for-the-prize](https://www.npmjs.com/package/race-for-the-prize)

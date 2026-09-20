@@ -7,6 +7,7 @@
  */
 
 import { spawnSync } from 'child_process';
+import { getSectionComparisons } from './report-model.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -76,18 +77,24 @@ export function buildGeminiPrompt(summary) {
   lines.push('## Race participants');
   lines.push(racers.map((r, i) => `  ${i + 1}. ${r}`).join('\n'));
 
+  // diffPercent is (slowest − fastest) / fastest: how much slower the slowest
+  // racer was, not how much faster the winner was (1s vs 2s is 100%, not 50%).
+  // The prompt asks Gemini to cite exact numbers, so label it that way.
   lines.push('\n## Timing results');
   for (const comp of (comparisons || [])) {
     const times = (comp.racers || []).map((r, i) => r?.duration != null ? `${racers[i]}: ${r.duration.toFixed(3)}s` : null).filter(Boolean);
-    const winStr = comp.winner ? ` → winner: ${comp.winner} by ${comp.diff?.toFixed(3)}s (${comp.diffPercent?.toFixed(1)}% faster)` : ' → tie';
+    const winStr = comp.winner ? ` → winner: ${comp.winner} by ${comp.diff?.toFixed(3)}s (slowest was ${comp.diffPercent?.toFixed(1)}% slower)` : ' → tie';
     lines.push(`  "${comp.name}": ${times.join(' vs ')}${winStr}`);
   }
 
   if (overallWinner === 'tie') {
     lines.push('\n  Overall result: TIE');
   } else if (overallWinner) {
+    // `wins` counts section measurements only; the synthetic all-sections
+    // total is appended to `comparisons` afterwards and must not be counted.
     const winsCount = wins?.[overallWinner] ?? 0;
-    lines.push(`\n  Overall winner: ${overallWinner} (won ${winsCount} of ${comparisons?.length ?? 0} measurements)`);
+    const sectionCount = getSectionComparisons(comparisons || []).length;
+    lines.push(`\n  Overall winner: ${overallWinner} (won ${winsCount} of ${sectionCount} measurements)`);
   }
 
   if (profileComparison) {
@@ -101,7 +108,7 @@ export function buildGeminiPrompt(summary) {
       for (const metric of section.comparisons) {
         const vals = (metric.values || []).map((r, i) => typeof r === 'number' && Number.isFinite(r) ? `${racers[i]}: ${formatMetricValue(metric.name, r)}` : null).filter(Boolean);
         if (vals.length === 0) continue;
-        const pct = Number.isFinite(metric.diffPercent) ? `, ${metric.diffPercent.toFixed(1)}% better` : '';
+        const pct = Number.isFinite(metric.diffPercent) ? `, worst was ${metric.diffPercent.toFixed(1)}% higher` : '';
         const winStr = metric.winner ? ` [${metric.winner} wins${pct}]` : '';
         lines.push(`  ${metric.name}: ${vals.join(' vs ')}${winStr}`);
         if (metric.description) lines.push(`    → ${metric.description}`);

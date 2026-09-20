@@ -1,4 +1,6 @@
-# 🏆 RaceForThePrize
+# 🏁 RaceForThePrize
+
+[![npm version](https://img.shields.io/npm/v/race-for-the-prize)](https://www.npmjs.com/package/race-for-the-prize)
 
 **Ladies and gentlemen, welcome to race day!**
 
@@ -8,18 +10,31 @@ No judges, no bias — just cold, hard milliseconds on the clock.
 
 ## The Starting Grid
 
+Nothing to clone. One command and the first race is on:
+
 ```bash
-npm install && npx playwright install chromium
+npx race-for-the-prize demo:lauda-vs-hunt
 ```
 
-New to Node.js or need help with your platform? See the full **[Installation Guide](INSTALLATION.md)** for step-by-step instructions on macOS, Linux, and Windows.
+Racing more than once? Install it globally, then race from any directory:
+
+```bash
+npm install -g race-for-the-prize
+
+race-for-the-prize demo                   # list the bundled demo races
+race-for-the-prize demo:lauda-vs-hunt     # run one
+race-for-the-prize --init my-race         # scaffold your own race into my-race/
+race-for-the-prize my-race                # run it
+```
+
+Chromium is downloaded automatically by the package's `postinstall` step. FFmpeg is optional and only needed for `--ffmpeg`. New to Node.js or need help with your platform? See the full **[Installation Guide](INSTALLATION.md)** for step-by-step instructions on macOS, Linux, and Windows — and for running from a clone of this repository.
 
 ## 🏁 Race Day: Lauda vs Hunt
 
 The classic rivalry. Niki Lauda — "The Computer" — against James Hunt — "The Shunt". Precision vs raw speed. Let's settle it once and for all.
 
 ```bash
-node race.js ./races/lauda-vs-hunt
+race-for-the-prize demo:lauda-vs-hunt
 ```
 
 Two browsers launch. Two Wikipedia pages load. Then they scroll — human-like, pixel by pixel — to the bottom. Who reaches the finish line first?
@@ -28,6 +43,8 @@ Two browsers launch. Two Wikipedia pages load. Then they scroll — human-like, 
 
 ### What's in the race folder
 
+The demo is copied into `./races/lauda-vs-hunt/` before it runs (the CLI asks first), so the specs are yours to read and edit:
+
 ```text
 races/lauda-vs-hunt/
   lauda.spec.js      # 🔴 Racer 1: Niki Lauda's Wikipedia page
@@ -35,12 +52,14 @@ races/lauda-vs-hunt/
   settings.json      # Race conditions (parallel, throttle, etc.)
 ```
 
+From then on `race-for-the-prize ./races/lauda-vs-hunt` runs your copy like any other race.
+
 ## 🏀 LeBron vs Curry
 
 The GOAT debate, settled by browser performance. LeBron James — "The King" — against Stephen Curry — "The Chef". Both start at a fixed scroll position on their Wikipedia pages and dribble — basketball physics style, with gravity acceleration down and deceleration up — three times before racing back to the top.
 
 ```bash
-node race.js ./races/lebron-vs-curry
+race-for-the-prize demo:lebron-vs-curry
 ```
 
 The dribbles are perfectly synced. The difference? The scroll back to the top: LeBron uses a smooth ease-in-out, Curry snaps up with a cubic ease-out. Pure browser performance decides the winner.
@@ -50,7 +69,7 @@ The dribbles are perfectly synced. The difference? The scroll back to the top: L
 The frontend framework cage match — four racers, one winner. React, Angular, Svelte, and htmx all load the same TodoMVC-style benchmark. RaceForThePrize supports up to five racers in a single heat.
 
 ```bash
-node race.js ./races/react-vs-angular
+race-for-the-prize demo:react-vs-angular
 ```
 
 ## 🤫 Encrypted cache vs plain cache vs no cache
@@ -58,60 +77,56 @@ node race.js ./races/react-vs-angular
 What does caching cost, and when does it pay back? [HushHushDB](https://kertal.github.io/hush-hush-db/) downloads a dataset and can keep it in IndexedDB — encrypted with a key in `sessionStorage`, stored as plaintext, or not kept at all. Three racers boot the same app into a different cache handling mode, fetch the dataset, step back to the start screen through the app's own back link, and start the demo again.
 
 ```bash
-node race.js ./races/caching-comparison
+race-for-the-prize demo:caching-comparison
 ```
 
-Both halves are timed, because encryption is not free on either side of the cache. **Fetch and store** is the price paid up front — the app renders only once the write finishes. **Return to data** is the payback — the app reopens the mode against the warm cache without reloading the page — and it separates the two costs cleanly: decrypting is a CPU cost that ignores the network, refetching is a network cost that ignores the CPU.
+
+## The calibration! To test multi clip alignment works
+
+![The calibration— side-by-side race replay](assets/demos/race_alpha_vs_bravo_vs_charlie_vs_delta.gif)
+
+[The summary](assets/demos/race_alpha_vs_bravo_vs_charlie_vs_delta.html)
+
+
+## Demo Races
+
+The races above ship inside the npm package, so you can watch a real race before writing one:
+
+```bash
+race-for-the-prize demo                   # list the demo races
+race-for-the-prize demo:lauda-vs-hunt     # run one
+```
+
+| Command | Race |
+|---|---|
+| `demo:lauda-vs-hunt` | The classic rivalry — two Wikipedia pages, scrolled to the bottom |
+| `demo:lebron-vs-curry` | The GOAT debate — dribble three times, then race back to the top |
+| `demo:react-vs-angular` | Framework cage match — React, Angular, Svelte and htmx, four racers |
+| `demo:caching-comparison` | Encrypted cache vs plain cache vs no cache, both halves timed |
+
+Every command in this ReadMe works the same through `npx race-for-the-prize …` if you would rather not install globally.
+
+The demo has to be copied out of the package into `./races/<name>/` before it can run, so results land next to your work and the specs are yours to edit. The first run lists the files and asks before writing anything:
 
 ```text
-  ⏱ Return to data     encrypted   plain   no-cache
-  none    · CPU 1x       0.190s   0.133s     0.068s
-  slow-3g · CPU 1x       0.189s   0.150s     4.332s   ← same CPU, 25x slower link
-  none    · CPU 4x       0.496s   0.306s     0.127s   ← same link, 4x slower CPU
+Demo race lauda-vs-hunt needs these files in races/lauda-vs-hunt/
+  hunt.spec.js
+  lauda.spec.js
+  settings.json
+Copy them there and start the race? [Y/n]
 ```
 
-Six conditions (three networks x two CPU rates), three runs each, reported as medians — the whole thing takes about nine minutes:
-
-```text
-  ⚡ Performance Matrix
-  Network  CPU 1x                     CPU 4x
-  none     🏆 no-cache        0.171s  🏆 no-cache        0.345s
-              plain-cache     0.300s     plain-cache     0.849s
-              encrypted-cache 0.393s     encrypted-cache 1.179s
-
-  fast-3g  🏆 plain-cache     2.059s  🏆 plain-cache     2.571s
-              encrypted-cache 2.138s     no-cache        2.867s
-              no-cache        3.164s     encrypted-cache 2.920s
-
-  slow-3g  🏆 plain-cache     4.583s  🏆 plain-cache     5.062s
-              encrypted-cache 4.667s     encrypted-cache 5.404s
-              no-cache        8.217s     no-cache        7.917s
-```
-
-On a free network the write cost makes caching pure overhead and skipping it wins outright; by slow-3g caching wins by three and a half seconds. Encryption is the smaller effect but a remarkably steady one: on the read it costs 40–60ms at CPU 1x and around 190ms at CPU 4x, in every network condition. Switch the metric picker in `index.html` to **Network Transfer** under *Total Recording* for the blunt version: the cached racers move 380 KB over the whole run, no-cache 594 KB — the extra 214 KB is the dataset, fetched a second time.
-
-Single runs of a live site wobble enough to flip cells, so `settings.json` asks for three. Drop it to `"runs": 1` if you would rather have the answer in three minutes.
-
-## Global Install
-
-Install once, race anywhere:
+Answer `n` and nothing is written — the race is cancelled. A later run reuses your copy and never overwrites a file you edited, so it only asks again if something is missing. In scripts and CI, where there is nobody to ask, pass `--yes`:
 
 ```bash
-npm install -g race-for-the-prize
+race-for-the-prize demo:lauda-vs-hunt --yes
 ```
 
-Chromium is installed automatically via the `postinstall` script. Then scaffold and run a race from any directory:
+Every other flag works as usual:
 
 ```bash
-race-for-the-prize --init my-race   # scaffold starter race into my-race/
-race-for-the-prize my-race          # run it
-```
-
-Use `npx` if you prefer not to install globally:
-
-```bash
-npx race-for-the-prize --init my-race
-npx race-for-the-prize my-race
+race-for-the-prize demo:caching-comparison --network=slow-3g --runs=3
+race-for-the-prize demo:lauda-vs-hunt --results   # view past results
 ```
 
 ## Building Your Own Grand Prix
@@ -273,7 +288,7 @@ await page.raceRecordingEnd();
 Run it under realistic conditions with throttling to see how it feels on real devices:
 
 ```bash
-node race.js ./races/checkout-v2-vs-v3 --network=fast-3g --cpu=4 --runs=5
+race-for-the-prize ./races/checkout-v2-vs-v3 --network=fast-3g --cpu=4 --runs=5
 ```
 
 ### Comparing competing products or frameworks
@@ -305,14 +320,14 @@ Quantify the performance tax of analytics, chat widgets, or ad scripts by racing
 Combine network throttling and CPU slowdown to approximate mobile users on spotty connections:
 
 ```bash
-node race.js ./races/my-race --network=slow-3g --cpu=6 --runs=3
+race-for-the-prize ./races/my-race --network=slow-3g --cpu=6 --runs=3
 ```
 
 Both `--network` and `--cpu` accept a list. Every combination is raced separately, each into its own results subdirectory:
 
 ```bash
-node race.js ./races/my-race --cpu=1,4              # cpu1x/, cpu4x/
-node race.js ./races/my-race --network=slow-3g,4g --cpu=1,4  # slow-3g-cpu1x/, slow-3g-cpu4x/, 4g-cpu1x/, 4g-cpu4x/
+race-for-the-prize ./races/my-race --cpu=1,4              # cpu1x/, cpu4x/
+race-for-the-prize ./races/my-race --network=slow-3g,4g --cpu=1,4  # slow-3g-cpu1x/, slow-3g-cpu4x/, 4g-cpu1x/, 4g-cpu4x/
 ```
 
 Afterwards you get a **performance matrix** — network presets down the side, CPU rates across the top, every racer's total time in each cell — printed to the terminal and rendered as the top-level `index.html`, where each cell links to that condition's own results:
@@ -337,32 +352,36 @@ The `--runs` flag takes the median, smoothing out noise and giving you a number 
 ## Race Flags (CLI Options)
 
 ```bash
-node race.js --init [dir]                 # Scaffold a starter race (default dir: my-race)
-node race.js <dir>                        # Green light — run the race
-node race.js <dir> --results              # Check the scoreboard
-node race.js <dir> --parallel             # Side by side — pure spectacle, wizard-of-many-windows mode
-node race.js <dir> --headless             # Lights out — no visible browsers
-node race.js <dir> --network=slow-3g      # Wet track conditions
-node race.js <dir> --network=fast-3g      # Damp track
-node race.js <dir> --network=4g           # Dry track
-node race.js <dir> --network=slow-3g,4g   # Full season — race each condition separately
-node race.js <dir> --cpu=4                # Ballast penalty (CPU throttle)
-node race.js <dir> --cpu=1,4              # Race each CPU throttle rate separately
-node race.js <dir> --format=mov           # Broadcast-ready replay format (requires --ffmpeg)
-node race.js <dir> --format=gif           # Quick highlight reel (requires --ffmpeg)
-node race.js <dir> --runs=3               # Best of 3 — median wins
-node race.js <dir> --slowmo=2             # Slow-motion replay (2x, 3x, etc.)
-node race.js <dir> --overlay=false        # Record videos without overlays
-node race.js <dir> --recording=false      # Skip video recording, just measure
-node race.js <dir> --ffmpeg               # Enable FFmpeg processing (trim, merge, convert)
-node race.js <dir> --har                  # Record network HAR files alongside videos
-node race.js <dir> --wasm=false           # Skip copying ffmpeg.wasm files (~25 MB) to results
-node race.js <dir> --serve=false          # Don't start local results server or auto-open; print results HTML path
-node race.js <dir> --pause                # Pause between racers — run all laps for each racer, then press Enter for the next
-node race.js <dir> --height=900           # Set viewport/recording height in pixels (480–4320, default 720)
-node race.js <dir> --ignore-https-errors  # Accept invalid/self-signed TLS certificates
-node race.js <dir> --wall-clock           # Burn a ticking wall clock into the recording
-node race.js <dir> --skin=light           # Skin the results player (light, neon, or a path to a .css file)
+race-for-the-prize demo                         # List the demo races shipped with the CLI
+race-for-the-prize demo:<name>                  # Run a demo race (asks before copying it to ./races/<name>/)
+race-for-the-prize demo:<name> --yes            # Copy the demo race without being asked (CI)
+race-for-the-prize <url> <url> [url...]         # Quick race — page load times of 2–5 URLs, no spec needed
+race-for-the-prize --init [dir]                 # Scaffold a starter race (default dir: my-race)
+race-for-the-prize <dir>                        # Green light — run the race
+race-for-the-prize <dir> --results              # Check the scoreboard
+race-for-the-prize <dir> --parallel             # Side by side — pure spectacle, wizard-of-many-windows mode
+race-for-the-prize <dir> --headless             # Lights out — no visible browsers
+race-for-the-prize <dir> --network=slow-3g      # Wet track conditions
+race-for-the-prize <dir> --network=fast-3g      # Damp track
+race-for-the-prize <dir> --network=4g           # Dry track
+race-for-the-prize <dir> --network=slow-3g,4g   # Full season — race each condition separately
+race-for-the-prize <dir> --cpu=4                # Ballast penalty (CPU throttle)
+race-for-the-prize <dir> --cpu=1,4              # Race each CPU throttle rate separately
+race-for-the-prize <dir> --format=mov           # Broadcast-ready replay format (requires --ffmpeg)
+race-for-the-prize <dir> --format=gif           # Quick highlight reel (requires --ffmpeg)
+race-for-the-prize <dir> --runs=3               # Best of 3 — median wins
+race-for-the-prize <dir> --slowmo=2             # Slow-motion replay (2x, 3x, etc.)
+race-for-the-prize <dir> --overlay=false        # Record videos without overlays
+race-for-the-prize <dir> --recording=false      # Skip video recording, just measure
+race-for-the-prize <dir> --ffmpeg               # Enable FFmpeg processing (trim, merge, convert)
+race-for-the-prize <dir> --har                  # Record network HAR files alongside videos
+race-for-the-prize <dir> --wasm=false           # Skip copying ffmpeg.wasm files (~25 MB) to results
+race-for-the-prize <dir> --serve=false          # Don't start local results server or auto-open; print results HTML path
+race-for-the-prize <dir> --pause                # Pause between racers — run all laps for each racer, then press Enter for the next
+race-for-the-prize <dir> --height=900           # Set viewport/recording height in pixels (480–4320, default 720)
+race-for-the-prize <dir> --ignore-https-errors  # Accept invalid/self-signed TLS certificates
+race-for-the-prize <dir> --wall-clock           # Burn a ticking wall clock into the recording
+race-for-the-prize <dir> --skin=light           # Skin the results player (light, neon, or a path to a .css file)
 ```
 
 CLI flags always override `settings.json`. For boolean flags, you can pass explicit values like `--parallel=false` or `--ffmpeg=true`.
@@ -403,12 +422,21 @@ races/my-race/results-2026-01-31_14-30-00/
   contender-a-vs-contender-b.webm   # Side-by-side broadcast replay (--ffmpeg only)
   index.html                          # Interactive HTML player with video replay
   summary.json                        # Official race classification
+  config.json                         # The command and the settings this race ran with
   README.md                           # Race report card
 ```
+
+Every results folder keeps its own `config.json`: the exact command line, the
+race mode and scripts, and every effective setting alongside where it came from
+(a CLI flag, `settings.json`, or the built-in default). The HTML player shows
+the same thing under **Command & Configuration**, so a report read a month later
+says how to reproduce the race, not just who won.
 
 By default, the HTML player handles virtual trimming via clip times and uses CDP screencast metadata or canvas-based calibration for frame-accurate playback — no external dependencies needed. When neither calibration source is available, it falls back to linear time-mapping which is less precise. With `--ffmpeg`, videos are physically trimmed, a side-by-side merged video is created, and format conversion (mov/gif) is available.
 
 The player includes segment navigation buttons — **Race Recording** (all measurements combined), individual named segments (one per `raceStart`/`raceEnd` pair), and **Whole Recording** (full unclipped video when available). This lets you scrub directly to any specific measurement.
+
+The videos are laid out in finishing order — winner first, then 2nd, 3rd — ranked by total time across all sections, the same way the overall winner is decided. (When two totals are within a frame of each other, the per-section rankings break the tie.)
 
 The moment a racer's own finish frame plays, a placement badge appears under its video — `🥈 2nd · 3.000s total` — computed from the final results rather than from recording order, so it matches the summary (including joint places). With `--runs`, that total is the summary's median while the video is one representative run, so the badge can read a little off from the frames it sits over; it is the race result, not a stopwatch on that clip. The in-browser side-by-side export draws the same label. `--ffmpeg` output (trimmed videos, the merged side-by-side file, MOV/GIF) carries no placement; the results table is the record there.
 
@@ -423,8 +451,8 @@ semantic layer, and a component layer that contains no literal colours at all.
 A skin is therefore just a CSS file that redefines tokens:
 
 ```bash
-node race.js ./races/lauda-vs-hunt --skin=light       # built-in
-node race.js ./races/lauda-vs-hunt --skin=./team.css  # your own
+race-for-the-prize ./races/lauda-vs-hunt --skin=light       # built-in
+race-for-the-prize ./races/lauda-vs-hunt --skin=./team.css  # your own
 ```
 
 Two skins ship with the tool (`light`, `neon`) and live in `cli/skins/`. One
@@ -565,17 +593,31 @@ Set `setup` or `teardown` to `false` or `""` in settings to explicitly disable a
 ## Prerequisites
 
 - **Node.js** 18+ (required)
+- **Chromium** — downloaded automatically when the package installs; `npx playwright install chromium` fetches it by hand if that step was skipped
 - **FFmpeg** (optional — only needed with `--ffmpeg` for physical video trimming, side-by-side merging, and format conversion)
 
 FFmpeg is **not required** for normal use. The HTML player handles virtual trimming with frame-accurate canvas-based calibration and includes a client-side Export button for creating side-by-side videos directly in the browser.
 
 See the **[Installation Guide](INSTALLATION.md)** for detailed setup instructions on every platform.
 
+## Working From a Clone
+
+Hacking on the tool itself, or want the example races without the copy step? Clone the repository and run the entry point directly — `node race.js` takes exactly the same arguments and flags as the installed `race-for-the-prize` command:
+
+```bash
+git clone https://github.com/kertal/race-for-the-prize.git
+cd race-for-the-prize
+npm install                          # also downloads Chromium
+node race.js ./races/lauda-vs-hunt   # the example races live in races/
+```
+
+`npm link` turns the clone into your global `race-for-the-prize` command, so you can try your changes from any directory.
+
 ## Project Structure
 
 ```text
 RaceForThePrize/
-├── race.js                 # 🏁 Main entry point — the race director
+├── race.js                 # 🏁 Main entry point — the race director (the `race-for-the-prize` bin)
 ├── runner.cjs              # Playwright automation engine
 ├── sync-barrier.cjs        # Parallel mode checkpoint synchronization
 ├── visual-stability.cjs    # Wait-for-visual-stability detection logic
@@ -584,6 +626,7 @@ RaceForThePrize/
 │   ├── animation.js        # Live terminal racing animation
 │   ├── colors.js           # ANSI color palette
 │   ├── config.js           # Argument parsing & racer discovery
+│   ├── demos.js            # The demo:<name> command — bundled races copied on request
 │   ├── profile-analysis.js # CDP performance metrics collection & analysis
 │   ├── html-templates.js   # Shared markup plumbing (escaping, {{slots}}, <template> loading)
 │   ├── player.html         # HTML player markup + build-time templates
@@ -601,32 +644,39 @@ RaceForThePrize/
 │   ├── summary.js          # Results formatting & markdown reports
 │   ├── sidebyside.js       # FFmpeg video composition (--ffmpeg)
 │   └── videoplayer.js      # Interactive HTML player with clip-based trimming
-├── races/
-│   ├── lauda-vs-hunt/        # 🏆 Example: the greatest rivalry in racing
-│   ├── lebron-vs-curry/      # 🏀 Example: the GOAT debate, dribble-style
-│   └── react-vs-angular/     # ⚛️  Example: frontend framework showdown (4 racers)
+├── races/                  # Demo races — shipped in the npm package, run via demo:<name>
+│   ├── lauda-vs-hunt/        # 🏁 The greatest rivalry in racing
+│   ├── lebron-vs-curry/      # 🏀 The GOAT debate, dribble-style
+│   ├── react-vs-angular/     # ⚛️  Frontend framework showdown (4 racers)
+│   └── caching-comparison/   # 🤫 Encrypted vs plain vs no cache (3 racers, 6 conditions)
+├── scripts/
+│   └── postinstall.cjs     # Downloads Chromium when the package installs
 ├── docs/
 │   └── skinning.md         # Design tokens & how to write a player skin
 ├── presentation/
 │   ├── slides.md           # Marp slide deck
-│   └── script.md           # Speaker notes (7 slides, ~7 min)
+│   ├── slides.html         # The deck rendered by Marp — open it in a browser
+│   └── script.md           # Speaker notes (~12 min, with a 7 min cut)
 ├── tests/                  # Unit tests (vitest)
 ├── integration/            # Integration tests (vitest)
-└── package.json
+└── package.json            # bin: race-for-the-prize → race.js
 ```
 
 ## Presenting RaceForThePrize
 
 The `presentation/` folder contains a ready-to-use slide deck and speaker script for introducing the tool to an audience.
 
-- **`slides.md`** — 7-slide [Marp](https://marp.app/) deck covering positioning, the race API, live demo, and results
+- **`slides.md`** — 9-slide [Marp](https://marp.app/) deck covering positioning, the race API, live demo, results, and how to get started with `npx race-for-the-prize`
+- **`slides.html`** — the rendered deck, ready to open in a browser or present with `marp -p`
 - **`script.md`** — Speaker notes with timing guidance, audience adaptation tips, and key phrases to land
 
-Generate slides with Marp:
+After editing `slides.md`, regenerate the HTML with Marp:
 
 ```bash
 npx @marp-team/marp-cli presentation/slides.md --html -o presentation/slides.html
 ```
+
+The deck's live-demo moment is `npx race-for-the-prize demo:lauda-vs-hunt` — it works from any empty directory, so the audience can follow along on their own machines.
 
 ## Running Tests
 

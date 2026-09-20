@@ -195,13 +195,9 @@ function updateDebugStats() {
 // seek target and can sit up to a frame ahead of the visible picture.
 const presentedTimes = raceVideos.map(() => null);
 
-// Time to report for a video: the presented frame's mediaTime when it still
-// describes where the video is, otherwise currentTime (a seek that has not
-// painted yet leaves the previous mediaTime behind).
+// Time to report for a video — see displayedFrameTime in calibration.cjs.
 function displayedTime(v, i) {
-  const presented = presentedTimes[i];
-  if (presented != null && Math.abs(presented - v.currentTime) <= FRAME_STEP) return presented;
-  return v.currentTime;
+  return displayedFrameTime(presentedTimes[i], v);
 }
 
 // Keep presentedTimes fresh. requestVideoFrameCallback fires once per painted
@@ -219,23 +215,49 @@ function trackPresentedFrames() {
   });
 }
 
+// The two lines inside a badge, built once. This runs on every painted frame —
+// 25-60 times a second per racer — so it rewrites text rather than tearing the
+// badge down and building it again, which is churn the compositor can show.
+const badgeLines = [];
+
+function badgeParts(badge, i) {
+  if (badgeLines[i]) return badgeLines[i];
+  const frameEl = document.createElement('span');
+  frameEl.className = 'frame-badge-num';
+  const clipEl = document.createElement('span');
+  clipEl.className = 'frame-badge-clip';
+  badge.replaceChildren(frameEl, clipEl);
+  badgeLines[i] = { frameEl, clipEl, frame: null, clip: null };
+  return badgeLines[i];
+}
+
+// Write only what changed: an identical string every frame is a no-op.
+function setLine(el, text, parts, key) {
+  if (parts[key] === text) return;
+  parts[key] = text;
+  el.textContent = text;
+  el.hidden = text === '';
+}
+
 // The frame number painted over one racer's video.
 function renderFrameBadge(i, ct) {
   const badge = document.getElementById('frameBadge' + i);
   if (!badge) return;
   const v = raceVideos[i];
   const readout = v ? frameReadout(displayedTime(v, i), ct ? ct[i] : null) : null;
-  badge.replaceChildren();
-  if (!readout) { badge.textContent = '\u2014'; return; }
-  const frameEl = document.createElement('span');
-  frameEl.className = 'frame-badge-num';
-  frameEl.textContent = 'f ' + readout.frame;
-  badge.appendChild(frameEl);
-  if (readout.clipFrame == null) return;
-  const clipEl = document.createElement('span');
-  clipEl.className = 'frame-badge-clip';
-  clipEl.textContent = 'clip ' + readout.clipFrame + '/' + readout.clipTotal;
-  badge.appendChild(clipEl);
+  const parts = badgeParts(badge, i);
+  if (!readout) {
+    setLine(parts.frameEl, '\u2014', parts, 'frame');
+    setLine(parts.clipEl, '', parts, 'clip');
+    return;
+  }
+  setLine(parts.frameEl, 'f ' + readout.frame, parts, 'frame');
+  setLine(
+    parts.clipEl,
+    readout.clipFrame == null ? '' : 'clip ' + readout.clipFrame + '/' + readout.clipTotal,
+    parts,
+    'clip'
+  );
 }
 
 // Every badge, while calibration is open. Nothing to draw when the panel is

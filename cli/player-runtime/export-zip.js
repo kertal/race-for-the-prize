@@ -36,6 +36,7 @@ function bakeRaceConfig(doc, pathOverrides, hasOverrides) {
         wallClockDuration: orig.wallClockDuration || 0,
         recordingOffset: orig.recordingOffset || 0,
         measurements: orig.measurements || [],
+        traceCalibration: bakedTraceCalibration(orig, debugOffsets[i]),
       };
     });
   }
@@ -45,6 +46,21 @@ function bakeRaceConfig(doc, pathOverrides, hasOverrides) {
     if (Array.isArray(cfg.fullVideoPaths)) cfg.fullVideoPaths = cfg.fullVideoPaths.map(mapPath);
   }
   configScript.textContent = JSON.stringify(cfg).replaceAll('<', String.raw`\u003c`);
+}
+
+// The segment picker turns each measurement's trace timestamps into video
+// positions through traceCalibration, so an exported page needs it too — or
+// every segment resolves to null and picking one plays the whole recording.
+// The baked clip start already carries this racer's calibration offset;
+// shifting firstFrameTs by the same amount moves the segments with it, since
+// the exported page applies no offsets of its own.
+function bakedTraceCalibration(orig, offsetSeconds) {
+  const tc = orig.traceCalibration;
+  if (!tc) return null;
+  const firstFrameTs = Number.isFinite(tc.firstFrameTs)
+    ? tc.firstFrameTs - (offsetSeconds || 0) * US_PER_SECOND
+    : tc.firstFrameTs;
+  return { ...tc, firstFrameTs };
 }
 
 function removeEl(doc, selector) {
@@ -97,7 +113,7 @@ function stripSlimSections(doc) {
   removeEl(doc, '#settingsPanel');
   removeEl(doc, '#settingsToggle');
   const shBtn = doc.querySelector('#shareToggle');
-  if (shBtn) { const group = shBtn.closest('.header-icon-group'); if (group) group.remove(); else shBtn.remove(); }
+  if (shBtn) { const group = shBtn.closest('.control-action-group'); if (group) group.remove(); else shBtn.remove(); }
 }
 
 // Clear dynamically-built UI so the script rebuilds it cleanly on load.

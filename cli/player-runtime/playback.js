@@ -216,6 +216,10 @@ function resolveClip() {
 }
 
 function resolveAdjustedClip() {
+  // Whole Recording has no clip window by definition: recomputing one here
+  // (after a racer-filter click, a calibration nudge, or a late metadata pass)
+  // would silently snap the player back to the race clip.
+  if (activeSegmentName === '__full__') return null;
   const adj = getAdjustedClipTimes();
   if (!adj) return resolveClip();
   return resolveClipWindow(adj, hiddenRacers);
@@ -456,6 +460,29 @@ function onTimeUpdate() {
   }
 }
 
+// timeupdate is the only thing driving the clip-end clamp, and Chromium fires
+// it barely four times a second — long enough for playback to run a quarter of
+// a second past the end of the clip before being snapped back. The frame badge
+// updates on every painted frame, so it reported every frame of that overshoot
+// ("clip 46/40") and then jumped back to 40/40: one visible blink at the end of
+// every clip. Clamp on the frame clock instead, and leave the timeupdate
+// listener as the backstop for background tabs, where rAF does not run.
+let clipWatchRaf = null;
+
+function watchClipEnd() {
+  if (clipWatchRaf != null) return;
+  const tick = () => {
+    if (!playing) { clipWatchRaf = null; return; }
+    const ct = getAdjustedClipTimes() || clipTimes;
+    // Clamps each video to its own clip end as a side effect.
+    maxClipElapsed(ct);
+    // Settling the transport is the expensive half, and it happens once.
+    if (activeClip && allClipsFinished(ct)) onTimeUpdate();
+    clipWatchRaf = requestAnimationFrame(tick);
+  };
+  clipWatchRaf = requestAnimationFrame(tick);
+}
+
 function onEnded() {
   if (videos.every(vi => !vi || vi.paused || vi.ended)) {
     playing = false;
@@ -646,7 +673,14 @@ function toggleCalibration() {
 
 if (modeRace) modeRace.addEventListener('click', switchToRace);
 if (modeFull) modeFull.addEventListener('click', switchToFull);
-if (modeMerged) modeMerged.addEventListener('click', switchToMerged);
+// Merged is the only mode button the page renders, so it has to toggle:
+// without the way back, the racer videos are gone until a reload.
+if (modeMerged) {
+  modeMerged.addEventListener('click', () => {
+    if (modeMerged.classList.contains('active')) switchToRace();
+    else switchToMerged();
+  });
+}
 if (modeDebug) modeDebug.addEventListener('click', toggleCalibration);
 if (mergedVideo) mergedVideo.addEventListener('loadedmetadata', () => {
   if (videos.includes(mergedVideo)) {
@@ -671,6 +705,7 @@ playBtn.addEventListener('click', () => {
     setPlayState(true);
   }
   playing = !playing;
+  if (playing) watchClipEnd();
 });
 
 scrubber.addEventListener('input', () => {

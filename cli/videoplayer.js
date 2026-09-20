@@ -23,6 +23,7 @@ import {
   setTemplates,
   buildRunNavHtml,
   buildRaceInfoHtml,
+  buildRaceConfigHtml,
   buildMachineInfoHtml,
   buildErrorsHtml,
   buildResultsHtml,
@@ -177,15 +178,17 @@ function buildVideoPlayer(summary, videoFiles, opts) {
 // ---------------------------------------------------------------------------
 
 export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, options = {}) {
-  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, runNavigation, clipTimes, ffmpegPathPrefix, runSummaries, skin, skinBaseDir } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, raceConfig, raceConfigFile, runNavigation, clipTimes, ffmpegPathPrefix, runSummaries, skin, skinBaseDir } = options;
 
   const ffmpegDir = (ffmpegPathPrefix || './') + 'ffmpeg/';
   const racers = summary.racers;
   const count = racers.length;
 
-  const title = count === 2
-    ? `Race: ${escHtml(racers[0])} vs ${escHtml(racers[1])}`
-    : `Race: ${racers.map(escHtml).join(' vs ')}`;
+  // Both reports head their title band with "Race for the Prize: <name>", so
+  // the name is derived once here. (The two-racer case used to be spelled out
+  // separately; it produced the same string as the join.)
+  const raceName = racers.map(escHtml).join(' vs ');
+  const title = `Race: ${raceName}`;
 
   const hasVideos = videoFiles && videoFiles.length > 0;
   // Racers appear everywhere on the page in the order they were declared —
@@ -208,14 +211,15 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   const resolvedSkin = resolveSkin(skin, skinBaseDir);
   return render(TEMPLATE, {
     title,
+    raceName,
     themeAttr: resolvedSkin ? ` data-theme="${escHtml(resolvedSkin.name)}"` : '',
     themeColor: resolvedSkin ? escHtml(resolvedSkin.themeColor) : DEFAULT_THEME_COLOR,
     styles: buildStyles(layoutCss),
     skinStyles: buildSkinStyles(resolvedSkin),
     runNav: buildRunNavHtml(runNavigation, racers, runSummaries),
     winnerBanner: '',
-    videoSourceNote: '',
     raceInfo: buildRaceInfoHtml(summary),
+    raceConfig: buildRaceConfigHtml(raceConfig),
     machineInfo: buildMachineInfoHtml(summary.machineInfo),
     errors: buildErrorsHtml(summary.errors),
     modeToggle,
@@ -223,17 +227,14 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     debugPanel: debugPanelOut,
     results: buildResultsHtml(summary.comparisons || [], racers),
     runComparison: buildRunComparisonHtml(runSummaries || null, summary, racers),
-    profileSummary: buildProfileSummaryHtml({
-      ...profileComparison,
-      sectionComparisons: summary.comparisons || [],
-    }, racers),
+    profileSummary: buildProfileSummaryHtml(profileComparison, racers),
     profile: buildProfileHtml({
       ...profileComparison,
-      sectionComparisons: summary.comparisons || [],
       rawProfileMetrics: summary.profileMetrics || [],
     }, racers),
     files: buildFilesHtml(racers, videoFiles, {
-      fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, altFormat, altFiles, displayOrder,
+      fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, raceConfigFile,
+      altFormat, altFiles, displayOrder,
     }),
     notesContent: summary.geminiCommentary
       ? `🤖 Gemini Race Commentary\n${'─'.repeat(40)}\n${escHtml(summary.geminiCommentary)}`

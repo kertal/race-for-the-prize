@@ -86,13 +86,13 @@ export class RaceAnimation {
         return `${color}${c.bold}${name}${c.reset}`;
       });
       const vsString = coloredNames.join(` ${c.dim}vs${c.reset} `);
-      let header = `\n  ${c.bold}RaceForThePrize${c.reset} 🏆  ${vsString}`;
+      let header = `\n  ${c.bold}RaceForThePrize${c.reset} 🏁  ${vsString}`;
       if (this.info) header += `\n  ${c.dim}${this.info}${c.reset}`;
       process.stderr.write(header + '\n\n');
       this.interval = setInterval(() => this._tick(), TICK_INTERVAL_MS);
     } else {
       // Plain-text header — no ANSI escapes, safe for piped output / CI logs.
-      let header = `\n  RaceForThePrize 🏆  ${this.names.join(' vs ')}`;
+      let header = `\n  RaceForThePrize 🏁  ${this.names.join(' vs ')}`;
       if (this.info) header += `\n  ${this.info}`;
       process.stderr.write(header + '\n\n');
     }

@@ -564,6 +564,53 @@ describe('applyOverrides — invalid input throws InvalidSettingError', () => {
     expect(attempt).toThrow(/Unknown network preset.*fiber/);
   });
 
+  describe('settings.json values get the same validation as the flags', () => {
+    // Regression: only kvFlags were checked, so "runs": "three" ran zero runs
+    // and died on the median, and "format": "avi" silently produced .webm.
+    const fromSettings = (settings) => applyOverrides(settings, new Set(), {});
+
+    it('rejects a non-numeric or sub-1 runs', () => {
+      expect(() => fromSettings({ runs: 'three' })).toThrow(/"runs" in settings.json must be a positive integer/);
+      expect(() => fromSettings({ runs: 0 })).toThrow(InvalidSettingError);
+      expect(() => fromSettings({ runs: true })).toThrow(InvalidSettingError);
+    });
+
+    it('rejects a run count that rounds down to zero', () => {
+      expect(() => fromSettings({ runs: 0.1 })).toThrow(InvalidSettingError);
+      expect(() => applyOverrides({}, new Set(), { runs: '0.4' })).toThrow(/--runs must be a positive integer/);
+      expect(fromSettings({ runs: 0.6 }).runs).toBe(1);
+    });
+
+    it('lets a valid flag override an invalid settings.json value', () => {
+      // Only the effective value has to be valid.
+      expect(applyOverrides({ format: 'avi' }, new Set(), { format: 'webm' }).format).toBe('webm');
+      expect(applyOverrides({ runs: 'three' }, new Set(), { runs: '2' }).runs).toBe(2);
+      expect(applyOverrides({ slowmo: 'x' }, new Set(), { slowmo: '2' }).slowmo).toBe(2);
+    });
+
+    it('rounds and clamps runs like --runs', () => {
+      expect(fromSettings({ runs: 2.5 }).runs).toBe(3);
+      expect(fromSettings({ runs: '4' }).runs).toBe(4);
+      expect(fromSettings({ runs: 1000 }).runs).toBe(100);
+    });
+
+    it('rejects an unknown format', () => {
+      expect(() => fromSettings({ format: 'avi' })).toThrow(/Unknown format "avi"/);
+      expect(fromSettings({ format: 'mov' }).format).toBe('mov');
+    });
+
+    it('rejects a bad slowmo and clamps a large one', () => {
+      expect(() => fromSettings({ slowmo: 'x' })).toThrow(/"slowmo" in settings.json must be a non-negative number/);
+      expect(() => fromSettings({ slowmo: -1 })).toThrow(InvalidSettingError);
+      expect(fromSettings({ slowmo: 25 }).slowmo).toBe(20);
+      expect(fromSettings({ slowmo: '2' }).slowmo).toBe(2);
+    });
+
+    it('still lets the flag win over settings.json', () => {
+      expect(applyOverrides({ runs: 3 }, new Set(), { runs: '5' }).runs).toBe(5);
+    });
+  });
+
   it('throws on unknown --format value', () => {
     const attempt = () => applyOverrides({}, new Set(), { format: 'mp4' });
 

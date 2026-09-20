@@ -63,6 +63,14 @@ describe('serveResults path traversal protection', () => {
     expect(res.body).toBe('<h1>Test</h1>');
   });
 
+  it('serves index.html for the root path with a query string', async () => {
+    // Regression: the root check ran before the query string was stripped,
+    // so `/?v=2` resolved to the directory itself and answered 404.
+    const res = await fetch(server, '/?v=2');
+    expect(res.status).toBe(200);
+    expect(res.body).toBe('<h1>Test</h1>');
+  });
+
   it('serves files by name', async () => {
     const res = await fetch(server, '/data.json');
     expect(res.status).toBe(200);

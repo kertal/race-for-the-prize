@@ -8,13 +8,12 @@
 
 import { escHtml, render } from './html-templates.js';
 import { PROFILE_METRICS, categoryDescriptions, determineProfileMetricOutcome } from './profile-analysis.js';
+import { formatSettingValue, sortSettingKeys, sourceLabel, SOURCE_DEFAULT } from './race-config.js';
 import { formatPlatform } from './summary.js';
 import {
-  isSyntheticTotal,
   buildResultsModel,
   buildRunComparisonModel,
   rankEntries,
-  rankComparisonDurations,
 } from './report-model.js';
 
 export const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f', '#9b59b6'];
@@ -189,6 +188,48 @@ export function buildRaceInfoHtml(summary) {
   return fill('info-grid', { cls: 'race-info', items: items.join('') });
 }
 
+/**
+ * The command that started the race, plus every setting it actually ran with
+ * and where that value came from — so a report read next week (or by someone
+ * else) says how to reproduce it, not just who won.
+ */
+export function buildRaceConfigHtml(raceConfig) {
+  if (!raceConfig) return '';
+  const settings = raceConfig.settings || {};
+  const sources = raceConfig.sources || {};
+
+  const metaItems = [];
+  if (raceConfig.mode) metaItems.push(infoItem('Mode', escHtml(raceConfig.mode)));
+  if (raceConfig.raceDir) metaItems.push(infoItem('Race directory', escHtml(raceConfig.raceDir)));
+  if (raceConfig.version) metaItems.push(infoItem('Version', escHtml(raceConfig.version)));
+  for (const racer of raceConfig.racers || []) {
+    if (racer?.script) metaItems.push(infoItem(escHtml(racer.name), escHtml(racer.script)));
+  }
+  const meta = metaItems.length > 0
+    ? fill('info-grid', { cls: 'race-info', items: metaItems.join('') })
+    : '';
+
+  const rows = sortSettingKeys(Object.keys(settings)).map(key => {
+    const source = String(sources[key] || SOURCE_DEFAULT);
+    return fill('config-row', {
+      key: escHtml(key),
+      value: escHtml(formatSettingValue(settings[key])),
+      // The badge's modifier class: letters only, so "settings.json" can name one.
+      sourceKey: source.replace(/[^a-z]/gi, ''),
+      source: escHtml(sourceLabel(source)),
+    });
+  }).join('\n');
+
+  if (!raceConfig.command && !meta && rows === '') return '';
+
+  const body = fill('race-config', {
+    command: escHtml(raceConfig.command || ''),
+    meta,
+    rows,
+  });
+  return fill('section', { openAttr: '', title: 'Command &amp; Configuration', body: '\n' + body + '\n  ' });
+}
+
 export function buildMachineInfoHtml(machineInfo) {
   if (!machineInfo) return '';
   const items = [];
@@ -231,9 +272,6 @@ export function buildResultsHtml(comparisons, racers) {
 }
 
 export function buildProfileSummaryHtml(profileComparison, racers) {
-  const sectionComparisons = (profileComparison?.sectionComparisons || [])
-    .filter(comp => !isSyntheticTotal(comp));
-
   function buildWinRows(winsMap) {
     if (!racers.some(n => winsMap[n] > 0)) return '';
     return racers
@@ -252,20 +290,14 @@ export function buildProfileSummaryHtml(profileComparison, racers) {
   const measuredRows = buildWinRows(measuredWins);
   const totalRows = buildWinRows(totalWins);
 
-  if (!measuredRows && !totalRows && sectionComparisons.length === 0) return '';
+  // Per-section durations belong to Race Results, which already lists every one
+  // of them. Repeating them here rendered each section twice, byte for byte.
+  if (!measuredRows && !totalRows) return '';
 
   let body = '';
 
   if (measuredRows) {
     body += fill('profile-metric', { metricClass: 'profile-metric-total', titleAttr: '', name: 'Race', desc: '', rows: measuredRows });
-  }
-  if (sectionComparisons.length > 0) {
-    const openSectionRows = sectionComparisons.length === 1;
-    body += sectionComparisons.map(comp => buildCollapsibleSectionMetricHtml(
-      formatSectionTitle(comp.name),
-      buildMetricRowsHtml(rankComparisonDurations(comp, racers), comp.winner),
-      openSectionRows
-    )).join('\n');
   }
   if (totalRows) {
     body += fill('profile-metric', { metricClass: '', titleAttr: '', name: 'Total Recording (Including Pre and Post race)', desc: '', rows: totalRows });
@@ -420,7 +452,7 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
 }
 
 export function buildFilesHtml(racers, videoFiles, options) {
-  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, altFormat, altFiles, displayOrder } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, raceConfigFile, altFormat, altFiles, displayOrder } = options;
   const links = [];
   const order = displayOrder || racers.map((_, i) => i);
 
@@ -452,11 +484,18 @@ export function buildFilesHtml(racers, videoFiles, options) {
   }
   if (raceScriptFiles && raceScriptFiles.length > 0) {
     for (const f of raceScriptFiles) {
-      links.push(render(T['file-link'], { href: escHtml(f), attrs: 'title="Race script \u2014 rerun with: node race.js &lt;dir&gt;"', text: `${escHtml(f)} (script)` }));
+      links.push(render(T['file-link'], { href: escHtml(f), attrs: 'title="Race script \u2014 rerun with: race-for-the-prize &lt;dir&gt;"', text: `${escHtml(f)} (script)` }));
     }
   }
   if (settingsFileCopied) {
     links.push(render(T['file-link'], { href: 'settings.json', attrs: '', text: 'settings.json' }));
+  }
+  if (raceConfigFile) {
+    links.push(render(T['file-link'], {
+      href: escHtml(raceConfigFile),
+      attrs: 'download title="The command and the settings this race actually ran with"',
+      text: escHtml(raceConfigFile),
+    }));
   }
 
   if (links.length === 0) return '';
