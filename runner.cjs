@@ -113,7 +113,9 @@ function sanitizeScript(script) {
     .replace(/\r\n?/g, '\n');
 }
 
-const SCRIPT_PARAMS = ['page', 'race', '__startRecording', '__stopRecording', '__startMeasure', '__endMeasure'];
+// A race script's whole surface: the Playwright page (carrying the injected
+// page.race* API) and this racer's context. Nothing else is in scope.
+const SCRIPT_PARAMS = ['page', 'race'];
 
 /**
  * Compile a race script into an async function.
@@ -430,7 +432,7 @@ async function runMarkerMode(page, config, {
     const raceContext = Object.freeze({ name: id, vars: Object.freeze(vars || {}) });
     try {
       const fn = compileScript(raceScript);
-      await fn(page, raceContext, api.startRecording, api.stopRecording, api.startMeasure, api.endMeasure);
+      await fn(page, raceContext);
     } catch (error) {
       console.error(`[${id}] Script failed: ${error.message}`);
       throw new Error(`Script execution failed: ${error.message}`);
