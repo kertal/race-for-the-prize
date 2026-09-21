@@ -9,8 +9,3 @@ export const c = {
 
 // Color palette, one entry per racer slot (see MAX_RACERS in config.js)
 export const RACER_COLORS = [c.red, c.blue, c.green, c.yellow];
-
-// DEPRECATED: media/video configuration moved to ./media-config.js.
-// Re-exported here for backwards compatibility — import from media-config.js
-// instead. These re-exports will be removed in a future release.
-export { FORMAT_EXTENSIONS, SCREEN, VIDEO_DEFAULTS, codecArgs, CUE_DETECTION } from './media-config.js';

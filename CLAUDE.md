@@ -52,7 +52,7 @@ node race.js demo:lauda-vs-hunt                   # Run a bundled demo race (`de
 - `skins.js` — resolves `--skin` (built-in name or `.css` path) to inlinable CSS; built-in skins live in `skins/`
 - `demos.js` — the `demo:<name>` command: the curated list of bundled demo races, plus `planDemo` (what a demo would copy into `./races/<name>`, so `race.js` can ask before writing) and `copyDemo` (does it, once the user says yes or passes `--yes`)
 - `gemini-summary.js` — optional Gemini CLI integration (post-race commentary, spec generation)
-- `colors.js` — ANSI color codes (media constants re-exported for compatibility; import them from `media-config.js`)
+- `colors.js` — ANSI color codes and the per-racer terminal palette
 - `media-config.js` — shared media/video constants (`FORMAT_EXTENSIONS`, `VIDEO_DEFAULTS`, `SCREEN`, `codecArgs`, `CUE_DETECTION`)
 - `paths.js` — output filename convention builders (`<name>.race<ext>`, `.full<ext>`, `.trace.json`, `.har`)
 
