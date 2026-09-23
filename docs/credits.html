@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#1a1a1a">
 <title>Credits — RaceForThePrize</title>
-<meta name="description" content="The pit crew behind RaceForThePrize: Playwright, the Chrome DevTools Protocol, FFmpeg, Node, Vitest, The Flaming Lips, and everyone who has filed an issue.">
+<meta name="description" content="The people and tools behind RaceForThePrize.">
 <meta property="og:title" content="RaceForThePrize — Credits">
-<meta property="og:description" content="No car reaches the grid on its own. The tools, the song and the people behind RaceForThePrize.">
+<meta property="og:description" content="No car reaches the grid on its own. The people, tools and song behind RaceForThePrize.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://kertal.github.io/race-for-the-prize/credits.html">
 <meta property="og:image" content="https://raw.githubusercontent.com/kertal/race-for-the-prize/main/assets/screenshot-player-fullscreen.png">
@@ -25,8 +25,7 @@
 
   <section class="hero">
     <h1>Credits</h1>
-    <p class="tagline">No car reaches the grid on its own. RaceForThePrize is a thin layer of showmanship on top of other people's hard work — here is the pit crew.</p>
-    <p class="flag-line">Tools · a song · people</p>
+    <p class="tagline">No car reaches the grid on its own.</p>
     <div class="actions">
       <a class="btn primary" href="index.html">Back to the paddock</a>
       <a class="btn" href="https://github.com/kertal/race-for-the-prize/blob/main/docs/credits.md">This page as Markdown</a>
@@ -34,95 +33,37 @@
   </section>
 
   <section>
+    <h2>The crew</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>💡 The spark</h3>
+        <p><a href="https://github.com/drewdaemon">@drewdaemon</a> — whose work sparked the start of this project: make visual performance comparisons simple.</p>
+      </div>
+      <div class="card">
+        <h3>🎬 The export</h3>
+        <p><a href="https://github.com/bartval">@bartval</a> — whose work inspired the in-browser video export.</p>
+      </div>
+      <div class="card">
+        <h3>🧪 First QA</h3>
+        <p>Simon Haidenbauer &amp; Werner Mayer — who proved that "but it works on my computer" isn't a case.</p>
+      </div>
+    </div>
+    <p>Built by <a href="https://github.com/kertal">@kertal</a>, with everyone on the <a href="https://github.com/kertal/race-for-the-prize/graphs/contributors">contributors list</a>.</p>
+  </section>
+
+  <section>
     <h2>The engine</h2>
-    <p class="lede">The only runtime dependencies, and that is on purpose.</p>
-    <table class="lineup">
-      <thead>
-        <tr><th scope="col">What</th><th scope="col">Why it's here</th></tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><a href="https://playwright.dev/">Playwright</a></td>
-          <td>Launches and drives every racer, records the video, and collects the traces the player is calibrated from. Apache-2.0.</td>
-        </tr>
-        <tr>
-          <td><a href="https://chromedevtools.github.io/devtools-protocol/">Chrome DevTools Protocol</a></td>
-          <td>Network and CPU throttling, and every number on the performance profile.</td>
-        </tr>
-        <tr>
-          <td><a href="https://nodejs.org/">Node.js</a></td>
-          <td>The whole CLI. MIT.</td>
-        </tr>
-        <tr>
-          <td><a href="https://ffmpegwasm.net/">ffmpeg.wasm</a></td>
-          <td>In-browser video conversion when you export a side-by-side clip from the player, so no install is needed to leave with a file.</td>
-        </tr>
-        <tr>
-          <td><a href="https://ffmpeg.org/">FFmpeg</a></td>
-          <td>The real thing, used by <code>--ffmpeg</code> for physically trimmed side-by-side composition. Licensed under the LGPL/GPL by its own authors.</td>
-        </tr>
-        <tr>
-          <td><a href="https://vitest.dev/">Vitest</a></td>
-          <td>Every unit and integration test in the garage. MIT.</td>
-        </tr>
-      </tbody>
-    </table>
+    <p><a href="https://playwright.dev/">Playwright</a>, <a href="https://ffmpeg.org/">FFmpeg</a>, <a href="https://ffmpegwasm.net/">ffmpeg.wasm</a> and <a href="https://vitest.dev/">Vitest</a>.</p>
   </section>
 
   <section>
     <h2>The name</h2>
-    <div class="note">
-      <p>The tool is named after "<a href="https://www.youtube.com/watch?v=bs56ygZplQA">Race for the Prize</a>" by <a href="https://www.flaminglips.com/">The Flaming Lips</a> — two scientists racing for the good of all mankind, which is roughly the energy two browsers bring to a Wikipedia article.</p>
-      <p>The song is theirs; this project just borrows the title and plays it in the paddock.</p>
-    </div>
-  </section>
-
-  <section>
-    <h2>The track</h2>
-    <p class="lede">The bundled demo races drive real public pages. Thanks to everyone who keeps them up.</p>
-    <table class="lineup">
-      <thead>
-        <tr><th scope="col">Race</th><th scope="col">Where it drives</th></tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>demo:lauda-vs-hunt<br>demo:lebron-vs-curry</td>
-          <td><a href="https://en.wikipedia.org/">Wikipedia</a> — Niki Lauda, James Hunt, LeBron James, Stephen Curry</td>
-        </tr>
-        <tr>
-          <td>demo:react-vs-angular</td>
-          <td><a href="https://react.dev/">React</a>, <a href="https://angular.dev/">Angular</a>, <a href="https://svelte.dev/">Svelte</a> and <a href="https://htmx.org/">htmx</a></td>
-        </tr>
-        <tr>
-          <td>demo:caching-comparison</td>
-          <td><a href="https://kertal.github.io/hush-hush-db/">hush-hush-db</a></td>
-        </tr>
-      </tbody>
-    </table>
-    <p>The demos read those pages the way a visitor would — one page load, one scroll — and nothing is republished here beyond the recordings you make yourself.</p>
-  </section>
-
-  <section>
-    <h2>The crew</h2>
-    <div class="grid">
-      <div class="card">
-        <h3>🏗️ Built by</h3>
-        <p><a href="https://github.com/kertal">@kertal</a>, with the pit wall open to anyone who wants a turn.</p>
-      </div>
-      <div class="card">
-        <h3>🤝 Contributors</h3>
-        <p>Everyone on the <a href="https://github.com/kertal/race-for-the-prize/graphs/contributors">contributors list</a> — more very welcome, the grid has room.</p>
-      </div>
-      <div class="card">
-        <h3>🐛 Bug reporters</h3>
-        <p>Everyone who has filed an <a href="https://github.com/kertal/race-for-the-prize/issues">issue</a>: a good bug report is a lap time.</p>
-      </div>
-    </div>
+    <p>"<a href="https://www.youtube.com/watch?v=bs56ygZplQA">Race for the Prize</a>" by <a href="https://www.flaminglips.com/">The Flaming Lips</a>.</p>
   </section>
 
   <section>
     <h2>License</h2>
-    <p>RaceForThePrize is released under the <a href="https://opensource.org/license/mit">MIT license</a>. Every dependency above keeps its own — check theirs before you ship a build that bundles them.</p>
+    <p><a href="https://opensource.org/license/mit">MIT</a>. Every dependency keeps its own.</p>
   </section>
 
   <footer>
