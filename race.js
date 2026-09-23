@@ -46,6 +46,7 @@ import { loadRaceDir, applySettingsOrExit } from './cli/race-loader.js';
 import { buildRaceConfig, writeRaceConfig } from './cli/race-config.js';
 import { runScript as runTaskScript } from './cli/task-runner.js';
 import { buildConditionMatrix, printConditionMatrix, buildConditionIndexHtml } from './cli/condition-matrix.js';
+import { tryWriteSiteBundle } from './cli/site-bundle.js';
 
 // Re-exports for backwards compatibility — tests (and any external consumers)
 // import these from race.js even though the implementations moved to
@@ -1145,6 +1146,33 @@ function generateGeminiCommentary(summary, outputDir) {
   }
 }
 
+/**
+ * Write the multi-condition overview page, and — unless --bundle=0 — the zip
+ * that makes the whole thing portable.
+ *
+ * Order matters. The bundle is a snapshot of the directory, so the page has to
+ * be on disk before it's packed; and the copy that ends up *inside* the zip
+ * must not carry the download link, because the file it points at is the zip
+ * itself. So the page is written twice: once plain, to be bundled, and once
+ * again afterwards with the link and the size the bundle turned out to be.
+ */
+function writeConditionIndex(baseResultsDir, conditionSummaries) {
+  const indexPath = path.join(baseResultsDir, 'index.html');
+  const renderIndex = download => buildConditionIndexHtml(racerNames.join(' vs '), conditionSummaries, {
+    skin: settings.skin,
+    skinBaseDir: ctx.raceDir,
+    download,
+  });
+
+  fs.writeFileSync(indexPath, renderIndex(null));
+  if (settings.noBundle) return;
+
+  const bundle = tryWriteSiteBundle(baseResultsDir);
+  if (!bundle) return;
+  fs.writeFileSync(indexPath, renderIndex({ href: bundle.name, size: bundle.size }));
+  console.error(`  ${c.dim}📦 ${bundle.name} (${bundle.size}) — shareable copy, unzip onto GitHub Pages${c.reset}`);
+}
+
 /** Update run nav in each run's index.html with winner colors now that all summaries are available. */
 function updateRunNavColors(summaries) {
   for (let i = 0; i < summaries.length; i++) {
@@ -1366,13 +1394,7 @@ async function main() {
       // The terminal shows total time; the HTML index can switch metrics.
       printConditionMatrix(buildConditionMatrix(conditionSummaries));
       if (!settings.noRecording) {
-        fs.writeFileSync(
-          path.join(baseResultsDir, 'index.html'),
-          buildConditionIndexHtml(racerNames.join(' vs '), conditionSummaries, {
-            skin: settings.skin,
-            skinBaseDir: ctx.raceDir,
-          })
-        );
+        writeConditionIndex(baseResultsDir, conditionSummaries);
       }
     }
 

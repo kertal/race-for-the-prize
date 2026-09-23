@@ -29,6 +29,7 @@ race-for-the-prize <dir> --recording=false      # Skip video recording — measu
 race-for-the-prize <dir> --ffmpeg               # Enable FFmpeg processing (trim, merge, convert)
 race-for-the-prize <dir> --har                  # Record network HAR files alongside videos
 race-for-the-prize <dir> --wasm=false           # Skip copying ffmpeg.wasm files (~25 MB) to results
+race-for-the-prize <dir> --bundle=false         # Don't zip a multi-condition race into a shareable static site
 race-for-the-prize <dir> --serve=false          # Don't start local results server or auto-open; print results HTML path
 race-for-the-prize <dir> --pause                # Press Enter before each racer, and between that racer's runs (forces one racer at a time)
 race-for-the-prize <dir> --height=900           # Set viewport/recording height in pixels (480–4320, default 720)
@@ -97,6 +98,7 @@ it has no default, and the entry below is an example.)
   "noRecording": false,
   "noWasm": false,
   "noServe": false,
+  "noBundle": false,
   "pauseBetweenRuns": false,
   "ignoreHTTPSErrors": false,
   "wallClock": false,
@@ -121,6 +123,7 @@ it has no default, and the entry below is an example.)
 | `noRecording` | `--recording` | `true` / `false` (inverted: `recording=false` => `noRecording=true`) | `false` |
 | `noWasm` | `--wasm` | `true` / `false` (inverted: `wasm=false` => `noWasm=true`) | `false` |
 | `noServe` | `--serve` | `true` / `false` (inverted: `serve=false` => `noServe=true`) | `false` |
+| `noBundle` | `--bundle` | `true` / `false` (inverted: `bundle=false` => `noBundle=true`) — skips the shareable zip a multi-condition race writes | `false` |
 | `pauseBetweenRuns` | `--pause` | `true` / `false` | `false` |
 | `ignoreHTTPSErrors` | `--ignore-https-errors` | `true` / `false` | `false` |
 | `wallClock` | `--wall-clock` | `true` / `false` | `false` |

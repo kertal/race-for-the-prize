@@ -43,6 +43,7 @@ RaceForThePrize/
 │   ├── condition-matrix.js # Cross-condition performance matrix (terminal + HTML)
 │   ├── condition-matrix.html # Condition matrix markup + build-time templates
 │   ├── condition-matrix.css  # Condition matrix component styles
+│   ├── site-bundle.js      # Zips a multi-condition results dir into a shareable static site
 │   ├── skins.js            # Skin resolution for --skin
 │   ├── skins/              # Built-in player skins (light, neon)
 │   ├── summary.js          # Results formatting & markdown reports

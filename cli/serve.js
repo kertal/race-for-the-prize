@@ -33,6 +33,7 @@ const MIME_TYPES = {
   '.mov': 'video/quicktime',
   '.wasm': 'application/wasm',
   '.json': 'application/json',
+  '.zip': 'application/zip',
 };
 
 /**

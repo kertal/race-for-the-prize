@@ -692,6 +692,70 @@ describe('createZipBuilder', () => {
     expect(name).toBe('dir/data.bin');
   });
 
+  it('stores every file when no compressor is supplied — the browser build', async () => {
+    const data = enc('x'.repeat(200));
+    const dv = await buildZip([['padding.txt', data]]);
+    expect(dv.getUint16(8, true)).toBe(0); // method: stored
+    expect(dv.getUint32(18, true)).toBe(data.length); // compressed size == the input
+  });
+
+  it('deflates a file when the compressor shrinks it, keeping the original CRC and size', async () => {
+    const zlib = await import('node:zlib');
+    const data = enc('x'.repeat(200));
+    const b = createZipBuilder({ compress: bytes => zlib.deflateRawSync(bytes) });
+    b.addFile('padding.txt', data);
+    const dv = new DataView(await b.toBlob().arrayBuffer());
+    expect(dv.getUint16(8, true)).toBe(8); // method: deflated
+    expect(dv.getUint32(14, true)).toBe(crc32(data)); // CRC is of the original bytes
+    expect(dv.getUint32(18, true)).toBeLessThan(data.length); // compressed size
+    expect(dv.getUint32(22, true)).toBe(data.length); // uncompressed size
+  });
+
+  it('keeps a file stored when compressing it would not make it smaller', async () => {
+    // Random bytes: deflate adds framing rather than saving anything.
+    const data = new Uint8Array(64);
+    for (let i = 0; i < data.length; i++) data[i] = (i * 97 + 13) % 256;
+    const zlib = await import('node:zlib');
+    const b = createZipBuilder({ compress: bytes => zlib.deflateRawSync(bytes) });
+    b.addFile('noise.bin', data);
+    const dv = new DataView(await b.toBlob().arrayBuffer());
+    expect(dv.getUint16(8, true)).toBe(0);
+    expect(dv.getUint32(18, true)).toBe(data.length);
+  });
+
+  it('lets the compressor opt a file out by name', async () => {
+    const seen = [];
+    const b = createZipBuilder({ compress: (bytes, name) => { seen.push(name); return null; } });
+    b.addFile('clip.webm', enc('y'.repeat(200)));
+    const dv = new DataView(await b.toBlob().arrayBuffer());
+    expect(seen).toEqual(['clip.webm']);
+    expect(dv.getUint16(8, true)).toBe(0); // stored, as the hook asked
+  });
+
+  it('hands each chunk to a sink as it is added, holding nothing back', async () => {
+    const seen = [];
+    const b = createZipBuilder({ sink: chunk => seen.push(chunk.length) });
+    b.addFile('one.txt', enc('hello'));
+    // Local header + body are already out before the archive is closed — this
+    // is what keeps a large bundle from ever existing in memory at once.
+    const afterFirst = seen.reduce((a, n) => a + n, 0);
+    expect(afterFirst).toBe(30 + 'one.txt'.length + 5);
+    b.addFile('two.txt', enc('bye'));
+    const total = b.finish();
+    expect(seen.reduce((a, n) => a + n, 0)).toBe(total);
+  });
+
+  it('a sinking builder writes the same bytes a buffering one would', async () => {
+    const files = [['index.html', enc('<html></html>')], ['dir/data.bin', new Uint8Array([0, 1, 2, 255])]];
+    const buffered = createZipBuilder();
+    const parts = [];
+    const sunk = createZipBuilder({ sink: chunk => parts.push(Buffer.from(chunk)) });
+    for (const [name, data] of files) { buffered.addFile(name, data); sunk.addFile(name, data); }
+    sunk.finish();
+    const fromBlob = Buffer.from(await buffered.toBlob().arrayBuffer());
+    expect(Buffer.concat(parts).equals(fromBlob)).toBe(true);
+  });
+
   it('produces an archive that a real unzip implementation accepts', async () => {
     const dv = await buildZip([['index.html', enc('<html></html>')], ['notes.txt', enc('ok')]]);
     const { execFileSync } = await import('node:child_process');

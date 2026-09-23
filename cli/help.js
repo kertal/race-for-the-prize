@@ -174,6 +174,7 @@ ${rule}
   ${c.yellow}--ignore-https-errors${c.reset}  Accept invalid/self-signed TLS certificates
   ${c.yellow}--wall-clock${c.reset}           Burn a ticking wall clock into the recording (perturbs metrics)
   ${c.yellow}--cue-markers${c.reset}          Flash visual cues at segment boundaries (calibration testing; perturbs metrics)
+  ${c.yellow}--bundle${c.reset}=${c.green}0${c.reset}             Don't zip a multi-condition race into a shareable static site
   ${c.yellow}--serve${c.reset}=${c.green}0${c.reset}              Don't start local results server (CI/headless; open index.html manually)
   ${c.yellow}--gemini${c.reset}               Gemini CLI sports reporter commentary after race
   ${c.yellow}--gemini-spec${c.reset}=${c.green}"prompt"${c.reset} With ${c.yellow}--init${c.reset}: generate specs via Gemini + Playwright HTML research
