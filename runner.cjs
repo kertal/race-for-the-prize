@@ -22,7 +22,7 @@ const { waitForStability } = require('./visual-stability.cjs');
 const { deriveTraceTiming } = require('./trace-calibration.cjs');
 const { flashCue, OverlayController } = require('./overlay.cjs');
 const { createRaceApi } = require('./race-api.cjs');
-const { RESULT_SENTINEL, PROTOCOL_VERSION, isSafeRacerId, confinePath, formatRaceMessage, formatContextClosed } = require('./runner-protocol.cjs');
+const { RESULT_SENTINEL, PROTOCOL_VERSION, MAX_RACERS, isSafeRacerId, confinePath, formatRaceMessage, formatContextClosed } = require('./runner-protocol.cjs');
 const { cleanupOldVideos, trimVideoWithFfmpeg } = require('./runner-video.cjs');
 const { setupMetricsCollection, startProfiling, collectProfilingResults } = require('./runner-metrics.cjs');
 const { applyThrottling } = require('./runner-throttling.cjs');
@@ -804,6 +804,13 @@ async function main() {
   // anything that isn't a plain basename before any path is built from them.
   if (!Array.isArray(browsers) || browsers.length === 0) {
     console.error('Error: Config must include a non-empty browsers array');
+    process.exit(1);
+  }
+  // race.js never sends more, but a config handed straight to the runner can:
+  // every window layout past MAX_RACERS would put a browser off-screen, so say
+  // so rather than launching browsers nobody can see.
+  if (browsers.length > MAX_RACERS) {
+    console.error(`Error: Config lists ${browsers.length} browsers; at most ${MAX_RACERS} can race`);
     process.exit(1);
   }
   for (const b of browsers) {

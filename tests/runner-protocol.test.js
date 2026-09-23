@@ -7,6 +7,7 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const {
   PROTOCOL_VERSION,
+  MAX_RACERS,
   isSafeRacerId,
   confinePath,
   formatRaceMessage,
@@ -108,5 +109,23 @@ describe('runner.cjs config validation', () => {
     const proc = runRunner({ protocolVersion: PROTOCOL_VERSION, browsers: [], executionMode: 'sequential' });
     expect(proc.status).toBe(1);
     expect(proc.stderr).toContain('non-empty browsers array');
+  });
+
+  it(`rejects a config with more than ${MAX_RACERS} browsers`, () => {
+    // race.js caps the count, but a config handed straight to the runner is
+    // not screened by it, and no window layout past MAX_RACERS keeps every
+    // browser on screen.
+    const browsers = Array.from({ length: MAX_RACERS + 1 }, (_, i) => ({ id: `r${i}`, script: '' }));
+    const proc = runRunner({ protocolVersion: PROTOCOL_VERSION, browsers, executionMode: 'sequential' });
+    expect(proc.status).toBe(1);
+    expect(proc.stderr).toContain(`at most ${MAX_RACERS} can race`);
+  });
+
+  it(`accepts a config with exactly ${MAX_RACERS} browsers`, () => {
+    // The cap is inclusive: a full grid must get past validation. Empty
+    // scripts keep this to the config check — no page is ever driven.
+    const browsers = Array.from({ length: MAX_RACERS }, (_, i) => ({ id: `r${i}`, script: '' }));
+    const proc = runRunner({ protocolVersion: PROTOCOL_VERSION, browsers, executionMode: 'sequential' });
+    expect(proc.stderr).not.toContain('can race');
   });
 });

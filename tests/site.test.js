@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { MAX_RACERS } from '../cli/config.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (...p) => fs.readFileSync(path.join(ROOT, ...p), 'utf8');
@@ -93,6 +94,32 @@ describe('ReadMe', () => {
       expect(fs.existsSync(path.join(ROOT, link.split('#')[0]))).toBe(true);
     }
   });
+});
+
+describe('the documented racer cap', () => {
+  // The landing page said "2&nbsp;to&nbsp;5" long after the CLI stopped
+  // allowing five, and a plain-text search never found it because of the
+  // entities. Every page that quotes a capacity is checked here, entities
+  // folded away first, so the next change to MAX_RACERS cannot leave one
+  // behind.
+  const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+  const PAGES = ['index.html', 'cli.md', 'demos.md', 'writing-races.md', 'use-cases.md', 'results.md', 'development.md', 'skinning.md']
+    .map(name => [`docs/${name}`, read('docs', name)]);
+  PAGES.push(['ReadMe.md', readme]);
+
+  const plain = (text) => text.replace(/&nbsp;|&#160;/g, ' ');
+
+  for (const [name, body] of PAGES) {
+    it(`${name} quotes the real cap`, () => {
+      const text = plain(body);
+      for (const [claim, digits] of text.matchAll(/\b2\s*(?:to|[-\u2013\u2014])\s*(\d+)\b/g)) {
+        expect(Number(digits), `"${claim}" in ${name}`).toBe(MAX_RACERS);
+      }
+      for (const [claim, word] of text.matchAll(/\btwo to (\w+)\b/gi)) {
+        expect(word.toLowerCase(), `"${claim}" in ${name}`).toBe(NUMBER_WORDS[MAX_RACERS]);
+      }
+    });
+  }
 });
 
 describe('the split handbook', () => {

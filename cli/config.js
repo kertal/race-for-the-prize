@@ -5,13 +5,12 @@
 
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
 
-/**
- * Most racers a single heat can hold. The grid layouts (terminal animation,
- * parallel browser windows, side-by-side video) and the racer colour palettes
- * are all sized for this many contenders.
- */
-export const MAX_RACERS = 4;
+// The racer cap is declared in runner-protocol.cjs, because the runner has to
+// enforce the same number on a config handed to it directly. Re-exported here
+// so the CLI side has one import site for it.
+export const { MAX_RACERS } = createRequire(import.meta.url)('../runner-protocol.cjs');
 
 const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'height', 'gemini-spec', 'skin']);
 const BOOLEAN_VALUE_FLAGS = new Set([
