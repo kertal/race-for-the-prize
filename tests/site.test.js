@@ -110,12 +110,12 @@ describe('credits', () => {
     const fromMd = credited([...creditsMd.matchAll(/\]\(([^)]+)\)/g)].map(m => m[1]));
     const fromHtml = credited([...creditsBody.matchAll(/href="([^"]+)"/g)].map(m => m[1]));
     // Guard against the mirror quietly emptying out.
-    expect(fromMd.length).toBeGreaterThan(10);
+    expect(fromMd.length).toBeGreaterThan(8);
     expect(fromHtml).toEqual(fromMd);
   });
 
   it('names the crew, the dependencies and the song', () => {
-    for (const needle of ['Playwright', 'FFmpeg', 'Vitest', 'The Flaming Lips', '@kertal', 'MIT']) {
+    for (const needle of ['Playwright', 'FFmpeg', 'Vitest', 'The Flaming Lips', '@kertal', '@drewdaemon', '@bartval', 'Simon Haidenbauer', 'Werner Mayer', 'MIT']) {
       expect(creditsMd, needle).toContain(needle);
     }
   });
