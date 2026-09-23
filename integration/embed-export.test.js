@@ -5,6 +5,8 @@
  *    asset files (summary.json, traces, scripts). File links preserved in HTML.
  * 2. Export HTML — slim single .html file with embedded videos. No file links,
  *    no segment nav, no mode toggle. Minimal and portable.
+ * 3. Export Cut HTML — one side-by-side recording already cut to the race,
+ *    driven by a few lines of script instead of the full player runtime.
  *
  * Requires: ffmpeg (to generate test videos), Playwright (chromium).
  * Skips cleanly when either tool is unavailable.
@@ -355,6 +357,93 @@ describe('Export HTML — slim single-file export', () => {
     } finally {
       await pg.close().catch(() => {});
       await stopServer(srv);
+    }
+  });
+});
+
+// ── Export Recording (shares the side-by-side recorder with Export Cut HTML) ──
+
+describe('Export Recording — side-by-side WebM download', () => {
+  it('still records and offers the WebM with its conversion buttons', async ({ skip }) => {
+    if (setupError) skip(setupError);
+
+    const { port } = server.address();
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'networkidle' });
+    await waitForVideos(page);
+
+    const download = await triggerExport(page, '#exportBtn');
+    expect(download.suggestedFilename()).toBe('race-side-by-side.webm');
+    expect(fs.statSync(await download.path()).size).toBeGreaterThan(0);
+    const buttons = await page.$$eval('.export-actions button', bs => bs.map(b => b.textContent));
+    expect(buttons).toEqual(['Convert to GIF', 'Convert to MOV', 'Close']);
+  });
+});
+
+// ── Export Cut HTML tests ─────────────────────────────────────────────────────
+
+describe('Export Cut HTML — pre-cut video with a minimal player', () => {
+  it('embeds one cut recording and none of the full player runtime', async ({ skip }) => {
+    if (setupError) skip(setupError);
+
+    const { port } = server.address();
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'networkidle' });
+    await waitForVideos(page);
+
+    const download = await triggerExport(page, '#exportCutHtmlBtn');
+    expect(download.suggestedFilename()).toMatch(/\.cut\.html$/);
+    const html = fs.readFileSync(await download.path(), 'utf8');
+
+    // Exactly one embedded video: the canvas recording, not the racers' sources.
+    expect(html.match(/data:video\/webm/g)).toHaveLength(1);
+    const alphaB64 = fs.readFileSync(path.join(tmpDir, 'alpha', 'alpha.race.webm')).toString('base64');
+    expect(html).not.toContain(alphaB64);
+
+    // The full player, its runtime and its config are gone; the report stays.
+    expect(html).not.toContain('id="race-config"');
+    expect(html).not.toContain('id="playerContainer"');
+    expect(html).not.toContain('id="scrubber"');
+    expect(html).not.toContain('<template');
+    expect(html).toContain('Race Results');
+    expect(html.match(/<script/g)).toHaveLength(1);
+
+    fs.writeFileSync(path.join(tmpDir, 'cut.html'), html);
+  });
+
+  it('cut HTML works from disk: start, back, play/pause and forward drive the video', async ({ skip }) => {
+    if (setupError) skip(setupError);
+
+    const cutPath = path.join(tmpDir, 'cut.html');
+    if (!fs.existsSync(cutPath)) skip('cut.html not produced by previous test');
+
+    const pg = await context.newPage();
+    const errors = [];
+    pg.on('pageerror', e => errors.push(e.message));
+    try {
+      await pg.goto('file://' + cutPath);
+      await pg.waitForFunction(() => document.getElementById('cutVideo').readyState >= 1, null, { timeout: 15_000 });
+
+      const time = () => pg.evaluate(() => document.getElementById('cutVideo').currentTime);
+      await pg.click('[data-cut="forward"]');
+      await pg.click('[data-cut="forward"]');
+      expect(await time()).toBeCloseTo(2 / 30, 3);
+      await pg.click('[data-cut="back"]');
+      expect(await time()).toBeCloseTo(1 / 30, 3);
+      await pg.click('[data-cut="start"]');
+      expect(await time()).toBe(0);
+
+      // The button icon follows the video's play/pause events.
+      const playIcon = icon => pg.waitForFunction(
+        i => document.querySelector('[data-cut="play"]').textContent === i, icon, { timeout: 5_000 });
+      await pg.click('[data-cut="play"]');
+      await playIcon('\u23F8');
+      expect(await pg.evaluate(() => document.getElementById('cutVideo').paused)).toBe(false);
+      await pg.keyboard.press('Space');
+      await playIcon('\u25B6');
+      expect(await pg.evaluate(() => document.getElementById('cutVideo').paused)).toBe(true);
+
+      expect(errors).toEqual([]);
+    } finally {
+      await pg.close().catch(() => {});
     }
   });
 });

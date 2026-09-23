@@ -41,6 +41,15 @@ The videos are laid out in finishing order — winner first, then 2nd, 3rd — r
 
 The moment a racer's own finish frame plays, a placement badge appears under its video — `🥈 2nd · 3.000s total` — computed from the final results rather than from recording order, so it matches the summary (including joint places). With `--runs`, that total is the summary's median while the video is one representative run, so the badge can read a little off from the frames it sits over; it is the race result, not a stopwatch on that clip. The in-browser side-by-side export draws the same label. `--ffmpeg` output (trimmed videos, the merged side-by-side file, MOV/GIF) carries no placement; the results table is the record there.
 
+### Sharing a race
+
+The player's 📤 menu packs a race up for someone who wasn't there:
+
+- **Export Recording** — the visible racers recorded side by side into a WebM (convertible to GIF or MOV).
+- **Export Zip** — the whole player with its videos embedded, plus the traces and summary as separate files.
+- **Export HTML** — the player with its videos embedded, as one file.
+- **Export Cut HTML** — one file holding the side-by-side recording, already cut to the race. It keeps the report but drops the player runtime: the only script left is a few lines driving four buttons — go to start, previous frame, play/pause, next frame (also Home, ←, Space, →). Nothing is calibrated or trimmed when it opens, so it plays anywhere, straight from disk. It is recorded in the browser at the chosen playback speed and respects the racer filter, like Export Recording.
+
 Disclaimer: Due to the nature of the way the video is transformed, the aim here is not accuracy, it's to showcase, to visualize performance. To compare between different network and browser settings.
 Do double check and question the metrics and findings. It should be a helpful tool supporting performance related narratives, but don't assume 100% accuracy. However, this generally applies to many 
 browser gained performance metrics. There are many side effects. And screen recording, plus video cutting is another one.

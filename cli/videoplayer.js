@@ -126,8 +126,9 @@ function trophyHtml(isWinner, isTie) {
   return fill('trophy', { medal: isTie ? '&#129309;' : '&#127942;' });
 }
 
-// Build the player section, debug panel, runtime script tag, and race-config
-// JSON for a race that has videos. Returns the render() slots it produces.
+// Build the player section, debug panel, cut-export player, runtime script
+// tag, and race-config JSON for a race that has videos. Returns the render()
+// slots it produces.
 function buildVideoPlayer(summary, videoFiles, opts) {
   const { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, placementOrder, ffmpegDir } = opts;
   const isTie = summary.overallWinner === 'tie';
@@ -169,6 +170,7 @@ function buildVideoPlayer(summary, videoFiles, opts) {
   return {
     playerSection: buildPlayerSectionHtml(videoElements, mergedVideoElement),
     debugPanelOut: hasClipTimes ? buildDebugPanelHtml(racers, placementOrder, clipTimes) : '',
+    cutPlayer: fill('cut-player'),
     scriptTag: buildPlayerScript(),
     raceConfigJson,
   };
@@ -197,7 +199,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   const hasClipTimes = clipTimes?.some(calibration.isValidClipEntry);
   const hasMergedVideo = !!mergedVideoFile;
 
-  const { playerSection = '', scriptTag = '', raceConfigJson = '', debugPanelOut = '' } = hasVideos
+  const { playerSection = '', cutPlayer = '', scriptTag = '', raceConfigJson = '', debugPanelOut = '' } = hasVideos
     ? buildVideoPlayer(summary, videoFiles, { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, placementOrder, ffmpegDir })
     : {};
 
@@ -237,6 +239,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
       ? `🤖 Gemini Race Commentary\n${'─'.repeat(40)}\n${escHtml(summary.geminiCommentary)}`
       : '',
     notesOpen: summary.geminiCommentary ? 'open' : '',
+    cutPlayer,
     scriptTag,
     raceConfigJson,
   });

@@ -49,8 +49,8 @@ resolved relative to the race directory first, then to the current working
 directory. An unknown name or missing file fails immediately, before the race
 runs.
 
-The skin is inlined into the exported HTML, so it survives **Export Zip** and
-**Export HTML** — a shared report keeps its theme.
+The skin is inlined into the exported HTML, so it survives **Export Zip**,
+**Export HTML** and **Export Cut HTML** — a shared report keeps its theme.
 
 ## Writing a skin
 

@@ -200,10 +200,14 @@ function convertWithFFmpeg(blob, format, ui, opts = {}) {
   });
 }
 
-async function startExport() {
+// Record the visible racers side by side, cut to the active clip, into a
+// WebM. Shared by the recording export and the cut HTML export. Resolves with
+// { blob, mimeType, durationS, ui } (ui: the overlay's parts), or null when
+// the browser can't record, no racer is visible, or the user cancels.
+async function recordSideBySide(titleText) {
   if (!HTMLCanvasElement.prototype.captureStream || !window.MediaRecorder) {
     alert('Export requires a browser that supports Canvas.captureStream and MediaRecorder (Chrome, Firefox, or Edge).');
-    return;
+    return null;
   }
   pausePlayback();
   // The export owns all seeking from here; leftover startup verifications
@@ -214,7 +218,7 @@ async function startExport() {
   const visibleIndices = raceVideos.map((_, i) => i).filter(i => raceVideos[i] && !hiddenRacers.has(i));
   if (visibleIndices.length === 0) {
     alert('No visible racers to export — unhide at least one racer first.');
-    return;
+    return null;
   }
   const layout = getExportLayout(visibleIndices.length);
 
@@ -223,6 +227,7 @@ async function startExport() {
   const canvas = overlay.querySelector('.export-canvas');
   canvas.width = layout.canvasW;
   canvas.height = layout.canvasH;
+  if (titleText) overlay.querySelector('h3').textContent = titleText;
   document.body.appendChild(overlay);
 
   const ctx = canvas.getContext('2d');
@@ -272,6 +277,7 @@ async function startExport() {
   let cancelled = false;
   let recorder = null;
   let rafId = null;
+  let settle = () => {};
 
   overlay.querySelector('.export-cancel').addEventListener('click', () => {
     cancelled = true;
@@ -279,10 +285,11 @@ async function startExport() {
     if (rafId) cancelAnimationFrame(rafId);
     visibleIndices.forEach(i => raceVideos[i]?.pause());
     overlay.remove();
+    settle(null);
   });
 
   await Promise.all(seekPromises);
-  if (cancelled) return;
+  if (cancelled) return null;
   statusEl.textContent = 'Recording...';
 
   const stream = canvas.captureStream(30);
@@ -291,34 +298,16 @@ async function startExport() {
   const chunks = [];
   const recordingStartedAt = Date.now();
   recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-  recorder.onstop = () => {
-    if (cancelled) return;
-    // The recorded webm has no Duration header, so measure real wall-clock
-    // time instead — used later to compute MOV/GIF conversion progress.
-    const recordedDurationS = (Date.now() - recordingStartedAt) / 1000;
-    const blob = new Blob(chunks, { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    statusEl.textContent = 'Export complete!';
-    progressFill.style.width = '100%';
-    const downloadLink = document.createElement('a');
-    downloadLink.href = url;
-    downloadLink.download = 'race-side-by-side.webm';
-    downloadLink.textContent = 'Download';
-    const closeBtn = document.createElement('button');
-    closeBtn.textContent = 'Close';
-    closeBtn.addEventListener('click', () => { URL.revokeObjectURL(url); overlay.remove(); });
-    const convertRow = document.createElement('div');
-    convertRow.className = 'export-convert-row';
-    const gifBtn = document.createElement('button');
-    gifBtn.textContent = 'Convert to GIF';
-    gifBtn.addEventListener('click', () => { convertWithFFmpeg(blob, 'gif', { statusEl, progressFill, actionsEl, overlay }, { durationS: recordedDurationS }); });
-    const movBtn = document.createElement('button');
-    movBtn.textContent = 'Convert to MOV';
-    movBtn.addEventListener('click', () => { convertWithFFmpeg(blob, 'mov', { statusEl, progressFill, actionsEl, overlay }, { durationS: recordedDurationS }); });
-    convertRow.appendChild(gifBtn);
-    convertRow.appendChild(movBtn);
-    actionsEl.replaceChildren(downloadLink, convertRow, closeBtn);
-  };
+  const recorded = new Promise((resolve) => {
+    settle = resolve;
+    recorder.onstop = () => {
+      if (cancelled) return;
+      // The recorded webm has no Duration header, so measure real wall-clock
+      // time instead — used later to compute MOV/GIF conversion progress.
+      const durationS = (Date.now() - recordingStartedAt) / 1000;
+      resolve({ blob: new Blob(chunks, { type: mimeType }), mimeType, durationS, ui: { statusEl, progressFill, actionsEl, overlay } });
+    };
+  });
 
   recorder.start();
   const exportRate = Number.parseFloat(speedSelect.value) || 1;
@@ -347,6 +336,34 @@ async function startExport() {
     rafId = requestAnimationFrame(tick);
   }
   rafId = requestAnimationFrame(tick);
+  return recorded;
+}
+
+async function startExport() {
+  const rec = await recordSideBySide();
+  if (!rec) return;
+  const { statusEl, progressFill, actionsEl, overlay } = rec.ui;
+  const url = URL.createObjectURL(rec.blob);
+  statusEl.textContent = 'Export complete!';
+  progressFill.style.width = '100%';
+  const downloadLink = document.createElement('a');
+  downloadLink.href = url;
+  downloadLink.download = 'race-side-by-side.webm';
+  downloadLink.textContent = 'Download';
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Close';
+  closeBtn.addEventListener('click', () => { URL.revokeObjectURL(url); overlay.remove(); });
+  const convertRow = document.createElement('div');
+  convertRow.className = 'export-convert-row';
+  const gifBtn = document.createElement('button');
+  gifBtn.textContent = 'Convert to GIF';
+  gifBtn.addEventListener('click', () => { convertWithFFmpeg(rec.blob, 'gif', rec.ui, { durationS: rec.durationS }); });
+  const movBtn = document.createElement('button');
+  movBtn.textContent = 'Convert to MOV';
+  movBtn.addEventListener('click', () => { convertWithFFmpeg(rec.blob, 'mov', rec.ui, { durationS: rec.durationS }); });
+  convertRow.appendChild(gifBtn);
+  convertRow.appendChild(movBtn);
+  actionsEl.replaceChildren(downloadLink, convertRow, closeBtn);
 }
 
 if (exportBtn) {

@@ -1323,6 +1323,20 @@ describe('buildPlayerHtml export', () => {
     expect(noVideosHtml).not.toContain('class="controls"');
   });
 
+  it('ships the cut HTML export and its minimal player only with videos', () => {
+    expect(defaultHtml).toContain('id="exportCutHtmlBtn"');
+    expect(defaultHtml).toContain('startCutHtmlExport');
+    const tmpl = defaultHtml.match(/<template id="tmpl-cut-player">([\s\S]*?)<\/template>/);
+    expect(tmpl).not.toBeNull();
+    // Start, back, play/pause, forward — and nothing that needs the full runtime.
+    const actions = [...tmpl[1].matchAll(/<button[^>]*data-cut="(\w+)"/g)].map(m => m[1]);
+    expect(actions).toEqual(['start', 'back', 'play', 'forward']);
+    expect(tmpl[1]).toContain('<video id="cutVideo"');
+    expect(tmpl[1].match(/<script>/g)).toHaveLength(1);
+    expect(noVideosHtml).not.toContain('id="exportCutHtmlBtn"');
+    expect(noVideosHtml).not.toContain('id="cutVideo"');
+  });
+
   it('getExportLayout ensures even canvasH for libx264 compatibility', () => {
     // canvasH = rawH + (rawH % 2) rounds odd heights up to even
     expect(defaultHtml).toContain('rawH % 2');

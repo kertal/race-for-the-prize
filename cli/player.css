@@ -583,6 +583,25 @@ video {
 }
 .merged-container video { width: 100%; }
 
+/* The cut HTML export: one pre-trimmed side-by-side video in place of the
+   racer grid, with the transport buttons centred underneath. */
+.cut-player {
+  max-width: 1200px;
+  width: 100%;
+  padding: 1.5rem var(--gutter) 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.cut-player video {
+  width: 100%;
+  background: var(--video-bg);
+}
+.cut-player .controls-row {
+  justify-content: center;
+  min-width: 0;
+}
+
 /* --- Transport controls -------------------------------------------------- */
 .controls {
   max-width: var(--content-max);

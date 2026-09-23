@@ -225,6 +225,7 @@
       <button class="share-menu-item" id="exportBtn">Export Recording</button>
       <button class="share-menu-item" id="exportHtmlBtn">Export Zip</button>
       <button class="share-menu-item" id="exportHtmlOnlyBtn">Export HTML</button>
+      <button class="share-menu-item" id="exportCutHtmlBtn" title="A single HTML file holding the side-by-side recording, already cut to the race">Export Cut HTML</button>
     </div>
   </span>
   <button class="control-action-btn" id="settingsToggle" title="Settings" aria-label="Toggle settings">&#x2699;</button>
@@ -304,6 +305,51 @@
     </div>
   </div>
 </template>
+
+<!-- The player of a cut HTML export: one video that is already trimmed to the
+     race, and just enough script to start, pause and step it. It replaces the
+     full player (and its runtime) in the exported file, so it only ships in
+     pages that have videos: filled into #tmpl-cut-player below. -->
+<template id="build-cut-player">
+<div class="cut-player" id="cutPlayer">
+  <video id="cutVideo" preload="auto" muted playsinline disablepictureinpicture aria-label="Side-by-side race recording"></video>
+  <div class="controls">
+    <div class="controls-row">
+      <button class="frame-btn" data-cut="start" title="Go to start (Home)" aria-label="Go to start">&#x23EE;</button>
+      <button class="frame-btn" data-cut="back" title="Previous frame (&larr;)" aria-label="Previous frame">&laquo;</button>
+      <button class="play-btn" data-cut="play" title="Play / pause (Space)" aria-label="Play or pause">&#x25B6;</button>
+      <button class="frame-btn" data-cut="forward" title="Next frame (&rarr;)" aria-label="Next frame">&raquo;</button>
+    </div>
+  </div>
+  <script>
+  (function () {
+    var video = document.getElementById('cutVideo');
+    var FRAME = 1 / 30; // the cut recording is captured at 30 fps
+    var jump = function (t) { video.pause(); video.currentTime = Math.max(0, t); };
+    var actions = {
+      start: function () { jump(0); },
+      back: function () { jump(video.currentTime - FRAME); },
+      forward: function () { jump(video.currentTime + FRAME); },
+      play: function () { if (video.paused || video.ended) video.play(); else video.pause(); },
+    };
+    var keys = { Home: 'start', ArrowLeft: 'back', ArrowRight: 'forward', ' ': 'play' };
+    var playBtn = document.querySelector('[data-cut="play"]');
+    video.onplay = function () { playBtn.textContent = '⏸'; };
+    video.onpause = function () { playBtn.textContent = '▶'; };
+    document.querySelectorAll('[data-cut]').forEach(function (btn) {
+      btn.addEventListener('click', actions[btn.dataset.cut]);
+    });
+    document.addEventListener('keydown', function (e) {
+      if (!keys[e.key] || e.target.closest('textarea, input')) return;
+      e.preventDefault();
+      actions[keys[e.key]]();
+    });
+  })();
+  </script>
+</div>
+</template>
+
+<template id="tmpl-cut-player">{{cutPlayer}}</template>
 
 {{scriptTag}}
 </body>

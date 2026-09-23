@@ -3,7 +3,8 @@
  * export-zip.js — Self-contained HTML export flows: clones the live DOM,
  * bakes adjusted clip times and embedded video data URIs into the page,
  * and downloads it as a single HTML file or a ZIP (built by zip.cjs)
- * bundling non-video assets.
+ * bundling non-video assets. The cut export instead embeds one side-by-side
+ * recording already trimmed to the race, with a tiny player of its own.
  */
 
 // Rewrite the cloned #race-config JSON block with calibrated clip times and
@@ -82,7 +83,7 @@ function stripExportChrome(doc) {
   removeEl(doc, '#debugPanel');
   removeEl(doc, '#modeDebug');
   doc.querySelectorAll('.frame-badge').forEach(el => el.remove());
-  doc.querySelectorAll('#exportHtmlBtn, #exportBtn, #exportHtmlOnlyBtn').forEach(el => el.remove());
+  doc.querySelectorAll('#exportHtmlBtn, #exportBtn, #exportHtmlOnlyBtn, #exportCutHtmlBtn').forEach(el => el.remove());
   doc.querySelectorAll('.run-nav').forEach(el => el.remove());
   doc.querySelectorAll('.export-overlay').forEach(el => el.remove());
 }
@@ -313,4 +314,41 @@ async function startHtmlOnlyExport() {
 const exportHtmlOnlyBtn = document.getElementById('exportHtmlOnlyBtn');
 if (exportHtmlOnlyBtn) {
   exportHtmlOnlyBtn.addEventListener('click', startHtmlOnlyExport);
+}
+
+// Build the cut export page: the report around the player stays, but the
+// player and its runtime are swapped for one pre-trimmed video and the few
+// lines of script in #tmpl-cut-player (start, back, play/pause, forward).
+// Nothing is left to calibrate or clip, so no race config goes along.
+function buildCutHtml(videoDataUri) {
+  const doc = document.documentElement.cloneNode(true);
+  stripExportChrome(doc);
+  bakeNotes(doc);
+  stripSlimSections(doc);
+  doc.querySelectorAll('script, template').forEach(el => el.remove());
+
+  const cutPlayer = document.getElementById('tmpl-cut-player').content.cloneNode(true);
+  cutPlayer.querySelector('#cutVideo').setAttribute('src', videoDataUri);
+  const fullPlayer = doc.querySelector('#fullscreenWrapper');
+  if (fullPlayer) fullPlayer.replaceWith(cutPlayer);
+  else doc.querySelector('body').prepend(cutPlayer);
+
+  return '<!DOCTYPE html>\n' + doc.outerHTML;
+}
+
+/** Export a single HTML file holding the side-by-side recording, already cut. */
+async function startCutHtmlExport() {
+  const rec = await recordSideBySide('Exporting Cut HTML');
+  if (!rec) return;
+  const ui = rec.ui;
+  ui.statusEl.textContent = 'Building HTML...';
+  ui.progressFill.style.width = '95%';
+  const html = buildCutHtml(await blobToDataUri(rec.blob));
+  const blob = new Blob([html], { type: 'text/html' });
+  offerDownload(ui, blob, exportBaseName() + '.cut.html', 'Download HTML', []);
+}
+
+const exportCutHtmlBtn = document.getElementById('exportCutHtmlBtn');
+if (exportCutHtmlBtn) {
+  exportCutHtmlBtn.addEventListener('click', startCutHtmlExport);
 }
