@@ -12,7 +12,8 @@
  * and no node_modules anywhere above the temp directory to resolve Playwright
  * from by accident.
  *
- * Requires: npm and tar on PATH, and a filesystem that allows symlinks.
+ * Requires: npm, npx and tar on PATH, and a filesystem that allows symlinks.
+ * Those missing skip the suite; anything else going wrong fails it.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawnSync } from 'node:child_process';
@@ -27,38 +28,68 @@ const CLI_NAME = 'race-for-the-prize';
 
 let workDir = null;
 let projDir = null;
-let setupError = null;
+let missingPrerequisite = null;
+
+/**
+ * Name what this test needs and cannot find, or null when it can run.
+ *
+ * Only an absent prerequisite may skip the suite. A tool that is present but
+ * fails — `npm pack` choking on the `files` allowlist, a tarball that will not
+ * extract — is the packaging regression this suite exists to catch, so staging
+ * lets those throw and fail the run instead.
+ *
+ * @param {string} dir - a writable directory to probe symlink support in
+ * @returns {string|null} the skip reason, or null
+ */
+function findMissingPrerequisite(dir) {
+  for (const tool of ['npm', 'npx', 'tar']) {
+    const probe = spawnSync(tool, ['--version'], { encoding: 'utf-8', timeout: 30_000 });
+    if (probe.error || probe.status !== 0) return `${tool} is not available; skipping npx packaging test`;
+  }
+  const link = path.join(dir, 'symlink-probe');
+  try {
+    fs.symlinkSync('.', link);
+    fs.unlinkSync(link);
+  } catch (e) {
+    return `this filesystem does not allow symlinks (${e.code || e.message}); skipping npx packaging test`;
+  }
+  return null;
+}
+
+/** Pack the real tarball and unpack it the way npm installs a dependency. */
+function stagePackedCli(dir) {
+  const pack = spawnSync('npm', ['pack', '--pack-destination', dir], {
+    cwd: projectRoot,
+    encoding: 'utf-8',
+    timeout: 120_000,
+  });
+  if (pack.status !== 0) throw new Error(`npm pack failed: ${pack.stderr || pack.error?.message}`);
+
+  const tarball = fs.readdirSync(dir).find(f => f.endsWith('.tgz'));
+  if (!tarball) throw new Error('npm pack produced no tarball');
+
+  const proj = path.join(dir, 'proj');
+  const modules = path.join(proj, 'node_modules');
+  fs.mkdirSync(path.join(modules, '.bin'), { recursive: true });
+
+  const untar = spawnSync('tar', ['-xzf', path.join(dir, tarball), '-C', modules], {
+    encoding: 'utf-8',
+    timeout: 60_000,
+  });
+  if (untar.status !== 0) throw new Error(`tar failed: ${untar.stderr || untar.error?.message}`);
+
+  // npm unpacks the tarball's `package/` directory under the package name.
+  fs.renameSync(path.join(modules, 'package'), path.join(modules, CLI_NAME));
+  fs.symlinkSync(path.join('..', CLI_NAME, 'race.js'), path.join(modules, '.bin', CLI_NAME));
+  fs.chmodSync(path.join(modules, CLI_NAME, 'race.js'), 0o755);
+  return proj;
+}
 
 beforeAll(() => {
-  try {
-    workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rftp-npx-'));
-    const pack = spawnSync('npm', ['pack', '--pack-destination', workDir], {
-      cwd: projectRoot,
-      encoding: 'utf-8',
-      timeout: 120_000,
-    });
-    if (pack.status !== 0) throw new Error(`npm pack failed: ${pack.stderr || pack.error?.message}`);
-
-    const tarball = fs.readdirSync(workDir).find(f => f.endsWith('.tgz'));
-    if (!tarball) throw new Error('npm pack produced no tarball');
-
-    projDir = path.join(workDir, 'proj');
-    const modules = path.join(projDir, 'node_modules');
-    fs.mkdirSync(path.join(modules, '.bin'), { recursive: true });
-
-    const untar = spawnSync('tar', ['-xzf', path.join(workDir, tarball), '-C', modules], {
-      encoding: 'utf-8',
-      timeout: 60_000,
-    });
-    if (untar.status !== 0) throw new Error(`tar failed: ${untar.stderr || untar.error?.message}`);
-
-    // npm unpacks the tarball's `package/` directory under the package name.
-    fs.renameSync(path.join(modules, 'package'), path.join(modules, CLI_NAME));
-    fs.symlinkSync(path.join('..', CLI_NAME, 'race.js'), path.join(modules, '.bin', CLI_NAME));
-    fs.chmodSync(path.join(modules, CLI_NAME, 'race.js'), 0o755);
-  } catch (e) {
-    setupError = e.message;
-  }
+  workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rftp-npx-'));
+  missingPrerequisite = findMissingPrerequisite(workDir);
+  if (missingPrerequisite) return;
+  projDir = stagePackedCli(workDir);
 });
 
 afterAll(() => {
@@ -77,7 +108,7 @@ function runNpx(...args) {
 
 describe('npx with no Playwright installed', () => {
   it('answers --version from the packed tarball', ({ skip }) => {
-    if (setupError) skip(`could not stage the packed CLI (${setupError})`);
+    if (missingPrerequisite) skip(missingPrerequisite);
 
     expect(fs.existsSync(path.join(projDir, 'node_modules', CLI_NAME, 'node_modules'))).toBe(false);
 
@@ -89,7 +120,7 @@ describe('npx with no Playwright installed', () => {
   });
 
   it('prints the help screen spelled for npx', ({ skip }) => {
-    if (setupError) skip(`could not stage the packed CLI (${setupError})`);
+    if (missingPrerequisite) skip(missingPrerequisite);
 
     const proc = runNpx('--help');
     expect(proc.status).toBe(0);
@@ -98,7 +129,7 @@ describe('npx with no Playwright installed', () => {
   });
 
   it('copies a demo, then refuses to race with a message an npx user can act on', ({ skip }) => {
-    if (setupError) skip(`could not stage the packed CLI (${setupError})`);
+    if (missingPrerequisite) skip(missingPrerequisite);
 
     const proc = runNpx('demo:lauda-vs-hunt', '--yes', '--headless');
 
