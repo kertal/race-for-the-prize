@@ -122,8 +122,8 @@ Type, shape, motion and layout:
 | `--border-width`, `--border-width-thick` | Line weights |
 | `--shadow-popover`, `--focus-ring` | Menu shadow, focus outline |
 | `--duration-fast`, `--duration`, `--duration-slow` | Transition speeds |
-| `--content-max`, `--gutter` | Report column width (both pages share it), horizontal padding |
-| `--control-size`, `--play-btn-width` | Transport button geometry |
+| `--content-max`, `--gutter` | Report column width (both pages share it), horizontal padding. The player narrows `--gutter` to `1rem` on screens under 600px |
+| `--control-size`, `--control-size-sm`, `--play-btn-width` | Transport and action button geometry. On touch screens (`pointer: coarse`) `tokens.css` raises the two sizes to 40px and 36px so a fingertip can hit them. A skin that sets them overrides that too, so keep them tappable |
 
 Ornament and media:
 
