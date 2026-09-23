@@ -31,7 +31,7 @@ function harness(times = [2]) {
   };
   vm.createContext(ctx);
   vm.runInContext(block(playback, 'function cancelSeekVerifications()', '\n// --- Formatting'), ctx);
-  vm.runInContext(block(playback, 'function seekAll(t)', '\n// --- Metadata'), ctx);
+  vm.runInContext(block(playback, 'function videoTargetTime(', '\n// --- Metadata'), ctx);
   vm.runInContext(block(playback, 'function videoClipElapsed(', '\nfunction onEnded()'), ctx);
   vm.runInContext(block(main, 'function nudgePaint(', '\nfunction seekAllWithVerify('), ctx);
   vm.runInContext(block(main, 'function seekAllWithVerify(', '\nif (clipTimes)'), ctx);
@@ -115,5 +115,63 @@ describe('playback stability', () => {
     ctx.videos = [ctx.raceVideos[0]];
     expect(ctx.maxClipElapsed(ctx.clipTimes)).toBe(10);
     expect(ctx.allClipsFinished(ctx.clipTimes)).toBe(true);
+  });
+
+  it('puts a racer whose start seek was dropped back on its clip before playing', () => {
+    // iOS Safari buffers nothing before the user presses play, so the one-shot
+    // load seek can be lost and that racer would play from 0.
+    const ctx = harness([2, 0]);
+    ctx.clipTimes[1] = { start: 3.5, end: 13.5 };
+    ctx.alignForPlay();
+    expect(ctx.videos[0].currentTime).toBe(2);
+    expect(ctx.videos[1].currentTime).toBe(3.5);
+  });
+  it('aligns to the scrubber on resume, and leaves racers already in place alone', () => {
+    const ctx = harness([7.05, 0]);
+    ctx.scrubber.value = 500; // 5s into the 10s clip
+    ctx.alignForPlay();
+    expect(ctx.videos[0].currentTime).toBe(7.05); // within tolerance: no seek, no stutter
+    expect(ctx.videos[1].currentTime).toBe(7);
+  });
+  it('does not align outside a clip window (whole recording, merged video)', () => {
+    const ctx = harness([0]);
+    ctx.activeClip = null;
+    ctx.alignForPlay();
+    expect(ctx.videos[0].currentTime).toBe(0);
+  });
+});
+
+describe('duration probe', () => {
+  function durationHarness() {
+    const ctx = { onMeta: vi.fn(), setTimeout, Date };
+    vm.createContext(ctx);
+    vm.runInContext(block(playback, 'const _durationForced', '\n// video → { srcKey, at }: when we first'), ctx);
+    const v = { ...video(0), duration: Infinity, readyState: 1, src: 'blob:a' };
+    ctx.videos = [v];
+    return { ctx, v };
+  }
+  it('stops waiting for a durationchange that never comes', () => {
+    // Safari does not rescan a WebM without a Duration element, so the 1e10
+    // seek never produces durationchange; the start seek must still run.
+    vi.useFakeTimers();
+    try {
+      const { ctx, v } = durationHarness();
+      expect(ctx.ensureFiniteDurations()).toBe(false);
+      expect(v.currentTime).toBe(1e10);
+      vi.advanceTimersByTime(2100); // past DURATION_SETTLE_MS
+      expect(ctx.onMeta).toHaveBeenCalledTimes(1);
+      expect(ctx.ensureFiniteDurations()).toBe(true);
+    } finally { vi.useRealTimers(); }
+  });
+  it('does not re-run the metadata pass once the scan has resolved the duration', () => {
+    vi.useFakeTimers();
+    try {
+      const { ctx, v } = durationHarness();
+      ctx.ensureFiniteDurations();
+      v.duration = 12;
+      vi.advanceTimersByTime(2100); // past DURATION_SETTLE_MS
+      expect(ctx.onMeta).not.toHaveBeenCalled();
+      expect(ctx.ensureFiniteDurations()).toBe(true);
+    } finally { vi.useRealTimers(); }
   });
 });
