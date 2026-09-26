@@ -161,8 +161,12 @@ describe('the documented racer cap', () => {
   // folded away first, so the next change to MAX_RACERS cannot leave one
   // behind.
   const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
-  const PAGES = ['index.html', 'cli.md', 'demos.md', 'writing-races.md', 'use-cases.md', 'results.md', 'development.md', 'skinning.md']
-    .map(name => [`docs/${name}`, read('docs', name)]);
+  // Read the folder rather than list the pages: a page added later is covered
+  // without anyone remembering to add it here. The generated race reports in
+  // docs/demos/ are not pages anyone writes, so the subdirectory stays out.
+  const PAGES = fs.readdirSync(path.join(ROOT, 'docs'), { withFileTypes: true })
+    .filter(entry => entry.isFile() && /\.(md|html)$/.test(entry.name))
+    .map(entry => [`docs/${entry.name}`, read('docs', entry.name)]);
   PAGES.push(['ReadMe.md', readme]);
 
   const plain = (text) => text.replace(/&nbsp;|&#160;/g, ' ');
