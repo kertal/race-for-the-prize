@@ -16,7 +16,7 @@ import {
   rankEntries,
 } from './report-model.js';
 
-export const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f', '#9b59b6'];
+export const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f'];
 const NON_PREFIX_SECTION_NAMES = new Set(['Race', 'Race (All Sections)']);
 
 let T = {};

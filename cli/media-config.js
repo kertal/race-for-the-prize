@@ -16,7 +16,7 @@ export const SCREEN = {
 // Video processing defaults
 export const VIDEO_DEFAULTS = {
   scaleWidth2to3: 640,    // Scale width for 2-3 video layouts
-  scaleWidth4to5: 480,    // Scale width for 4-5 video layouts
+  scaleWidth4: 480,       // Scale width for the 4-video layout
   windowHeight: 800,      // Default window height
   gifFps: 10,             // GIF frame rate
   gifMaxColors: 128,      // GIF max color palette

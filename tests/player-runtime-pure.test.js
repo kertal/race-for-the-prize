@@ -546,7 +546,7 @@ describe('computeExportLayout', () => {
   });
 
   it('never lets a row overflow the canvas (bottom row centred by its own count)', () => {
-    // The CLI caps racers at 5, but the layout must stay self-consistent: a
+    // The CLI caps racers at 4, but the layout must stay self-consistent: a
     // fixed half-cell indent pushed a 3-cell bottom row past the canvas.
     for (const count of [2, 3, 4, 5, 6]) {
       const l = computeExportLayout(count, ASPECT);

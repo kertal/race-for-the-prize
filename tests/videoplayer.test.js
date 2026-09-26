@@ -296,15 +296,15 @@ describe('buildPlayerHtml', () => {
     expect(getRaceConfig(html).videoCount).toBe(4);
   });
 
-  it('supports 5 racers with download links', () => {
-    const summary = makeSummary({ racers: ['r1', 'r2', 'r3', 'r4', 'r5'], comparisons: [], overallWinner: 'r1' });
-    const videos = ['r1/r1.webm', 'r2/r2.webm', 'r3/r3.webm', 'r4/r4.webm', 'r5/r5.webm'];
-    const altFiles = ['r1/r1.gif', 'r2/r2.gif', 'r3/r3.gif', 'r4/r4.gif', 'r5/r5.gif'];
+  it('offers a download link per racer on a full grid', () => {
+    const summary = makeSummary({ racers: ['r1', 'r2', 'r3', 'r4'], comparisons: [], overallWinner: 'r1' });
+    const videos = ['r1/r1.webm', 'r2/r2.webm', 'r3/r3.webm', 'r4/r4.webm'];
+    const altFiles = ['r1/r1.gif', 'r2/r2.gif', 'r3/r3.gif', 'r4/r4.gif'];
     const html = buildPlayerHtml(summary, videos, 'gif', altFiles);
-    expect(html).toContain('id="v4"');
+    expect(html).toContain('id="v3"');
     expect(html).toContain('r1 (.gif)');
-    expect(html).toContain('r5 (.gif)');
-    expect(getRaceConfig(html).videoCount).toBe(5);
+    expect(html).toContain('r4 (.gif)');
+    expect(getRaceConfig(html).videoCount).toBe(4);
   });
 
   it('assigns correct colors to racer labels via the --racer-color token', () => {

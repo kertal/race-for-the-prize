@@ -12,7 +12,7 @@
 import fs from 'fs';
 import path from 'path';
 import { c } from './colors.js';
-import { applyOverrides, applyDefaults, discoverRacers, resolveSharedRacerNames, InvalidSettingError } from './config.js';
+import { applyOverrides, applyDefaults, discoverRacers, resolveSharedRacerNames, InvalidSettingError, MAX_RACERS } from './config.js';
 import { resolveSkin } from './skins.js';
 
 /**
@@ -129,8 +129,8 @@ export function loadRaceDir(raceDir, { boolFlags, kvFlags, rootDir, buildContext
       console.error(`${c.red}Error: Need at least 2 .spec.js (or .js) script files in ${raceDir}, found ${racerFiles.length}${c.reset}`);
       process.exit(1);
     }
-    if (totalFound > 5) {
-      console.error(`${c.yellow}Warning: Found ${totalFound} script files, using first five: ${racerFiles.join(', ')}${c.reset}`);
+    if (totalFound > MAX_RACERS) {
+      console.error(`${c.yellow}Warning: Found ${totalFound} script files, using the first ${MAX_RACERS}: ${racerFiles.join(', ')}${c.reset}`);
       console.error(`${c.dim}  Skipped: ${dropped.join(', ')}${c.reset}`);
     }
 

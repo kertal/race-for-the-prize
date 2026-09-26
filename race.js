@@ -32,7 +32,7 @@ import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c } from './cli/colors.js';
 import { FORMAT_EXTENSIONS } from './cli/media-config.js';
 import { raceVideoFile, fullVideoFile, traceFile, harFile, racerRelative } from './cli/paths.js';
-import { parseArgs, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown, findUnknownFlags, findValuelessKvFlags, parseNetworkList, parseCpuList, buildRaceConditions, InvalidSettingError } from './cli/config.js';
+import { parseArgs, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown, findUnknownFlags, findValuelessKvFlags, parseNetworkList, parseCpuList, buildRaceConditions, InvalidSettingError, MAX_RACERS } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex, findMedianRunIndexPerRacer } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
@@ -943,10 +943,10 @@ if (urlMode) {
   }
 
   // URL mode: generate race scripts from URLs
-  if (positional.length > 5) {
-    console.error(`${c.yellow}Warning: Using first 5 URLs of ${positional.length} provided${c.reset}`);
+  if (positional.length > MAX_RACERS) {
+    console.error(`${c.yellow}Warning: Using first ${MAX_RACERS} URLs of ${positional.length} provided${c.reset}`);
   }
-  const urls = positional.slice(0, 5);
+  const urls = positional.slice(0, MAX_RACERS);
 
   // Derive names and deduplicate: first occurrence keeps its base name,
   // subsequent duplicates get -2, -3, etc. Uses Object.create(null) to

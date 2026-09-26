@@ -4,7 +4,7 @@
 
 **Ladies and gentlemen, welcome to race day!**
 
-RaceForThePrize is a command-line showdown that pits browsers against each other in head-to-head performance battles. Line up 2 to 5 racers, write your [Playwright](https://playwright.dev/) scripts, fire the starting gun, and watch them tear down the track side by side — live terminal animation, video recordings, and a full race report that crowns the champion.
+RaceForThePrize is a command-line showdown that pits browsers against each other in head-to-head performance battles. Line up 2 to 4 racers, write your [Playwright](https://playwright.dev/) scripts, fire the starting gun, and watch them tear down the track side by side — live terminal animation, video recordings, and a full race report that crowns the champion.
 
 No judges, no bias — just cold, hard milliseconds on the clock.
 
