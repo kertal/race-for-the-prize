@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { buildSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, getPlacementOrder, findMedianRunIndex, printSummary } from '../cli/summary.js';
+import { buildSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, findMedianRunIndex, printSummary } from '../cli/summary.js';
 
 describe('buildSummary', () => {
   const names = ['lauda', 'hunt'];
@@ -810,105 +810,6 @@ describe('buildSummary with 5 racers', () => {
     expect(summary.comparisons[0].racers[1]).toBeNull(); // b has no data
     expect(summary.comparisons[0].racers[3]).toBeNull(); // d has no data
     expect(summary.comparisons[0].rankings).toEqual(['c', 'a', 'e']);
-  });
-});
-
-describe('getPlacementOrder', () => {
-  it('returns winner first for 2 racers', () => {
-    const summary = {
-      racers: ['lauda', 'hunt'],
-      comparisons: [{ rankings: ['hunt', 'lauda'] }],
-    };
-    expect(getPlacementOrder(summary)).toEqual([1, 0]); // hunt first
-  });
-
-  it('returns original order when no comparisons', () => {
-    const summary = { racers: ['a', 'b', 'c'], comparisons: [] };
-    expect(getPlacementOrder(summary)).toEqual([0, 1, 2]);
-  });
-
-  it('orders 3 racers by ranking (fastest to slowest)', () => {
-    // Single comparison: c fastest, a second, b slowest
-    const summary = {
-      racers: ['a', 'b', 'c'],
-      comparisons: [{ rankings: ['c', 'a', 'b'] }],
-    };
-    expect(getPlacementOrder(summary)).toEqual([2, 0, 1]); // c, a, b
-  });
-
-  it('uses average rank across multiple comparisons', () => {
-    // Comp1: a wins (a=0, b=2, c=1), Comp2: b wins (b=0, c=1, a=2)
-    // avgRank: a=(0+2)/2=1, b=(2+0)/2=1, c=(1+1)/2=1 → tie, original order
-    const summary = {
-      racers: ['a', 'b', 'c'],
-      comparisons: [
-        { rankings: ['a', 'c', 'b'] },
-        { rankings: ['b', 'c', 'a'] },
-      ],
-    };
-    expect(getPlacementOrder(summary)).toEqual([0, 1, 2]);
-  });
-
-  it('differentiates 2nd from 3rd place', () => {
-    // Single comparison: b fastest, c second, a slowest
-    const summary = {
-      racers: ['a', 'b', 'c'],
-      comparisons: [{ rankings: ['b', 'c', 'a'] }],
-    };
-    expect(getPlacementOrder(summary)).toEqual([1, 2, 0]); // b, c, a
-  });
-
-  it('handles racers missing from rankings', () => {
-    // Only a and c have data; b is unranked (gets worst rank)
-    const summary = {
-      racers: ['a', 'b', 'c'],
-      comparisons: [{ rankings: ['c', 'a'] }],
-    };
-    const order = getPlacementOrder(summary);
-    expect(order[0]).toBe(2); // c first (rank 0)
-    expect(order[1]).toBe(0); // a second (rank 1)
-    expect(order[2]).toBe(1); // b last (unranked)
-  });
-
-  it('places the overall winner first when sections are split', () => {
-    // alpha wins load, beta wins render — one section each, so average rank
-    // ties them. Totals decide: beta 3.0s vs alpha 6.0s, so beta leads.
-    const summary = buildSummary(['alpha', 'beta'], [
-      { measurements: [{ name: 'load', duration: 1.0 }, { name: 'render', duration: 5.0 }] },
-      { measurements: [{ name: 'load', duration: 2.0 }, { name: 'render', duration: 1.0 }] },
-    ]);
-    expect(summary.overallWinner).toBe('beta');
-    expect(getPlacementOrder(summary)).toEqual([1, 0]); // beta, alpha
-  });
-
-  it('orders 3 racers by total time, not section wins', () => {
-    // a wins two of three sections but loses the race on total time.
-    const summary = buildSummary(['a', 'b', 'c'], [
-      { measurements: [{ name: 's1', duration: 1.0 }, { name: 's2', duration: 1.0 }, { name: 's3', duration: 9.0 }] },
-      { measurements: [{ name: 's1', duration: 2.0 }, { name: 's2', duration: 2.0 }, { name: 's3', duration: 1.0 }] },
-      { measurements: [{ name: 's1', duration: 3.0 }, { name: 's2', duration: 3.0 }, { name: 's3', duration: 1.5 }] },
-    ]);
-    expect(summary.overallWinner).toBe('b');       // b 5.0s, c 7.5s, a 11.0s
-    expect(getPlacementOrder(summary)).toEqual([1, 2, 0]);
-  });
-
-  it('falls back to average rank when totals are effectively tied', () => {
-    // Totals are within the tie epsilon (3.000s vs 2.998s), so the per-section
-    // evidence breaks the tie: b takes two of the three sections.
-    const summary = buildSummary(['a', 'b'], [
-      { measurements: [{ name: 's1', duration: 1.0 }, { name: 's2', duration: 1.0 }, { name: 's3', duration: 1.0 }] },
-      { measurements: [{ name: 's1', duration: 0.998 }, { name: 's2', duration: 0.998 }, { name: 's3', duration: 1.002 }] },
-    ]);
-    expect(getPlacementOrder(summary)).toEqual([1, 0]); // b: better average rank
-  });
-
-  it('places a racer missing a section behind racers with a total', () => {
-    const summary = buildSummary(['a', 'b', 'c'], [
-      { measurements: [{ name: 's1', duration: 3.0 }, { name: 's2', duration: 3.0 }] },
-      { measurements: [{ name: 's1', duration: 1.0 }] },
-      { measurements: [{ name: 's1', duration: 2.0 }, { name: 's2', duration: 2.0 }] },
-    ]);
-    expect(getPlacementOrder(summary)).toEqual([2, 0, 1]); // c, a, then b (no total)
   });
 });
 

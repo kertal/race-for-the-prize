@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { buildPlayerHtml } from '../cli/videoplayer.js';
-import { buildRunNavHtml, buildResultsHtml, buildProfileHtml, RACER_CSS_COLORS } from '../cli/player-sections.js';
+import { buildRunNavHtml, buildResultsHtml, buildProfileHtml, RACER_CSS_COLORS, runNavPattern } from '../cli/player-sections.js';
 import { buildProfileComparison } from '../cli/profile-analysis.js';
 import { copyFFmpegFiles } from '../cli/results.js';
 import { fileURLToPath } from 'node:url';
@@ -478,12 +478,7 @@ describe('buildPlayerHtml', () => {
     expect(html).toContain('profile-bar-fill');
   });
 
-  it('shows winner video first when hunt wins', () => {
-    const html = buildPlayerHtml(huntWinsSummary(), videoFiles);
-    expect(html.indexOf('src="hunt/hunt.race.webm"')).toBeLessThan(html.indexOf('src="lauda/lauda.race.webm"'));
-  });
-
-  it('shows winner video first with original colors preserved', () => {
+  it('keeps each racer on their own colour wherever they finished', () => {
     const html = buildPlayerHtml(huntWinsSummary(), videoFiles);
     const huntCard = html.match(/--racer-color: (#[0-9a-f]+)">\s*<div class="racer-label">(?:(?!<\/div>).)*hunt/s);
     expect(huntCard[1]).toBe('#3498db');
@@ -731,6 +726,22 @@ describe('buildRunNavHtml winner colors', () => {
     expect(html).toContain('Run 1');
     expect(html).not.toContain('border-color');
   });
+
+  it('stays findable by the pattern race.js rewrites it with', () => {
+    // A multi-run race only learns each run's winner once every run is done, so
+    // race.js goes back and swaps this nav in each already-built report. When
+    // the element changed from a div to a nav, the pattern that finds it lived
+    // in race.js and quietly stopped matching — the swap is a no-op on a miss,
+    // so the winner colours just vanished. The pattern is derived from the
+    // fragment now, and this keeps the two in step.
+    const nav = { currentRun: 1, totalRuns: 2, pathPrefix: '../' };
+    const html = buildRunNavHtml(nav, racers, makeRunSummaries(['lauda', 'hunt']));
+    const page = `<main><h1>Race</h1>${html}<section>after</section></main>`;
+    const match = page.match(runNavPattern());
+    expect(match).not.toBeNull();
+    // It must capture the whole nav and stop there, or the swap eats the page.
+    expect(match[0]).toBe(html);
+  });
 });
 
 // --- Clip times (default mode, without --ffmpeg) ---
@@ -778,12 +789,12 @@ describe('buildPlayerHtml clipTimes', () => {
     expect(html).toContain('resolveClip');
   });
 
-  it('orders clipTimes by placement (winner first)', () => {
+  it('keeps clipTimes in racer order, winner or not', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 0.5, end: 2.5 }], { summary: huntWinsSummary() });
     const parsed = getRaceConfig(html).clipTimes;
     expect(parsed).toBeTruthy();
-    expect(parsed[0].start).toBe(0.5); // hunt's clip first (winner)
-    expect(parsed[1].start).toBe(1); // lauda's clip second
+    expect(parsed[0].start).toBe(1); // lauda is racer 1, though hunt won
+    expect(parsed[1].start).toBe(0.5);
   });
 
   it('does not show Merged button without mergedVideoFile', () => {
@@ -987,10 +998,10 @@ describe('buildPlayerHtml debug mode', () => {
     expect(debugHtml).toContain('getVideoPlaybackQuality');
   });
 
-  it('debug rows ordered by placement (winner first)', () => {
+  it('debug rows follow the racer order', () => {
     const html = withOptions({ clipTimes }, huntWinsSummary());
     const panelSection = html.slice(html.indexOf('id="debugPanel"'));
-    expect(panelSection.indexOf('>hunt<')).toBeLessThan(panelSection.indexOf('>lauda<'));
+    expect(panelSection.indexOf('>lauda<')).toBeLessThan(panelSection.indexOf('>hunt<'));
   });
 
   it('renders FRAME POSITIONS section in debug panel', () => {
@@ -1254,7 +1265,6 @@ describe('buildPlayerHtml timing events', () => {
   it('embeds measurements in clipTimes JSON', () => {
     const parsed = getRaceConfig(timingHtml).clipTimes;
     expect(parsed).toBeTruthy();
-    // clipTimes are reordered by placement; winner (lauda) is first
     expect(parsed[0].measurements).toBeDefined();
     expect(parsed[0].measurements.length).toBeGreaterThan(0);
     expect(parsed[0].measurements[0].name).toBe('Load');
@@ -1334,7 +1344,7 @@ describe('buildPlayerHtml export', () => {
   });
 
   it('export modal canvas has max-height to keep buttons visible', () => {
-    expect(defaultHtml).toContain('max-height: 50vh');
+    expect(defaultHtml).toContain('max-height: 50dvh');
   });
 });
 
@@ -1800,5 +1810,175 @@ describe('buildPlayerHtml run-by-run comparison', () => {
   it('omits comparison section when no runSummaries provided', () => {
     const html = buildPlayerHtml(medianSummary, videoFiles);
     expect(html).not.toContain('Run-by-Run Comparison');
+  });
+});
+
+// --- Semantics & accessibility ---
+
+describe('buildPlayerHtml semantics', () => {
+  const multiRunHtml = withOptions({
+    runSummaries: [makeSummary(), huntWinsSummary(), makeSummary()],
+    runNavigation: { currentRun: 1, totalRuns: 3, pathPrefix: '../' },
+  });
+
+  it('wraps the report in landmarks and offers a skip link into it', () => {
+    expect(defaultHtml).toContain('<a class="skip-link" href="#main">');
+    expect(defaultHtml).toContain('<main id="main">');
+    expect(defaultHtml).toContain('</main>');
+    expect(defaultHtml).toMatch(/<header class="race-header">/);
+    expect(defaultHtml).toMatch(/<footer>[\s\S]*checkered-bar[\s\S]*<\/footer>/);
+  });
+
+  it('hides the purely decorative ornaments from assistive tech', () => {
+    // The foot band is pure ornament — the head band carries the title, so it
+    // stays readable.
+    expect(defaultHtml).toContain('<div class="checkered-bar" aria-hidden="true">');
+  });
+
+  it('names the run navigation', () => {
+    expect(multiRunHtml).toContain('<nav class="run-nav" aria-label="Race runs">');
+  });
+
+  it('gives every button an explicit type so none can submit a form', () => {
+    const buttons = defaultHtml.match(/<button\b[^>]*>/g) || [];
+    expect(buttons.length).toBeGreaterThan(0);
+    expect(buttons.filter(b => !b.includes('type="button"'))).toEqual([]);
+  });
+
+  it('wires disclosure and toggle state onto the controls that own it', () => {
+    expect(defaultHtml).toContain('id="settingsToggle" title="Settings" aria-label="Toggle settings" aria-expanded="false" aria-controls="settingsPanel"');
+    expect(defaultHtml).toContain('id="shareToggle"');
+    expect(defaultHtml).toMatch(/id="shareToggle"[^>]*aria-expanded="false" aria-controls="shareMenu"/);
+    expect(defaultHtml).toMatch(/id="fullscreenBtn"[^>]*aria-pressed="false"/);
+    // …and the runtime keeps all three in sync as they are operated.
+    expect(defaultHtml).toContain("settingsToggle.setAttribute('aria-expanded', String(visible))");
+    expect(defaultHtml).toContain("shareToggle.setAttribute('aria-expanded', String(visible))");
+    expect(defaultHtml).toContain("fullscreenBtn.setAttribute('aria-pressed', String(fs))");
+    expect(defaultHtml).toContain("btn.setAttribute('aria-pressed', 'false')");
+  });
+
+  it('announces the scrubber as a time, not a percentage', () => {
+    expect(defaultHtml).toContain("scrubber.setAttribute('aria-valuetext', readout)");
+  });
+
+  it('exposes bar charts as progress bars carrying their measured value', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles);
+    expect(html).toMatch(/<span class="profile-bar-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="\d+"/);
+    expect(html).toMatch(/aria-valuetext="[^"]+" aria-label="lauda: [^"]+"/);
+  });
+
+  it('keeps the export progress bar value in step with its width', () => {
+    expect(defaultHtml).toContain('role="progressbar" aria-label="Export progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"');
+    expect(defaultHtml).toContain("bar.setAttribute('aria-valuenow', String(Math.round(clamped)))");
+    // The helper is the only thing that moves the fill, so the width and the
+    // announced value can never disagree.
+    expect(defaultHtml.match(/progressFill\.style\.width = /g)).toHaveLength(1);
+  });
+
+  it('interrupts with racer failures rather than leaving them unread', () => {
+    const html = withSummary({ errors: ['hunt crashed'] });
+    expect(html).toContain('<div class="errors" role="alert">');
+  });
+
+  it('captions comparison tables and scopes their header cells', () => {
+    expect(multiRunHtml).toContain('<caption class="sr-only">Race Section Load per run, by racer</caption>');
+    expect(multiRunHtml).toContain('<th scope="col">Run</th>');
+    expect(multiRunHtml).toMatch(/<th scope="col" style="--racer-color:[^"]+">lauda<\/th>/);
+  });
+
+  it('marks the video grid, the transport bar and the calibration panel', () => {
+    expect(defaultHtml).toContain('<section class="player-container" id="playerContainer" aria-label="Race recordings">');
+    expect(defaultHtml).toContain('<div class="controls" role="toolbar" aria-label="Playback controls">');
+    const clipTimes = [
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 2 },
+      { start: 1.2, end: 3.4, recordingOffset: 0.2, wallClockDuration: 2.2 },
+    ];
+    const debugHtml = withOptions({ clipTimes });
+    expect(debugHtml).toContain('<aside class="panel debug-panel" id="debugPanel" aria-label="Calibration">');
+    expect(debugHtml).toContain('<h4 class="debug-stats-header">VIDEO INFO</h4>');
+  });
+
+  it('treats the export overlay as a modal dialog, and behaves like one', () => {
+    expect(defaultHtml).toContain('role="dialog" aria-modal="true" aria-labelledby="exportDialogTitle"');
+    expect(defaultHtml).toContain('<h3 id="exportDialogTitle">');
+    // aria-modal only tells the truth if focus actually moves in and back out,
+    // so both overlays are mounted through the helper that arranges that.
+    expect(defaultHtml).toContain('function mountExportDialog(overlay)');
+    expect(defaultHtml).toContain('<div class="export-overlay" tabindex="-1" role="dialog"');
+    expect(defaultHtml.match(/mountExportDialog\(overlay\);/g)).toHaveLength(2);
+    // The only bare append left is the helper's own.
+    expect(defaultHtml.match(/document\.body\.appendChild\(overlay\);/g)).toHaveLength(1);
+  });
+
+  it('keeps the download link inside the focus trap', () => {
+    // A finished export replaces the buttons with a Download anchor and a Close
+    // button. Trapping only buttons let Shift+Tab off Download leave the dialog.
+    expect(defaultHtml).toContain("'a[href], button:not([disabled]), [tabindex]:not([tabindex=\"-1\"])'");
+  });
+
+  it('gives Escape a control that can still dismiss the dialog', () => {
+    // A conversion disables the markup's Cancel and appends a live one, and a
+    // finished export leaves only Close — so Escape looks for the dismissal
+    // control that is currently enabled, and every one of them carries the class.
+    expect(defaultHtml).toContain("overlay.querySelector('.export-cancel:not([disabled])')");
+    expect(defaultHtml).toContain("dismissBtn.className = 'export-cancel';");
+    expect(defaultHtml.match(/closeBtn\.className = 'export-cancel';/g)).toHaveLength(3);
+  });
+
+  it('marks the calibration button as the disclosure it is', () => {
+    // It shows and hides #debugPanel, so it is aria-expanded like the settings
+    // and share buttons — not the aria-pressed of a mode toggle.
+    expect(defaultHtml).toMatch(/id="modeDebug"[^>]*aria-expanded="false" aria-controls="debugPanel"/);
+    // One writer, next to the class the panel's visibility already toggles, so
+    // opening and closing can never move one without the other.
+    expect(defaultHtml).toContain("modeDebug?.setAttribute('aria-expanded', String(on))");
+    expect(defaultHtml.match(/modeDebug\??\.setAttribute\('aria-expanded'/g)).toHaveLength(1);
+  });
+
+  it('leaves the share popup a disclosure rather than promising a menu', () => {
+    // Plain buttons in a panel: claiming a menu would have screen readers
+    // expect arrow-key navigation the runtime does not implement.
+    expect(defaultHtml).not.toContain('aria-haspopup');
+    expect(defaultHtml).not.toContain('role="menu"');
+  });
+
+  it('names the winner trophy with a role that can carry the name', () => {
+    const html = buildPlayerHtml(huntWinsSummary(), videoFiles);
+    expect(html).toContain('<span class="trophy" role="img" aria-label="winner">');
+  });
+});
+
+// --- Racer order ---
+
+describe('buildPlayerHtml racer order', () => {
+  // hunt wins, but lauda is racer 1: the grid, the config arrays and the file
+  // links all stay in the order the racers were declared.
+  const html = buildPlayerHtml(huntWinsSummary(), videoFiles, null, null, {
+    fullVideoFiles: ['lauda/lauda.full.webm', 'hunt/hunt.full.webm'],
+    clipTimes: [{ start: 1, end: 3 }, { start: 0.5, end: 2.5 }],
+  });
+
+  it('lays the videos out in racer order, not placement order', () => {
+    expect(html.indexOf('data-racer-name="lauda"')).toBeLessThan(html.indexOf('data-racer-name="hunt"'));
+    expect(html).toContain('<video id="v0" src="lauda/lauda.race.webm"');
+    expect(html).toContain('<video id="v1" src="hunt/hunt.race.webm"');
+  });
+
+  it('keeps every injected array aligned with that order', () => {
+    const config = getRaceConfig(html);
+    expect(config.racerNames).toEqual(['lauda', 'hunt']);
+    expect(config.raceVideoPaths).toEqual(videoFiles);
+    expect(config.fullVideoPaths).toEqual(['lauda/lauda.full.webm', 'hunt/hunt.full.webm']);
+    expect(config.racerColors).toEqual([RACER_CSS_COLORS[0], RACER_CSS_COLORS[1]]);
+  });
+
+  it('still marks the winner with a trophy wherever they are placed', () => {
+    const huntCard = html.slice(html.indexOf('data-racer-name="hunt"') - 400, html.indexOf('data-racer-name="hunt"'));
+    expect(huntCard).toContain('class="trophy"');
+  });
+
+  it('lists the files in racer order too', () => {
+    const files = html.slice(html.indexOf('file-links'));
+    expect(files.indexOf('lauda/lauda.race.webm')).toBeLessThan(files.indexOf('hunt/hunt.race.webm'));
   });
 });

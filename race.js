@@ -33,11 +33,11 @@ import { c } from './cli/colors.js';
 import { FORMAT_EXTENSIONS } from './cli/media-config.js';
 import { raceVideoFile, fullVideoFile, traceFile, harFile, racerRelative } from './cli/paths.js';
 import { parseArgs, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown, findUnknownFlags, findValuelessKvFlags, parseNetworkList, parseCpuList, buildRaceConditions, InvalidSettingError } from './cli/config.js';
-import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex, findMedianRunIndexPerRacer } from './cli/summary.js';
+import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, findMedianRunIndex, findMedianRunIndexPerRacer } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
 import { buildPlayerHtml } from './cli/videoplayer.js';
-import { buildRunNavHtml } from './cli/player-sections.js';
+import { buildRunNavHtml, runNavPattern } from './cli/player-sections.js';
 import { buildHelp, resolveInvocation, CLI_NAME, packageVersion } from './cli/help.js';
 import { runGeminiSummary, runGeminiSpec } from './cli/gemini-summary.js';
 import { parseDemoArg, planDemo, copyDemo, formatDemoList, UnknownDemoError } from './cli/demos.js';
@@ -523,9 +523,9 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
       sideBySideName = `${racerNames.join('-vs-')}${ext}`;
 
       if (ffmpeg) {
-        // Order videos by placement (winner first) for side-by-side
-        const placementOrder = getPlacementOrder(summary);
-        const videoPaths = placementOrder.map(i => results[i].videoPath).filter(Boolean);
+        // Side-by-side follows the racer order, so the merged video matches
+        // the player's grid and the racer list in the report.
+        const videoPaths = results.map(r => r.videoPath).filter(Boolean);
         sideBySidePath = createSideBySide(videoPaths, path.join(runDir, sideBySideName), format, settings.slowmo);
 
         if (format !== 'webm') {
@@ -1151,7 +1151,7 @@ function updateRunNavColors(summaries) {
     const htmlPath = path.join(resultsDir, String(i + 1), 'index.html');
     if (!fs.existsSync(htmlPath)) continue;
     let html = fs.readFileSync(htmlPath, 'utf-8');
-    const oldNavMatch = html.match(/<div class="run-nav">[\s\S]*?<\/div>/);
+    const oldNavMatch = html.match(runNavPattern());
     if (!oldNavMatch) continue;
     const runNav = { currentRun: i + 1, totalRuns: summaries.length, pathPrefix: '../' };
     const newNav = buildRunNavHtml(runNav, racerNames, summaries);
