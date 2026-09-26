@@ -8,7 +8,7 @@
  * every collapsible section open, and measure them.
  */
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
 import { buildPlayerHtml } from '../cli/videoplayer.js';
@@ -89,7 +89,7 @@ function writePage(name, html) {
   const dir = path.join(tmpDir, name);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'index.html'), html);
-  return `file://${path.join(dir, 'index.html')}`;
+  return pathToFileURL(path.join(dir, 'index.html')).href;
 }
 
 /** A phone: narrow, touch-driven, and zoomed by its meta viewport. */

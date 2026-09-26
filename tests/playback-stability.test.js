@@ -150,6 +150,25 @@ describe('duration probe', () => {
     ctx.videos = [v];
     return { ctx, v };
   }
+  // The same probe, but with the real onMeta and time display behind it, so a
+  // duration that never resolved can be followed all the way to the clock.
+  function metaHarness() {
+    const ctx = {
+      setTimeout, Date, activeClip: null, duration: 0, scrubber: { value: 0 },
+      timeDisplay: {}, frameDisplay: {}, activeSegmentName: null,
+      calibrateClipTimes: () => ({ convertedAny: false, pending: false }),
+      resolveAdjustedClip: () => null, revealCalibrationToggle() {}, buildSegmentNav() {},
+      updateDebugStats() {}, finalizeCalibration() {}, updateFinishDisplays() {},
+    };
+    vm.createContext(ctx);
+    vm.runInContext(block(playback, 'function fmt(', '\n// --- Debug mode'), ctx);
+    vm.runInContext(block(playback, 'const _durationForced', '\n// video \u2192 { srcKey, at }: when we first'), ctx);
+    vm.runInContext(block(playback, 'function onMeta()', '\n// --- Playback event handlers'), ctx);
+    const v = { ...video(0), duration: Infinity, readyState: 1, src: 'blob:a' };
+    ctx.videos = [v];
+    return { ctx, v };
+  }
+
   it('stops waiting for a durationchange that never comes', () => {
     // Safari does not rescan a WebM without a Duration element, so the 1e10
     // seek never produces durationchange; the start seek must still run.
@@ -163,6 +182,36 @@ describe('duration probe', () => {
       expect(ctx.ensureFiniteDurations()).toBe(true);
     } finally { vi.useRealTimers(); }
   });
+  it('starts the scan for every unresolved racer in one pass', () => {
+    // One scan per pass would cost each racer its own settle interval before
+    // the race could start: four racers, eight seconds of nothing.
+    vi.useFakeTimers();
+    try {
+      const { ctx, v } = durationHarness();
+      const second = { ...video(0), duration: Infinity, readyState: 1, src: 'blob:b' };
+      ctx.videos = [v, second];
+      expect(ctx.ensureFiniteDurations()).toBe(false);
+      expect(v.currentTime).toBe(1e10);
+      expect(second.currentTime).toBe(1e10);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('keeps the whole-recording clock off a duration the scan never resolved', () => {
+    // Infinity as the shared duration reads as "Infinity:NaN.NaN" and sends
+    // every scrubber seek to an infinite target, so it must never get stored.
+    vi.useFakeTimers();
+    try {
+      const { ctx, v } = metaHarness();
+      const resolved = { ...video(0), duration: 9, readyState: 1, src: 'blob:b' };
+      ctx.videos = [v, resolved];
+      ctx.ensureFiniteDurations(); // starts v's scan
+      vi.advanceTimersByTime(2100); // past DURATION_SETTLE_MS: v gives up at Infinity
+      ctx.onMeta();
+      expect(ctx.duration).toBe(9);
+      expect(ctx.timeDisplay.textContent).toBe('0:00.000 / 0:09.000');
+    } finally { vi.useRealTimers(); }
+  });
+
   it('does not re-run the metadata pass once the scan has resolved the duration', () => {
     vi.useFakeTimers();
     try {

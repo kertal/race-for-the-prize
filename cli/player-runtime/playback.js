@@ -274,8 +274,6 @@ function alignForPlay() {
 // sources (e.g. race clip → full recording) re-triggers the scan if needed.
 const _durationForced = new WeakMap();
 
-// Trigger the 1e10 scan for this video unless it already ran for this src.
-// Returns true if the scan was started (the caller must then wait).
 // How long to keep waiting for a duration — a finite one, or one that can still
 // hold the clip — before accepting the one on offer.
 const DURATION_SETTLE_MS = 2000;
@@ -283,6 +281,8 @@ const DURATION_SETTLE_MS = 2000;
 // video → { srcKey, at }: when the 1e10 scan was started for this src.
 const _durationScanAt = new WeakMap();
 
+// Trigger the 1e10 scan for this video unless it already ran for this src.
+// Returns true if the scan was started (the caller must then wait).
 function forceDurationScan(v) {
   const srcKey = v.currentSrc || v.src || '';
   if (_durationForced.get(v) === srcKey) return false;
@@ -310,14 +310,17 @@ function durationScanGaveUp(v) {
 // needed. Returns true once all videos report finite durations, or once the
 // scan for any that do not has timed out.
 function ensureFiniteDurations() {
+  let waiting = false;
   for (const v of videos) {
     if (!v || v.readyState < 1) continue; // readyState 1 = HAVE_METADATA
     if (!Number.isFinite(v.duration) && !durationScanGaveUp(v)) {
+      // Start every scan before returning: one racer at a time would cost each
+      // of them its own settle interval before playback could begin.
       forceDurationScan(v);
-      return false; // wait for durationchange, or the backstop timer
+      waiting = true; // wait for durationchange, or the backstop timer
     }
   }
-  return true;
+  return !waiting;
 }
 // video → { srcKey, at }: when we first found this src's duration too short.
 const _durationWait = new WeakMap();
@@ -421,7 +424,12 @@ function onMeta() {
   // pages also get finite durations before any seek/UI is attempted.
   if (!ensureFiniteDurations()) return;
 
-  duration = Math.max(...videos.filter(Boolean).map(v => v.duration || 0));
+  // A racer whose scan gave up still reports Infinity. Taking it as the shared
+  // duration would format the whole-recording clock as Infinity:NaN.NaN and
+  // send every scrubber seek to an infinite target, so count only the known
+  // durations and stay at 0 — the unknown length — when there are none.
+  const known = videos.filter(Boolean).map(v => v.duration).filter(d => Number.isFinite(d) && d > 0);
+  duration = known.length ? Math.max(...known) : 0;
   const { convertedAny, pending } = calibrateClipTimes();
   // A clip still waiting on its duration has raw coordinates while the others
   // are calibrated; resolving the window or consuming the pending seek now
