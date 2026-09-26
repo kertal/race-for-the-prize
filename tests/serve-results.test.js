@@ -31,17 +31,19 @@ function rawRequest(port, raw) {
 }
 
 function fetch(server, urlPath, reqHeaders = {}) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const { port } = server.address();
     const opts = { hostname: '127.0.0.1', port, path: urlPath, headers: reqHeaders };
-    http.get(opts, (res) => {
+    const req = http.get(opts, (res) => {
       const chunks = [];
       res.on('data', d => chunks.push(d));
       res.on('end', () => {
         const buf = Buffer.concat(chunks);
         resolve({ status: res.statusCode, headers: res.headers, body: buf.toString(), bodyBuffer: buf });
       });
+      res.on('error', reject);
     });
+    req.on('error', reject);
   });
 }
 

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Race for the Prize</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ─── Templates ───────────────────────────────────────────── -->
+
+<template id="tmpl-app">
+  <div class="header">
+    <h1>Race for the Prize</h1>
+    <nav class="breadcrumb"></nav>
+  </div>
+  <div class="container">
+    <div class="race-grid" hidden></div>
+    <div class="empty-state" hidden><div class="icon"></div><p></p></div>
+    <slot></slot>
+  </div>
+</template>
+
+<template id="tmpl-race-card">
+  <div class="card" tabindex="0" role="button">
+    <h3></h3>
+    <div class="racers"></div>
+    <div class="tags"></div>
+  </div>
+</template>
+
+<template id="tmpl-race-detail">
+  <div class="detail-header">
+    <h2></h2>
+    <button class="btn-primary" type="button">Run Race</button>
+  </div>
+  <slot name="run-controls"></slot>
+  <div class="settings-panel" hidden>
+    <h4>Default Settings</h4>
+    <div class="settings-grid"></div>
+  </div>
+  <slot name="script-viewer"></slot>
+  <div class="results-section">
+    <h3 class="results-heading"></h3>
+    <div class="empty-state" hidden>
+      <div class="icon"></div><p></p>
+    </div>
+    <slot name="results"></slot>
+  </div>
+</template>
+
+<template id="tmpl-run-controls">
+  <div class="run-options">
+    <label><input type="checkbox" name="parallel"> Parallel</label>
+    <label><input type="checkbox" name="headless" checked> Headless</label>
+    <label><input type="checkbox" name="noRecording"> No Recording</label>
+    <label>Runs: <input type="number" name="runs" value="1" min="1" max="20"></label>
+    <label>Network: <select name="network">
+      <option value="">none</option>
+      <option value="slow-3g">slow-3g</option>
+      <option value="fast-3g">fast-3g</option>
+      <option value="4g">4g</option>
+    </select></label>
+    <label>CPU: <input type="number" name="cpu" value="1" min="1" max="20"></label>
+  </div>
+  <div class="status">
+    <div class="status-line"><span class="status-icon"></span> <span class="status-msg"></span></div>
+    <div class="output"></div>
+  </div>
+</template>
+
+<template id="tmpl-script-viewer">
+  <h3>Racer Scripts</h3>
+  <div class="tabs" role="tablist"></div>
+  <div class="content"></div>
+</template>
+
+<template id="tmpl-result-card">
+  <div class="card">
+    <button class="header" type="button" aria-expanded="false">
+      <span class="timestamp"></span>
+      <span class="winner"></span>
+    </button>
+    <div class="body">
+      <div class="comparisons"></div>
+      <div class="videos" hidden>
+        <h4 class="videos-heading">Recordings</h4>
+        <div class="video-grid"></div>
+      </div>
+      <div class="machine-info" hidden></div>
+      <div class="raw-section">
+        <button class="raw-toggle" type="button" aria-expanded="false"></button>
+        <div class="raw-content"><pre></pre></div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<template id="tmpl-comparison-chart">
+  <div class="comp-name"></div>
+  <div class="rows"></div>
+</template>
+
+<template id="tmpl-race-live-view">
+  <div class="live-container">
+    <div class="live-header">
+      <div class="live-dot"></div>
+      <span class="live-label">Live</span>
+    </div>
+    <div class="frames"></div>
+  </div>
+</template>
+
+<!-- ─── Web Components ──────────────────────────────────────── -->
+<script src="components.js"></script>
+
+<race-app></race-app>
+
+</body>
+</html>
