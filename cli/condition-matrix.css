@@ -116,6 +116,12 @@ p.legend { text-align: center; color: var(--text-ghost); font-size: var(--font-s
   /* No h1 override here: the title clamps with the viewport already, and a
      size set only on this page would drift from the player's band. */
   td a { width: 250px; }
+  /* 250px cannot hold the name, bar, time and delta side by side — the delta
+     spilled out past the card. The bar drops to its own line underneath. */
+  .r { grid-template-columns: minmax(0, 1fr) auto auto; row-gap: 0.15rem; }
+  .bar { grid-column: 1 / -1; grid-row: 2; }
+  /* The condition names stay in view while a wide matrix scrolls past them. */
+  th[scope="row"] { position: sticky; left: 0; z-index: 1; background: var(--bg); }
 }
 @media (prefers-reduced-motion: reduce) {
   td a { transition: none; }

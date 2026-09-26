@@ -534,7 +534,9 @@ h1 {
 .racer {
   position: relative;
   flex: 1;
-  min-width: 280px;
+  /* Capped at the container, or a phone narrower than 280px plus the gutters
+     scrolls the whole page sideways. */
+  min-width: min(280px, 100%);
   text-align: center;
   /* Anchors the calibration frame badge and the finish result over this
      racer's video. The label sits above the video at a height fixed by
@@ -1221,8 +1223,42 @@ video {
 }
 
 @media (max-width: 600px) {
-  .controls-row { min-width: auto; flex-wrap: wrap; }
+  /* Every pixel of a phone is worth more to the report than to its margins. */
+  body { --gutter: 1rem; }
+
+  /* The transport buttons take a line of their own; otherwise the row shares
+     it with the time readout and the last button drops onto a line alone. */
+  .controls { justify-content: center; }
+  .controls-row { min-width: auto; flex-basis: 100%; flex-wrap: wrap; justify-content: center; }
   /* No width left to share, so give the scrubber its own line rather than
      letting it shrink to a stub beside the transport buttons. */
-  .scrubber { flex-basis: 100%; }
+  .scrubber { flex-basis: 100%; margin-right: 0; }
+
+  /* Three columns leave the value a sliver between the setting name and its
+     badge, and it wraps a character at a time. Stack each row instead: name
+     and source on one line, the value under them at full width. */
+  .config-table thead { display: none; }
+  .config-table,
+  .config-table tbody { display: block; }
+  .config-table tr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    column-gap: 0.6rem;
+    padding: 0.3rem 0;
+    border-bottom: var(--border-width) solid var(--border-subtle);
+  }
+  .config-table td { border-bottom: none; padding: 0.1rem 0.2rem; }
+  .config-table .config-value { grid-column: 1 / -1; grid-row: 2; }
+
+  /* The fixed name and value columns alone nearly fill a narrow screen, which
+     squeezes the bar to nothing and pushes a row of trophies off the edge. */
+  .profile-racer {
+    min-width: 0;
+    flex-basis: 5.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .profile-value { min-width: 7.5rem; }
+  .profile-value-trophies { white-space: normal; }
 }

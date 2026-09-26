@@ -225,21 +225,44 @@ function resolveAdjustedClip() {
   return resolveClipWindow(adj, hiddenRacers);
 }
 
+// Where video i belongs when the shared clock reads t: its own clip start plus
+// the elapsed time, held inside its clip, and never past the end of the file.
+function videoTargetTime(v, i, t, ct) {
+  let target = t;
+  if (activeClip && ct && isValidClipEntry(ct[i])) {
+    const elapsed = t - activeClip.start;
+    target = ct[i].start + elapsed;
+    target = Math.max(ct[i].start, Math.min(ct[i].end, target));
+  }
+  return Math.min(target, v.duration || target);
+}
+
 function seekAll(t) {
   cancelSeekVerifications();
-  const adj = getAdjustedClipTimes();
-  const ct = adj || clipTimes;
+  const ct = getAdjustedClipTimes() || clipTimes;
   videos.forEach((v, i) => {
-    if (!v) return;
-    let target = t;
-    if (activeClip && ct && isValidClipEntry(ct[i])) {
-      const elapsed = t - activeClip.start;
-      target = ct[i].start + elapsed;
-      target = Math.max(ct[i].start, Math.min(ct[i].end, target));
-    }
-    v.currentTime = Math.min(target, v.duration || target);
+    if (v) v.currentTime = videoTargetTime(v, i, t, ct);
   });
   updateFramePositions();
+}
+
+// Put back any racer that is not where the scrubber says it should be, just
+// before playback starts. The seek that puts each racer on its clip start runs
+// once, at load — and iOS Safari buffers nothing until the user presses play,
+// so it can drop that seek with no 'canplay' ever arriving to retry it. The
+// racer then plays from 0 while the others start on their clips. Racers that
+// are already in place are left alone, so resuming does not stutter.
+function alignForPlay() {
+  if (!activeClip) return;
+  const d = clipDuration();
+  if (!(d > 0)) return;
+  const t = activeClip.start + (scrubber.value / 1000) * d;
+  const ct = getAdjustedClipTimes() || clipTimes;
+  videos.forEach((v, i) => {
+    if (!v) return;
+    const target = videoTargetTime(v, i, t, ct);
+    if (Math.abs(v.currentTime - target) > SEEK_SNAP_TOLERANCE) v.currentTime = target;
+  });
 }
 
 // --- Metadata & calibration ---
@@ -253,33 +276,54 @@ function seekAll(t) {
 // sources (e.g. race clip → full recording) re-triggers the scan if needed.
 const _durationForced = new WeakMap();
 
+// How long to keep waiting for a duration — a finite one, or one that can still
+// hold the clip — before accepting the one on offer.
+const DURATION_SETTLE_MS = 2000;
+
+// video → { srcKey, at }: when the 1e10 scan was started for this src.
+const _durationScanAt = new WeakMap();
+
 // Trigger the 1e10 scan for this video unless it already ran for this src.
 // Returns true if the scan was started (the caller must then wait).
 function forceDurationScan(v) {
   const srcKey = v.currentSrc || v.src || '';
   if (_durationForced.get(v) === srcKey) return false;
   _durationForced.set(v, srcKey);
+  _durationScanAt.set(v, { srcKey, at: Date.now() });
   v.addEventListener('durationchange', onMeta, { once: true });
   v.currentTime = 1e10; // seek past end → Chrome scans file → durationchange fires
+  // Backstop: a browser that does not rescan (Safari) never fires
+  // durationchange, and without this nothing would ever call onMeta again.
+  // Only while it is still unresolved: a stray late pass is not harmless.
+  setTimeout(() => {
+    if (!Number.isFinite(v.duration) && (v.currentSrc || v.src || '') === srcKey) onMeta();
+  }, DURATION_SETTLE_MS + 50);
   return true;
+}
+
+// The scan has had its chance and the duration is still not finite: stop
+// waiting, or the clip-start seek never runs and every racer stays at 0.
+function durationScanGaveUp(v) {
+  const scan = _durationScanAt.get(v);
+  return !!scan && scan.srcKey === (v.currentSrc || v.src || '') && Date.now() - scan.at >= DURATION_SETTLE_MS;
 }
 
 // Ensure every video has a finite duration, triggering the 1e10 scan when
-// needed. Returns true once all videos report finite durations.
+// needed. Returns true once all videos report finite durations, or once the
+// scan for any that do not has timed out.
 function ensureFiniteDurations() {
+  let waiting = false;
   for (const v of videos) {
     if (!v || v.readyState < 1) continue; // readyState 1 = HAVE_METADATA
-    if (!Number.isFinite(v.duration)) {
+    if (!Number.isFinite(v.duration) && !durationScanGaveUp(v)) {
+      // Start every scan before returning: one racer at a time would cost each
+      // of them its own settle interval before playback could begin.
       forceDurationScan(v);
-      return false; // always wait — do not proceed until durationchange fires
+      waiting = true; // wait for durationchange, or the backstop timer
     }
   }
-  return true;
+  return !waiting;
 }
-
-// How long to keep waiting for a duration that can still hold the clip before
-// accepting the one on offer.
-const DURATION_SETTLE_MS = 2000;
 // video → { srcKey, at }: when we first found this src's duration too short.
 const _durationWait = new WeakMap();
 
@@ -382,7 +426,12 @@ function onMeta() {
   // pages also get finite durations before any seek/UI is attempted.
   if (!ensureFiniteDurations()) return;
 
-  duration = Math.max(...videos.filter(Boolean).map(v => v.duration || 0));
+  // A racer whose scan gave up still reports Infinity. Taking it as the shared
+  // duration would format the whole-recording clock as Infinity:NaN.NaN and
+  // send every scrubber seek to an infinite target, so count only the known
+  // durations and stay at 0 — the unknown length — when there are none.
+  const known = videos.filter(Boolean).map(v => v.duration).filter(d => Number.isFinite(d) && d > 0);
+  duration = known.length ? Math.max(...known) : 0;
   const { convertedAny, pending } = calibrateClipTimes();
   // A clip still waiting on its duration has raw coordinates while the others
   // are calibrated; resolving the window or consuming the pending seek now
@@ -701,6 +750,7 @@ playBtn.addEventListener('click', () => {
       seekAll(activeClip.start);
       scrubber.value = 0;
     }
+    alignForPlay();
     videos.forEach(v => v?.play());
     setPlayState(true);
   }
