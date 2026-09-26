@@ -1609,19 +1609,23 @@ describe('buildPlayerHtml onMeta _durationForced (Chrome WebM Infinity duration)
     expect(fn).toContain('durationchange');
   });
 
-  it('ensureFiniteDurations always returns early while any video has non-finite duration', () => {
+  it('ensureFiniteDurations never reports ready while any video has non-finite duration', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
     const fn = sliceFn(html, 'function ensureFiniteDurations(');
-    // The return must be unconditional — it follows the scan call rather than
-    // sitting inside a branch, so a video mid-scan can never fall through to
-    // calibration.
+    // Starting a scan must set the waiting flag unconditionally — right after
+    // the scan call, not inside a branch — so a video mid-scan can never fall
+    // through to calibration. The loop keeps going so every unresolved video
+    // gets its scan started in the same pass.
     const scanIdx = fn.indexOf('forceDurationScan(v)');
     expect(scanIdx).toBeGreaterThan(-1);
-    const returnIdx = fn.indexOf('return false;', scanIdx);
-    expect(returnIdx).toBeGreaterThan(scanIdx);
-    const between = fn.slice(scanIdx + 'forceDurationScan(v)'.length, returnIdx)
+    const flagIdx = fn.indexOf('waiting = true', scanIdx);
+    expect(flagIdx).toBeGreaterThan(scanIdx);
+    const between = fn.slice(scanIdx + 'forceDurationScan(v)'.length, flagIdx)
       .replace(/\/\/[^\n]*/g, '').replace(/[;\s]/g, '');
     expect(between).toBe('');
+    // The only way out is the negated flag: no early `return true`.
+    expect(fn.slice(scanIdx)).not.toContain('return true');
+    expect(fn).toContain('return !waiting');
   });
 
   it('forceDurationScan only seeks once per src (WeakMap guard)', () => {

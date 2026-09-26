@@ -39,9 +39,11 @@ The classic rivalry. Niki Lauda — "The Computer" — against James Hunt — "T
 race-for-the-prize demo:lauda-vs-hunt
 ```
 
-![Lauda vs Hunt — side-by-side race replay](assets/race-for-the-prize-hunt-vs-lauda.gif)
+![Lauda vs Hunt — side-by-side race replay](docs/demos/race_hunt_vs_lauda.gif)
 
-Three more races are in the garage: the GOAT debate (`demo:lebron-vs-curry`), a four-way framework cage match (`demo:react-vs-angular`), and a cache bake-off (`demo:caching-comparison`). See **[Demo Races](docs/demos.md)** for the full grid.
+🎬 **[Open the replay ↗](https://kertal.github.io/race-for-the-prize/demos/race_hunt_vs_lauda.html)** — the actual report this race produced: scrub the video, jump between sections, read the profile.
+
+Three more races are in the garage, two of them with a replay to watch right now: the GOAT debate (`demo:lebron-vs-curry`, [replay ↗](https://kertal.github.io/race-for-the-prize/demos/race_curry_vs_lebron.html)), a four-way framework cage match (`demo:react-vs-angular`, [replay ↗](https://kertal.github.io/race-for-the-prize/demos/race_frameworks.html)), and a cache bake-off (`demo:caching-comparison`). See **[Demo Races](docs/demos.md)** for the full grid.
 
 ## What You Get
 
@@ -64,6 +66,7 @@ Three more races are in the garage: the GOAT debate (`demo:lebron-vs-curry`), a 
 | **[Skinning the Player](docs/skinning.md)** | Design tokens and how to theme a report |
 | **[Installation Guide](INSTALLATION.md)** | Node, Chromium and FFmpeg on every platform |
 | **[Working on the Tool](docs/development.md)** | Running from a clone, project structure, tests, the slide deck |
+| **[Credits](docs/credits.md)** | The tools, the song and the people this whole thing stands on |
 
 ## A Word From the Stewards
 
@@ -74,6 +77,8 @@ The aim here is not laboratory accuracy — it's to *showcase* performance, to m
 - Built by [@kertal](https://github.com/kertal). More contributors very welcome!
 - Built on top of the mighty [Playwright](https://playwright.dev/) — the browser automation framework that makes all of this possible.
 - Built with support of the great "[Race for the Prize](https://www.youtube.com/watch?v=bs56ygZplQA)" song by [The Flaming Lips](https://www.flaminglips.com/).
+
+The full pit crew — every dependency, the pages the demos drive, and the people — is in **[Credits](docs/credits.md)**.
 
 ## License
 

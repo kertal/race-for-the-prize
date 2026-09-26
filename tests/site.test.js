@@ -8,9 +8,14 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (...p) => fs.readFileSync(path.join(ROOT, ...p), 'utf8');
 
 const indexHtml = read('docs', 'index.html');
+const creditsHtml = read('docs', 'credits.html');
+const creditsMd = read('docs', 'credits.md');
 const siteCss = read('docs', 'site.css');
 const tokensCss = read('cli', 'tokens.css');
 const readme = read('ReadMe.md');
+
+/** Every page GitHub Pages serves from `docs/`, by filename. */
+const sitePages = { 'index.html': indexHtml, 'credits.html': creditsHtml };
 
 /** Every `--token: value;` declaration in a stylesheet, last one wins. */
 function declaredTokens(css) {
@@ -23,8 +28,10 @@ function declaredTokens(css) {
 
 describe('landing page', () => {
   it('is flagged at both ends, the way a race report is', () => {
-    expect(indexHtml).toContain('<header class="race-header">');
-    expect(indexHtml).toContain('<div class="checkered-bar"></div>');
+    for (const [name, html] of Object.entries(sitePages)) {
+      expect(html, name).toContain('<header class="race-header">');
+      expect(html, name).toContain('<div class="checkered-bar"></div>');
+    }
     for (const band of ['.race-header::before', '.checkered-bar::before']) {
       expect(siteCss).toContain(band);
     }
@@ -50,23 +57,31 @@ describe('landing page', () => {
   });
 
   it('loads no third-party scripts or stylesheets', () => {
-    expect(indexHtml).not.toMatch(/<script/i);
-    // Read every <link> tag whole: rel and href arrive in either order, and a
-    // remote stylesheet added after the local one has to fail this.
-    const stylesheets = [...indexHtml.matchAll(/<link\b[^>]*>/g)]
-      .map(([tag]) => tag)
-      .filter(tag => /\brel\s*=\s*"stylesheet"/i.test(tag))
-      .map(tag => tag.match(/\bhref\s*=\s*"([^"]*)"/i)?.[1]);
-    expect(stylesheets).toEqual(['site.css']);
+    for (const [name, html] of Object.entries(sitePages)) {
+      expect(html, name).not.toMatch(/<script/i);
+      // Read every <link> tag whole: rel and href arrive in either order, and a
+      // remote stylesheet added after the local one has to fail this.
+      const stylesheets = [...html.matchAll(/<link\b[^>]*>/g)]
+        .map(([tag]) => tag)
+        .filter(tag => /\brel\s*=\s*"stylesheet"/i.test(tag))
+        .map(tag => tag.match(/\bhref\s*=\s*"([^"]*)"/i)?.[1]);
+      expect(stylesheets, name).toEqual(['site.css']);
+    }
   });
 
   it('links only to files that exist, or to absolute URLs', () => {
-    const hrefs = [...indexHtml.matchAll(/(?:href|src)="([^"]+)"/g)].map(m => m[1]);
-    const local = hrefs.filter(h => !/^(https?:|data:|#|mailto:)/.test(h));
-    expect(local.length).toBeGreaterThan(0);
-    for (const href of local) {
-      expect(fs.existsSync(path.join(ROOT, 'docs', href))).toBe(true);
+    for (const [name, html] of Object.entries(sitePages)) {
+      const hrefs = [...html.matchAll(/(?:href|src)="([^"]+)"/g)].map(m => m[1]);
+      const local = hrefs.filter(h => !/^(https?:|data:|#|mailto:)/.test(h));
+      expect(local.length, name).toBeGreaterThan(0);
+      for (const href of local) {
+        expect(fs.existsSync(path.join(ROOT, 'docs', href)), `${name} → ${href}`).toBe(true);
+      }
     }
+  });
+
+  it('sends readers to the credits from the front page', () => {
+    expect(indexHtml).toContain('href="credits.html"');
   });
 
   it('ships .nojekyll so GitHub Pages serves the folder as written', () => {
@@ -74,8 +89,51 @@ describe('landing page', () => {
   });
 });
 
+describe('credits', () => {
+  // The two pages point at each other, which is navigation rather than a
+  // credit — everything else they link to has to match.
+  const isNavigation = url =>
+    url.startsWith('https://kertal.github.io/race-for-the-prize/') ||
+    url.startsWith('https://github.com/kertal/race-for-the-prize/blob/');
+
+  const credited = urls => [...new Set(urls.filter(u => /^https?:/.test(u) && !isNavigation(u)))].sort();
+
+  /** The rendered body, so the shared header's repo link stays out of it. */
+  const creditsBody = creditsHtml.match(/<main>([\s\S]*)<\/main>/)[1];
+
+  it('is served as HTML too, because .nojekyll leaves Markdown unrendered', () => {
+    expect(fs.existsSync(path.join(ROOT, 'docs', 'credits.html'))).toBe(true);
+    expect(creditsMd.startsWith('# Credits')).toBe(true);
+    expect(creditsHtml).toContain('<title>Credits — RaceForThePrize</title>');
+  });
+
+  it('credits the same names in the Markdown and on the site', () => {
+    const fromMd = credited([...creditsMd.matchAll(/\]\(([^)]+)\)/g)].map(m => m[1]));
+    const fromHtml = credited([...creditsBody.matchAll(/href="([^"]+)"/g)].map(m => m[1]));
+    // Guard against the mirror quietly emptying out.
+    expect(fromMd.length).toBeGreaterThan(10);
+    expect(fromHtml).toEqual(fromMd);
+  });
+
+  it('names the crew, the dependencies and the song', () => {
+    for (const needle of ['Playwright', 'FFmpeg', 'Vitest', 'The Flaming Lips', '@kertal', 'MIT']) {
+      expect(creditsMd, needle).toContain(needle);
+    }
+  });
+
+  it('is reachable from the ReadMe and the landing page', () => {
+    expect(readme).toContain('docs/credits.md');
+    expect(indexHtml).toContain('credits.html');
+  });
+
+  it('ships with the npm package, like the rest of the handbook', () => {
+    const pkg = JSON.parse(read('package.json'));
+    expect(pkg.files).toContain('docs/credits.md');
+  });
+});
+
 describe('ReadMe', () => {
-  const DOCS = ['demos', 'writing-races', 'use-cases', 'cli', 'results', 'development', 'skinning'];
+  const DOCS = ['demos', 'writing-races', 'use-cases', 'cli', 'results', 'development', 'skinning', 'credits'];
 
   it('stays a summary rather than the whole handbook', () => {
     expect(readme.split('\n').length).toBeLessThan(120);
@@ -132,6 +190,7 @@ describe('the split handbook', () => {
     'cli.md': ['--network=slow-3g', '--cue-markers', 'cpuThrottle', 'fast-3g'],
     'results.md': ['summary.json', 'config.json', 'measurements.json'],
     'development.md': ['npm run test:integration', 'npm link', 'videoplayer.js', 'runner-protocol.cjs'],
+    'credits.md': ['playwright.dev', 'ffmpeg.org', 'flaminglips.com', 'credits.html'],
   };
 
   for (const [page, needles] of Object.entries(pages)) {
