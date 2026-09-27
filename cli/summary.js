@@ -16,6 +16,7 @@ import {
   buildRunComparisonModel,
   rankEntries,
   formatDuration,
+  formatDeltaLabel,
 } from './report-model.js';
 
 const PLATFORM_NAMES = { darwin: 'macOS', linux: 'Linux', win32: 'Windows' };
@@ -211,7 +212,7 @@ function renderMarkdownCell(cell, bold) {
   if (cell.isWinner) {
     content = `${cell.formatted} (\uD83C\uDFC6)`;
   } else if (cell.delta != null) {
-    content = `${cell.formatted} (+${cell.delta})`;
+    content = `${cell.formatted} (${formatDeltaLabel(cell.delta, cell.relative)})`;
   } else {
     content = cell.formatted;
   }
@@ -321,7 +322,7 @@ export function printSummary(summary) {
         const color = RACER_COLORS[entry.index % RACER_COLORS.length];
         if (entry.racer) {
           const isWinner = comp.winner === entry.name;
-          const delta = entry.delta != null ? ` ${c.dim}(+${entry.delta})${c.reset}` : '';
+          const delta = entry.delta != null ? ` ${c.dim}(${formatDeltaLabel(entry.delta, entry.relative)})${c.reset}` : '';
           write(`${printBar(entry.name, entry.racer.duration, maxDur, color, isWinner, 30, labelWidth)}${delta}\n`);
         } else {
           write(`    ${color}${c.bold}${entry.name.padEnd(labelWidth)}${c.reset} ${c.dim}(no data)${c.reset}\n`);

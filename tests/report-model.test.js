@@ -12,6 +12,8 @@ import {
   rankComparisonDurations,
   buildResultsModel,
   buildRunComparisonModel,
+  formatRelativeDelta,
+  formatDeltaLabel,
 } from '../cli/report-model.js';
 import { PROFILE_METRICS } from '../cli/profile-analysis.js';
 
@@ -66,15 +68,63 @@ describe('formatDuration', () => {
   });
 });
 
+describe('formatRelativeDelta', () => {
+  it('gives the gap as a percentage of the best, without a sign', () => {
+    expect(formatRelativeDelta(1.5, 1.0)).toBe('50%');
+    expect(formatRelativeDelta(300, 100)).toBe('200%');
+    expect(formatRelativeDelta(2000, 1000)).toBe('100%');
+  });
+
+  it('keeps one decimal below ten percent, where whole numbers would hide the gap', () => {
+    expect(formatRelativeDelta(1.023, 1.0)).toBe('2.3%');
+    expect(formatRelativeDelta(1.0, 1.0)).toBe('0.0%');
+    expect(formatRelativeDelta(1.099, 1.0)).toBe('9.9%');
+    expect(formatRelativeDelta(1.1, 1.0)).toBe('10%');
+  });
+
+  it('rounds rather than truncates', () => {
+    expect(formatRelativeDelta(1.666, 1.0)).toBe('67%');
+    expect(formatRelativeDelta(1.0149, 1.0)).toBe('1.5%');
+  });
+
+  it('is null when there is no best, the best is zero, or the value is missing', () => {
+    // A best of 0 is a real result (no layout shift, no requests): the gap is
+    // undefined as a percentage, not infinite.
+    expect(formatRelativeDelta(5, 0)).toBeNull();
+    expect(formatRelativeDelta(5, -1)).toBeNull();
+    expect(formatRelativeDelta(5, null)).toBeNull();
+    expect(formatRelativeDelta(null, 5)).toBeNull();
+    expect(formatRelativeDelta(5, undefined)).toBeNull();
+  });
+});
+
+describe('formatDeltaLabel', () => {
+  it('joins the absolute and relative gaps, each with its own plus', () => {
+    expect(formatDeltaLabel('1.500s', '150%')).toBe('+1.500s, +150%');
+  });
+
+  it('falls back to the absolute gap alone when no percentage applies', () => {
+    expect(formatDeltaLabel('5 req', null)).toBe('+5 req');
+    expect(formatDeltaLabel('5 req', undefined)).toBe('+5 req');
+  });
+
+  it('is null when there is no delta at all', () => {
+    expect(formatDeltaLabel(null, '10%')).toBeNull();
+    expect(formatDeltaLabel(undefined, null)).toBeNull();
+  });
+});
+
 describe('buildValueCell / buildDurationCell', () => {
+  const nullCell = { value: null, formatted: null, isWinner: false, delta: null, relative: null };
+
   it('returns a null cell for missing values', () => {
-    expect(buildDurationCell(null, 1.0, false)).toEqual({ value: null, formatted: null, isWinner: false, delta: null });
-    expect(buildDurationCell(undefined, null, false)).toEqual({ value: null, formatted: null, isWinner: false, delta: null });
+    expect(buildDurationCell(null, 1.0, false)).toEqual(nullCell);
+    expect(buildDurationCell(undefined, null, false)).toEqual(nullCell);
   });
 
   it('flags the winner without a delta', () => {
     const cell = buildDurationCell(1.0, 1.0, true);
-    expect(cell).toEqual({ value: 1.0, formatted: '1.000s', isWinner: true, delta: null });
+    expect(cell).toEqual({ value: 1.0, formatted: '1.000s', isWinner: true, delta: null, relative: null });
   });
 
   it('computes a formatted delta against the best value for losers', () => {
@@ -84,21 +134,35 @@ describe('buildValueCell / buildDurationCell', () => {
     expect(cell.isWinner).toBe(false);
   });
 
+  it('computes the same gap relative to the best value', () => {
+    expect(buildDurationCell(2.5, 1.0, false).relative).toBe('150%');
+    expect(buildDurationCell(1.05, 1.0, false).relative).toBe('5.0%');
+  });
+
   it('produces a +0.000s-style delta for exact ties against the winner', () => {
     const cell = buildDurationCell(2.0, 2.0, false);
     expect(cell.delta).toBe('0.000s');
+    expect(cell.relative).toBe('0.0%');
   });
 
   it('omits the delta when there is no best value', () => {
     const cell = buildDurationCell(2.0, null, false);
     expect(cell.delta).toBeNull();
+    expect(cell.relative).toBeNull();
     expect(cell.formatted).toBe('2.000s');
+  });
+
+  it('keeps the absolute delta but drops the relative one when the best is zero', () => {
+    const cell = buildValueCell(3, 0, false, v => `${v} req`);
+    expect(cell.delta).toBe('3 req');
+    expect(cell.relative).toBeNull();
   });
 
   it('uses the supplied format function', () => {
     const cell = buildValueCell(300, 100, false, v => `${v}ms`);
     expect(cell.formatted).toBe('300ms');
     expect(cell.delta).toBe('200ms');
+    expect(cell.relative).toBe('200%');
   });
 });
 
@@ -117,8 +181,9 @@ describe('buildComparisonCells', () => {
   it('handles a missing racer entry as a null cell', () => {
     const comp = { name: 'Load', winner: 'a', racers: [{ duration: 1.0 }, null, { duration: 2.0 }] };
     const cells = buildComparisonCells(comp, racers);
-    expect(cells[1]).toEqual({ value: null, formatted: null, isWinner: false, delta: null });
+    expect(cells[1]).toEqual({ value: null, formatted: null, isWinner: false, delta: null, relative: null });
     expect(cells[2].delta).toBe('1.000s');
+    expect(cells[2].relative).toBe('100%');
   });
 
   it('shows plain values when there is no winner', () => {
@@ -220,12 +285,21 @@ describe('rankEntries', () => {
     expect(bestValue).toBe(10);
     expect(maxValue).toBe(30);
     expect(entries.map(e => e.delta)).toEqual([null, '10u', '20u', null]);
+    expect(entries.map(e => e.relative)).toEqual([null, '100%', '200%', null]);
   });
 
   it('gives no deltas when values tie with the best', () => {
     const values = [10, 10];
     const { entries } = rankEntries(['a', 'b'], i => ({ val: values[i] }), fmt);
     expect(entries.every(e => e.delta === null)).toBe(true);
+    expect(entries.every(e => e.relative === null)).toBe(true);
+  });
+
+  it('gives an absolute delta but no relative one when the best is zero', () => {
+    const values = [0, 3];
+    const { entries } = rankEntries(['a', 'b'], i => ({ val: values[i] }), fmt);
+    expect(entries.map(e => e.delta)).toEqual([null, '3u']);
+    expect(entries.map(e => e.relative)).toEqual([null, null]);
   });
 
   it('handles a single racer', () => {
@@ -278,9 +352,10 @@ describe('buildResultsModel', () => {
     const comps = [{ name: 'Load', winner: 'a', racers: [{ duration: 1.0 }, { duration: 2.5 }] }];
     const [row] = buildResultsModel(comps, racers).rows;
     expect(row.winner).toBe('a');
-    expect(row.cells[0]).toMatchObject({ formatted: '1.000s', isWinner: true, delta: null });
-    expect(row.cells[1]).toMatchObject({ formatted: '2.500s', isWinner: false, delta: '1.500s' });
+    expect(row.cells[0]).toMatchObject({ formatted: '1.000s', isWinner: true, delta: null, relative: null });
+    expect(row.cells[1]).toMatchObject({ formatted: '2.500s', isWinner: false, delta: '1.500s', relative: '150%' });
     expect(row.ranking.entries.map(e => e.name)).toEqual(['a', 'b']);
+    expect(row.ranking.entries[1]).toMatchObject({ delta: '1.500s', relative: '150%' });
     expect(row.ranking.maxValue).toBe(2.5);
   });
 
@@ -328,7 +403,7 @@ describe('buildRunComparisonModel', () => {
     expect(m.name).toBe('Load');
     expect(m.runRows.map(r => r.label)).toEqual(['1', '2', '3']);
     expect(m.runRows[0].cells[0]).toMatchObject({ formatted: '1.000s', isWinner: true });
-    expect(m.runRows[0].cells[1]).toMatchObject({ formatted: '3.000s', delta: '2.000s' });
+    expect(m.runRows[0].cells[1]).toMatchObject({ formatted: '3.000s', delta: '2.000s', relative: '200%' });
     // Median row mirrors the median summary comparison
     expect(m.medianRow.cells[0]).toMatchObject({ formatted: '2.000s', isWinner: true });
     // Average: a = (1+2+3)/3 = 2, b = (3+4+5)/3 = 4
@@ -423,7 +498,7 @@ describe('buildRunComparisonModel', () => {
     expect(script.runRows).toHaveLength(2);
     // Run 1: a=100 wins, b=200 delta formatted via metric.format (formatMs)
     expect(script.runRows[0].cells[0]).toMatchObject({ formatted: '100.0ms', isWinner: true });
-    expect(script.runRows[0].cells[1]).toMatchObject({ formatted: '200.0ms', delta: '100.0ms' });
+    expect(script.runRows[0].cells[1]).toMatchObject({ formatted: '200.0ms', delta: '100.0ms', relative: '100%' });
     // Median from the median summary's profile metrics
     expect(script.medianRow.cells[0]).toMatchObject({ formatted: '110.0ms', isWinner: true });
     // Average: a = 110, b = 190

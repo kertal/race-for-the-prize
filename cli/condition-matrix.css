@@ -92,8 +92,10 @@ td a:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 /* Fixed side columns, not auto: sized to content, every row is its own grid
    and the bars start and end wherever that row's name and time happen to
    end, so nothing lines up between rows or between cards. Monospace makes ch
-   exact, and a name past the budget ellipsizes rather than shoving the bar. */
-.r { display: grid; grid-template-columns: 15ch 1fr 9ch 10ch; align-items: center;
+   exact, and a name past the budget ellipsizes rather than shoving the bar.
+   The delta column holds "+12.345s, +123%": the gap to the winner and, beside
+   it, the same gap as a share of the winner's value. */
+.r { display: grid; grid-template-columns: 15ch 1fr 9ch 15ch; align-items: center;
      gap: 0.5rem; font-size: var(--font-size-xs); color: var(--text-subtle); padding: 0.12rem 0; }
 .n { color: var(--racer-color, currentcolor); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .r.win { color: var(--text); }

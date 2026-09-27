@@ -49,16 +49,45 @@ export function formatDuration(dur) {
 }
 
 /**
+ * How far a value sits from the best one, as a percentage of the best:
+ * 1.5 against 1.0 is "50%", 1.023 against 1.0 is "2.3%". The string carries
+ * no sign. Null when either value is missing or the best is not positive —
+ * "x% of nothing" says nothing, and 0 is exactly where a best metric value
+ * can land (no layout shift, no requests).
+ */
+export function formatRelativeDelta(value, best) {
+  if (value == null || best == null || !(best > 0)) return null;
+  const percent = ((value - best) / best) * 100;
+  const magnitude = Math.abs(percent);
+  const digits = magnitude < 10 ? 1 : 0;
+  return `${percent.toFixed(digits)}%`;
+}
+
+/**
+ * The label every emitter prints beside a losing value, e.g. "+1.500s, +150%":
+ * the absolute gap to the winner and, when the model could work one out, the
+ * relative gap beside it. Null when there is no delta to label.
+ */
+export function formatDeltaLabel(delta, relative) {
+  if (delta == null) return null;
+  return relative != null ? `+${delta}, +${relative}` : `+${delta}`;
+}
+
+/**
  * Build a target-independent cell model for one racer's value.
- * Returns { value, formatted, isWinner, delta }:
+ * Returns { value, formatted, isWinner, delta, relative }:
  * - formatted: formatted value string, or null when the value is missing
  * - delta: formatted (value - best) string WITHOUT the leading '+', or null
  *   when no delta applies (missing value, winner cell, or no best value)
+ * - relative: the same gap as a percentage of the best (see
+ *   formatRelativeDelta), or null whenever delta is null or best is not > 0
  */
 export function buildValueCell(value, best, isWinner, format) {
-  if (value == null) return { value: null, formatted: null, isWinner: false, delta: null };
-  const delta = !isWinner && best != null ? format(value - best) : null;
-  return { value, formatted: format(value), isWinner, delta };
+  if (value == null) return { value: null, formatted: null, isWinner: false, delta: null, relative: null };
+  const hasDelta = !isWinner && best != null;
+  const delta = hasDelta ? format(value - best) : null;
+  const relative = hasDelta ? formatRelativeDelta(value, best) : null;
+  return { value, formatted: format(value), isWinner, delta, relative };
 }
 
 /** Duration-flavored buildValueCell. */
@@ -116,6 +145,8 @@ function buildAverageDurationRow(values) {
  * are carried through. Each entry additionally gets:
  * - delta: formatted (val - bestValue) string WITHOUT the leading '+', or
  *   null when the entry has no value, there is no best, or it IS the best.
+ * - relative: that gap as a percentage of the best (formatRelativeDelta), or
+ *   null whenever delta is null or the best is not > 0.
  * Returns { entries, bestValue, maxValue } where maxValue is the largest
  * non-null value (0 if none) — for bar scaling.
  */
@@ -140,9 +171,9 @@ export function rankEntries(racers, getEntry, formatDelta) {
   const maxValue = presentVals.length > 0 ? Math.max(...presentVals) : 0;
   const bestValue = entries[0]?.val;
   for (const entry of entries) {
-    entry.delta = !isMissing(entry.val) && !isMissing(bestValue) && entry.val !== bestValue
-      ? formatDelta(entry.val - bestValue)
-      : null;
+    const hasDelta = !isMissing(entry.val) && !isMissing(bestValue) && entry.val !== bestValue;
+    entry.delta = hasDelta ? formatDelta(entry.val - bestValue) : null;
+    entry.relative = hasDelta ? formatRelativeDelta(entry.val, bestValue) : null;
   }
   return { entries, bestValue, maxValue };
 }

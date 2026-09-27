@@ -26,7 +26,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { c, RACER_COLORS } from './colors.js';
 import { loadTemplates, escHtml, render } from './html-templates.js';
-import { sortComparisonsForDisplay, rankEntries, formatDuration } from './report-model.js';
+import { sortComparisonsForDisplay, rankEntries, formatDuration, formatDeltaLabel } from './report-model.js';
 import { PROFILE_METRICS, determineProfileMetricOutcome } from './profile-analysis.js';
 import { RACER_CSS_COLORS } from './player-sections.js';
 import { resolveSkin, DEFAULT_THEME_COLOR } from './skins.js';
@@ -169,6 +169,7 @@ function buildSeries(entry, racers, metric) {
       value: racer.val ?? null,
       formatted: racer.val != null ? metric.format(racer.val) : null,
       delta: racer.delta,
+      relative: racer.relative,
       isWinner: racer.name === winner,
     })),
   };
@@ -416,7 +417,7 @@ function seriesHtml(series, max) {
       value: escHtml(racer.formatted || '-'),
       // The delta column stays in the markup even when empty (the winner has
       // none) so the values below it still line up.
-      delta: racer.delta != null ? `+${escHtml(racer.delta)}` : '',
+      delta: racer.delta != null ? escHtml(formatDeltaLabel(racer.delta, racer.relative)) : '',
     });
   }).join('');
   return fill('series', { ...verdictSlots(series), rows });

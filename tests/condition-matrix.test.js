@@ -130,6 +130,10 @@ describe('buildConditionMatrix', () => {
     const rows = html.match(/<span class="r[^"]*"[\s\S]*?<\/span><\/span>/g) || [];
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) expect(row).toContain('<span class="d">');
+    // The winner's delta column is empty; the loser's names its gap to the
+    // winner both in seconds and as a share of the winner's time.
+    expect(html).toContain('<span class="d"></span>');
+    expect(html).toContain('<span class="d">+1.000s, +67%</span>');
   });
 
   it('ranks each cell fastest first and flags the winner', () => {
@@ -138,8 +142,8 @@ describe('buildConditionMatrix', () => {
     ]).cells;
 
     expect(seriesOf(cell).racers.map(r => r.name)).toEqual(['hunt', 'lauda']);
-    expect(seriesOf(cell).racers[0]).toMatchObject({ isWinner: true, formatted: '1.500s', delta: null });
-    expect(seriesOf(cell).racers[1]).toMatchObject({ isWinner: false, formatted: '2.500s', delta: '1.000s' });
+    expect(seriesOf(cell).racers[0]).toMatchObject({ isWinner: true, formatted: '1.500s', delta: null, relative: null });
+    expect(seriesOf(cell).racers[1]).toMatchObject({ isWinner: false, formatted: '2.500s', delta: '1.000s', relative: '67%' });
     expect(seriesOf(cell).best).toBe(1.5);
   });
 

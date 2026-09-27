@@ -138,7 +138,8 @@ describe('buildPlayerHtml', () => {
     expect(defaultHtml).toContain('Race Section Load');
     expect(defaultHtml).toContain('1.000s');
     expect(defaultHtml).toContain('2.000s');
-    expect(defaultHtml).toContain('(+1.000s)');
+    // Beside the absolute gap, how much slower that is as a share of the winner's time
+    expect(defaultHtml).toContain('(+1.000s, +100%)');
     expect(defaultHtml).toContain('profile-bar-fill');
   });
 
@@ -376,7 +377,8 @@ describe('buildPlayerHtml', () => {
     const html = withSummary({ profileComparison });
     const profileSection = getProfileSection(html);
     expect(profileSection.indexOf('>hunt<')).toBeLessThan(profileSection.indexOf('>lauda<'));
-    expect(profileSection).toContain('(+');
+    // 2000 bytes against 1000: +1000 B, and twice the winner's transfer
+    expect(profileSection).toContain('(+1000.0 B, +100%)');
   });
 
   it('does not render section timing metrics inside Race profile scope', () => {
@@ -1773,8 +1775,8 @@ describe('buildPlayerHtml run-by-run comparison', () => {
     // Winner gets trophy, no separate Winner column
     expect(html).toContain('1.000s (\uD83C\uDFC6)');
     expect(html).not.toMatch(/<th>Winner<\/th>/);
-    // Loser gets delta (3.0 - 1.0 = 2.0)
-    expect(html).toContain('+2.000s');
+    // Loser gets delta (3.0 - 1.0 = 2.0), and how much slower that is (200%)
+    expect(html).toContain('(+2.000s, +200%)');
   });
 
   it('includes measurement rows and median row', () => {
