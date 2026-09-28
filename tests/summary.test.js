@@ -289,7 +289,8 @@ describe('buildMarkdownSummary', () => {
 
   it('includes results table with trophy for winner and delta for loser', () => {
     const md = buildMarkdownSummary(makeSummary());
-    expect(md).toMatch(/Load.*1\.000s \(🏆\).*2\.000s \(\+1\.000s\)/);
+    // The loser's gap to the winner, absolute and as a share of the winner's time
+    expect(md).toMatch(/Load.*1\.000s \(🏆 50% ahead\).*2\.000s \(\+1\.000s, \+100%\)/);
     expect(md).not.toMatch(/\| Winner \|/);
     expect(md).not.toContain('Diff');
   });
@@ -611,6 +612,32 @@ describe('printSummary', () => {
 
     expect(output.match(/⏱ Race/g) ?? []).toHaveLength(1);
   });
+
+  it('prints each loser\'s gap to the winner, absolute and relative', () => {
+    const summary = buildSummary(['lauda', 'hunt'], [
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }] },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 2.5, duration: 2.5 }] },
+    ], {}, 'test-results');
+
+    let output = '';
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(chunk => {
+      output += String(chunk);
+      return true;
+    });
+
+    try {
+      printSummary(summary);
+    } finally {
+      writeSpy.mockRestore();
+    }
+
+    // hunt is 1.5s behind, which is 150% of lauda's 1.0s
+    expect(output).toContain('(+1.500s, +150%)');
+    // The winner carries no delta at all
+    expect(output).not.toMatch(/1\.000s[^\n]*\(\+/);
+    // It carries the other side of the same gap instead: 1.0s is 60% under 2.5s
+    expect(output).toContain('(60% ahead)');
+  });
 });
 
 describe('buildMultiRunMarkdown', () => {
@@ -645,7 +672,7 @@ describe('buildMultiRunMarkdown', () => {
     expect(md).toContain('Run-by-Run Comparison');
     expect(md).toContain('#### Load');
     expect(md).toContain('| **Median** |');
-    expect(md).toContain('2.000s (\uD83C\uDFC6)');
+    expect(md).toContain('2.000s (\uD83C\uDFC6 50% ahead)');
     expect(md).toContain('</details>');
   });
 
@@ -779,37 +806,35 @@ describe('buildSummary with 3+ racers', () => {
   });
 });
 
-describe('buildSummary with 5 racers', () => {
-  const fiveNames = ['a', 'b', 'c', 'd', 'e'];
+describe('buildSummary with a full 4-racer grid', () => {
+  const fourNames = ['a', 'b', 'c', 'd'];
 
-  it('determines winner among 5 racers', () => {
-    const results = fiveNames.map((_, i) => ({
+  it('determines winner among 4 racers', () => {
+    const results = fourNames.map((_, i) => ({
       measurements: [{ name: 'Load', startTime: 0, endTime: i + 1, duration: i + 1 }],
            videoPath: null,
       fullVideoPath: null,
       error: null,
     }));
-    const summary = buildSummary(fiveNames, results, {}, 'test-results');
+    const summary = buildSummary(fourNames, results, {}, 'test-results');
 
     expect(summary.comparisons[0].winner).toBe('a'); // duration 1 is fastest
     expect(summary.overallWinner).toBe('a');
-    expect(summary.comparisons[0].rankings).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(summary.comparisons[0].rankings).toEqual(['a', 'b', 'c', 'd']);
   });
 
-  it('handles partial data among 5 racers', () => {
+  it('handles partial data among 4 racers', () => {
     const results = [
       { measurements: [{ name: 'Load', startTime: 0, endTime: 2, duration: 2.0 }], videoPath: null, fullVideoPath: null, error: null },
       { measurements: [], videoPath: null, fullVideoPath: null, error: null }, // no data
       { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], videoPath: null, fullVideoPath: null, error: null },
-      { measurements: [], videoPath: null, fullVideoPath: null, error: null }, // no data
       { measurements: [{ name: 'Load', startTime: 0, endTime: 3, duration: 3.0 }], videoPath: null, fullVideoPath: null, error: null },
     ];
-    const summary = buildSummary(fiveNames, results, {}, 'test-results');
+    const summary = buildSummary(fourNames, results, {}, 'test-results');
 
     expect(summary.comparisons[0].winner).toBe('c'); // 1.0s is fastest among those with data
     expect(summary.comparisons[0].racers[1]).toBeNull(); // b has no data
-    expect(summary.comparisons[0].racers[3]).toBeNull(); // d has no data
-    expect(summary.comparisons[0].rankings).toEqual(['c', 'a', 'e']);
+    expect(summary.comparisons[0].rankings).toEqual(['c', 'a', 'd']);
   });
 });
 

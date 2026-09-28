@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { discoverRacers, resolveSharedRacerNames, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown, findValuelessKvFlags, findUnknownFlags, parseNetworkList, parseCpuList, buildRaceConditions, InvalidSettingError } from '../cli/config.js';
+import { MAX_RACERS, discoverRacers, resolveSharedRacerNames, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown, findValuelessKvFlags, findUnknownFlags, parseNetworkList, parseCpuList, buildRaceConditions, InvalidSettingError } from '../cli/config.js';
 
 let tmpDir;
 
@@ -66,29 +66,16 @@ describe('racer file discovery', () => {
     expect(racerNames).toEqual(['a', 'b', 'c', 'd']);
   });
 
-  it('allows 5 racers when 5 spec files found', () => {
-    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'c.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'd.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'e.spec.js'), '');
+  it(`limits to the first ${MAX_RACERS} files when more are found`, () => {
+    for (const name of ['a', 'b', 'c', 'd', 'e', 'f']) {
+      fs.writeFileSync(path.join(tmpDir, `${name}.spec.js`), '');
+    }
 
-    const { racerFiles, racerNames } = discoverRacers(tmpDir);
-    expect(racerFiles).toEqual(['a.spec.js', 'b.spec.js', 'c.spec.js', 'd.spec.js', 'e.spec.js']);
-    expect(racerNames).toEqual(['a', 'b', 'c', 'd', 'e']);
-  });
-
-  it('limits to first 5 files when more than 5 found', () => {
-    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'c.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'd.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'e.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'f.spec.js'), '');
-
-    const { racerFiles, racerNames } = discoverRacers(tmpDir);
-    expect(racerFiles).toEqual(['a.spec.js', 'b.spec.js', 'c.spec.js', 'd.spec.js', 'e.spec.js']);
-    expect(racerNames).toEqual(['a', 'b', 'c', 'd', 'e']);
+    const { racerFiles, racerNames, totalFound, dropped } = discoverRacers(tmpDir);
+    expect(racerFiles).toEqual(['a.spec.js', 'b.spec.js', 'c.spec.js', 'd.spec.js']);
+    expect(racerNames).toEqual(['a', 'b', 'c', 'd']);
+    expect(totalFound).toBe(6);
+    expect(dropped).toEqual(['e.spec.js', 'f.spec.js']);
   });
 
   it('sorts files alphabetically', () => {
@@ -158,12 +145,17 @@ describe('shared-spec racer resolution', () => {
       .toThrow(InvalidSettingError);
   });
 
-  it('throws when more than 5 racers are declared', () => {
+  it(`throws when more than ${MAX_RACERS} racers are declared`, () => {
     expect(() => resolveSharedRacerNames({
       racers: {
-        a: {}, b: {}, c: {}, d: {}, e: {}, f: {},
+        a: {}, b: {}, c: {}, d: {}, e: {},
       },
-    })).toThrow(/supports up to 5 racers/i);
+    })).toThrow(/supports up to 4 racers/i);
+  });
+
+  it(`accepts exactly ${MAX_RACERS} racers`, () => {
+    expect(resolveSharedRacerNames({ racers: { a: {}, b: {}, c: {}, d: {} } }))
+      .toEqual(['a', 'b', 'c', 'd']);
   });
 
   it('throws when settings.racers is not an object', () => {

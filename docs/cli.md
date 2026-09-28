@@ -8,7 +8,7 @@ conditions they simulate, and the `settings.json` file that makes them stick.
 race-for-the-prize demo                         # List the demo races shipped with the CLI
 race-for-the-prize demo:<name>                  # Run a demo race (asks before copying it to ./races/<name>/)
 race-for-the-prize demo:<name> --yes            # Copy the demo race without being asked (CI)
-race-for-the-prize <url> <url> [url...]         # Quick race — page load times of 2–5 URLs, no spec needed
+race-for-the-prize <url> <url> [url...]         # Quick race — page load times of 2–4 URLs, no spec needed
 race-for-the-prize --init [dir]                 # Scaffold a starter race (default dir: my-race)
 race-for-the-prize <dir>                        # Green light — run the race
 race-for-the-prize <dir> --results              # Check the scoreboard

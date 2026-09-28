@@ -1,10 +1,10 @@
 # Writing Your Own Race
 
-Every race is a directory: two to five racers, an optional `settings.json`, and
+Every race is a directory: two to four racers, an optional `settings.json`, and
 optional setup/teardown scripts. Scaffold one with `race-for-the-prize --init
 my-race`, or build it by hand from the two modes below.
 
-Every race needs at least two contenders (up to five), in one of two modes.
+Every race needs at least two contenders (up to four), in one of two modes.
 
 ## Mode 1: Multi-spec mode
 
@@ -14,7 +14,7 @@ Use this when each racer needs custom logic. Create one `.spec.js` file per race
 races/my-race/
   contender-a.spec.js   # Racer 1 (filename = racer name)
   contender-b.spec.js   # Racer 2
-  contender-c.spec.js   # Racer 3 (optional — up to 5 racers)
+  contender-c.spec.js   # Racer 3 (optional — up to 4 racers)
   settings.json          # Optional: race conditions
   setup.sh               # Optional: runs before the race (see Setup and Teardown)
   teardown.sh            # Optional: runs after the race

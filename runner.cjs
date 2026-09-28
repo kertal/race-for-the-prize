@@ -2,7 +2,7 @@
  * runner.cjs — Playwright browser automation engine for RaceForThePrize.
  *
  * Launched as a child process by race.js. Receives a JSON config (a temp file
- * named by `--config-file`, or inline in argv[2]), runs two to five
+ * named by `--config-file`, or inline in argv[2]), runs two to four
  * Playwright-driven browsers (parallel or sequential), records video,
  * collects measurements and click events, and outputs a JSON result on stdout.
  *
@@ -22,7 +22,7 @@ const { waitForStability } = require('./visual-stability.cjs');
 const { deriveTraceTiming } = require('./trace-calibration.cjs');
 const { flashCue, OverlayController } = require('./overlay.cjs');
 const { createRaceApi } = require('./race-api.cjs');
-const { RESULT_SENTINEL, PROTOCOL_VERSION, isSafeRacerId, confinePath, formatRaceMessage, formatContextClosed } = require('./runner-protocol.cjs');
+const { RESULT_SENTINEL, PROTOCOL_VERSION, MAX_RACERS, isSafeRacerId, confinePath, formatRaceMessage, formatContextClosed } = require('./runner-protocol.cjs');
 const { cleanupOldVideos, trimVideoWithFfmpeg } = require('./runner-video.cjs');
 const { setupMetricsCollection, startProfiling, collectProfilingResults } = require('./runner-metrics.cjs');
 const { applyThrottling } = require('./runner-throttling.cjs');
@@ -113,7 +113,9 @@ function sanitizeScript(script) {
     .replace(/\r\n?/g, '\n');
 }
 
-const SCRIPT_PARAMS = ['page', 'race', '__startRecording', '__stopRecording', '__startMeasure', '__endMeasure'];
+// A race script's whole surface: the Playwright page (carrying the injected
+// page.race* API) and this racer's context. Nothing else is in scope.
+const SCRIPT_PARAMS = ['page', 'race'];
 
 /**
  * Compile a race script into an async function.
@@ -430,7 +432,7 @@ async function runMarkerMode(page, config, {
     const raceContext = Object.freeze({ name: id, vars: Object.freeze(vars || {}) });
     try {
       const fn = compileScript(raceScript);
-      await fn(page, raceContext, api.startRecording, api.stopRecording, api.startMeasure, api.endMeasure);
+      await fn(page, raceContext);
     } catch (error) {
       console.error(`[${id}] Script failed: ${error.message}`);
       throw new Error(`Script execution failed: ${error.message}`);
@@ -802,6 +804,13 @@ async function main() {
   // anything that isn't a plain basename before any path is built from them.
   if (!Array.isArray(browsers) || browsers.length === 0) {
     console.error('Error: Config must include a non-empty browsers array');
+    process.exit(1);
+  }
+  // race.js never sends more, but a config handed straight to the runner can:
+  // every window layout past MAX_RACERS would put a browser off-screen, so say
+  // so rather than launching browsers nobody can see.
+  if (browsers.length > MAX_RACERS) {
+    console.error(`Error: Config lists ${browsers.length} browsers; at most ${MAX_RACERS} can race`);
     process.exit(1);
   }
   for (const b of browsers) {

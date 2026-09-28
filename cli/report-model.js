@@ -49,21 +49,89 @@ export function formatDuration(dur) {
 }
 
 /**
+ * How far a value sits from the best one, as a percentage of the best:
+ * 1.5 against 1.0 is "50%", 1.023 against 1.0 is "2.3%". The string carries
+ * no sign. Null when either value is missing or the best is not positive —
+ * "x% of nothing" says nothing, and 0 is exactly where a best metric value
+ * can land (no layout shift, no requests).
+ */
+export function formatRelativeDelta(value, best) {
+  if (value == null || best == null || !(best > 0)) return null;
+  const percent = ((value - best) / best) * 100;
+  const magnitude = Math.abs(percent);
+  const digits = magnitude < 10 ? 1 : 0;
+  return `${percent.toFixed(digits)}%`;
+}
+
+/**
+ * The label every emitter prints beside a losing value, e.g. "+1.500s, +150%":
+ * the absolute gap to the winner and, when the model could work one out, the
+ * relative gap beside it. Null when there is no delta to label.
+ */
+export function formatDeltaLabel(delta, relative) {
+  if (delta == null) return null;
+  return relative != null ? `+${delta}, +${relative}` : `+${delta}`;
+}
+
+/**
+ * How much better the winning value is than the runner-up, as a percentage of
+ * the runner-up: 1.0s against 2.5s is "60.0%" — the winner needed 60% less
+ * than the next racer did. This is the mirror of formatRelativeDelta, which
+ * measures the same gap against the WINNER ("+150%"); both are true, and the
+ * labels say which side they are counted from.
+ * Null when there is no runner-up, when it is not positive, or when it does
+ * not actually trail the winner (a dead heat is nobody being better).
+ */
+export function formatWinnerAdvantage(best, runnerUp) {
+  if (best == null || runnerUp == null || !(runnerUp > 0) || !(runnerUp > best)) return null;
+  const percent = ((runnerUp - best) / runnerUp) * 100;
+  const digits = percent < 10 ? 1 : 0;
+  return `${percent.toFixed(digits)}%`;
+}
+
+/**
+ * The label every emitter prints beside the winning value, e.g. "60.0% ahead".
+ * "ahead" rather than "faster" because the same cell model carries bytes,
+ * request counts and layout shift, none of which have a speed.
+ * Null when there is no advantage to label.
+ */
+export function formatAdvantageLabel(advantage) {
+  return advantage != null ? `${advantage} ahead` : null;
+}
+
+/**
+ * The second-lowest value present — what the winner actually beat. Null when
+ * fewer than two racers have a value. A tie for the lead returns the tied
+ * value, which formatWinnerAdvantage then reads as "no advantage".
+ */
+function secondLowest(values) {
+  const present = values.filter(v => v != null).sort((a, b) => a - b);
+  return present.length >= 2 ? present[1] : null;
+}
+
+/**
  * Build a target-independent cell model for one racer's value.
- * Returns { value, formatted, isWinner, delta }:
+ * Returns { value, formatted, isWinner, delta, relative, advantage }:
  * - formatted: formatted value string, or null when the value is missing
  * - delta: formatted (value - best) string WITHOUT the leading '+', or null
  *   when no delta applies (missing value, winner cell, or no best value)
+ * - relative: the same gap as a percentage of the best (see
+ *   formatRelativeDelta), or null whenever delta is null or best is not > 0
+ * - advantage: on the winner cell only, how far it sits ahead of runnerUp (see
+ *   formatWinnerAdvantage); null on losing cells and on a tied lead
  */
-export function buildValueCell(value, best, isWinner, format) {
-  if (value == null) return { value: null, formatted: null, isWinner: false, delta: null };
-  const delta = !isWinner && best != null ? format(value - best) : null;
-  return { value, formatted: format(value), isWinner, delta };
+export function buildValueCell(value, best, isWinner, format, runnerUp = null) {
+  if (value == null) return { value: null, formatted: null, isWinner: false, delta: null, relative: null, advantage: null };
+  const hasDelta = !isWinner && best != null;
+  const delta = hasDelta ? format(value - best) : null;
+  const relative = hasDelta ? formatRelativeDelta(value, best) : null;
+  const advantage = isWinner ? formatWinnerAdvantage(value, runnerUp) : null;
+  return { value, formatted: format(value), isWinner, delta, relative, advantage };
 }
 
 /** Duration-flavored buildValueCell. */
-export function buildDurationCell(duration, bestDuration, isWinner) {
-  return buildValueCell(duration, bestDuration, isWinner, formatDuration);
+export function buildDurationCell(duration, bestDuration, isWinner, runnerUp = null) {
+  return buildValueCell(duration, bestDuration, isWinner, formatDuration, runnerUp);
 }
 
 /**
@@ -72,8 +140,10 @@ export function buildDurationCell(duration, bestDuration, isWinner) {
  * "+0.000s" delta, matching historical behavior.
  */
 export function buildComparisonCells(comp, racers) {
-  const bestDur = comp.winner ? comp.racers[racers.indexOf(comp.winner)]?.duration : null;
-  return racers.map((r, i) => buildDurationCell(comp.racers[i]?.duration, bestDur, comp.winner === r));
+  const durations = racers.map((_, i) => comp.racers[i]?.duration ?? null);
+  const bestDur = comp.winner ? durations[racers.indexOf(comp.winner)] : null;
+  const runnerUp = secondLowest(durations);
+  return racers.map((r, i) => buildDurationCell(durations[i], bestDur, comp.winner === r, runnerUp));
 }
 
 /**
@@ -91,7 +161,8 @@ export function buildBestOfCells(values, format) {
     ? withData[0].v
     : null;
   const winnerIdx = best != null ? withData[0].j : -1;
-  return values.map((v, j) => buildValueCell(v, best, j === winnerIdx, format));
+  const runnerUp = withData.length >= 2 ? withData[1].v : null;
+  return values.map((v, j) => buildValueCell(v, best, j === winnerIdx, format, runnerUp));
 }
 
 /**
@@ -103,7 +174,8 @@ function buildAverageDurationRow(values) {
   if (!values.some(v => v != null)) return null;
   const valid = values.filter(v => v != null);
   const best = valid.length >= 2 ? Math.min(...valid) : null;
-  return { cells: values.map(v => buildDurationCell(v, best, best != null && v === best)) };
+  const runnerUp = secondLowest(values);
+  return { cells: values.map(v => buildDurationCell(v, best, best != null && v === best, runnerUp)) };
 }
 
 // ---------------------------------------------------------------------------
@@ -116,6 +188,10 @@ function buildAverageDurationRow(values) {
  * are carried through. Each entry additionally gets:
  * - delta: formatted (val - bestValue) string WITHOUT the leading '+', or
  *   null when the entry has no value, there is no best, or it IS the best.
+ * - relative: that gap as a percentage of the best (formatRelativeDelta), or
+ *   null whenever delta is null or the best is not > 0.
+ * - advantage: on the best entry only, how far it sits ahead of the runner-up
+ *   (formatWinnerAdvantage); null on every other entry and on a tied lead.
  * Returns { entries, bestValue, maxValue } where maxValue is the largest
  * non-null value (0 if none) — for bar scaling.
  */
@@ -139,9 +215,15 @@ export function rankEntries(racers, getEntry, formatDelta) {
   const presentVals = entries.filter(e => !isMissing(e.val)).map(e => e.val);
   const maxValue = presentVals.length > 0 ? Math.max(...presentVals) : 0;
   const bestValue = entries[0]?.val;
+  const runnerUp = secondLowest(presentVals);
   for (const entry of entries) {
-    entry.delta = !isMissing(entry.val) && !isMissing(bestValue) && entry.val !== bestValue
-      ? formatDelta(entry.val - bestValue)
+    const hasDelta = !isMissing(entry.val) && !isMissing(bestValue) && entry.val !== bestValue;
+    entry.delta = hasDelta ? formatDelta(entry.val - bestValue) : null;
+    entry.relative = hasDelta ? formatRelativeDelta(entry.val, bestValue) : null;
+    // The lead is the best racer's alone; a tie for it resolves to null inside
+    // formatWinnerAdvantage, so both tied racers correctly show nothing.
+    entry.advantage = !isMissing(entry.val) && entry.val === bestValue
+      ? formatWinnerAdvantage(bestValue, runnerUp)
       : null;
   }
   return { entries, bestValue, maxValue };

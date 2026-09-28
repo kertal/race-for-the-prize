@@ -138,7 +138,8 @@ describe('buildPlayerHtml', () => {
     expect(defaultHtml).toContain('Race Section Load');
     expect(defaultHtml).toContain('1.000s');
     expect(defaultHtml).toContain('2.000s');
-    expect(defaultHtml).toContain('(+1.000s)');
+    // Beside the absolute gap, how much slower that is as a share of the winner's time
+    expect(defaultHtml).toContain('(+1.000s, +100%)');
     expect(defaultHtml).toContain('profile-bar-fill');
   });
 
@@ -296,15 +297,15 @@ describe('buildPlayerHtml', () => {
     expect(getRaceConfig(html).videoCount).toBe(4);
   });
 
-  it('supports 5 racers with download links', () => {
-    const summary = makeSummary({ racers: ['r1', 'r2', 'r3', 'r4', 'r5'], comparisons: [], overallWinner: 'r1' });
-    const videos = ['r1/r1.webm', 'r2/r2.webm', 'r3/r3.webm', 'r4/r4.webm', 'r5/r5.webm'];
-    const altFiles = ['r1/r1.gif', 'r2/r2.gif', 'r3/r3.gif', 'r4/r4.gif', 'r5/r5.gif'];
+  it('offers a download link per racer on a full grid', () => {
+    const summary = makeSummary({ racers: ['r1', 'r2', 'r3', 'r4'], comparisons: [], overallWinner: 'r1' });
+    const videos = ['r1/r1.webm', 'r2/r2.webm', 'r3/r3.webm', 'r4/r4.webm'];
+    const altFiles = ['r1/r1.gif', 'r2/r2.gif', 'r3/r3.gif', 'r4/r4.gif'];
     const html = buildPlayerHtml(summary, videos, 'gif', altFiles);
-    expect(html).toContain('id="v4"');
+    expect(html).toContain('id="v3"');
     expect(html).toContain('r1 (.gif)');
-    expect(html).toContain('r5 (.gif)');
-    expect(getRaceConfig(html).videoCount).toBe(5);
+    expect(html).toContain('r4 (.gif)');
+    expect(getRaceConfig(html).videoCount).toBe(4);
   });
 
   it('assigns correct colors to racer labels via the --racer-color token', () => {
@@ -376,7 +377,8 @@ describe('buildPlayerHtml', () => {
     const html = withSummary({ profileComparison });
     const profileSection = getProfileSection(html);
     expect(profileSection.indexOf('>hunt<')).toBeLessThan(profileSection.indexOf('>lauda<'));
-    expect(profileSection).toContain('(+');
+    // 2000 bytes against 1000: +1000 B, and twice the winner's transfer
+    expect(profileSection).toContain('(+1000.0 B, +100%)');
   });
 
   it('does not render section timing metrics inside Race profile scope', () => {
@@ -1781,10 +1783,10 @@ describe('buildPlayerHtml run-by-run comparison', () => {
   it('shows trophy for winner and delta for loser in comparison table', () => {
     const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
     // Winner gets trophy, no separate Winner column
-    expect(html).toContain('1.000s (\uD83C\uDFC6)');
+    expect(html).toContain('1.000s (\uD83C\uDFC6 67% ahead)');
     expect(html).not.toMatch(/<th>Winner<\/th>/);
-    // Loser gets delta (3.0 - 1.0 = 2.0)
-    expect(html).toContain('+2.000s');
+    // Loser gets delta (3.0 - 1.0 = 2.0), and how much slower that is (200%)
+    expect(html).toContain('(+2.000s, +200%)');
   });
 
   it('includes measurement rows and median row', () => {

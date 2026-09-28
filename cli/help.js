@@ -81,7 +81,7 @@ ${c.dim}  Race two browsers. Measure everything. Crown a winner.  🏎️ 💨${
 
 ${c.bold}  Usage:${c.reset}
 ${rule}
-  ${c.cyan}${run}${c.reset} ${c.cyan}<url> <url> [url...]${c.reset}   Race page loads head-to-head (2–5 URLs)
+  ${c.cyan}${run}${c.reset} ${c.cyan}<url> <url> [url...]${c.reset}   Race page loads head-to-head (2–4 URLs)
   ${c.cyan}${run}${c.reset} ${c.magenta}demo:${c.cyan}<name>${c.reset}            Race one of the demos shipped with the CLI
   ${c.cyan}${run}${c.reset} ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset}           Scaffold a race directory (default: my-race/)
   ${c.cyan}${run}${c.reset} ${c.cyan}<dir>${c.reset} ${c.yellow}[flags]${c.reset}          Run a scripted race
