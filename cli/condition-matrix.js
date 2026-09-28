@@ -57,6 +57,7 @@ export const TOTAL_TIME_METRIC = {
   name: 'Total Time',
   scope: 'race',
   format: formatDuration,
+  unit: 's',
   description: 'Total measured race time — the sum of every timed section.',
 };
 
