@@ -28,6 +28,7 @@ race-for-the-prize <dir> --overlay=false        # Record videos without overlays
 race-for-the-prize <dir> --recording=false      # Skip video recording — measurements only, no videos and no HTML player
 race-for-the-prize <dir> --ffmpeg               # Enable FFmpeg processing (trim, merge, convert)
 race-for-the-prize <dir> --har                  # Record network HAR files alongside videos
+race-for-the-prize <dir> --fps                  # Measure frame rate and smoothness
 race-for-the-prize <dir> --wasm=false           # Skip copying ffmpeg.wasm files (~25 MB) to results
 race-for-the-prize <dir> --serve=false          # Don't start local results server or auto-open; print results HTML path
 race-for-the-prize <dir> --pause                # Press Enter before each racer, and between that racer's runs (forces one racer at a time)
@@ -56,6 +57,47 @@ CLI flags always override `settings.json`. For boolean flags, you can pass expli
 `--wall-clock` burns a ticking `M:SS.T` readout into the top-left corner of every recording, next to the red recording dot. It counts wall-clock time from the moment recording starts — the same origin the segment and measurement times use, so the digits track the reported numbers closely (the results themselves are calibrated from the Playwright trace afterwards, which can shift them by a tenth or so). In `--parallel` mode, where all racers leave the line together, the same frame reads the same time for everyone. It runs for the whole recording — a spec that measures several sections keeps one clock across all of them, ticking through the untimed waits in between, because that time passes in the video too. When the recording ends the clock freezes on that moment instead of disappearing, so the last frames show how long the lap took.
 
 It's off by default because it isn't free: repainting the digits ten times a second adds style recalculations and paints to the very metrics you're measuring, and the constant activity keeps `page.raceWaitForVisualStability()` from ever seeing the page settle. Turn it on for a video you want to show people, not for a run whose numbers you want to trust. It follows the other overlays, so `--overlay=false` and `--recording=false` switch it off too.
+
+## Measuring Frame Rate
+
+`--fps` adds a **Smoothness** category to the performance profile: median, 95th
+percentile and worst frame time, plus a dropped-frame count, for the whole race
+and for each measured section.
+
+The numbers come out of the Playwright trace that every race already records.
+Asking for `--fps` adds one Chrome tracing category, `DrawFrame`, which emits an
+event each time the compositor actually draws — so the gaps between those events
+are the frame times. Nothing is injected into the page and nothing samples it
+while it runs, which means the measurement cannot perturb what it measures. The
+cost is on disk instead: the extra category roughly doubles the trace, so it is
+opt-in rather than always on.
+
+The frame budget is derived, not assumed. A frame counts as dropped when it took
+more than 1.5x the display's frame period, and that period is estimated from the
+fastest frames the race actually achieved — a 120Hz laptop is judged against
+8.3ms, not against a hardcoded 16.7ms.
+
+Two things to know before reading the numbers:
+
+**A scripted scroll sets its own cadence.** `DrawFrame` fires when something
+changed, so a spec that steps `page.mouse.wheel()` thirty times a second draws
+thirty times a second — and every one of those frames looks "dropped" against a
+120Hz budget even on a page with nothing wrong with it. The frame *times* still
+compare two racers fairly, because both ran the same spec; the dropped-frame
+count is a comparison, not a verdict. Drive the page with real continuous motion
+— a CSS animation, a smooth scroll, video — if you want a count that means
+something on its own.
+
+**Prefer a headed run.** Headless Chromium has no display to pace itself
+against, so its frame production says little about what a user would see. `--fps`
+works headless and the comparison is still apples to apples, but the absolute
+figures only describe real rendering when a real window is on screen.
+
+Frame time is reported rather than a bare fps number because the distribution is
+where the answer lives. Two racers can both average 60fps while one of them
+stutters: the median says they tie, the 95th percentile and the worst frame say
+which one you would rather use. Each frame time is shown with the rate it amounts
+to — `16.7ms (60fps)` — so you can read it either way.
 
 ## Network Throttling Presets
 
@@ -101,6 +143,7 @@ it has no default, and the entry below is an example.)
   "ignoreHTTPSErrors": false,
   "wallClock": false,
   "cueMarkers": false,
+  "fps": false,
   "viewportHeight": 720,
   "skin": "light"
 }
@@ -125,6 +168,7 @@ it has no default, and the entry below is an example.)
 | `ignoreHTTPSErrors` | `--ignore-https-errors` | `true` / `false` | `false` |
 | `wallClock` | `--wall-clock` | `true` / `false` | `false` |
 | `cueMarkers` | `--cue-markers` | `true` / `false` — calibration-test cues; they perturb the metrics | `false` |
+| `fps` | `--fps` | `true` / `false` — adds frame timing to the profile, at the cost of a bigger trace | `false` |
 | `gemini` | `--gemini` | `true` / `false` — post-race commentary, needs the `gemini` CLI on your PATH | not set (off) |
 | `viewportHeight` | `--height=<px>` | integer, 480–4320 (also accepted as `height` in settings.json) | `720` |
 | `skin` | `--skin=<name\|path>` | `light`, `neon`, or a path to a `.css` file — see [Skinning the player](skinning.md) | not set (built-in dark theme) |

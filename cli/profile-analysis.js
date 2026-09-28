@@ -33,12 +33,16 @@ const metricDefs = {
   domContentLoaded:    { name: 'DOM Content Loaded', format: formatMs, category: 'loading', description: 'Time until the HTML document is fully parsed and all deferred scripts have executed (DOMContentLoaded event).' },
   domComplete:         { name: 'DOM Complete', format: formatMs, category: 'loading', description: 'Time until the page and all sub-resources (images, stylesheets, etc.) have finished loading.' },
   jsHeapUsedSize:      { name: 'JS Heap Used', format: formatBytes, category: 'memory', description: 'JavaScript memory currently in use. High usage can trigger garbage collection pauses and indicates memory-heavy code.' },
+  medianFrameMs:       { name: 'Median Frame Time', format: formatFrameMs, formatDelta: formatMs, category: 'smoothness', description: 'The typical time between frames the browser actually drew, and the frame rate that amounts to. Derived from the trace, so measuring it costs the page nothing. Needs --fps.' },
+  p95FrameMs:          { name: '95th % Frame Time', format: formatFrameMs, formatDelta: formatMs, category: 'smoothness', description: 'The frame time only 5% of frames exceed — the hitches users notice. A good median with a bad 95th percentile means occasional stutter rather than steady slowness. Needs --fps.' },
+  worstFrameMs:        { name: 'Worst Frame Time', format: formatFrameMs, formatDelta: formatMs, category: 'smoothness', description: 'The longest single gap between drawn frames: the worst visible stall. Needs --fps.' },
+  droppedFrames:       { name: 'Dropped Frames', format: (v) => `${v} frames`, category: 'smoothness', description: 'Frames that took more than 1.5x the display refresh period, measured against the refresh rate observed during the race rather than an assumed 60Hz. Comparable between racers running the same spec. Needs --fps.' },
 };
 
 // Measured metrics (between raceStart/raceEnd)
-const MEASURED_METRICS = ['networkTransferSize', 'networkRequestCount', 'scriptDuration', 'taskDuration', 'layoutDuration', 'recalcStyleDuration'];
+const MEASURED_METRICS = ['networkTransferSize', 'networkRequestCount', 'scriptDuration', 'taskDuration', 'layoutDuration', 'recalcStyleDuration', 'medianFrameMs', 'p95FrameMs', 'worstFrameMs', 'droppedFrames'];
 // Total metrics (entire session) — includes loading/memory which are total-only
-const TOTAL_METRICS = ['networkTransferSize', 'networkRequestCount', 'ttfb', 'fcp', 'lcp', 'cls', 'domContentLoaded', 'domComplete', 'jsHeapUsedSize', 'scriptDuration', 'taskDuration', 'layoutDuration', 'recalcStyleDuration'];
+const TOTAL_METRICS = ['networkTransferSize', 'networkRequestCount', 'ttfb', 'fcp', 'lcp', 'cls', 'domContentLoaded', 'domComplete', 'jsHeapUsedSize', 'scriptDuration', 'taskDuration', 'layoutDuration', 'recalcStyleDuration', 'medianFrameMs', 'p95FrameMs', 'worstFrameMs', 'droppedFrames'];
 
 // Absolute noise floors, in each metric's own unit. A percentage threshold
 // says nothing when the values are tiny or the best one is 0, so a difference
@@ -57,6 +61,15 @@ const PROFILE_NOISE_FLOOR = {
   domComplete: 5,
   cls: 0.01,                      // layout-shift score
   jsHeapUsedSize: 64 * 1024,      // bytes
+  // Frame times: a fraction of a frame is jitter, not a smoothness difference.
+  medianFrameMs: 1,
+  p95FrameMs: 2,
+  worstFrameMs: 4,
+  // Dropped frames need a gap you could actually see — roughly a tenth of a
+  // second of stutter. The count also tracks how hard the spec drove the page:
+  // a scripted scroll that steps 30 times a second draws 30 times a second, so
+  // small differences here are pacing, not smoothness.
+  droppedFrames: 10,
 };
 
 // Build the full PROFILE_METRICS map with scope-prefixed keys
@@ -78,10 +91,23 @@ const PROFILE_CATEGORY_TIE_THRESHOLD_PERCENT = {
   rendering: 3,
   network: 4,
   memory: 4,
+  smoothness: 4,
 };
 
 function getProfileCategoryThresholdPercent(category) {
   return PROFILE_CATEGORY_TIE_THRESHOLD_PERCENT[category] ?? 3;
+}
+
+/**
+ * The formatter to use for a metric's *difference* rather than its value.
+ *
+ * Most metrics use one function for both, but a value formatter is free to
+ * annotate — a frame time reads better as "16.7ms (60fps)". That annotation is
+ * nonsense on a delta (a 2.9ms gap is not "345fps"), so such a metric declares
+ * a plain `formatDelta` and every delta goes through this.
+ */
+export function metricDeltaFormat(metric) {
+  return metric.formatDelta || metric.format;
 }
 
 export function determineProfileMetricOutcome(metric, racerNames, values) {
@@ -135,6 +161,16 @@ function formatMs(ms) {
   if (ms < 1) return `${(ms * 1000).toFixed(0)}μs`;
   if (ms < 1000) return `${ms.toFixed(1)}ms`;
   return `${(ms / 1000).toFixed(2)}s`;
+}
+
+/**
+ * Frame time, with the frame rate it amounts to. The ranked number is the
+ * duration (less is better, like every other metric here); the fps in brackets
+ * is what people actually think in.
+ */
+function formatFrameMs(ms) {
+  if (!(ms > 0)) return '0ms';
+  return `${ms.toFixed(1)}ms (${Math.round(1000 / ms)}fps)`;
 }
 
 function formatCLS(score) {
@@ -240,12 +276,13 @@ function groupByCategory(comparisons) {
   return groups;
 }
 
-const categoryLabels = {
+export const categoryLabels = {
   network: '🌐 Network',
   loading: '⏱️ Loading',
   memory: '🧠 Memory',
   computation: '⚡ Computation',
-  rendering: '🎨 Rendering'
+  rendering: '🎨 Rendering',
+  smoothness: '🎞️ Smoothness'
 };
 
 export const categoryDescriptions = {
@@ -254,6 +291,7 @@ export const categoryDescriptions = {
   memory: 'JavaScript memory usage. Lower memory consumption reduces garbage collection pauses and improves stability.',
   computation: 'CPU time spent on JavaScript execution and browser tasks. Less computation means a more responsive page.',
   rendering: 'Time spent on visual layout and style calculations. Less rendering work means smoother interactions.',
+  smoothness: 'How evenly frames reached the screen, derived from the trace. Steady, short frame times are what scrolling and animation feel like when they are smooth.',
 };
 
 /**
@@ -278,7 +316,7 @@ function printProfileSection(title, section, racers, w, write) {
       const { entries: sorted, maxValue } = rankEntries(
         racers,
         i => ({ val: comp.values[i], formatted: comp.formatted[i] }),
-        metricDef.format
+        metricDeltaFormat(metricDef)
       );
 
       write(`  ${c.dim}${comp.name}${c.reset}\n`);
@@ -351,8 +389,9 @@ export function printProfileAnalysis(profileComparison, racers) {
  * the gap is still worth naming. This is what the other two emitters do.
  */
 function buildMarkdownMetricCells(comp, racers) {
-  const format = PROFILE_METRICS[comp.key].format;
-  const { entries } = rankEntries(racers, i => ({ val: comp.values[i] }), format);
+  const metricDef = PROFILE_METRICS[comp.key];
+  const format = metricDef.format;
+  const { entries } = rankEntries(racers, i => ({ val: comp.values[i] }), metricDeltaFormat(metricDef));
   const byIndex = new Map(entries.map(entry => [entry.index, entry]));
   return racers.map((_, i) => {
     if (comp.values[i] == null) return '-';
