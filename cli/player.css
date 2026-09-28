@@ -91,7 +91,7 @@ h1 {
   text-align: center;
   text-transform: uppercase;
   letter-spacing: var(--tracking-widest);
-  /* Five racers with long names would otherwise wrap and push the band to
+  /* Four racers with long names would otherwise wrap and push the band to
      three times its height. overflow:hidden does double duty here — it clips
      to the ellipsis, and it drops this flex item's automatic minimum size to
      zero so it can shrink below its own text in the first place. */
