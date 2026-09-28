@@ -103,7 +103,7 @@ describe('loadTemplates', () => {
 describe('markup stays out of the JavaScript', () => {
   // The report generators keep their markup in .html files and their styling in
   // .css files. These guards stop either creeping back into a template literal.
-  const generators = ['player-sections.js', 'videoplayer.js', 'condition-matrix.js'];
+  const generators = ['player-sections.js', 'videoplayer.js', 'condition-matrix.js', 'spreadsheet-export.js'];
 
   const codeLines = (file) =>
     fs.readFileSync(path.join(CLI_DIR, file), 'utf-8')
@@ -127,8 +127,13 @@ describe('markup stays out of the JavaScript', () => {
     expect(offenders).toEqual([]);
   });
 
+  const pages = {
+    'player.html': ['player-sections.js', 'videoplayer.js'],
+    'condition-matrix.html': ['condition-matrix.js'],
+    'spreadsheet.html': ['spreadsheet-export.js'],
+  };
+
   it('every build-* fragment in a markup file is actually used', () => {
-    const pages = { 'player.html': ['player-sections.js', 'videoplayer.js'], 'condition-matrix.html': ['condition-matrix.js'] };
     for (const [page, users] of Object.entries(pages)) {
       const { templates } = loadTemplates(path.join(CLI_DIR, page));
       const js = users.map(f => fs.readFileSync(path.join(CLI_DIR, f), 'utf-8')).join('\n');
@@ -177,7 +182,6 @@ describe('markup stays out of the JavaScript', () => {
   });
 
   it('every fragment a generator asks for exists in its markup file', () => {
-    const pages = { 'player.html': ['player-sections.js', 'videoplayer.js'], 'condition-matrix.html': ['condition-matrix.js'] };
     for (const [page, users] of Object.entries(pages)) {
       const { templates } = loadTemplates(path.join(CLI_DIR, page));
       for (const file of users) {

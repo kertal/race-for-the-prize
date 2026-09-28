@@ -661,6 +661,51 @@ describe('buildConditionIndexHtml matrix', () => {
   });
 });
 
+describe('buildConditionIndexHtml spreadsheet export', () => {
+  const html = buildConditionIndexHtml('lauda vs hunt', [
+    {
+      label: 'none-cpu1x', title: 'Network: none · CPU: 1x', network: 'none', cpu: 1,
+      summary: summaryOf({ lauda: 1, hunt: 2 }, 'lauda', profilesOf({ total: { lcp: 900 } }, { total: { lcp: 1000 } })),
+    },
+    {
+      label: 'none-cpu4x', title: 'Network: none · CPU: 4x', network: 'none', cpu: 4,
+      summary: summaryOf({ lauda: 4, hunt: 8 }, 'lauda'),
+    },
+  ]);
+
+  it('adds a Spreadsheet Export section under the matrix, dressed like the player\'s', () => {
+    expect(html).toContain('<details class="section">');
+    expect(html).toContain('<summary><h2>Spreadsheet Export</h2></summary>');
+    expect(html.indexOf('<h2>Spreadsheet Export</h2>')).toBeGreaterThan(html.indexOf('Conditions won'));
+    expect(html).toContain('.section > summary::before');
+  });
+
+  it('offers one table per metric, with a row per condition and its coordinates', () => {
+    expect(html).toContain('<input type="checkbox" value="duration" checked> Total Time');
+    expect(html).toContain('<input type="checkbox" value="total.lcp" checked> Largest Contentful Paint (LCP)');
+    expect(html).toContain('<th scope="col">Metric</th><th scope="col">Condition</th><th scope="col">Network</th><th scope="col">CPU</th><th scope="col">Unit</th>');
+    expect(html).toContain('<tr data-group="duration"><td>Total Time</td><td>Network: none · CPU: 4x</td><td>none</td><td class="spreadsheet-num" data-value="4">4</td><td>s</td><td class="spreadsheet-num" data-value="4">4</td><td class="spreadsheet-num" data-value="8">8</td></tr>');
+    // A condition that captured no LCP keeps its row, with empty cells.
+    expect(html).toContain('<tr data-group="total.lcp"><td>Largest Contentful Paint (LCP)</td><td>Network: none · CPU: 4x</td><td>none</td><td class="spreadsheet-num" data-value="4">4</td><td>ms</td><td class="spreadsheet-num"></td><td class="spreadsheet-num"></td></tr>');
+  });
+
+  it('inlines the same runtime the player carries, inside the page\'s one script block', () => {
+    expect(html.match(/<script>/g)).toHaveLength(1);
+    expect(html).toContain('function spreadsheetTsv');
+    expect(html).toContain('initSpreadsheetPanel');
+    const m = html.match(/<script id="spreadsheet-data" type="application\/json">([\s\S]*?)<\/script>/);
+    expect(JSON.parse(m[1]).groups.map(g => g.id)).toEqual(['duration', 'total.lcp']);
+  });
+
+  it('leaves the section out when no condition has a summary', () => {
+    const empty = buildConditionIndexHtml('a vs b', [{ label: 'x', network: 'none', cpu: 1, summary: null }]);
+    // Total time is always offered as a metric, so the section is still there —
+    // with every value empty — and the racer list is simply empty.
+    expect(empty).toContain('<h2>Spreadsheet Export</h2>');
+    expect(empty).toContain('<tr data-group="duration"><td>Total Time</td><td>x</td><td>none</td><td class="spreadsheet-num" data-value="1">1</td><td>s</td></tr>');
+  });
+});
+
 describe('buildConditionIndexHtml skinning', () => {
   const entries = [{ label: 'x', network: 'none', cpu: 1, summary: summaryOf({ a: 1, b: 2 }, 'a') }];
 

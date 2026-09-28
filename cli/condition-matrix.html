@@ -23,6 +23,7 @@
     </table>
   </div>
 {{legend}}  <p class="tally">{{tallies}}</p>
+{{spreadsheet}}
 </div>
 <div class="checkered-bar"></div>
 <!-- Trailing whitespace up to one newline is trimmed, so the blank line below
@@ -55,6 +56,17 @@
 
 <template id="build-picker-option"><option value="{{key}}">{{name}}</option></template>
 
+<!-- The numbers behind every cell, for a spreadsheet. The panel itself comes
+     from spreadsheet.html; this is the disclosure the overview wraps it in,
+     shaped like the player's report sections. -->
+<template id="build-spreadsheet">
+  <details class="section">
+    <summary><h2>Spreadsheet Export</h2></summary>
+    <div class="section-body">
+{{panel}}
+    </div>
+  </details></template>
+
 <template id="build-script">
 <script>
   // Every metric is already rendered; switching just flips which one shows.
@@ -69,6 +81,9 @@
   // Browsers restore the previous selection on reload, so sync once at startup
   // rather than trusting the server-rendered default to still match.
   showSelectedMetric();
+
+  // The Spreadsheet Export panel — the same runtime the results player carries.
+{{spreadsheetRuntime}}
 </script></template>
 
 {{scriptTag}}

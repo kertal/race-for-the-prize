@@ -1803,4 +1803,74 @@ describe('buildPlayerHtml run-by-run comparison', () => {
     const html = buildPlayerHtml(medianSummary, videoFiles);
     expect(html).not.toContain('Run-by-Run Comparison');
   });
+
+  it('exports the run-by-run numbers to the spreadsheet panel too', () => {
+    const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
+    expect(html).toContain('<input type="checkbox" value="results" checked> Race Results (median of 2 runs)');
+    expect(html).toContain('<input type="checkbox" value="runs:Load" checked> Run-by-Run: Load');
+    expect(html).toContain('<input type="checkbox" value="runs:measured.scriptDuration" checked> Run-by-Run: Script Execution (Race)');
+    expect(html).toContain('<tr data-group="runs:Load"><td>Run-by-Run: Load</td><td>Run 2</td><td>s</td><td class="spreadsheet-num" data-value="2">2</td><td class="spreadsheet-num" data-value="4">4</td></tr>');
+    expect(html).toContain('<td>Median</td><td>s</td><td class="spreadsheet-num" data-value="1.5">1.5</td>');
+  });
+});
+
+// --- Spreadsheet export ---
+
+describe('buildPlayerHtml spreadsheet export', () => {
+  it('adds a Spreadsheet Export section between the profile and the files', () => {
+    expect(defaultHtml).toContain('<h2>Spreadsheet Export</h2>');
+    expect(defaultHtml).toContain('id="spreadsheetPanel"');
+    const section = defaultHtml.indexOf('<h2>Spreadsheet Export</h2>');
+    expect(section).toBeGreaterThan(defaultHtml.indexOf('<h2>Race Results</h2>'));
+    expect(section).toBeLessThan(defaultHtml.indexOf('<h2>Files</h2>'));
+    // Collapsed by default, like the other secondary sections.
+    expect(defaultHtml).toMatch(/<details class="section">\s*<summary><h2>Spreadsheet Export<\/h2>/);
+  });
+
+  it('previews the numbers as plain values with the unit in its own column', () => {
+    expect(defaultHtml).toContain('<th scope="col">Section</th><th scope="col">Measurement</th><th scope="col">Unit</th>');
+    expect(defaultHtml).toContain('<th scope="col" style="--racer-color:#e74c3c">lauda</th>');
+    expect(defaultHtml).toContain('<tr data-group="results"><td>Race Results</td><td>Load</td><td>s</td><td class="spreadsheet-num" data-value="1">1</td><td class="spreadsheet-num" data-value="2">2</td></tr>');
+  });
+
+  it('carries the export model as JSON and the runtime that reads it', () => {
+    const m = defaultHtml.match(/<script id="spreadsheet-data" type="application\/json">([\s\S]*?)<\/script>/);
+    expect(m).not.toBeNull();
+    const model = JSON.parse(m[1]);
+    expect(model.racers).toEqual(['lauda', 'hunt']);
+    expect(model.groups.map(g => g.id)).toEqual(['results']);
+    for (const fn of ['function spreadsheetTable', 'function spreadsheetTsv', 'function spreadsheetCsv', 'initSpreadsheetPanel', 'navigator.clipboard']) {
+      expect(defaultHtml).toContain(fn);
+    }
+    expect(defaultHtml).toContain('id="spreadsheetCopy"');
+    expect(defaultHtml).toContain('id="spreadsheetCsv"');
+    expect(defaultHtml).toContain('id="spreadsheetDecimalComma"');
+  });
+
+  it('includes the profile metrics as raw values', () => {
+    const metrics1 = { total: { networkTransferSize: 1000 }, measured: { scriptDuration: 12.5 } };
+    const metrics2 = { total: { networkTransferSize: 2000 }, measured: { scriptDuration: 20 } };
+    const html = withSummary({ profileMetrics: [metrics1, metrics2] });
+    expect(html).toContain('<input type="checkbox" value="profile.measured" checked> Performance: Race');
+    expect(html).toContain('<input type="checkbox" value="profile.total" checked> Performance: Total Recording');
+    expect(html).toContain('<td>Script Execution</td><td>ms</td><td class="spreadsheet-num" data-value="12.5">12.5</td>');
+    expect(html).toContain('<td>Network Transfer</td><td>bytes</td><td class="spreadsheet-num" data-value="1000">1000</td>');
+  });
+
+  it('keeps the preview table on a report without videos, which has no runtime', () => {
+    expect(noVideosHtml).toContain('<h2>Spreadsheet Export</h2>');
+    expect(noVideosHtml).toContain('<tr data-group="results">');
+    expect(noVideosHtml).not.toContain('<script>');
+  });
+
+  it('leaves the section out when the race measured nothing', () => {
+    const html = withSummary({ comparisons: [] });
+    expect(html).not.toContain('<h2>Spreadsheet Export</h2>');
+    expect(html).not.toContain('id="spreadsheetPanel"');
+  });
+
+  it('inlines the panel stylesheet after the player rules', () => {
+    expect(defaultHtml).toContain('.spreadsheet-table thead th');
+    expect(defaultHtml.indexOf('.spreadsheet-table')).toBeGreaterThan(defaultHtml.indexOf('.checkered-bar'));
+  });
 });

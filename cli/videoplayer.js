@@ -37,6 +37,7 @@ import {
 } from './player-sections.js';
 import calibration from './player-runtime/calibration.cjs';
 import { resolveSkin, DEFAULT_THEME_COLOR } from './skins.js';
+import { buildSpreadsheetModel, buildSpreadsheetPanelHtml, SPREADSHEET_CSS } from './spreadsheet-export.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -48,8 +49,11 @@ setTemplates(BUILD_TEMPLATES);
 // Shared design tokens first, then this page's component rules. Both reports
 // inline the same tokens.css so the player and the condition overview cannot
 // drift apart, and one skin themes both.
+// The spreadsheet panel's rules come last: the panel is shared with the
+// condition overview, which inlines the same file after its own component CSS.
 const CSS = fs.readFileSync(path.join(__dirname, 'tokens.css'), 'utf-8') + '\n'
-  + fs.readFileSync(path.join(__dirname, 'player.css'), 'utf-8');
+  + fs.readFileSync(path.join(__dirname, 'player.css'), 'utf-8') + '\n'
+  + SPREADSHEET_CSS;
 
 // Browser-side player runtime, split into concern-scoped files that are
 // concatenated in dependency order into the single IIFE scope emitted by
@@ -71,6 +75,8 @@ const RUNTIME_FILES = [
   'fullscreen.js',     // fullscreen mode
   'zip.cjs',           // pure CRC32/ZIP builder (Node-testable)
   'export-zip.js',     // self-contained HTML/ZIP export flows
+  'spreadsheet.cjs',   // pure TSV/CSV serialization of the export model (Node-testable)
+  'spreadsheet-panel.js', // the Spreadsheet Export section: selection, copy, download
 ];
 const RUNTIME = RUNTIME_FILES
   .map(f => fs.readFileSync(path.join(__dirname, 'player-runtime', f), 'utf-8'))
@@ -124,6 +130,14 @@ function playerContainerMaxWidth(count) {
 function trophyHtml(isWinner, isTie) {
   if (!isWinner) return '';
   return fill('trophy', { medal: isTie ? '&#129309;' : '&#127942;' });
+}
+
+// The numbers behind every table on the page, as one panel the reader can
+// copy into a spreadsheet. Empty when the race measured nothing.
+function buildSpreadsheetSection(summary, runSummaries) {
+  const panel = buildSpreadsheetPanelHtml(buildSpreadsheetModel(summary, { runSummaries }));
+  if (!panel) return '';
+  return fill('section', { openAttr: '', title: 'Spreadsheet Export', body: '\n' + panel + '\n  ' });
 }
 
 // Build the player section, debug panel, runtime script tag, and race-config
@@ -229,6 +243,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
       ...profileComparison,
       rawProfileMetrics: summary.profileMetrics || [],
     }, racers),
+    spreadsheet: buildSpreadsheetSection(summary, runSummaries || null),
     files: buildFilesHtml(racers, videoFiles, {
       fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, raceConfigFile,
       altFormat, altFiles, placementOrder,

@@ -30,15 +30,20 @@ import { sortComparisonsForDisplay, rankEntries, formatDuration, formatDeltaLabe
 import { PROFILE_METRICS, determineProfileMetricOutcome } from './profile-analysis.js';
 import { RACER_CSS_COLORS } from './player-sections.js';
 import { resolveSkin, DEFAULT_THEME_COLOR } from './skins.js';
+import { buildConditionSpreadsheetModel, buildSpreadsheetPanelHtml, SPREADSHEET_CSS, SPREADSHEET_RUNTIME } from './spreadsheet-export.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Markup lives in condition-matrix.html (page shell + build-* fragments) and
 // styling in condition-matrix.css, both loaded once at import.
 const { shell: SHELL, fill } = loadTemplates(path.join(__dirname, 'condition-matrix.html'));
-/** Shared palette first, then this page's own component rules. */
+/** Shared palette first, then this page's own component rules, then the shared export panel's. */
 const CSS = fs.readFileSync(path.join(__dirname, 'tokens.css'), 'utf-8') + '\n'
-  + fs.readFileSync(path.join(__dirname, 'condition-matrix.css'), 'utf-8');
+  + fs.readFileSync(path.join(__dirname, 'condition-matrix.css'), 'utf-8') + '\n'
+  + SPREADSHEET_CSS;
+
+const SPREADSHEET_NOTE = 'Every condition as a row, every racer as a column, one metric per table — tick the '
+  + 'metrics you want, then copy them as tab-separated text or download a CSV. Both paste into Excel, Google Sheets or Numbers as numbers.';
 
 const WIN_MEDAL = '🏆';
 const TIE_MEDAL = '🤝';
@@ -485,6 +490,13 @@ export function buildConditionIndexHtml(raceTitle, entries, options = {}) {
       const tally = tallyLine(matrix, metric.key);
       return tally ? `Conditions won: ${escHtml(tally)}` : '';
     }),
-    scriptTag: fill('script'),
+    spreadsheet: spreadsheetHtml(matrix),
+    scriptTag: fill('script', { spreadsheetRuntime: SPREADSHEET_RUNTIME }),
   });
+}
+
+/** The Spreadsheet Export section, or nothing when no condition measured anything. */
+function spreadsheetHtml(matrix) {
+  const panel = buildSpreadsheetPanelHtml(buildConditionSpreadsheetModel(matrix), { note: SPREADSHEET_NOTE });
+  return panel ? fill('spreadsheet', { panel }) : '';
 }

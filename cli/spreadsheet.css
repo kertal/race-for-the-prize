@@ -1,0 +1,156 @@
+/* ===========================================================================
+   RaceForThePrize — spreadsheet export components
+   ---------------------------------------------------------------------------
+   Layer 3 for the Spreadsheet Export panel, which both reports embed: the
+   results player and the cross-condition overview each inline this file after
+   their own component rules. Markup lives in spreadsheet.html.
+
+   Like the other component layers, nothing here may hold a literal colour,
+   font, radius or duration, or reach past the semantic roles into the raw
+   palette. Tests enforce both.
+   =========================================================================== */
+
+.spreadsheet-note {
+  color: var(--text-dim);
+  font-size: var(--font-size-base);
+  line-height: var(--leading-loose);
+  margin: 0 0 0.8rem;
+}
+
+/* --- Which tables to include ---------------------------------------------- */
+.spreadsheet-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.2rem;
+  margin-bottom: 0.8rem;
+}
+.spreadsheet-group,
+.spreadsheet-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  cursor: pointer;
+}
+.spreadsheet-option { color: var(--text-dim); font-size: var(--font-size-sm); }
+.spreadsheet-group input,
+.spreadsheet-option input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+/* --- Toolbar: select all/none, options, actions, status ------------------- */
+.spreadsheet-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1rem;
+  margin-bottom: 0.8rem;
+}
+.spreadsheet-select {
+  color: var(--text-faint);
+  font-size: var(--font-size-sm);
+}
+.spreadsheet-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-dim);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.spreadsheet-link:hover { color: var(--accent); }
+.spreadsheet-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+/* Same chrome as the player's action buttons, restated here because the
+   overview page does not carry player.css. */
+.spreadsheet-btn {
+  background: var(--surface);
+  color: var(--text-dim);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-md);
+  padding: 0.35rem 0.9rem;
+  cursor: pointer;
+  transition:
+    background var(--duration),
+    border-color var(--duration),
+    color var(--duration);
+}
+.spreadsheet-btn:hover {
+  background: var(--surface-raised);
+  border-color: var(--accent);
+  color: var(--text);
+}
+.spreadsheet-btn:focus-visible,
+.spreadsheet-link:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+.spreadsheet-status {
+  flex-basis: 100%;
+  color: var(--text-subtle);
+  font-size: var(--font-size-sm);
+  min-height: 1.2em;
+}
+
+/* --- Preview table --------------------------------------------------------- */
+/* A long multi-run export scrolls inside its frame instead of taking over
+   the page; the header row stays put while it does. */
+.spreadsheet-scroll {
+  overflow: auto;
+  max-height: 24rem;
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+/* The overview page styles bare `table`/`th`/`td` for its matrix; the extra
+   element in each selector below is what keeps this table out of its reach. */
+.spreadsheet-table {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+.spreadsheet-table thead th,
+.spreadsheet-table tbody td {
+  padding: 0.3rem 0.6rem;
+  text-align: left;
+  white-space: nowrap;
+  vertical-align: middle;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+.spreadsheet-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  color: var(--racer-color, var(--text-subtle));
+  font-size: var(--font-size-xs);
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-tight);
+}
+.spreadsheet-table tbody td { color: var(--text-muted); }
+.spreadsheet-table tbody tr:last-child td { border-bottom: none; }
+.spreadsheet-table .spreadsheet-num { text-align: right; }
+
+/* The clipboard fallback types into an off-screen textarea; the player has
+   this utility already, the overview page does not. */
+.spreadsheet .sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+@media (max-width: 600px) {
+  .spreadsheet-actions { margin-left: 0; }
+}
