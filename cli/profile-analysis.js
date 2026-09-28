@@ -341,6 +341,30 @@ export function printProfileAnalysis(profileComparison, racers) {
 }
 
 /**
+ * One metric row's cells, in racer order, labelled the way the terminal and the
+ * player label them: a loser's gap to the best value, or the best value's lead
+ * over the runner-up. The ranking is what carries those numbers, so the row is
+ * built from it and then put back into racer order.
+ *
+ * The labels hang off the best VALUE, not off comp.winner: a difference below
+ * the category's significance threshold leaves the metric without a winner, and
+ * the gap is still worth naming. This is what the other two emitters do.
+ */
+function buildMarkdownMetricCells(comp, racers) {
+  const format = PROFILE_METRICS[comp.key].format;
+  const { entries } = rankEntries(racers, i => ({ val: comp.values[i] }), format);
+  const byIndex = new Map(entries.map(entry => [entry.index, entry]));
+  return racers.map((_, i) => {
+    if (comp.values[i] == null) return '-';
+    const entry = byIndex.get(i);
+    const label = entry.delta != null
+      ? formatDeltaLabel(entry.delta, entry.relative)
+      : formatAdvantageLabel(entry.advantage);
+    return label ? `${comp.formatted[i]} (${label})` : comp.formatted[i];
+  });
+}
+
+/**
  * Build markdown section for a profile scope.
  */
 function buildScopeMarkdown(title, section, racers) {
@@ -361,7 +385,7 @@ function buildScopeMarkdown(title, section, racers) {
 
     for (const comp of comps) {
       const winner = comp.winner || '-';
-      lines.push(`| ${comp.name} | ${comp.formatted.join(' | ')} | ${winner} |`);
+      lines.push(`| ${comp.name} | ${buildMarkdownMetricCells(comp, racers).join(' | ')} | ${winner} |`);
     }
     lines.push('');
   }
