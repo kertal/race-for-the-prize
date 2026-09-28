@@ -15,6 +15,7 @@ import {
   buildRunComparisonModel,
   rankEntries,
   formatDeltaLabel,
+  formatAdvantageLabel,
 } from './report-model.js';
 
 export const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f', '#9b59b6'];
@@ -62,9 +63,10 @@ function buildMetricRowsHtml(ranking, winner) {
   for (const entry of entries) {
     const color = RACER_CSS_COLORS[entry.index % RACER_CSS_COLORS.length];
     const barPct = entry.val !== null && maxValue > 0 ? Math.round((entry.val / maxValue) * 100) : 0;
-    const delta = entry.delta != null
-      ? fill('profile-delta', { delta: escHtml(formatDeltaLabel(entry.delta, entry.relative)) })
-      : '';
+    const gap = entry.delta != null
+      ? formatDeltaLabel(entry.delta, entry.relative)
+      : formatAdvantageLabel(entry.advantage);
+    const delta = gap ? fill('profile-delta', { delta: escHtml(gap) }) : '';
     html += fill('profile-row', {
       color,
       name: escHtml(entry.name),
@@ -377,7 +379,10 @@ function renderHtmlCell(cell, bold) {
   if (cell.value == null) return fill(template, { content: '-' });
   let content;
   if (cell.isWinner) {
-    content = `${escHtml(cell.formatted)} (\uD83C\uDFC6)`;
+    const lead = formatAdvantageLabel(cell.advantage);
+    content = lead
+      ? `${escHtml(cell.formatted)} (\uD83C\uDFC6 ${escHtml(lead)})`
+      : `${escHtml(cell.formatted)} (\uD83C\uDFC6)`;
   } else if (cell.delta != null) {
     content = escHtml(cell.formatted) + fill('run-delta', { delta: escHtml(formatDeltaLabel(cell.delta, cell.relative)) });
   } else {

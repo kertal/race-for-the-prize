@@ -130,9 +130,9 @@ describe('buildConditionMatrix', () => {
     const rows = html.match(/<span class="r[^"]*"[\s\S]*?<\/span><\/span>/g) || [];
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) expect(row).toContain('<span class="d">');
-    // The winner's delta column is empty; the loser's names its gap to the
-    // winner both in seconds and as a share of the winner's time.
-    expect(html).toContain('<span class="d"></span>');
+    // The loser's delta column names its gap to the winner both in seconds and
+    // as a share of the winner's time; the winner's names its lead instead.
+    expect(html).toContain('<span class="d">40% ahead</span>');
     expect(html).toContain('<span class="d">+1.000s, +67%</span>');
   });
 

@@ -41,6 +41,8 @@ The videos are laid out in finishing order — winner first, then 2nd, 3rd — r
 
 Every comparison — the results table, the performance profile, the run-by-run tables and the condition matrix — shows each losing value next to its gap to the winner, both absolute and relative: `2.500s (+1.500s, +150%)` reads "a second and a half behind, which is 150% slower than the winner". Profile metrics get the same treatment (`+299.7 KB, +46%` means 46% more bytes than the leanest racer). The percentage is left out when the winner's value is zero, since there is nothing to be a percentage of.
 
+The winner carries the other side of that gap: `1.000s (🏆 60% ahead)` means it needed 60% less than the runner-up did. The two percentages describe one gap from opposite ends — 150% counted up from the winner is the same distance as 60% counted down from the loser — so the winner's number is always measured against the *next-fastest* racer, not the slowest. A shared fastest value is nobody's lead, and shows none.
+
 The moment a racer's own finish frame plays, a placement badge appears under its video — `🥈 2nd · 3.000s total` — computed from the final results rather than from recording order, so it matches the summary (including joint places). With `--runs`, that total is the summary's median while the video is one representative run, so the badge can read a little off from the frames it sits over; it is the race result, not a stopwatch on that clip. The in-browser side-by-side export draws the same label. `--ffmpeg` output (trimmed videos, the merged side-by-side file, MOV/GIF) carries no placement; the results table is the record there.
 
 Disclaimer: Due to the nature of the way the video is transformed, the aim here is not accuracy, it's to showcase, to visualize performance. To compare between different network and browser settings.
@@ -70,7 +72,7 @@ token reference.
 The terminal delivers the verdict in style:
 
 - 🏎️ Live racing animation while browsers compete
-- 📊 Bar chart comparison of every timed measurement, each loser tagged with its gap to the winner (`+1.500s, +150%`)
+- 📊 Bar chart comparison of every timed measurement, each loser tagged with its gap to the winner (`+1.500s, +150%`) and the winner with its lead over the runner-up (`60% ahead`)
 - 🥇🥈 Medal assignments per measurement
 - 🏆 **Overall winner declared**
 - 📹 Side-by-side video replay (in-browser export, or physical file via `--ffmpeg`)

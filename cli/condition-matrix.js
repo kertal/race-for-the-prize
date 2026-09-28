@@ -26,7 +26,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { c, RACER_COLORS } from './colors.js';
 import { loadTemplates, escHtml, render } from './html-templates.js';
-import { sortComparisonsForDisplay, rankEntries, formatDuration, formatDeltaLabel } from './report-model.js';
+import { sortComparisonsForDisplay, rankEntries, formatDuration, formatDeltaLabel, formatAdvantageLabel } from './report-model.js';
 import { PROFILE_METRICS, determineProfileMetricOutcome } from './profile-analysis.js';
 import { RACER_CSS_COLORS } from './player-sections.js';
 import { resolveSkin, DEFAULT_THEME_COLOR } from './skins.js';
@@ -170,6 +170,7 @@ function buildSeries(entry, racers, metric) {
       formatted: racer.val != null ? metric.format(racer.val) : null,
       delta: racer.delta,
       relative: racer.relative,
+      advantage: racer.advantage,
       isWinner: racer.name === winner,
     })),
   };
@@ -415,9 +416,13 @@ function seriesHtml(series, max) {
       name: escHtml(racer.name),
       width: width.toFixed(1),
       value: escHtml(racer.formatted || '-'),
-      // The delta column stays in the markup even when empty (the winner has
-      // none) so the values below it still line up.
-      delta: racer.delta != null ? escHtml(formatDeltaLabel(racer.delta, racer.relative)) : '',
+      // One column, read from whichever side the row is on: a loser's gap to
+      // the winner, or the winner's lead over the runner-up. It stays in the
+      // markup even when empty so the values below it still line up.
+      delta: escHtml(
+        (racer.delta != null
+          ? formatDeltaLabel(racer.delta, racer.relative)
+          : formatAdvantageLabel(racer.advantage)) || ''),
     });
   }).join('');
   return fill('series', { ...verdictSlots(series), rows });

@@ -13,7 +13,7 @@
 
 import { c, RACER_COLORS } from './colors.js';
 import { determineOverallWinner } from './race-utils.js';
-import { rankEntries, formatDeltaLabel } from './report-model.js';
+import { rankEntries, formatDeltaLabel, formatAdvantageLabel } from './report-model.js';
 
 /**
  * Performance metric definitions.
@@ -293,8 +293,12 @@ function printProfileSection(title, section, racers, w, write) {
           : 0;
         const bar = '▓'.repeat(filled) + '░'.repeat(barWidth - filled);
 
-        // Show the gap to the best — absolute and relative — for non-best racers
-        const delta = entry.delta != null ? ` ${c.dim}(${formatDeltaLabel(entry.delta, entry.relative)})${c.reset}` : '';
+        // Show the gap to the best — absolute and relative — for non-best
+        // racers, and how far the best one sits ahead of the runner-up.
+        const gap = entry.delta != null
+          ? formatDeltaLabel(entry.delta, entry.relative)
+          : formatAdvantageLabel(entry.advantage);
+        const delta = gap ? ` ${c.dim}(${gap})${c.reset}` : '';
 
         write(`    ${color}${c.bold}${entry.name.padEnd(labelWidth)}${c.reset} ${color}${bar}${c.reset}  ${entry.formatted}${delta}${medal}\n`);
       }

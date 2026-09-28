@@ -1773,7 +1773,7 @@ describe('buildPlayerHtml run-by-run comparison', () => {
   it('shows trophy for winner and delta for loser in comparison table', () => {
     const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
     // Winner gets trophy, no separate Winner column
-    expect(html).toContain('1.000s (\uD83C\uDFC6)');
+    expect(html).toContain('1.000s (\uD83C\uDFC6 67% ahead)');
     expect(html).not.toMatch(/<th>Winner<\/th>/);
     // Loser gets delta (3.0 - 1.0 = 2.0), and how much slower that is (200%)
     expect(html).toContain('(+2.000s, +200%)');

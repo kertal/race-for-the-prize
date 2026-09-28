@@ -290,7 +290,7 @@ describe('buildMarkdownSummary', () => {
   it('includes results table with trophy for winner and delta for loser', () => {
     const md = buildMarkdownSummary(makeSummary());
     // The loser's gap to the winner, absolute and as a share of the winner's time
-    expect(md).toMatch(/Load.*1\.000s \(🏆\).*2\.000s \(\+1\.000s, \+100%\)/);
+    expect(md).toMatch(/Load.*1\.000s \(🏆 50% ahead\).*2\.000s \(\+1\.000s, \+100%\)/);
     expect(md).not.toMatch(/\| Winner \|/);
     expect(md).not.toContain('Diff');
   });
@@ -635,6 +635,8 @@ describe('printSummary', () => {
     expect(output).toContain('(+1.500s, +150%)');
     // The winner carries no delta at all
     expect(output).not.toMatch(/1\.000s[^\n]*\(\+/);
+    // It carries the other side of the same gap instead: 1.0s is 60% under 2.5s
+    expect(output).toContain('(60% ahead)');
   });
 });
 
@@ -670,7 +672,7 @@ describe('buildMultiRunMarkdown', () => {
     expect(md).toContain('Run-by-Run Comparison');
     expect(md).toContain('#### Load');
     expect(md).toContain('| **Median** |');
-    expect(md).toContain('2.000s (\uD83C\uDFC6)');
+    expect(md).toContain('2.000s (\uD83C\uDFC6 50% ahead)');
     expect(md).toContain('</details>');
   });
 
