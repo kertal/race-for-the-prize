@@ -13,7 +13,7 @@
 
 import { c, RACER_COLORS } from './colors.js';
 import { determineOverallWinner } from './race-utils.js';
-import { rankEntries } from './report-model.js';
+import { rankEntries, formatDeltaLabel, formatAdvantageLabel } from './report-model.js';
 
 /**
  * Performance metric definitions.
@@ -293,8 +293,12 @@ function printProfileSection(title, section, racers, w, write) {
           : 0;
         const bar = '▓'.repeat(filled) + '░'.repeat(barWidth - filled);
 
-        // Show delta from best for non-best racers
-        const delta = entry.delta != null ? ` ${c.dim}(+${entry.delta})${c.reset}` : '';
+        // Show the gap to the best — absolute and relative — for non-best
+        // racers, and how far the best one sits ahead of the runner-up.
+        const gap = entry.delta != null
+          ? formatDeltaLabel(entry.delta, entry.relative)
+          : formatAdvantageLabel(entry.advantage);
+        const delta = gap ? ` ${c.dim}(${gap})${c.reset}` : '';
 
         write(`    ${color}${c.bold}${entry.name.padEnd(labelWidth)}${c.reset} ${color}${bar}${c.reset}  ${entry.formatted}${delta}${medal}\n`);
       }
@@ -337,6 +341,30 @@ export function printProfileAnalysis(profileComparison, racers) {
 }
 
 /**
+ * One metric row's cells, in racer order, labelled the way the terminal and the
+ * player label them: a loser's gap to the best value, or the best value's lead
+ * over the runner-up. The ranking is what carries those numbers, so the row is
+ * built from it and then put back into racer order.
+ *
+ * The labels hang off the best VALUE, not off comp.winner: a difference below
+ * the category's significance threshold leaves the metric without a winner, and
+ * the gap is still worth naming. This is what the other two emitters do.
+ */
+function buildMarkdownMetricCells(comp, racers) {
+  const format = PROFILE_METRICS[comp.key].format;
+  const { entries } = rankEntries(racers, i => ({ val: comp.values[i] }), format);
+  const byIndex = new Map(entries.map(entry => [entry.index, entry]));
+  return racers.map((_, i) => {
+    if (comp.values[i] == null) return '-';
+    const entry = byIndex.get(i);
+    const label = entry.delta != null
+      ? formatDeltaLabel(entry.delta, entry.relative)
+      : formatAdvantageLabel(entry.advantage);
+    return label ? `${comp.formatted[i]} (${label})` : comp.formatted[i];
+  });
+}
+
+/**
  * Build markdown section for a profile scope.
  */
 function buildScopeMarkdown(title, section, racers) {
@@ -357,7 +385,7 @@ function buildScopeMarkdown(title, section, racers) {
 
     for (const comp of comps) {
       const winner = comp.winner || '-';
-      lines.push(`| ${comp.name} | ${comp.formatted.join(' | ')} | ${winner} |`);
+      lines.push(`| ${comp.name} | ${buildMarkdownMetricCells(comp, racers).join(' | ')} | ${winner} |`);
     }
     lines.push('');
   }
