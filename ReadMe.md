@@ -51,6 +51,7 @@ Three more races are in the garage, two of them with a replay to watch right now
 - 🎬 An **interactive HTML player** with frame-accurate side-by-side replay
 - 📊 **Bar charts and medals** per timed section, and an overall winner
 - 📈 **Performance profiles** from the Chrome DevTools Protocol — transfer size, script time, layout, TTFB, FCP, LCP, CLS
+- 📋 **Spreadsheet export** — pick the tables you want and copy the raw numbers straight into Excel, Google Sheets or Numbers
 - 🌧️ **Track conditions** on demand: network throttling, CPU ballast, repeated runs with a median
 - 🗂️ A **results folder you can reread months later** — videos, traces, report card, and the exact configuration the race ran with
 

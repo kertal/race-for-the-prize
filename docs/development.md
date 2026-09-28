@@ -43,6 +43,9 @@ RaceForThePrize/
 │   ├── condition-matrix.js # Cross-condition performance matrix (terminal + HTML)
 │   ├── condition-matrix.html # Condition matrix markup + build-time templates
 │   ├── condition-matrix.css  # Condition matrix component styles
+│   ├── spreadsheet-export.js # Spreadsheet Export panel: raw-number model + build-time markup (both reports)
+│   ├── spreadsheet.html      # Spreadsheet panel markup fragments
+│   ├── spreadsheet.css       # Spreadsheet panel component styles
 │   ├── skins.js            # Skin resolution for --skin
 │   ├── skins/              # Built-in player skins (light, neon)
 │   ├── summary.js          # Results formatting & markdown reports

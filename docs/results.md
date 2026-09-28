@@ -45,6 +45,33 @@ The winner carries the other side of that gap: `1.000s (🏆 60% ahead)` means i
 
 The moment a racer's own finish frame plays, a placement badge appears under its video — `🥈 2nd · 3.000s total` — computed from the final results rather than from recording order, so it matches the summary (including joint places). With `--runs`, that total is the summary's median while the video is one representative run, so the badge can read a little off from the frames it sits over; it is the race result, not a stopwatch on that clip. The in-browser side-by-side export draws the same label. `--ffmpeg` output (trimmed videos, the merged side-by-side file, MOV/GIF) carries no placement; the results table is the record there.
 
+## Taking the Numbers to a Spreadsheet
+
+Every report carries a collapsed **Spreadsheet Export** section — in the results
+player and, for a multi-condition race, in the performance matrix above it —
+that hands the numbers over the way a spreadsheet wants them: plain values, the
+unit in its own column, one column per racer, one row per measurement.
+
+Tick the tables you want, then either **Copy for spreadsheet** (tab-separated
+text — click a cell in Excel, Google Sheets or Numbers and paste) or
+**Download CSV**. The tables on offer follow what the race produced:
+
+| Page | Tables |
+|---|---|
+| Single race | **Race Results** (every timed section plus the total, in seconds) · **Performance: Race** and **Performance: Total Recording** (the CDP metrics, in bytes, requests, ms or score) · one **Performance: Section …** table per timed section when there are several |
+| `--runs=N` median page | The same, with the results marked as the median, plus one **Run-by-Run** table per measurement and per profile metric: every run, then the median and the average |
+| Multi-condition matrix | One table per metric — total time and every captured profile metric — with a row per throttling condition and its network preset and CPU rate as columns of their own, so a sheet can pivot on either |
+
+Values are the raw numbers behind the formatted ones (`12345` bytes rather than
+`12.1 KB`), rounded to six decimals; a racer that recorded nothing leaves an
+empty cell, never a dash or a zero. Tick **Decimal comma** if your spreadsheet
+speaks a comma-decimal locale — the copy switches `1.234` to `1,234` and the CSV
+to semicolons, so nothing lands as text or a date. The preview table under the
+controls shows exactly what will be copied; without JavaScript it still shows
+every table, and selecting it and copying by hand pastes into a sheet as cells
+too. Exported HTML and ZIP bundles keep the section, working, since the data
+travels inside the page.
+
 Disclaimer: Due to the nature of the way the video is transformed, the aim here is not accuracy, it's to showcase, to visualize performance. To compare between different network and browser settings.
 Do double check and question the metrics and findings. It should be a helpful tool supporting performance related narratives, but don't assume 100% accuracy. However, this generally applies to many 
 browser gained performance metrics. There are many side effects. And screen recording, plus video cutting is another one.
