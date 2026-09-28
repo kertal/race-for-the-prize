@@ -779,37 +779,35 @@ describe('buildSummary with 3+ racers', () => {
   });
 });
 
-describe('buildSummary with 5 racers', () => {
-  const fiveNames = ['a', 'b', 'c', 'd', 'e'];
+describe('buildSummary with a full 4-racer grid', () => {
+  const fourNames = ['a', 'b', 'c', 'd'];
 
-  it('determines winner among 5 racers', () => {
-    const results = fiveNames.map((_, i) => ({
+  it('determines winner among 4 racers', () => {
+    const results = fourNames.map((_, i) => ({
       measurements: [{ name: 'Load', startTime: 0, endTime: i + 1, duration: i + 1 }],
            videoPath: null,
       fullVideoPath: null,
       error: null,
     }));
-    const summary = buildSummary(fiveNames, results, {}, 'test-results');
+    const summary = buildSummary(fourNames, results, {}, 'test-results');
 
     expect(summary.comparisons[0].winner).toBe('a'); // duration 1 is fastest
     expect(summary.overallWinner).toBe('a');
-    expect(summary.comparisons[0].rankings).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(summary.comparisons[0].rankings).toEqual(['a', 'b', 'c', 'd']);
   });
 
-  it('handles partial data among 5 racers', () => {
+  it('handles partial data among 4 racers', () => {
     const results = [
       { measurements: [{ name: 'Load', startTime: 0, endTime: 2, duration: 2.0 }], videoPath: null, fullVideoPath: null, error: null },
       { measurements: [], videoPath: null, fullVideoPath: null, error: null }, // no data
       { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], videoPath: null, fullVideoPath: null, error: null },
-      { measurements: [], videoPath: null, fullVideoPath: null, error: null }, // no data
       { measurements: [{ name: 'Load', startTime: 0, endTime: 3, duration: 3.0 }], videoPath: null, fullVideoPath: null, error: null },
     ];
-    const summary = buildSummary(fiveNames, results, {}, 'test-results');
+    const summary = buildSummary(fourNames, results, {}, 'test-results');
 
     expect(summary.comparisons[0].winner).toBe('c'); // 1.0s is fastest among those with data
     expect(summary.comparisons[0].racers[1]).toBeNull(); // b has no data
-    expect(summary.comparisons[0].racers[3]).toBeNull(); // d has no data
-    expect(summary.comparisons[0].rankings).toEqual(['c', 'a', 'e']);
+    expect(summary.comparisons[0].rankings).toEqual(['c', 'a', 'd']);
   });
 });
 

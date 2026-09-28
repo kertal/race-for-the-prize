@@ -154,7 +154,7 @@ function getMetricValue(profileData, key) {
 
 /**
  * Build profile comparison from captured metrics.
- * @param {string[]} racerNames - Names of the racers (supports 2-5)
+ * @param {string[]} racerNames - Names of the racers (supports 2-4)
  * @param {Object[]} profileData - Array of profile data for each racer (with total/measured sections)
  * @returns {Object} Profile comparison results with measured and total sections
  */

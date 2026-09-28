@@ -107,6 +107,19 @@ describe('script compilation', () => {
   it('reports a genuine syntax error as a script failure', async () => {
     await expect(runScript('await page.raceStart(;')).rejects.toThrow('Script execution failed');
   });
+
+  it('puts the racer context in scope as `race`', async () => {
+    const { page } = await runScript('page.note = race.name;');
+    expect(page.note).toBe('q');
+  });
+
+  it('puts nothing else in scope — the race API arrives on `page`', async () => {
+    // The runner used to hand every script four positional __startMeasure-style
+    // arguments beside page and race. Nothing documented or used them, so they
+    // are gone; a script reaching for one now fails rather than silently
+    // measuring on a second, undocumented surface.
+    await expect(runScript('await __startMeasure("Load");')).rejects.toThrow(/__startMeasure is not defined/);
+  });
 });
 
 describe('selectRaceTiming', () => {
