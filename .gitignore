@@ -3,3 +3,4 @@ node_modules/
 races/**/results-*/
 my-races/
 test-results/
+recordings/
