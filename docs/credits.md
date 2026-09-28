@@ -7,8 +7,10 @@ change one, change the other; `tests/site.test.js` fails if they drift.)
 ## The crew
 
 - [@drewdaemon](https://github.com/drewdaemon) — whose work sparked the start
-  of this project: make visual performance comparisons simple.
-- [@bartval](https://github.com/bartval) — whose work inspired the in-browser
+  of this project: make visual performance comparisons simple. And the
+  cooperation of [@dmlemeshko](https://github.com/dmlemeshko) introduced
+  @kertal to the power of the mighty playwright.
+- [@bartoval](https://github.com/bartoval) — whose work inspired the in-browser
   video export.
 - Simon Haidenbauer & Werner Mayer — the first QA crew, who proved that "but it
   works on my computer" isn't a case.
