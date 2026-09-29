@@ -146,6 +146,20 @@ describeMaybe('spreadsheet export panel integration', () => {
       expect(await panel.status()).toBe('Copied 3 rows — paste into a sheet.');
     });
 
+    it('copies the same selection as a GitHub Markdown table', async () => {
+      await panel.page.evaluate(() => { window.__copied = null; });
+      await panel.page.click('#spreadsheetMarkdown');
+      await panel.page.waitForFunction(() => window.__copied !== null);
+      expect(await panel.copied()).toBe(
+        '| Section | Measurement | Unit | lauda | hunt |\n'
+        + '| --- | --- | --- | ---: | ---: |\n'
+        + '| Race Results (median of 2 runs) | Race | s | 1.5 | 3.7 |\n'
+        + '| Race Results (median of 2 runs) | Load | s | 1 | 3 |\n'
+        + '| Race Results (median of 2 runs) | Render | s | 0.5 | 0.7 |'
+      );
+      expect(await panel.status()).toBe('Copied 3 rows as Markdown — paste into a GitHub issue, pull request or README.');
+    });
+
     it('re-renders the preview and the copy with a decimal comma', async () => {
       await panel.page.check('#spreadsheetDecimalComma');
       const first = await panel.page.$eval('#spreadsheetPanel tbody tr:not([hidden]) td[data-value]', td => td.textContent);

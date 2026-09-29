@@ -12,6 +12,7 @@ const {
   spreadsheetCell,
   spreadsheetTsv,
   spreadsheetCsv,
+  spreadsheetMarkdown,
   spreadsheetFileName,
 } = require('../cli/player-runtime/spreadsheet.cjs');
 
@@ -150,6 +151,39 @@ describe('spreadsheetCsv', () => {
     expect(csv.split('\r\n')[1]).toBe('Race Results;Race;s;1,5;3,7');
     // Now a label with a comma needs no quoting, but one with a semicolon does.
     expect(spreadsheetCsv({ header: ['a'], rows: [['x, y'], ['x; y']] }, { decimal: ',' })).toBe('a\r\nx, y\r\n"x; y"\r\n');
+  });
+});
+
+describe('spreadsheetMarkdown', () => {
+  it('writes a GitHub table with the racer columns right-aligned', () => {
+    expect(spreadsheetMarkdown(spreadsheetTable(model, ['results']))).toBe(
+      '| Section | Measurement | Unit | lauda | hunt |\n'
+      + '| --- | --- | --- | ---: | ---: |\n'
+      + '| Race Results | Race | s | 1.5 | 3.7 |\n'
+      + '| Race Results | Load | s | 1 |  |'
+    );
+  });
+
+  it('right-aligns a column only when every value in it is a number', () => {
+    // The overview's CPU column is numeric; a column with no values at all is not.
+    const md = spreadsheetMarkdown({ header: ['a', 'cpu', 'empty'], rows: [['x', 1, null], ['y', 4, null]] });
+    expect(md.split('\n')[1]).toBe('| --- | ---: | --- |');
+  });
+
+  it('escapes pipes and flattens line breaks, which would otherwise end the cell', () => {
+    const md = spreadsheetMarkdown({ header: ['label', 'n'], rows: [['a | b', 1], ['two\nlines', 2]] });
+    expect(md).toContain('| a \\| b | 1 |');
+    expect(md).toContain('| two lines | 2 |');
+  });
+
+  it('leaves formula-like labels as written, since nothing evaluates Markdown', () => {
+    const md = spreadsheetMarkdown({ header: ['=x'], rows: [['-fast']] });
+    expect(md).toBe('| =x |\n| --- |\n| -fast |');
+  });
+
+  it('honours the decimal comma', () => {
+    const md = spreadsheetMarkdown(spreadsheetTable(model, ['results']), { decimal: ',' });
+    expect(md).toContain('| 1,5 | 3,7 |');
   });
 });
 

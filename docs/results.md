@@ -60,8 +60,10 @@ that hands the numbers over the way a spreadsheet wants them: plain values, the
 unit in its own column, one column per racer, one row per measurement.
 
 Tick the tables you want, then either **Copy for spreadsheet** (tab-separated
-text — click a cell in Excel, Google Sheets or Numbers and paste) or
-**Download CSV**. The tables on offer follow what the race produced:
+text — click a cell in Excel, Google Sheets or Numbers and paste),
+**Download CSV**, or **Copy as Markdown** (a GitHub-flavored table, ready to
+paste into an issue, a pull request or a README, with the racer columns
+right-aligned). The tables on offer follow what the race produced:
 
 | Page | Tables |
 |---|---|

@@ -46,7 +46,8 @@ const PROFILE_SCOPES = [
 ];
 
 const NOTE = 'Plain numbers, one unit per row, one column per racer — tick the tables you want, '
-  + 'then copy them as tab-separated text or download a CSV. Both paste into Excel, Google Sheets or Numbers as numbers.';
+  + 'then copy them as tab-separated text or download a CSV (both paste into Excel, Google Sheets or Numbers as numbers), '
+  + 'or copy them as a Markdown table for a GitHub issue, pull request or README.';
 
 /**
  * A value as the spreadsheet should carry it: a finite number rounded to six

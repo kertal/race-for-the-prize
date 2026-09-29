@@ -43,9 +43,9 @@ const FORMULA_LEAD = /^[=+\-@\t\r]/;
  * would otherwise reach the sheet as a formula. Text that starts like one is
  * prefixed with an apostrophe, which every spreadsheet reads as "this is
  * text" and hides. Numbers are never prefixed: a negative delta must stay a
- * number.
+ * number. An output nothing evaluates (Markdown) passes `defuse: false`.
  */
-function spreadsheetCell(value, decimal = '.') {
+function spreadsheetCell(value, decimal = '.', defuse = true) {
   if (value == null) return '';
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) return '';
@@ -53,7 +53,7 @@ function spreadsheetCell(value, decimal = '.') {
     return decimal === ',' ? text.replace('.', ',') : text;
   }
   const text = String(value);
-  return FORMULA_LEAD.test(text) ? `'${text}` : text;
+  return defuse && FORMULA_LEAD.test(text) ? `'${text}` : text;
 }
 
 /**
@@ -85,6 +85,28 @@ function spreadsheetCsv(table, options = {}) {
   return spreadsheetText(table, { decimal, delimiter: decimal === ',' ? ';' : ',', newline: '\r\n', quote: true }) + '\r\n';
 }
 
+/**
+ * A GitHub-flavored Markdown table, for pasting the numbers into an issue,
+ * a pull request or a README. Columns holding only numbers (the racers') are
+ * right-aligned so the digits line up; a pipe inside a label is escaped and a
+ * line break becomes a space, since either would end the cell. Nothing
+ * evaluates a Markdown cell, so formula-like labels are left as written.
+ */
+function spreadsheetMarkdown(table, options = {}) {
+  const decimal = options.decimal || '.';
+  const escape = text => text.replace(/[\r\n]+/g, ' ').replaceAll('|', '\\|');
+  const cell = value => escape(spreadsheetCell(value, decimal, false));
+  const numeric = table.header.map((_, col) =>
+    table.rows.some(row => typeof row[col] === 'number')
+    && table.rows.every(row => row[col] == null || typeof row[col] === 'number'));
+  const line = cells => `| ${cells.join(' | ')} |`;
+  return [
+    line(table.header.map(cell)),
+    line(numeric.map(isNumeric => (isNumeric ? '---:' : '---'))),
+    ...table.rows.map(row => line(row.map(cell))),
+  ].join('\n');
+}
+
 /** A safe download name from a page title: "Race: lauda vs hunt" -> race_lauda_vs_hunt.csv. */
 function spreadsheetFileName(title) {
   const base = String(title || '').replace(/[^a-zA-Z0-9-]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
@@ -92,5 +114,5 @@ function spreadsheetFileName(title) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { spreadsheetTable, spreadsheetCell, spreadsheetText, spreadsheetTsv, spreadsheetCsv, spreadsheetFileName };
+  module.exports = { spreadsheetTable, spreadsheetCell, spreadsheetText, spreadsheetTsv, spreadsheetCsv, spreadsheetMarkdown, spreadsheetFileName };
 }

@@ -235,8 +235,9 @@ describe('buildSpreadsheetPanelHtml', () => {
     expect(nasty).toContain('\\u003c/script>');
   });
 
-  it('offers copy, CSV download, all/none and the decimal-comma option', () => {
+  it('offers copy, Markdown copy, CSV download, all/none and the decimal-comma option', () => {
     expect(html).toContain('id="spreadsheetCopy"');
+    expect(html).toContain('id="spreadsheetMarkdown"');
     expect(html).toContain('id="spreadsheetCsv"');
     expect(html).toContain('data-spreadsheet-select="all"');
     expect(html).toContain('data-spreadsheet-select="none"');
@@ -265,6 +266,7 @@ describe('shared assets', () => {
   it('ships the panel stylesheet and the browser runtime for the overview page to inline', () => {
     expect(SPREADSHEET_CSS).toContain('.spreadsheet-table');
     expect(SPREADSHEET_RUNTIME).toContain('function spreadsheetTsv');
+    expect(SPREADSHEET_RUNTIME).toContain('function spreadsheetMarkdown');
     expect(SPREADSHEET_RUNTIME).toContain("getElementById('spreadsheetPanel')");
     // A literal </script> anywhere in it would end the inline block early.
     expect(SPREADSHEET_RUNTIME).not.toContain('</script');

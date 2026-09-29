@@ -1840,10 +1840,11 @@ describe('buildPlayerHtml spreadsheet export', () => {
     const model = JSON.parse(m[1]);
     expect(model.racers).toEqual(['lauda', 'hunt']);
     expect(model.groups.map(g => g.id)).toEqual(['results']);
-    for (const fn of ['function spreadsheetTable', 'function spreadsheetTsv', 'function spreadsheetCsv', 'initSpreadsheetPanel', 'navigator.clipboard']) {
+    for (const fn of ['function spreadsheetTable', 'function spreadsheetTsv', 'function spreadsheetCsv', 'function spreadsheetMarkdown', 'initSpreadsheetPanel', 'navigator.clipboard']) {
       expect(defaultHtml).toContain(fn);
     }
     expect(defaultHtml).toContain('id="spreadsheetCopy"');
+    expect(defaultHtml).toContain('id="spreadsheetMarkdown"');
     expect(defaultHtml).toContain('id="spreadsheetCsv"');
     expect(defaultHtml).toContain('id="spreadsheetDecimalComma"');
   });

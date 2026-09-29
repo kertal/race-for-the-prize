@@ -65,14 +65,19 @@
     return copied;
   }
 
-  /** Copy the selected tables as tab-separated text and report the outcome. */
-  async function copySelection() {
+  /** Copy the selected tables as tab-separated text (for a sheet) or Markdown (for GitHub). */
+  async function copySelection(format) {
     const table = spreadsheetTable(model, selectedIds());
     if (table.rows.length === 0) { say('Nothing selected — tick at least one table.'); return; }
-    const ok = await copyText(spreadsheetTsv(table, { decimal: decimal() }));
-    say(ok
-      ? 'Copied ' + rowWord(table.rows.length) + ' — paste into a sheet.'
-      : 'Copy failed — select the table below and copy it by hand.');
+    const markdown = format === 'markdown';
+    const text = markdown
+      ? spreadsheetMarkdown(table, { decimal: decimal() })
+      : spreadsheetTsv(table, { decimal: decimal() });
+    const ok = await copyText(text);
+    if (!ok) { say('Copy failed — select the table below and copy it by hand.'); return; }
+    say('Copied ' + rowWord(table.rows.length) + (markdown
+      ? ' as Markdown — paste into a GitHub issue, pull request or README.'
+      : ' — paste into a sheet.'));
   }
 
   /** Hand the selected tables over as a CSV file named after the page. */
@@ -104,7 +109,8 @@
       sync();
       return;
     }
-    if (e.target.closest('#spreadsheetCopy')) copySelection();
+    if (e.target.closest('#spreadsheetCopy')) copySelection('tsv');
+    else if (e.target.closest('#spreadsheetMarkdown')) copySelection('markdown');
     else if (e.target.closest('#spreadsheetCsv')) downloadCsv();
   });
 

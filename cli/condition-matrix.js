@@ -43,7 +43,8 @@ const CSS = fs.readFileSync(path.join(__dirname, 'tokens.css'), 'utf-8') + '\n'
   + SPREADSHEET_CSS;
 
 const SPREADSHEET_NOTE = 'Every condition as a row, every racer as a column, one metric per table — tick the '
-  + 'metrics you want, then copy them as tab-separated text or download a CSV. Both paste into Excel, Google Sheets or Numbers as numbers.';
+  + 'metrics you want, then copy them as tab-separated text or download a CSV (both paste into Excel, Google Sheets or Numbers as numbers), '
+  + 'or copy them as a Markdown table for a GitHub issue, pull request or README.';
 
 const WIN_MEDAL = '🏆';
 const TIE_MEDAL = '🤝';
