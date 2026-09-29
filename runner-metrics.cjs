@@ -315,10 +315,16 @@ async function setupMetricsCollection(page, id) {
   };
 }
 
+// Frame timing lives behind its own category. It roughly doubles the trace,
+// so only --fps asks for it; frame-stats.cjs returns null without it.
+const FRAME_CATEGORY = 'disabled-by-default-devtools.timeline.frame';
+const TRACE_CATEGORIES = ['devtools.timeline', 'blink.user_timing'];
+
 /** Start CDP metrics collection and browser tracing for one racer. */
-async function startProfiling(page, browser, id) {
+async function startProfiling(page, browser, id, { fps = false } = {}) {
   const metricsCollector = await setupMetricsCollection(page, id);
-  await browser.startTracing(page, { screenshots: true, categories: ['devtools.timeline', 'blink.user_timing'] });
+  const categories = fps ? [...TRACE_CATEGORIES, FRAME_CATEGORY] : TRACE_CATEGORIES;
+  await browser.startTracing(page, { screenshots: true, categories });
   return metricsCollector;
 }
 
@@ -342,4 +348,4 @@ async function collectProfilingResults(browser, metricsCollector, outputDir, id)
   };
 }
 
-module.exports = { setupMetricsCollection, startProfiling, collectProfilingResults };
+module.exports = { setupMetricsCollection, startProfiling, collectProfilingResults, FRAME_CATEGORY, TRACE_CATEGORIES };

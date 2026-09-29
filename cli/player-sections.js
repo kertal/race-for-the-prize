@@ -14,6 +14,7 @@ import {
   buildResultsModel,
   buildRunComparisonModel,
   rankEntries,
+  metricDeltaFormat,
   formatDeltaLabel,
   formatAdvantageLabel,
 } from './report-model.js';
@@ -327,7 +328,7 @@ export function buildProfileHtml(profileComparison, racers) {
       }
       for (const comp of comps) {
         const metricDef = PROFILE_METRICS[comp.key];
-        const ranking = rankEntries(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }), metricDef.format);
+        const ranking = rankEntries(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }), metricDeltaFormat(metricDef));
         const desc = metricDef.description || '';
         body += fill('profile-metric', {
           metricClass: '',
@@ -344,7 +345,7 @@ export function buildProfileHtml(profileComparison, racers) {
         let sectionMetricsRows = '';
         for (const comp of section.comparisons) {
           const metricDef = PROFILE_METRICS[comp.key];
-          const ranking = rankEntries(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }), metricDef.format);
+          const ranking = rankEntries(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }), metricDeltaFormat(metricDef));
           sectionMetricsRows += fill('profile-metric', {
             metricClass: '',
             titleAttr: '',

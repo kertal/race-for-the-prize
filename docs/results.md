@@ -39,6 +39,13 @@ The player includes segment navigation buttons — **Race Recording** (all measu
 
 The videos are laid out in finishing order — winner first, then 2nd, 3rd — ranked by total time across all sections, the same way the overall winner is decided. (When two totals are within a frame of each other, the per-section rankings break the tie.)
 
+With `--fps`, the profile grows a **Smoothness** category — median, 95th
+percentile and worst frame time, plus dropped frames — for the whole race and for
+each measured section. Those come from the same trace, counting the frames the
+compositor actually drew, so they cost the page nothing; see
+[Measuring Frame Rate](cli.md#measuring-frame-rate) for how to read them and what
+a scripted scroll does to the dropped-frame count.
+
 Every comparison — the results table, the performance profile, the run-by-run tables and the condition matrix — shows each losing value next to its gap to the winner, both absolute and relative: `2.500s (+1.500s, +150%)` reads "a second and a half behind, which is 150% slower than the winner". Profile metrics get the same treatment (`+299.7 KB, +46%` means 46% more bytes than the leanest racer). The percentage is left out when the winner's value is zero, since there is nothing to be a percentage of.
 
 The winner carries the other side of that gap: `1.000s (🏆 60% ahead)` means it needed 60% less than the runner-up did. The two percentages describe one gap from opposite ends — 150% counted up from the winner is the same distance as 60% counted down from the loser — so the winner's number is always measured against the *next-fastest* racer, not the slowest. A shared fastest value is nobody's lead, and shows none.
