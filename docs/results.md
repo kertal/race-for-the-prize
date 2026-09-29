@@ -71,7 +71,9 @@ text — click a cell in Excel, Google Sheets or Numbers and paste) or
 
 Values are the raw numbers behind the formatted ones (`12345` bytes rather than
 `12.1 KB`), rounded to six decimals; a racer that recorded nothing leaves an
-empty cell, never a dash or a zero. Tick **Decimal comma** if your spreadsheet
+empty cell, never a dash or a zero. A label that starts like a formula (`=`,
+`+`, `-`, `@`) is prefixed with an apostrophe, which spreadsheets read as
+"plain text" and hide, so a section name can never run as one. Tick **Decimal comma** if your spreadsheet
 speaks a comma-decimal locale — the copy switches `1.234` to `1,234` and the CSV
 to semicolons, so nothing lands as text or a date. The preview table under the
 controls shows exactly what will be copied; without JavaScript it still shows

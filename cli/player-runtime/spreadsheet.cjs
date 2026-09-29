@@ -29,9 +29,21 @@ function spreadsheetTable(model, selectedIds = null) {
 }
 
 /**
+ * A leading character that makes a spreadsheet read a cell as a formula
+ * (=, +, -, @) or, in some, as a continuation of the previous one (tab, CR).
+ */
+const FORMULA_LEAD = /^[=+\-@\t\r]/;
+
+/**
  * One cell as text. Missing values are empty cells (not "-" or "null", which
  * a spreadsheet would read as text and refuse to sum); numbers take the
  * requested decimal mark, since a comma-decimal locale pastes "1.234" as text.
+ *
+ * Labels come from race files and spec code, so a section called "=CMD()"
+ * would otherwise reach the sheet as a formula. Text that starts like one is
+ * prefixed with an apostrophe, which every spreadsheet reads as "this is
+ * text" and hides. Numbers are never prefixed: a negative delta must stay a
+ * number.
  */
 function spreadsheetCell(value, decimal = '.') {
   if (value == null) return '';
@@ -40,7 +52,8 @@ function spreadsheetCell(value, decimal = '.') {
     const text = String(value);
     return decimal === ',' ? text.replace('.', ',') : text;
   }
-  return String(value);
+  const text = String(value);
+  return FORMULA_LEAD.test(text) ? `'${text}` : text;
 }
 
 /**

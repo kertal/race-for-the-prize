@@ -71,6 +71,37 @@ describe('spreadsheetCell', () => {
     expect(spreadsheetCell(3, ',')).toBe('3');
     expect(spreadsheetCell('v1.2', ',')).toBe('v1.2');
   });
+
+  it('defuses text a spreadsheet would run as a formula, and leaves numbers alone', () => {
+    // Labels come from race files and spec code; a sheet must show them, not evaluate them.
+    expect(spreadsheetCell('=CMD("calc")')).toBe("'=CMD(\"calc\")");
+    expect(spreadsheetCell('+1+1')).toBe("'+1+1");
+    expect(spreadsheetCell('-fast')).toBe("'-fast");
+    expect(spreadsheetCell('@SUM(A1)')).toBe("'@SUM(A1)");
+    expect(spreadsheetCell('\t=1')).toBe("'\t=1");
+    // A negative number is a value, not a formula.
+    expect(spreadsheetCell(-2.5)).toBe('-2.5');
+    expect(spreadsheetCell('Load')).toBe('Load');
+    expect(spreadsheetCell('a=b')).toBe('a=b');
+  });
+});
+
+describe('formula neutralization reaches both outputs', () => {
+  const hostile = {
+    headers: ['Section', 'Measurement', 'Unit'],
+    racers: ['=HYPERLINK("http://x")', 'hunt'],
+    groups: [{ id: 'results', title: 'Race Results', rows: [{ cells: ['-1+1'], unit: 's', values: [-1, 2] }] }],
+  };
+
+  it('in TSV', () => {
+    const tsv = spreadsheetTsv(spreadsheetTable(hostile));
+    expect(tsv).toBe('Section\tMeasurement\tUnit\t\'=HYPERLINK("http://x")\thunt\nRace Results\t\'-1+1\ts\t-1\t2');
+  });
+
+  it('in CSV, inside the quoting', () => {
+    const csv = spreadsheetCsv(spreadsheetTable(hostile));
+    expect(csv).toBe('Section,Measurement,Unit,"\'=HYPERLINK(""http://x"")",hunt\r\nRace Results,\'-1+1,s,-1,2\r\n');
+  });
 });
 
 describe('spreadsheetTsv', () => {
