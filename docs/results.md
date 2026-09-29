@@ -66,7 +66,11 @@ the colour it wears on the page, and every row ends with three verdict columns:
 the report prints beside a winner). A row with fewer than two values has nobody
 to beat and leaves all three empty.
 
-Tick the tables you want, then either **Copy for spreadsheet** (tab-separated
+Tick the tables you want — or, for a finer cut, use the checkbox on each row of
+the preview to include or leave out single measurements; a table's checkbox
+shows a mixed state while only some of its rows are in, and a row that is left
+out stays in the preview, struck through, so it can be brought back. Then
+either **Copy for spreadsheet** (tab-separated
 text — click a cell in Excel, Google Sheets or Numbers and paste),
 **Download CSV**, or **Copy as Markdown** (a GitHub-flavored table, ready to
 paste into an issue, a pull request or a README, with the racer columns
@@ -85,9 +89,9 @@ empty cell, never a dash or a zero. A label that starts like a formula (`=`,
 "plain text" and hide, so a section name can never run as one. Tick **Decimal comma** if your spreadsheet
 speaks a comma-decimal locale — the copy switches `1.234` to `1,234` and the CSV
 to semicolons, so nothing lands as text or a date. The preview table under the
-controls shows exactly what will be copied; without JavaScript it still shows
-every table, and selecting it and copying by hand pastes into a sheet as cells
-too. Exported HTML and ZIP bundles keep the section, working, since the data
+controls shows exactly what will be copied, minus the struck-through rows;
+without JavaScript it still shows every table, and selecting it and copying by
+hand pastes into a sheet as cells too. Exported HTML and ZIP bundles keep the section, working, since the data
 travels inside the page.
 
 Disclaimer: Due to the nature of the way the video is transformed, the aim here is not accuracy, it's to showcase, to visualize performance. To compare between different network and browser settings.

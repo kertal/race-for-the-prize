@@ -265,15 +265,20 @@ export function buildSpreadsheetPanelHtml(model, options = {}) {
   const { header } = spreadsheet.spreadsheetTable(model, []);
   const racerStart = model.headers.length;
   const racerEnd = racerStart + model.racers.length;
-  const headerCells = header.map((label, i) => (i >= racerStart && i < racerEnd
+  const headerCells = fill('spreadsheet-pick-header') + header.map((label, i) => (i >= racerStart && i < racerEnd
     ? fill('spreadsheet-racer-cell', { color: RACER_CSS_COLORS[(i - racerStart) % RACER_CSS_COLORS.length], name: escHtml(label) })
     : fill('spreadsheet-header-cell', { label: escHtml(label) })
   )).join('');
 
+  // Each row leads with its own include checkbox, keyed so the runtime can
+  // map it back to the model row it stands for.
   const rows = model.groups.flatMap(group =>
-    spreadsheet.spreadsheetTable(model, [group.id]).rows.map(cells => fill('spreadsheet-row', {
+    spreadsheet.spreadsheetTable(model, [group.id]).rows.map((cells, index) => fill('spreadsheet-row', {
       group: escHtml(group.id),
-      cells: cells.map(cellHtml).join(''),
+      cells: fill('spreadsheet-pick', {
+        key: escHtml(spreadsheet.spreadsheetRowKey(group.id, index)),
+        label: escHtml(`${group.title}: ${group.rows[index].cells.join(' ')}`),
+      }) + cells.map(cellHtml).join(''),
     }))).join('\n');
 
   return fill('spreadsheet-panel', {

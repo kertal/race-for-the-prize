@@ -10,6 +10,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const {
   spreadsheetTable,
+  spreadsheetRowKey,
   rowVerdict,
   spreadsheetCell,
   spreadsheetTsv,
@@ -79,6 +80,14 @@ describe('spreadsheetTable', () => {
   it('keeps only the selected groups, in model order', () => {
     expect(spreadsheetTable(model, ['profile.measured']).rows).toEqual([BYTES_ROW]);
     expect(spreadsheetTable(model, []).rows).toEqual([]);
+  });
+
+  it('keeps single rows by key, mixed with whole groups, in model order', () => {
+    expect(spreadsheetRowKey('results', 1)).toBe('results#1');
+    // The second results row alone, plus the whole profile group.
+    expect(spreadsheetTable(model, ['results#1', 'profile.measured']).rows).toEqual([LOAD_ROW, BYTES_ROW]);
+    // A key that names no row selects nothing.
+    expect(spreadsheetTable(model, ['results#7', 'nope#0']).rows).toEqual([]);
   });
 
   it('heads the racer columns with the bare names when a model carries no labels', () => {

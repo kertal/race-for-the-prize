@@ -6,6 +6,7 @@
 <template id="build-spreadsheet-panel">
 <div class="spreadsheet" id="spreadsheetPanel">
   <p class="spreadsheet-note">{{note}}</p>
+  <p class="spreadsheet-hint">Tick a table to take all of it, or use the checkbox on each row of the preview to include or leave out single measurements.</p>
   <div class="spreadsheet-groups">
 {{groups}}
   </div>
@@ -31,6 +32,11 @@
 </div></template>
 
 <template id="build-spreadsheet-group">    <label class="spreadsheet-group"><input type="checkbox" value="{{id}}" checked> {{title}}</label></template>
+
+<!-- The include column: one checkbox per row, headed by a label only screen
+     readers see. The table checkboxes above tick and untick these in bulk. -->
+<template id="build-spreadsheet-pick-header"><th scope="col" class="spreadsheet-pick"><span class="sr-only">Include</span></th></template>
+<template id="build-spreadsheet-pick"><td class="spreadsheet-pick"><input type="checkbox" data-row="{{key}}" checked aria-label="Include {{label}}"></td></template>
 
 <template id="build-spreadsheet-header-cell"><th scope="col">{{label}}</th></template>
 <!-- Racer columns carry the racer's colour the same way every other table does. -->

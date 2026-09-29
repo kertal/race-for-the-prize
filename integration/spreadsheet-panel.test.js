@@ -91,7 +91,7 @@ async function openPanel(url) {
   await page.$eval('#spreadsheetPanel', el => { el.closest('details').open = true; });
   const copied = () => page.evaluate(() => window.__copied);
   const status = () => page.textContent('#spreadsheetStatus');
-  const visibleRows = () => page.$$eval('#spreadsheetPanel tbody tr', trs => trs.filter(tr => !tr.hidden).length);
+  const visibleRows = () => page.$$eval('#spreadsheetPanel tbody tr', trs => trs.filter(tr => !tr.classList.contains('spreadsheet-excluded')).length);
   return { context, page, errors, copied, status, visibleRows };
 }
 
@@ -129,7 +129,7 @@ describeMaybe('spreadsheet export panel integration', () => {
       expect(await panel.status()).toBe(`${total} rows selected.`);
     });
 
-    it('hides the rows of unticked groups and copies only the ticked ones as TSV', async () => {
+    it('strikes out the rows of unticked groups and copies only the ticked ones as TSV', async () => {
       const boxes = await panel.page.$$('#spreadsheetPanel .spreadsheet-group input');
       for (const box of boxes.slice(1)) await box.uncheck();
       expect(await panel.visibleRows()).toBe(3);
@@ -144,6 +144,25 @@ describeMaybe('spreadsheet export panel integration', () => {
         + 'Race Results (median of 2 runs)\tRender\ts\t0.5\t0.7\t🔴 lauda\t0.2\t28.6'
       );
       expect(await panel.status()).toBe('Copied 3 rows — paste into a sheet.');
+    });
+
+    it('leaves out a single measurement by its own checkbox, and shows the group as mixed', async () => {
+      // The results group is the only one ticked; drop its middle row (Load).
+      await panel.page.uncheck('#spreadsheetPanel input[data-row="results#1"]');
+      expect(await panel.visibleRows()).toBe(2);
+      expect(await panel.status()).toBe('2 rows selected.');
+      const group = await panel.page.$eval('#spreadsheetPanel .spreadsheet-group input[value="results"]', box => ({ checked: box.checked, indeterminate: box.indeterminate }));
+      expect(group).toEqual({ checked: false, indeterminate: true });
+      await panel.page.evaluate(() => { window.__copied = null; });
+      await panel.page.click('#spreadsheetCopy');
+      await panel.page.waitForFunction(() => window.__copied !== null);
+      const lines = (await panel.copied()).split('\n');
+      expect(lines).toHaveLength(3);
+      expect(lines.some(line => line.includes('\tLoad\t'))).toBe(false);
+      // Ticking the group again brings the row back and clears the mixed state.
+      await panel.page.check('#spreadsheetPanel .spreadsheet-group input[value="results"]');
+      expect(await panel.visibleRows()).toBe(3);
+      expect(await panel.page.$eval('#spreadsheetPanel .spreadsheet-group input[value="results"]', box => box.indeterminate)).toBe(false);
     });
 
     it('copies the same selection as a GitHub Markdown table', async () => {
@@ -175,7 +194,7 @@ describeMaybe('spreadsheet export panel integration', () => {
       expect(await panel.visibleRows()).toBe(0);
       await panel.page.evaluate(() => { window.__copied = null; });
       await panel.page.click('#spreadsheetCopy');
-      expect(await panel.status()).toBe('Nothing selected — tick at least one table.');
+      expect(await panel.status()).toBe('Nothing selected — tick at least one row.');
       expect(await panel.copied()).toBeNull();
 
       await panel.page.click('[data-spreadsheet-select="all"]');

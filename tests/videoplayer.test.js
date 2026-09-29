@@ -1810,7 +1810,7 @@ describe('buildPlayerHtml run-by-run comparison', () => {
     expect(html).toContain('<input type="checkbox" value="results" checked> Race Results (median of 2 runs)');
     expect(html).toContain('<input type="checkbox" value="runs:section:Load" checked> Run-by-Run: Load');
     expect(html).toContain('<input type="checkbox" value="runs:profile:measured.scriptDuration" checked> Run-by-Run: Script Execution (Race)');
-    expect(html).toContain('<tr data-group="runs:section:Load"><td>Run-by-Run: Load</td><td>Run 2</td><td>s</td><td class="spreadsheet-num" data-value="2">2</td><td class="spreadsheet-num" data-value="4">4</td><td>🔴 lauda</td><td class="spreadsheet-num" data-value="2">2</td><td class="spreadsheet-num" data-value="50">50</td></tr>');
+    expect(html).toContain('<tr data-group="runs:section:Load"><td class="spreadsheet-pick"><input type="checkbox" data-row="runs:section:Load#1" checked aria-label="Include Run-by-Run: Load: Run 2"></td><td>Run-by-Run: Load</td><td>Run 2</td><td>s</td><td class="spreadsheet-num" data-value="2">2</td><td class="spreadsheet-num" data-value="4">4</td><td>🔴 lauda</td><td class="spreadsheet-num" data-value="2">2</td><td class="spreadsheet-num" data-value="50">50</td></tr>');
     expect(html).toContain('<td>Median</td><td>s</td><td class="spreadsheet-num" data-value="1.5">1.5</td>');
   });
 });
@@ -1831,7 +1831,7 @@ describe('buildPlayerHtml spreadsheet export', () => {
   it('previews the numbers as plain values with the unit in its own column', () => {
     expect(defaultHtml).toContain('<th scope="col">Section</th><th scope="col">Measurement</th><th scope="col">Unit</th>');
     expect(defaultHtml).toContain('<th scope="col" style="--racer-color:#e74c3c">🔴 lauda</th>');
-    expect(defaultHtml).toContain('<tr data-group="results"><td>Race Results</td><td>Load</td><td>s</td><td class="spreadsheet-num" data-value="1">1</td><td class="spreadsheet-num" data-value="2">2</td><td>🔴 lauda</td><td class="spreadsheet-num" data-value="1">1</td><td class="spreadsheet-num" data-value="50">50</td></tr>');
+    expect(defaultHtml).toContain('<tr data-group="results"><td class="spreadsheet-pick"><input type="checkbox" data-row="results#0" checked aria-label="Include Race Results: Load"></td><td>Race Results</td><td>Load</td><td>s</td><td class="spreadsheet-num" data-value="1">1</td><td class="spreadsheet-num" data-value="2">2</td><td>🔴 lauda</td><td class="spreadsheet-num" data-value="1">1</td><td class="spreadsheet-num" data-value="50">50</td></tr>');
   });
 
   it('carries the export model as JSON and the runtime that reads it', () => {

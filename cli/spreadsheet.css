@@ -14,6 +14,12 @@
   color: var(--text-dim);
   font-size: var(--font-size-base);
   line-height: var(--leading-loose);
+  margin: 0 0 0.4rem;
+}
+.spreadsheet-hint {
+  color: var(--text-faint);
+  font-size: var(--font-size-sm);
+  line-height: var(--leading-loose);
   margin: 0 0 0.8rem;
 }
 
@@ -142,6 +148,15 @@
 .spreadsheet-table tbody td { color: var(--text-muted); }
 .spreadsheet-table tbody tr:last-child td { border-bottom: none; }
 .spreadsheet-table .spreadsheet-num { text-align: right; }
+/* The include column: a narrow checkbox cell that never wraps. */
+.spreadsheet-table .spreadsheet-pick { width: 1%; padding-right: 0.2rem; }
+.spreadsheet-table .spreadsheet-pick input { accent-color: var(--accent); margin: 0; vertical-align: middle; }
+/* A row that is left out stays in the preview so it can be brought back,
+   but reads as struck out rather than as part of the export. */
+.spreadsheet-table tbody tr.spreadsheet-excluded td:not(.spreadsheet-pick) {
+  color: var(--text-ghost);
+  text-decoration: line-through;
+}
 
 /* The clipboard fallback types into an off-screen textarea; the player has
    this utility already, the overview page does not. */

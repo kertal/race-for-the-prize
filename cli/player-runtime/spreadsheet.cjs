@@ -38,7 +38,15 @@ function rowVerdict(values, racerLabels) {
 }
 
 /**
- * Flatten the selected groups of a model into one table.
+ * The key of one row: its group's id and its position in the group. A
+ * selection names rows by these, or whole groups by their id.
+ */
+function spreadsheetRowKey(groupId, index) {
+  return `${groupId}#${index}`;
+}
+
+/**
+ * Flatten the selected rows of a model into one table.
  * Every row is `[group title, ...row cells, unit, ...one value per racer,
  * winner, delta to 2nd, delta %]`, so a reader can filter by the first column
  * once it is in a sheet and sort by the last ones. Racer columns are headed
@@ -46,20 +54,21 @@ function rowVerdict(values, racerLabels) {
  * them, else by the bare names.
  *
  * @param {{headers: string[], racers: string[], racerLabels?: string[], groups: Array<{id, title, rows}>}} model
- * @param {string[]|null} [selectedIds] - group ids to keep; null keeps every group
+ * @param {string[]|null} [selected] - what to keep: group ids (every row of
+ *   the group) and/or row keys (see spreadsheetRowKey); null keeps everything
  * @returns {{header: string[], rows: Array<Array<string|number|null>>}}
  */
-function spreadsheetTable(model, selectedIds = null) {
-  const wanted = selectedIds ? new Set(selectedIds) : null;
+function spreadsheetTable(model, selected = null) {
+  const wanted = selected ? new Set(selected) : null;
   const racerLabels = model.racerLabels || model.racers || [];
   const header = [...(model.headers || []), ...racerLabels, ...VERDICT_HEADERS];
   const rows = [];
   for (const group of model.groups || []) {
-    if (wanted && !wanted.has(group.id)) continue;
-    for (const row of group.rows || []) {
+    (group.rows || []).forEach((row, index) => {
+      if (wanted && !wanted.has(group.id) && !wanted.has(spreadsheetRowKey(group.id, index))) return;
       const values = row.values || [];
       rows.push([group.title, ...(row.cells || []), row.unit ?? '', ...values, ...rowVerdict(values, racerLabels)]);
-    }
+    });
   }
   return { header, rows };
 }
@@ -150,5 +159,5 @@ function spreadsheetFileName(title) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { spreadsheetTable, rowVerdict, spreadsheetCell, spreadsheetText, spreadsheetTsv, spreadsheetCsv, spreadsheetMarkdown, spreadsheetFileName };
+  module.exports = { spreadsheetTable, spreadsheetRowKey, rowVerdict, spreadsheetCell, spreadsheetText, spreadsheetTsv, spreadsheetCsv, spreadsheetMarkdown, spreadsheetFileName };
 }
