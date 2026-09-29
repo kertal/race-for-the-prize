@@ -6,23 +6,59 @@
  * pastes or opens: tab-separated for the clipboard, CSV for a download.
  * Values stay plain numbers; the unit rides in its own column. */
 
+/** The verdict columns every row ends with. */
+const VERDICT_HEADERS = ['Winner', 'Delta to 2nd', 'Delta %'];
+const TIE_LABEL = '\u{1F91D} Tie';
+
+/** Round to a fixed number of decimals, without float noise in the result. */
+function roundTo(value, decimals) {
+  const factor = 10 ** decimals;
+  return Math.round(value * factor) / factor;
+}
+
+/**
+ * Who won a row and by how much: the racer with the lowest value (every
+ * metric here is lower-is-better), the gap between it and the runner-up in
+ * the row's unit, and that gap as a percentage of the runner-up — the same
+ * "60% ahead" the reports print beside a winner. Two racers sharing the
+ * lowest value are a tie with no lead; fewer than two values leave all three
+ * cells empty, there being nobody to beat.
+ */
+function rowVerdict(values, racerLabels) {
+  const present = values
+    .map((value, i) => (typeof value === 'number' && Number.isFinite(value) ? { value, i } : null))
+    .filter(Boolean)
+    .sort((a, b) => a.value - b.value);
+  if (present.length < 2) return [null, null, null];
+  const [best, second] = present;
+  if (best.value === second.value) return [TIE_LABEL, 0, 0];
+  const delta = roundTo(second.value - best.value, 6);
+  const percent = second.value > 0 ? roundTo((delta / second.value) * 100, 1) : null;
+  return [racerLabels[best.i], delta, percent];
+}
+
 /**
  * Flatten the selected groups of a model into one table.
- * Every row is `[group title, ...row cells, unit, ...one value per racer]`, so
- * a reader can filter by the first column once it is in a sheet.
+ * Every row is `[group title, ...row cells, unit, ...one value per racer,
+ * winner, delta to 2nd, delta %]`, so a reader can filter by the first column
+ * once it is in a sheet and sort by the last ones. Racer columns are headed
+ * by the model's `racerLabels` (the name with its colour dot) when it has
+ * them, else by the bare names.
  *
- * @param {{headers: string[], racers: string[], groups: Array<{id, title, rows}>}} model
+ * @param {{headers: string[], racers: string[], racerLabels?: string[], groups: Array<{id, title, rows}>}} model
  * @param {string[]|null} [selectedIds] - group ids to keep; null keeps every group
  * @returns {{header: string[], rows: Array<Array<string|number|null>>}}
  */
 function spreadsheetTable(model, selectedIds = null) {
   const wanted = selectedIds ? new Set(selectedIds) : null;
-  const header = [...(model.headers || []), ...(model.racers || [])];
+  const racerLabels = model.racerLabels || model.racers || [];
+  const header = [...(model.headers || []), ...racerLabels, ...VERDICT_HEADERS];
   const rows = [];
   for (const group of model.groups || []) {
     if (wanted && !wanted.has(group.id)) continue;
     for (const row of group.rows || []) {
-      rows.push([group.title, ...(row.cells || []), row.unit ?? '', ...(row.values || [])]);
+      const values = row.values || [];
+      rows.push([group.title, ...(row.cells || []), row.unit ?? '', ...values, ...rowVerdict(values, racerLabels)]);
     }
   }
   return { header, rows };
@@ -114,5 +150,5 @@ function spreadsheetFileName(title) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { spreadsheetTable, spreadsheetCell, spreadsheetText, spreadsheetTsv, spreadsheetCsv, spreadsheetMarkdown, spreadsheetFileName };
+  module.exports = { spreadsheetTable, rowVerdict, spreadsheetCell, spreadsheetText, spreadsheetTsv, spreadsheetCsv, spreadsheetMarkdown, spreadsheetFileName };
 }

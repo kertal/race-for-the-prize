@@ -23,7 +23,8 @@ import { fileURLToPath } from 'node:url';
 import { loadTemplates, escHtml } from './html-templates.js';
 import { PROFILE_METRICS } from './profile-analysis.js';
 import { sortComparisonsForDisplay, buildRunComparisonModel } from './report-model.js';
-import { RACER_CSS_COLORS } from './player-sections.js';
+import { RACER_CSS_COLORS, RACER_EMOJI } from './player-sections.js';
+import spreadsheet from './player-runtime/spreadsheet.cjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -62,6 +63,15 @@ function num(value) {
 /** The unit a PROFILE_METRICS key measures in, or '' for an unknown key. */
 function unitOf(key) {
   return PROFILE_METRICS[key]?.unit || '';
+}
+
+/**
+ * Each racer's name behind its colour dot — "🔴 lauda" — which is how the
+ * racer columns are headed and how the winner column names a racer, so the
+ * colour a racer wears on the page survives into a sheet that has none.
+ */
+function racerLabelsFor(racers) {
+  return racers.map((name, i) => `${RACER_EMOJI[i % RACER_EMOJI.length]} ${name}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +179,7 @@ function runByRunGroups(summary, racers, runSummaries) {
  * @param {object} summary - the race summary (a median summary on a multi-run page)
  * @param {object} [options]
  * @param {object[]} [options.runSummaries] - per-run summaries of a multi-run race
- * @returns {{headers: string[], racers: string[], groups: object[]}}
+ * @returns {{headers: string[], racers: string[], racerLabels: string[], groups: object[]}}
  */
 export function buildSpreadsheetModel(summary, options = {}) {
   const racers = summary.racers || [];
@@ -179,7 +189,7 @@ export function buildSpreadsheetModel(summary, options = {}) {
     ...sectionProfileGroups(summary, racers),
     ...runByRunGroups(summary, racers, options.runSummaries),
   ].filter(Boolean);
-  return { headers: ['Section', 'Measurement', 'Unit'], racers, groups };
+  return { headers: ['Section', 'Measurement', 'Unit'], racers, racerLabels: racerLabelsFor(racers), groups };
 }
 
 // ---------------------------------------------------------------------------
@@ -209,7 +219,7 @@ export function buildConditionSpreadsheetModel(matrix) {
       };
     }),
   }));
-  return { headers: ['Metric', 'Condition', 'Network', 'CPU', 'Unit'], racers, groups };
+  return { headers: ['Metric', 'Condition', 'Network', 'CPU', 'Unit'], racers, racerLabels: racerLabelsFor(racers), groups };
 }
 
 // ---------------------------------------------------------------------------
@@ -249,18 +259,22 @@ export function buildSpreadsheetPanelHtml(model, options = {}) {
     .map(group => fill('spreadsheet-group', { id: escHtml(group.id), title: escHtml(group.title) }))
     .join('\n');
 
-  const headerCells = [
-    ...model.headers.map(label => fill('spreadsheet-header-cell', { label: escHtml(label) })),
-    ...model.racers.map((name, i) => fill('spreadsheet-racer-cell', {
-      color: RACER_CSS_COLORS[i % RACER_CSS_COLORS.length],
-      name: escHtml(name),
-    })),
-  ].join('');
+  // The preview shows exactly the table the copy and download produce, so it
+  // is built by the same flattening: the shared core, one group at a time so
+  // each row can carry its group id. Only the racer columns are styled.
+  const { header } = spreadsheet.spreadsheetTable(model, []);
+  const racerStart = model.headers.length;
+  const racerEnd = racerStart + model.racers.length;
+  const headerCells = header.map((label, i) => (i >= racerStart && i < racerEnd
+    ? fill('spreadsheet-racer-cell', { color: RACER_CSS_COLORS[(i - racerStart) % RACER_CSS_COLORS.length], name: escHtml(label) })
+    : fill('spreadsheet-header-cell', { label: escHtml(label) })
+  )).join('');
 
-  const rows = model.groups.flatMap(group => group.rows.map(row => fill('spreadsheet-row', {
-    group: escHtml(group.id),
-    cells: [group.title, ...row.cells, row.unit ?? '', ...row.values].map(cellHtml).join(''),
-  }))).join('\n');
+  const rows = model.groups.flatMap(group =>
+    spreadsheet.spreadsheetTable(model, [group.id]).rows.map(cells => fill('spreadsheet-row', {
+      group: escHtml(group.id),
+      cells: cells.map(cellHtml).join(''),
+    }))).join('\n');
 
   return fill('spreadsheet-panel', {
     note: escHtml(options.note || NOTE),

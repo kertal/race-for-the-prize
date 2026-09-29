@@ -57,7 +57,14 @@ The moment a racer's own finish frame plays, a placement badge appears under its
 Every report carries a collapsed **Spreadsheet Export** section — in the results
 player and, for a multi-condition race, in the performance matrix above it —
 that hands the numbers over the way a spreadsheet wants them: plain values, the
-unit in its own column, one column per racer, one row per measurement.
+unit in its own column, one column per racer, one row per measurement. Each
+racer column is headed by the name behind its colour dot (`🔴 lauda`, `🔵 hunt`),
+the colour it wears on the page, and every row ends with three verdict columns:
+**Winner** (the racer with the lowest value in that row, or `🤝 Tie`),
+**Delta to 2nd** (the winner's lead over the runner-up, in the row's unit) and
+**Delta %** (that lead as a percentage of the runner-up — the same "60% ahead"
+the report prints beside a winner). A row with fewer than two values has nobody
+to beat and leaves all three empty.
 
 Tick the tables you want, then either **Copy for spreadsheet** (tab-separated
 text — click a cell in Excel, Google Sheets or Numbers and paste),

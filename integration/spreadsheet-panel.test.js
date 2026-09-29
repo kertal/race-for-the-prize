@@ -138,10 +138,10 @@ describeMaybe('spreadsheet export panel integration', () => {
       await panel.page.click('#spreadsheetCopy');
       await panel.page.waitForFunction(() => window.__copied !== null);
       expect(await panel.copied()).toBe(
-        'Section\tMeasurement\tUnit\tlauda\thunt\n'
-        + 'Race Results (median of 2 runs)\tRace\ts\t1.5\t3.7\n'
-        + 'Race Results (median of 2 runs)\tLoad\ts\t1\t3\n'
-        + 'Race Results (median of 2 runs)\tRender\ts\t0.5\t0.7'
+        'Section\tMeasurement\tUnit\t🔴 lauda\t🔵 hunt\tWinner\tDelta to 2nd\tDelta %\n'
+        + 'Race Results (median of 2 runs)\tRace\ts\t1.5\t3.7\t🔴 lauda\t2.2\t59.5\n'
+        + 'Race Results (median of 2 runs)\tLoad\ts\t1\t3\t🔴 lauda\t2\t66.7\n'
+        + 'Race Results (median of 2 runs)\tRender\ts\t0.5\t0.7\t🔴 lauda\t0.2\t28.6'
       );
       expect(await panel.status()).toBe('Copied 3 rows — paste into a sheet.');
     });
@@ -151,11 +151,11 @@ describeMaybe('spreadsheet export panel integration', () => {
       await panel.page.click('#spreadsheetMarkdown');
       await panel.page.waitForFunction(() => window.__copied !== null);
       expect(await panel.copied()).toBe(
-        '| Section | Measurement | Unit | lauda | hunt |\n'
-        + '| --- | --- | --- | ---: | ---: |\n'
-        + '| Race Results (median of 2 runs) | Race | s | 1.5 | 3.7 |\n'
-        + '| Race Results (median of 2 runs) | Load | s | 1 | 3 |\n'
-        + '| Race Results (median of 2 runs) | Render | s | 0.5 | 0.7 |'
+        '| Section | Measurement | Unit | 🔴 lauda | 🔵 hunt | Winner | Delta to 2nd | Delta % |\n'
+        + '| --- | --- | --- | ---: | ---: | --- | ---: | ---: |\n'
+        + '| Race Results (median of 2 runs) | Race | s | 1.5 | 3.7 | 🔴 lauda | 2.2 | 59.5 |\n'
+        + '| Race Results (median of 2 runs) | Load | s | 1 | 3 | 🔴 lauda | 2 | 66.7 |\n'
+        + '| Race Results (median of 2 runs) | Render | s | 0.5 | 0.7 | 🔴 lauda | 0.2 | 28.6 |'
       );
       expect(await panel.status()).toBe('Copied 3 rows as Markdown — paste into a GitHub issue, pull request or README.');
     });
@@ -166,7 +166,7 @@ describeMaybe('spreadsheet export panel integration', () => {
       expect(first).toBe('1,5');
       await panel.page.click('#spreadsheetCopy');
       await panel.page.waitForFunction(() => window.__copied && window.__copied.includes('1,5'));
-      expect((await panel.copied()).split('\n')[1]).toBe('Race Results (median of 2 runs)\tRace\ts\t1,5\t3,7');
+      expect((await panel.copied()).split('\n')[1]).toBe('Race Results (median of 2 runs)\tRace\ts\t1,5\t3,7\t🔴 lauda\t2,2\t59,5');
       await panel.page.uncheck('#spreadsheetDecimalComma');
     });
 
@@ -194,8 +194,8 @@ describeMaybe('spreadsheet export panel integration', () => {
       const csv = fs.readFileSync(await download.path(), 'utf-8');
       expect(csv.startsWith('﻿')).toBe(true);
       expect(csv.slice(1).split('\r\n').slice(0, 2)).toEqual([
-        'Section,Measurement,Unit,lauda,hunt',
-        'Race Results (median of 2 runs),Race,s,1.5,3.7',
+        'Section,Measurement,Unit,🔴 lauda,🔵 hunt,Winner,Delta to 2nd,Delta %',
+        'Race Results (median of 2 runs),Race,s,1.5,3.7,🔴 lauda,2.2,59.5',
       ]);
       expect(await panel.status()).toBe('Downloaded race_lauda_vs_hunt.csv (3 rows).');
     });
@@ -218,7 +218,7 @@ describeMaybe('spreadsheet export panel integration', () => {
       await page.$eval('#spreadsheetPanel', el => { el.closest('details').open = true; });
       await page.click('#spreadsheetCopy');
       await page.waitForFunction(() => window.__execCopied !== null);
-      expect(await page.evaluate(() => window.__execCopied)).toContain('Section\tMeasurement\tUnit\tlauda\thunt\n');
+      expect(await page.evaluate(() => window.__execCopied)).toContain('Section\tMeasurement\tUnit\t🔴 lauda\t🔵 hunt\tWinner\tDelta to 2nd\tDelta %\n');
       expect(await page.textContent('#spreadsheetStatus')).toMatch(/^Copied \d+ rows/);
       // The scratch textarea is gone again.
       expect(await page.$('#spreadsheetPanel textarea')).toBeNull();
@@ -256,11 +256,11 @@ describeMaybe('spreadsheet export panel integration', () => {
       await panel.page.click('#spreadsheetCopy');
       await panel.page.waitForFunction(() => window.__copied !== null);
       expect((await panel.copied()).split('\n')).toEqual([
-        'Metric\tCondition\tNetwork\tCPU\tUnit\tlauda\thunt',
-        'Total Time\tNetwork: none · CPU: 1x\tnone\t1\ts\t1\t2',
-        'Total Time\tNetwork: none · CPU: 4x\tnone\t4\ts\t4\t8',
-        'Total Time\tNetwork: slow-3g · CPU: 1x\tslow-3g\t1\ts\t1\t2',
-        'Total Time\tNetwork: slow-3g · CPU: 4x\tslow-3g\t4\ts\t4\t8',
+        'Metric\tCondition\tNetwork\tCPU\tUnit\t🔴 lauda\t🔵 hunt\tWinner\tDelta to 2nd\tDelta %',
+        'Total Time\tNetwork: none · CPU: 1x\tnone\t1\ts\t1\t2\t🔴 lauda\t1\t50',
+        'Total Time\tNetwork: none · CPU: 4x\tnone\t4\ts\t4\t8\t🔴 lauda\t4\t50',
+        'Total Time\tNetwork: slow-3g · CPU: 1x\tslow-3g\t1\ts\t1\t2\t🔴 lauda\t1\t50',
+        'Total Time\tNetwork: slow-3g · CPU: 4x\tslow-3g\t4\ts\t4\t8\t🔴 lauda\t4\t50',
       ]);
 
       const [download] = await Promise.all([

@@ -1,7 +1,8 @@
 /**
  * Behavioral tests for the pure spreadsheet-export logic the report pages
  * carry (cli/player-runtime/spreadsheet.cjs): flattening the ticked groups of
- * an export model into one table, and serializing it as TSV or CSV.
+ * an export model into one table — racer values plus the verdict columns —
+ * and serializing it as TSV, CSV or a Markdown table.
  */
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
@@ -9,6 +10,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const {
   spreadsheetTable,
+  rowVerdict,
   spreadsheetCell,
   spreadsheetTsv,
   spreadsheetCsv,
@@ -19,6 +21,7 @@ const {
 const model = {
   headers: ['Section', 'Measurement', 'Unit'],
   racers: ['lauda', 'hunt'],
+  racerLabels: ['🔴 lauda', '🔵 hunt'],
   groups: [
     { id: 'results', title: 'Race Results', rows: [
       { cells: ['Race'], unit: 's', values: [1.5, 3.7] },
@@ -30,21 +33,58 @@ const model = {
   ],
 };
 
+const HEADER = ['Section', 'Measurement', 'Unit', '🔴 lauda', '🔵 hunt', 'Winner', 'Delta to 2nd', 'Delta %'];
+// 3.7 - 1.5 = 2.2s, which is 59.5% of the runner-up's 3.7s.
+const RACE_ROW = ['Race Results', 'Race', 's', 1.5, 3.7, '🔴 lauda', 2.2, 59.5];
+// One value: nobody to beat, so no verdict.
+const LOAD_ROW = ['Race Results', 'Load', 's', 1, null, null, null, null];
+const BYTES_ROW = ['Performance: Race', 'Network Transfer', 'bytes', 12345, 23456, '🔴 lauda', 11111, 47.4];
+
+describe('rowVerdict', () => {
+  const labels = ['🔴 a', '🔵 b', '🟢 c'];
+
+  it('names the lowest value, its lead over the runner-up, and that lead as a share of the runner-up', () => {
+    // b leads; c is the runner-up, not a: the gap is 2 - 1 = 1, which is 50% of c's 2.
+    expect(rowVerdict([4, 1, 2], labels)).toEqual(['🔵 b', 1, 50]);
+  });
+
+  it('calls a shared lowest value a tie with no lead', () => {
+    expect(rowVerdict([2, 2, 5], labels)).toEqual(['🤝 Tie', 0, 0]);
+    expect(rowVerdict([0, 0], labels)).toEqual(['🤝 Tie', 0, 0]);
+  });
+
+  it('has no verdict for fewer than two values', () => {
+    expect(rowVerdict([2, null, null], labels)).toEqual([null, null, null]);
+    expect(rowVerdict([null, null], labels)).toEqual([null, null, null]);
+    expect(rowVerdict([], labels)).toEqual([null, null, null]);
+  });
+
+  it('rounds the lead to six decimals and the share to one, without float noise', () => {
+    expect(rowVerdict([0.1, 0.3], labels)).toEqual(['🔴 a', 0.2, 66.7]);
+    expect(rowVerdict([1, 3, 2.0000001], labels)).toEqual(['🔴 a', 1, 50]);
+  });
+
+  it('ignores anything that is not a finite number', () => {
+    expect(rowVerdict([3, NaN, 1, 'x'], ['a', 'b', 'c', 'd'])).toEqual(['c', 2, 66.7]);
+  });
+});
+
 describe('spreadsheetTable', () => {
-  it('flattens every group into one table when nothing is selected explicitly', () => {
+  it('flattens every group into one table, each row ending with its verdict', () => {
     const table = spreadsheetTable(model);
-    expect(table.header).toEqual(['Section', 'Measurement', 'Unit', 'lauda', 'hunt']);
-    expect(table.rows).toEqual([
-      ['Race Results', 'Race', 's', 1.5, 3.7],
-      ['Race Results', 'Load', 's', 1, null],
-      ['Performance: Race', 'Network Transfer', 'bytes', 12345, 23456],
-    ]);
+    expect(table.header).toEqual(HEADER);
+    expect(table.rows).toEqual([RACE_ROW, LOAD_ROW, BYTES_ROW]);
   });
 
   it('keeps only the selected groups, in model order', () => {
-    const table = spreadsheetTable(model, ['profile.measured']);
-    expect(table.rows).toEqual([['Performance: Race', 'Network Transfer', 'bytes', 12345, 23456]]);
+    expect(spreadsheetTable(model, ['profile.measured']).rows).toEqual([BYTES_ROW]);
     expect(spreadsheetTable(model, []).rows).toEqual([]);
+  });
+
+  it('heads the racer columns with the bare names when a model carries no labels', () => {
+    const { header, rows } = spreadsheetTable({ ...model, racerLabels: undefined });
+    expect(header).toEqual(['Section', 'Measurement', 'Unit', 'lauda', 'hunt', 'Winner', 'Delta to 2nd', 'Delta %']);
+    expect(rows[0][5]).toBe('lauda');
   });
 
   it('carries extra row cells (the overview has network and CPU columns)', () => {
@@ -53,7 +93,8 @@ describe('spreadsheetTable', () => {
       racers: ['a'],
       groups: [{ id: 'duration', title: 'Total Time', rows: [{ cells: ['slow-3g · CPU 4x', 'slow-3g', 4], unit: 's', values: [2] }] }],
     });
-    expect(table.rows).toEqual([['Total Time', 'slow-3g · CPU 4x', 'slow-3g', 4, 's', 2]]);
+    expect(table.header).toEqual(['Metric', 'Condition', 'Network', 'CPU', 'Unit', 'a', 'Winner', 'Delta to 2nd', 'Delta %']);
+    expect(table.rows).toEqual([['Total Time', 'slow-3g · CPU 4x', 'slow-3g', 4, 's', 2, null, null, null]]);
   });
 });
 
@@ -94,23 +135,29 @@ describe('formula neutralization reaches both outputs', () => {
     groups: [{ id: 'results', title: 'Race Results', rows: [{ cells: ['-1+1'], unit: 's', values: [-1, 2] }] }],
   };
 
-  it('in TSV', () => {
+  it('in TSV, the winner column included', () => {
     const tsv = spreadsheetTsv(spreadsheetTable(hostile));
-    expect(tsv).toBe('Section\tMeasurement\tUnit\t\'=HYPERLINK("http://x")\thunt\nRace Results\t\'-1+1\ts\t-1\t2');
+    expect(tsv).toBe(
+      'Section\tMeasurement\tUnit\t\'=HYPERLINK("http://x")\thunt\tWinner\tDelta to 2nd\tDelta %\n'
+      + 'Race Results\t\'-1+1\ts\t-1\t2\t\'=HYPERLINK("http://x")\t3\t150'
+    );
   });
 
   it('in CSV, inside the quoting', () => {
     const csv = spreadsheetCsv(spreadsheetTable(hostile));
-    expect(csv).toBe('Section,Measurement,Unit,"\'=HYPERLINK(""http://x"")",hunt\r\nRace Results,\'-1+1,s,-1,2\r\n');
+    expect(csv).toBe(
+      'Section,Measurement,Unit,"\'=HYPERLINK(""http://x"")",hunt,Winner,Delta to 2nd,Delta %\r\n'
+      + 'Race Results,\'-1+1,s,-1,2,"\'=HYPERLINK(""http://x"")",3,150\r\n'
+    );
   });
 });
 
 describe('spreadsheetTsv', () => {
   it('joins cells with tabs and rows with newlines, header first', () => {
     expect(spreadsheetTsv(spreadsheetTable(model, ['results']))).toBe(
-      'Section\tMeasurement\tUnit\tlauda\thunt\n'
-      + 'Race Results\tRace\ts\t1.5\t3.7\n'
-      + 'Race Results\tLoad\ts\t1\t'
+      'Section\tMeasurement\tUnit\t🔴 lauda\t🔵 hunt\tWinner\tDelta to 2nd\tDelta %\n'
+      + 'Race Results\tRace\ts\t1.5\t3.7\t🔴 lauda\t2.2\t59.5\n'
+      + 'Race Results\tLoad\ts\t1\t\t\t\t'
     );
   });
 
@@ -119,9 +166,9 @@ describe('spreadsheetTsv', () => {
     expect(spreadsheetTsv(table)).toBe('a\nx y\nline break\nsay "hi"');
   });
 
-  it('applies the decimal comma to every number', () => {
+  it('applies the decimal comma to every number, the verdict columns included', () => {
     const tsv = spreadsheetTsv(spreadsheetTable(model, ['results']), { decimal: ',' });
-    expect(tsv).toContain('\t1,5\t3,7');
+    expect(tsv).toContain('\t1,5\t3,7\t🔴 lauda\t2,2\t59,5');
     expect(tsv).toContain('\t1\t');
   });
 });
@@ -129,9 +176,9 @@ describe('spreadsheetTsv', () => {
 describe('spreadsheetCsv', () => {
   it('uses commas and CRLF, with a trailing line break', () => {
     expect(spreadsheetCsv(spreadsheetTable(model, ['results']))).toBe(
-      'Section,Measurement,Unit,lauda,hunt\r\n'
-      + 'Race Results,Race,s,1.5,3.7\r\n'
-      + 'Race Results,Load,s,1,\r\n'
+      'Section,Measurement,Unit,🔴 lauda,🔵 hunt,Winner,Delta to 2nd,Delta %\r\n'
+      + 'Race Results,Race,s,1.5,3.7,🔴 lauda,2.2,59.5\r\n'
+      + 'Race Results,Load,s,1,,,,\r\n'
     );
   });
 
@@ -148,19 +195,19 @@ describe('spreadsheetCsv', () => {
 
   it('switches to semicolons when the decimal mark is a comma', () => {
     const csv = spreadsheetCsv(spreadsheetTable(model, ['results']), { decimal: ',' });
-    expect(csv.split('\r\n')[1]).toBe('Race Results;Race;s;1,5;3,7');
+    expect(csv.split('\r\n')[1]).toBe('Race Results;Race;s;1,5;3,7;🔴 lauda;2,2;59,5');
     // Now a label with a comma needs no quoting, but one with a semicolon does.
     expect(spreadsheetCsv({ header: ['a'], rows: [['x, y'], ['x; y']] }, { decimal: ',' })).toBe('a\r\nx, y\r\n"x; y"\r\n');
   });
 });
 
 describe('spreadsheetMarkdown', () => {
-  it('writes a GitHub table with the racer columns right-aligned', () => {
+  it('writes a GitHub table with the numeric columns right-aligned', () => {
     expect(spreadsheetMarkdown(spreadsheetTable(model, ['results']))).toBe(
-      '| Section | Measurement | Unit | lauda | hunt |\n'
-      + '| --- | --- | --- | ---: | ---: |\n'
-      + '| Race Results | Race | s | 1.5 | 3.7 |\n'
-      + '| Race Results | Load | s | 1 |  |'
+      '| Section | Measurement | Unit | 🔴 lauda | 🔵 hunt | Winner | Delta to 2nd | Delta % |\n'
+      + '| --- | --- | --- | ---: | ---: | --- | ---: | ---: |\n'
+      + '| Race Results | Race | s | 1.5 | 3.7 | 🔴 lauda | 2.2 | 59.5 |\n'
+      + '| Race Results | Load | s | 1 |  |  |  |  |'
     );
   });
 
@@ -183,7 +230,7 @@ describe('spreadsheetMarkdown', () => {
 
   it('honours the decimal comma', () => {
     const md = spreadsheetMarkdown(spreadsheetTable(model, ['results']), { decimal: ',' });
-    expect(md).toContain('| 1,5 | 3,7 |');
+    expect(md).toContain('| 1,5 | 3,7 | 🔴 lauda | 2,2 | 59,5 |');
   });
 });
 

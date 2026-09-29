@@ -20,6 +20,12 @@ import {
 } from './report-model.js';
 
 export const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f'];
+/**
+ * The same palette as an emoji per racer, for text that carries no CSS — the
+ * spreadsheet export's racer columns. One slot per racer, in RACER_CSS_COLORS
+ * order, so the dot beside a name is the colour the name wears on the page.
+ */
+export const RACER_EMOJI = ['\u{1F534}', '\u{1F535}', '\u{1F7E2}', '\u{1F7E1}'];
 const NON_PREFIX_SECTION_NAMES = new Set(['Race', 'Race (All Sections)']);
 
 let T = {};

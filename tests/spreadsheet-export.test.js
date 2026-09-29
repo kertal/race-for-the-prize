@@ -31,6 +31,8 @@ describe('buildSpreadsheetModel', () => {
     const model = buildSpreadsheetModel(summary());
     expect(model.headers).toEqual(['Section', 'Measurement', 'Unit']);
     expect(model.racers).toEqual(racers);
+    // The name behind its colour dot, in RACER_CSS_COLORS order.
+    expect(model.racerLabels).toEqual(['🔴 lauda', '🔵 hunt']);
   });
 
   it('lists every measurement in display order, total first, as seconds', () => {
@@ -172,6 +174,7 @@ describe('buildConditionSpreadsheetModel', () => {
     const model = buildConditionSpreadsheetModel(matrix);
     expect(model.headers).toEqual(['Metric', 'Condition', 'Network', 'CPU', 'Unit']);
     expect(model.racers).toEqual(racers);
+    expect(model.racerLabels).toEqual(['🔴 lauda', '🔵 hunt']);
   });
 
   it('makes one group per metric with one row per condition, values back in racer order', () => {
@@ -208,17 +211,18 @@ describe('buildSpreadsheetPanelHtml', () => {
   });
 
   it('renders every row up front, tagged with its group, so the page works without JavaScript', () => {
-    expect(html).toContain('<tr data-group="results"><td>Race Results</td><td>Race</td><td>s</td><td class="spreadsheet-num" data-value="1.5">1.5</td><td class="spreadsheet-num" data-value="3.7">3.7</td></tr>');
+    expect(html).toContain('<tr data-group="results"><td>Race Results</td><td>Race</td><td>s</td><td class="spreadsheet-num" data-value="1.5">1.5</td><td class="spreadsheet-num" data-value="3.7">3.7</td><td>🔴 lauda</td><td class="spreadsheet-num" data-value="2.2">2.2</td><td class="spreadsheet-num" data-value="59.5">59.5</td></tr>');
     const rowCount = model.groups.reduce((n, g) => n + g.rows.length, 0);
     expect(html.match(/<tr data-group=/g)).toHaveLength(rowCount);
     // A missing value is an empty cell, not a dash.
     expect(html).toContain('<td>score</td><td class="spreadsheet-num" data-value="0.01">0.01</td><td class="spreadsheet-num"></td>');
   });
 
-  it('heads the racer columns with the racer colour token', () => {
+  it('heads the racer columns with the racer colour token and dot, then the verdict columns', () => {
     expect(html).toContain('<th scope="col">Section</th><th scope="col">Measurement</th><th scope="col">Unit</th>');
-    expect(html).toContain('<th scope="col" style="--racer-color:#e74c3c">lauda</th>');
-    expect(html).toContain('<th scope="col" style="--racer-color:#3498db">hunt</th>');
+    expect(html).toContain('<th scope="col">Winner</th><th scope="col">Delta to 2nd</th><th scope="col">Delta %</th>');
+    expect(html).toContain('<th scope="col" style="--racer-color:#e74c3c">🔴 lauda</th>');
+    expect(html).toContain('<th scope="col" style="--racer-color:#3498db">🔵 hunt</th>');
   });
 
   it('embeds the model as JSON for the runtime, with < escaped', () => {
