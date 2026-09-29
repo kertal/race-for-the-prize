@@ -131,7 +131,7 @@ describe('selectRaceTiming', () => {
 
   it('prefers the trace when it is complete and calibratable', () => {
     expect(selectRaceTiming(calibrated, markerSegments, markerMeasurements))
-      .toEqual({ recordingSegments: traceSegments, measurements: traceMeasurements, usedTraceSegments: true });
+      .toEqual({ recordingSegments: traceSegments, measurements: traceMeasurements, usedTraceSegments: true, measurementsComplete: true });
   });
 
   it('falls back to the markers when the trace has no frames to calibrate against', () => {
@@ -139,7 +139,7 @@ describe('selectRaceTiming', () => {
     // first frame's timestamp their start of 0 would be read as video PTS 0.
     const uncalibrated = { ...calibrated, ptsSegments: [] };
     expect(selectRaceTiming(uncalibrated, markerSegments, markerMeasurements))
-      .toEqual({ recordingSegments: markerSegments, measurements: markerMeasurements, usedTraceSegments: false });
+      .toEqual({ recordingSegments: markerSegments, measurements: markerMeasurements, usedTraceSegments: false, measurementsComplete: true });
   });
 
   it('keeps measurements on the same clock as the segments', () => {
@@ -149,11 +149,11 @@ describe('selectRaceTiming', () => {
     // the incomplete half demotes both.
     const twoMarkers = [...markerMeasurements, { name: 'Render', startTime: 3.5, endTime: 4.0, duration: 0.5 }];
     expect(selectRaceTiming(calibrated, markerSegments, twoMarkers))
-      .toEqual({ recordingSegments: markerSegments, measurements: twoMarkers, usedTraceSegments: false });
+      .toEqual({ recordingSegments: markerSegments, measurements: twoMarkers, usedTraceSegments: false, measurementsComplete: false });
 
     const twoMarkerSegments = [{ start: 1, end: 2 }, { start: 3, end: 4 }];
     expect(selectRaceTiming(calibrated, twoMarkerSegments, markerMeasurements))
-      .toEqual({ recordingSegments: twoMarkerSegments, measurements: markerMeasurements, usedTraceSegments: false });
+      .toEqual({ recordingSegments: twoMarkerSegments, measurements: markerMeasurements, usedTraceSegments: false, measurementsComplete: true });
   });
 
   it('falls back to the markers when a segment has no frames of its own', () => {
@@ -167,7 +167,7 @@ describe('selectRaceTiming', () => {
     const twoMarkerSegments = [{ start: 0.1, end: 0.3 }, ...markerSegments];
     const partial = { ...calibrated, recordingSegments: twoTraceSegments };
     expect(selectRaceTiming(partial, twoMarkerSegments, markerMeasurements))
-      .toEqual({ recordingSegments: twoMarkerSegments, measurements: markerMeasurements, usedTraceSegments: false });
+      .toEqual({ recordingSegments: twoMarkerSegments, measurements: markerMeasurements, usedTraceSegments: false, measurementsComplete: true });
   });
 
   it('falls back to the markers when the trace names different measurements', () => {
@@ -199,12 +199,28 @@ describe('selectRaceTiming', () => {
     // are empty, so nothing went missing.
     const noMeasurements = { ...calibrated, measurements: [] };
     expect(selectRaceTiming(noMeasurements, markerSegments, []))
-      .toEqual({ recordingSegments: traceSegments, measurements: [], usedTraceSegments: true });
+      .toEqual({ recordingSegments: traceSegments, measurements: [], usedTraceSegments: true, measurementsComplete: true });
   });
 
   it('uses the markers when there is no trace at all', () => {
     expect(selectRaceTiming(null, markerSegments, markerMeasurements))
-      .toEqual({ recordingSegments: markerSegments, measurements: markerMeasurements, usedTraceSegments: false });
+      .toEqual({ recordingSegments: markerSegments, measurements: markerMeasurements, usedTraceSegments: false, measurementsComplete: false });
+  });
+
+  it('reports intact measurement marks separately from the video decision', () => {
+    // Frame timing slices the trace's frame timeline by the trace's own marks,
+    // so it needs those marks to name the reported sections and nothing more.
+    // A trace demoted only because it cannot calibrate the video still has
+    // usable marks — gating frame sections on usedTraceSegments would throw
+    // them away for an unrelated reason.
+    const uncalibrated = { ...calibrated, ptsSegments: [] };
+    const out = selectRaceTiming(uncalibrated, markerSegments, markerMeasurements);
+    expect(out.usedTraceSegments).toBe(false);
+    expect(out.measurementsComplete).toBe(true);
+
+    // A lost mark is the case that really does make them unusable.
+    const twoMarkers = [...markerMeasurements, { name: 'Render', startTime: 3.5, endTime: 4.0, duration: 0.5 }];
+    expect(selectRaceTiming(calibrated, markerSegments, twoMarkers).measurementsComplete).toBe(false);
   });
 
   it('reports which clock the segments came from, for the trace-derived rest', () => {

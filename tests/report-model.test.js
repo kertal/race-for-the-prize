@@ -637,3 +637,55 @@ describe('buildRunComparisonModel', () => {
     expect(m.averageRow.cells[0]).toMatchObject({ formatted: '1.500s', isWinner: false, delta: null });
   });
 });
+
+describe('run-by-run profile deltas', () => {
+  const racers = ['a', 'b'];
+
+  // Frame timing over two runs. The value formatter annotates with the frame
+  // rate; the delta formatter must not, or a gap reads "+2.9ms (345fps)".
+  function frameSummaries() {
+    const run = (aMs, bMs) => ({
+      comparisons: [],
+      profileMetrics: [
+        { measured: { medianFrameMs: aMs }, total: {}, measuredSections: {} },
+        { measured: { medianFrameMs: bMs }, total: {}, measuredSections: {} },
+      ],
+    });
+    return [run(16.7, 19.6), run(16.9, 19.8)];
+  }
+
+  function medianFrameRow(model) {
+    const scope = model.profileScopes.find(s => s.scope === 'measured');
+    return scope.metrics.find(m => m.name === 'Median Frame Time');
+  }
+
+  it('annotates the value with a frame rate but never the gap', () => {
+    const summaries = frameSummaries();
+    const model = buildRunComparisonModel(summaries, summaries[0], racers, PROFILE_METRICS);
+    const metric = medianFrameRow(model);
+    expect(metric).toBeTruthy();
+
+    const loser = metric.runRows[0].cells[1];
+    expect(loser.formatted).toBe('19.6ms (51fps)');
+    expect(loser.delta).toBe('2.9ms');
+    expect(loser.delta).not.toContain('fps');
+
+    // The median and average rows go through the same path.
+    expect(medianFrameRow(model).medianRow.cells[1].delta).not.toContain('fps');
+    expect(medianFrameRow(model).averageRow.cells[1].delta).not.toContain('fps');
+    expect(medianFrameRow(model).averageRow.cells[1].formatted).toContain('fps');
+  });
+
+  it('leaves an ordinary metric formatting its delta as before', () => {
+    const summaries = [
+      { comparisons: [], profileMetrics: [
+        { measured: { scriptDuration: 10 }, total: {}, measuredSections: {} },
+        { measured: { scriptDuration: 25 }, total: {}, measuredSections: {} },
+      ] },
+    ];
+    const model = buildRunComparisonModel(summaries, summaries[0], racers, PROFILE_METRICS);
+    const scope = model.profileScopes.find(s => s.scope === 'measured');
+    const metric = scope.metrics.find(m => m.name === 'Script Execution');
+    expect(metric.runRows[0].cells[1]).toMatchObject({ formatted: '25.0ms', delta: '15.0ms' });
+  });
+});

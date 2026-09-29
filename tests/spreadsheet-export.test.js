@@ -246,7 +246,7 @@ describe('buildSpreadsheetPanelHtml', () => {
 describe('shared assets', () => {
   it('every profile metric names the unit the export writes beside its raw value', () => {
     for (const [key, metric] of Object.entries(PROFILE_METRICS)) {
-      expect(metric.unit, key).toMatch(/^(bytes|requests|ms|score)$/);
+      expect(metric.unit, key).toMatch(/^(bytes|requests|ms|score|frames)$/);
     }
     expect(TOTAL_TIME_METRIC.unit).toBe('s');
   });

@@ -168,6 +168,7 @@ ${rule}
   ${c.yellow}--overlay${c.reset}=${c.green}0${c.reset}            Disable overlays in recordings (1=enable, 0=disable)
   ${c.yellow}--recording${c.reset}=${c.green}0${c.reset}          Skip video recording, just measure (1=enable, 0=disable)
   ${c.yellow}--ffmpeg${c.reset}               Enable FFmpeg processing (trim, merge, convert)
+  ${c.yellow}--fps${c.reset}                  Measure frame rate and smoothness (larger traces)
   ${c.yellow}--har${c.reset}                  Record network HAR files alongside videos
   ${c.yellow}--wasm${c.reset}=${c.green}0${c.reset}               Skip copying ffmpeg.wasm files (~25 MB) to results
   ${c.yellow}--height${c.reset}=${c.green}900${c.reset}           Viewport/recording height in pixels (480–4320, default 720)

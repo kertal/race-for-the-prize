@@ -16,7 +16,7 @@ const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'he
 const BOOLEAN_VALUE_FLAGS = new Set([
   'parallel', 'headless', 'overlay', 'recording',
   'ffmpeg', 'har', 'wasm', 'serve', 'pause', 'ignore-https-errors', 'gemini',
-  'cue-markers', 'wall-clock',
+  'cue-markers', 'wall-clock', 'fps',
 ]);
 
 /** Boolean flags the CLI recognises. Unknown flags produce an error. */
@@ -24,7 +24,7 @@ export const KNOWN_BOOL_FLAGS = new Set([
   'parallel', 'headless', 'overlay', 'recording',
   'ffmpeg', 'har', 'wasm', 'serve', 'pause', 'ignore-https-errors',
   'gemini', 'results', 'init', 'verbose', 'help', 'version', 'yes',
-  'cue-markers', 'wall-clock',
+  'cue-markers', 'wall-clock', 'fps',
 ]);
 
 /** Combined set of all valid flag names (bool + kv). */
@@ -52,6 +52,7 @@ export const FLAG_SETTING_KEYS = {
   gemini: 'gemini',
   'cue-markers': 'cueMarkers',
   'wall-clock': 'wallClock',
+  fps: 'fps',
   network: 'network',
   cpu: 'cpuThrottle',
   skin: 'skin',
@@ -279,6 +280,7 @@ const BOOLEAN_SETTING_KEYS = [
   'ignoreHTTPSErrors',
   'cueMarkers',
   'wallClock',
+  'fps',
 ];
 
 /**
@@ -320,6 +322,7 @@ export function applyDefaults(settings) {
     ignoreHTTPSErrors: false,
     cueMarkers: false,
     wallClock: false,
+    fps: false,
     viewportHeight: 720,
     format: 'webm',
     network: 'none',
@@ -579,6 +582,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('gemini')) s.gemini = true;
   if (boolFlags.has('cue-markers')) s.cueMarkers = true;
   if (boolFlags.has('wall-clock')) s.wallClock = true;
+  if (boolFlags.has('fps')) s.fps = true;
   // Explicit boolean values (for example --parallel=false) override presence flags.
   if (kvFlags.parallel !== undefined) s.parallel = parseCliBoolean(kvFlags.parallel, '--parallel');
   if (kvFlags.headless !== undefined) s.headless = parseCliBoolean(kvFlags.headless, '--headless');
@@ -599,6 +603,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (kvFlags['wall-clock'] !== undefined) {
     s.wallClock = parseCliBoolean(kvFlags['wall-clock'], '--wall-clock');
   }
+  if (kvFlags.fps !== undefined) s.fps = parseCliBoolean(kvFlags.fps, '--fps');
   if (kvFlags.network !== undefined) {
     const networks = parseNetworkList(kvFlags.network);
     s.network = networks.length === 1 ? networks[0] : networks;
