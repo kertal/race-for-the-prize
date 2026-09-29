@@ -88,6 +88,13 @@ count is a comparison, not a verdict. Drive the page with real continuous motion
 — a CSS animation, a smooth scroll, video — if you want a count that means
 something on its own.
 
+**Sections need the trace's own marks.** Frame timing is sliced by the
+measurement marks inside the trace. If one of those marks is lost — a navigation
+mid-section is the usual cause — the race falls back to its own marker clock for
+everything else, and that clock cannot index trace timestamps. `--fps` then
+reports the whole-race figures and says so on stderr, rather than attributing
+frames to sections it can no longer place.
+
 **Prefer a headed run.** Headless Chromium has no display to pace itself
 against, so its frame production says little about what a user would see. `--fps`
 works headless and the comparison is still apples to apples, but the absolute

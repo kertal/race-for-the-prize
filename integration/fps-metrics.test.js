@@ -33,7 +33,7 @@ function specFor(pageHtml) {
   return [
     `await page.setContent(${JSON.stringify(pageHtml)});`,
     "await page.raceStart('Animate');",
-    'await page.waitForTimeout(1200);',
+    'await page.waitForTimeout(700);',
     "page.raceEnd('Animate');",
   ].join('\n');
 }
@@ -74,8 +74,9 @@ describe('--fps', () => {
       // The display period has to look like real hardware, not like noise.
       expect(profile.frameTiming.displayFrameMs).toBeGreaterThan(2);
       expect(profile.frameTiming.displayFrameMs).toBeLessThan(60);
+      // Both figures are rounded independently, so compare them loosely.
       expect(profile.frameTiming.budgetFrameMs)
-        .toBeCloseTo(profile.frameTiming.displayFrameMs * 1.5, 1);
+        .toBeCloseTo(profile.frameTiming.displayFrameMs * 1.5, 0);
 
       // Whole journey and the measured scope both carry frame numbers.
       for (const scope of [profile.total, profile.measured]) {

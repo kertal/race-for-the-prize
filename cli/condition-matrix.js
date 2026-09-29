@@ -26,8 +26,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { c, RACER_COLORS } from './colors.js';
 import { loadTemplates, escHtml, render } from './html-templates.js';
-import { sortComparisonsForDisplay, rankEntries, formatDuration, formatDeltaLabel, formatAdvantageLabel } from './report-model.js';
-import { PROFILE_METRICS, determineProfileMetricOutcome, metricDeltaFormat } from './profile-analysis.js';
+import { sortComparisonsForDisplay, rankEntries, metricDeltaFormat, formatDuration, formatDeltaLabel, formatAdvantageLabel } from './report-model.js';
+import { PROFILE_METRICS, determineProfileMetricOutcome } from './profile-analysis.js';
 import { RACER_CSS_COLORS } from './player-sections.js';
 import { resolveSkin, DEFAULT_THEME_COLOR } from './skins.js';
 

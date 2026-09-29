@@ -158,12 +158,38 @@ function summarizeWindow(timestamps, budgetMs) {
 }
 
 /**
+ * Merge overlapping or touching ranges into disjoint ones, ordered by start.
+ *
+ * Sections can overlap — one measured inside another, or two started before
+ * either ended — and the measured scope must not count a frame in the overlap
+ * twice, nor its interval twice.
+ *
+ * @param {Array<{startTraceTs: number, endTraceTs: number}>} ranges
+ */
+function mergeRanges(ranges) {
+  const sorted = ranges
+    .slice()
+    .sort((a, b) => a.startTraceTs - b.startTraceTs);
+  const merged = [];
+  for (const range of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && range.startTraceTs <= last.endTraceTs) {
+      last.endTraceTs = Math.max(last.endTraceTs, range.endTraceTs);
+      continue;
+    }
+    merged.push({ startTraceTs: range.startTraceTs, endTraceTs: range.endTraceTs });
+  }
+  return merged;
+}
+
+/**
  * Derive frame statistics for the whole trace and for each measured section.
  *
  * @param {string|object} traceText - trace JSON (text or parsed)
  * @param {Array<{name: string, startTraceTs: number, endTraceTs: number}>} [measurements]
  *   The measurements `deriveTraceTiming()` already paired up. A name that was
- *   measured more than once contributes all of its frames to one entry.
+ *   measured more than once keeps one window per pass, so the wait between
+ *   passes never becomes a frame time.
  * @returns {{displayFrameMs: number|null, budgetFrameMs: number|null,
  *            total: object|null, measured: object|null,
  *            sections: Object<string, object>}|null}
@@ -179,35 +205,42 @@ function deriveFrameStats(traceText, measurements = []) {
   const displayFrameMs = estimateDisplayPeriodMs(allIntervals);
   const budgetFrameMs = displayFrameMs == null ? null : displayFrameMs * DROP_FACTOR;
 
-  const sections = Object.create(null);
+  const framesWithin = ({ startTraceTs, endTraceTs }) =>
+    timestamps.filter(ts => ts >= startTraceTs && ts <= endTraceTs);
+
+  // One window per pass, keyed by section name. A section measured twice keeps
+  // both passes apart: pooling them would turn the wait in between into a
+  // frame time long enough to dominate the section's worst frame and p95.
+  const windowsByName = new Map();
+  const ranges = [];
   for (const measurement of measurements) {
     const { name, startTraceTs, endTraceTs } = measurement || {};
     if (typeof name !== 'string') continue;
     if (!Number.isFinite(startTraceTs) || !Number.isFinite(endTraceTs)) continue;
     if (endTraceTs < startTraceTs) continue;
-    const inWindow = timestamps.filter(ts => ts >= startTraceTs && ts <= endTraceTs);
-    // Repeated sections merge, so the frames of each pass are pooled rather
-    // than the last pass overwriting the first.
-    const pooled = sections[name]
-      ? [...sections[name], ...inWindow].sort((a, b) => a - b)
-      : inWindow;
-    sections[name] = pooled;
+    const range = { startTraceTs, endTraceTs };
+    if (!windowsByName.has(name)) windowsByName.set(name, []);
+    windowsByName.get(name).push(framesWithin(range));
+    ranges.push(range);
   }
 
   const sectionStats = Object.create(null);
-  for (const [name, windowTimestamps] of Object.entries(sections)) {
-    sectionStats[name] = summarizeWindow(windowTimestamps, budgetFrameMs);
+  for (const [name, windows] of windowsByName.entries()) {
+    sectionStats[name] = summarizeWindows(windows, budgetFrameMs);
   }
 
   // The measured scope combines every section, the way the network and CPU
   // totals sum their windows: it describes the parts of the race the spec
   // actually timed, leaving out the gaps between them and the tail after the
-  // last raceEnd.
+  // last raceEnd. Overlapping sections are merged first so a frame measured by
+  // two of them counts once.
+  const measuredWindows = mergeRanges(ranges).map(framesWithin);
+
   return {
     displayFrameMs: displayFrameMs == null ? null : round(displayFrameMs),
     budgetFrameMs: budgetFrameMs == null ? null : round(budgetFrameMs),
     total: summarizeWindow(timestamps, budgetFrameMs),
-    measured: summarizeWindows(Object.values(sections), budgetFrameMs),
+    measured: summarizeWindows(measuredWindows, budgetFrameMs),
     sections: sectionStats,
   };
 }
@@ -217,6 +250,7 @@ module.exports = {
   // Exported for tests and for callers that already hold the timestamps.
   summarizeWindow,
   summarizeWindows,
+  mergeRanges,
   estimateDisplayPeriodMs,
   collectDrawTimestamps,
   DROP_FACTOR,

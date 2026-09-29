@@ -172,7 +172,14 @@ function sameMeasurementNames(a, b) {
  * @param {object|null} traceTiming - deriveTraceTiming() output, or null
  * @param {Array} markerSegments - segments from the race API
  * @param {Array} markerMeasurements - measurements from the race API
- * @returns {{recordingSegments: Array, measurements: Array, usedTraceSegments: boolean}}
+ * `measurementsComplete` is reported separately because frame timing needs
+ * less than the video does: it slices the trace's own frame timeline by the
+ * trace's own measurement marks, so it only needs those marks to describe the
+ * same sections the results report. A trace that is uncalibratable for video
+ * reasons can still be sliced.
+ *
+ * @returns {{recordingSegments: Array, measurements: Array,
+ *            usedTraceSegments: boolean, measurementsComplete: boolean}}
  */
 function selectRaceTiming(traceTiming, markerSegments, markerMeasurements) {
   const traceSegments = traceTiming?.recordingSegments || [];
@@ -196,6 +203,7 @@ function selectRaceTiming(traceTiming, markerSegments, markerMeasurements) {
     recordingSegments: usedTraceSegments ? traceSegments : markerSegments,
     measurements: usedTraceSegments ? traceMeasurements : markerMeasurements,
     usedTraceSegments,
+    measurementsComplete,
   };
 }
 
@@ -569,13 +577,23 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
 
     const { tracePath, profileMetrics, traceText } = await collectProfilingResults(browser, metricsCollector, outputDir, id);
     const traceTiming = deriveTraceTiming(traceText);
-    const { recordingSegments, measurements, usedTraceSegments } = selectRaceTiming(traceTiming, markerSegments, markerMeasurements);
+    const { recordingSegments, measurements, usedTraceSegments, measurementsComplete } = selectRaceTiming(traceTiming, markerSegments, markerMeasurements);
 
-    // Frame timing rides on the same trace. It is keyed by the trace's own
-    // measurement marks, so it stays aligned with the sections whatever
-    // selectRaceTiming picked for the video.
+    // Frame timing rides on the same trace, sliced by the trace's own
+    // measurement marks. Those marks only describe the reported sections when
+    // they survived intact — a mark lost to a navigation pairs the rest
+    // wrongly, and selectRaceTiming has then fallen back to the marker clock,
+    // which counts from context creation and cannot index trace timestamps.
+    // The whole-race numbers need no marks, so they are reported either way.
     if (fps) {
-      mergeFrameStats(profileMetrics, deriveFrameStats(traceText, traceTiming?.measurements || []), id);
+      const frameStats = deriveFrameStats(
+        traceText,
+        measurementsComplete ? (traceTiming?.measurements || []) : []
+      );
+      mergeFrameStats(profileMetrics, frameStats, id);
+      if (frameStats && !measurementsComplete) {
+        console.error(`[${id}] Warning: --fps reporting whole-race frame timing only (trace measurement marks incomplete)`);
+      }
     }
 
     await context.close();

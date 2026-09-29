@@ -13,7 +13,7 @@
 
 import { c, RACER_COLORS } from './colors.js';
 import { determineOverallWinner } from './race-utils.js';
-import { rankEntries, formatDeltaLabel, formatAdvantageLabel } from './report-model.js';
+import { rankEntries, formatDeltaLabel, formatAdvantageLabel, metricDeltaFormat } from './report-model.js';
 
 /**
  * Performance metric definitions.
@@ -96,18 +96,6 @@ const PROFILE_CATEGORY_TIE_THRESHOLD_PERCENT = {
 
 function getProfileCategoryThresholdPercent(category) {
   return PROFILE_CATEGORY_TIE_THRESHOLD_PERCENT[category] ?? 3;
-}
-
-/**
- * The formatter to use for a metric's *difference* rather than its value.
- *
- * Most metrics use one function for both, but a value formatter is free to
- * annotate — a frame time reads better as "16.7ms (60fps)". That annotation is
- * nonsense on a delta (a 2.9ms gap is not "345fps"), so such a metric declares
- * a plain `formatDelta` and every delta goes through this.
- */
-export function metricDeltaFormat(metric) {
-  return metric.formatDelta || metric.format;
 }
 
 export function determineProfileMetricOutcome(metric, racerNames, values) {

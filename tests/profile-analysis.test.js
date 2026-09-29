@@ -3,7 +3,8 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { buildProfileComparison, PROFILE_METRICS, printProfileAnalysis, buildProfileMarkdown, categoryLabels, categoryDescriptions, metricDeltaFormat, determineProfileMetricOutcome } from '../cli/profile-analysis.js';
+import { buildProfileComparison, PROFILE_METRICS, printProfileAnalysis, buildProfileMarkdown, categoryLabels, categoryDescriptions, determineProfileMetricOutcome } from '../cli/profile-analysis.js';
+import { metricDeltaFormat } from '../cli/report-model.js';
 
 describe('buildProfileComparison', () => {
   it('returns empty comparisons when no metrics provided', () => {

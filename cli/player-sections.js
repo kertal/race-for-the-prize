@@ -7,13 +7,14 @@
  */
 
 import { escHtml, render } from './html-templates.js';
-import { PROFILE_METRICS, categoryDescriptions, determineProfileMetricOutcome, metricDeltaFormat } from './profile-analysis.js';
+import { PROFILE_METRICS, categoryDescriptions, determineProfileMetricOutcome } from './profile-analysis.js';
 import { formatSettingValue, sortSettingKeys, sourceLabel, SOURCE_DEFAULT } from './race-config.js';
 import { formatPlatform } from './summary.js';
 import {
   buildResultsModel,
   buildRunComparisonModel,
   rankEntries,
+  metricDeltaFormat,
   formatDeltaLabel,
   formatAdvantageLabel,
 } from './report-model.js';

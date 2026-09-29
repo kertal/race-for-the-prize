@@ -6,6 +6,7 @@ const {
   deriveFrameStats,
   summarizeWindow,
   summarizeWindows,
+  mergeRanges,
   estimateDisplayPeriodMs,
   collectDrawTimestamps,
 } = require('../frame-stats.cjs');
@@ -315,5 +316,85 @@ describe('summarizeWindows', () => {
   it('returns null when no window qualifies', () => {
     expect(summarizeWindows([[1000, 2000], []], 25)).toBeNull();
     expect(summarizeWindows([], 25)).toBeNull();
+  });
+});
+
+describe('mergeRanges', () => {
+  it('merges overlapping and touching ranges, leaving disjoint ones alone', () => {
+    expect(mergeRanges([
+      { startTraceTs: 100, endTraceTs: 200 },
+      { startTraceTs: 150, endTraceTs: 250 },   // overlaps the first
+      { startTraceTs: 250, endTraceTs: 300 },   // touches the merged one
+      { startTraceTs: 500, endTraceTs: 600 },   // separate
+    ])).toEqual([
+      { startTraceTs: 100, endTraceTs: 300 },
+      { startTraceTs: 500, endTraceTs: 600 },
+    ]);
+  });
+
+  it('swallows a range contained in another', () => {
+    expect(mergeRanges([
+      { startTraceTs: 100, endTraceTs: 900 },
+      { startTraceTs: 300, endTraceTs: 400 },
+    ])).toEqual([{ startTraceTs: 100, endTraceTs: 900 }]);
+  });
+
+  it('handles an empty list', () => {
+    expect(mergeRanges([])).toEqual([]);
+  });
+});
+
+describe('a section measured more than once', () => {
+  it('does not turn the wait between passes into a frame time', () => {
+    // Two 60Hz passes of "Scroll", half a second apart. Pooling them would
+    // invent a ~500ms frame and report it as the section's worst.
+    const first = frameRun(1_000_000, 20, 16.7);
+    const second = frameRun(first.endTs + 500_000, 20, 16.7);
+    const trace = buildTrace([
+      { name: 'race:recording:start', ts: 900_000 },
+      { name: 'race:measure:start:Scroll', ts: 999_000 },
+      ...first.events,
+      { name: 'race:measure:end:Scroll', ts: first.endTs },
+      { name: 'race:measure:start:Scroll', ts: second.events[0].ts - 1000 },
+      ...second.events,
+      { name: 'race:measure:end:Scroll', ts: second.endTs },
+      { name: 'race:recording:end', ts: second.endTs + 1000 },
+    ]);
+    const { measurements } = deriveTraceTiming(trace);
+    const stats = deriveFrameStats(trace, measurements);
+    const section = stats.sections.Scroll;
+
+    expect(section.frames).toBe(40);
+    expect(section.worstFrameMs).toBeCloseTo(16.7, 1);
+    expect(section.p95FrameMs).toBeCloseTo(16.7, 1);
+    expect(section.fps).toBeCloseTo(59.9, 0);
+    expect(section.droppedFrames).toBe(0);
+  });
+});
+
+describe('overlapping sections', () => {
+  it('counts a frame measured by two of them once in the measured scope', () => {
+    // "outer" wraps "inner", the way a spec that times a whole flow and one
+    // step inside it does. The overlap must not be counted twice.
+    const run = frameRun(1_000_000, 30, 16.7);
+    const innerStart = run.events[10].ts - 1000;
+    const innerEnd = run.events[19].ts + 1000;
+    const trace = buildTrace([
+      { name: 'race:recording:start', ts: 900_000 },
+      { name: 'race:measure:start:outer', ts: 999_000 },
+      { name: 'race:measure:start:inner', ts: innerStart },
+      ...run.events,
+      { name: 'race:measure:end:inner', ts: innerEnd },
+      { name: 'race:measure:end:outer', ts: run.endTs },
+      { name: 'race:recording:end', ts: run.endTs + 1000 },
+    ]);
+    const { measurements } = deriveTraceTiming(trace);
+    const stats = deriveFrameStats(trace, measurements);
+
+    expect(stats.sections.outer.frames).toBe(30);
+    expect(stats.sections.inner.frames).toBe(10);
+    // Not 40: the merged window is just "outer".
+    expect(stats.measured.frames).toBe(30);
+    expect(stats.measured.worstFrameMs).toBeCloseTo(16.7, 1);
   });
 });
