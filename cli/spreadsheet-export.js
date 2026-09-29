@@ -141,8 +141,11 @@ function runByRunGroups(summary, racers, runSummaries) {
   const model = buildRunComparisonModel(runSummaries, summary, racers, PROFILE_METRICS);
   if (model.isEmpty) return [];
 
+  // Measurements and profile metrics get separate namespaces: a section a
+  // spec happened to call "measured.scriptDuration" must not share an id
+  // (and so a checkbox) with the profile metric of that key.
   const groups = model.measurements.map(measurement => ({
-    id: `runs:${measurement.name}`,
+    id: `runs:section:${measurement.name}`,
     title: `Run-by-Run: ${measurement.name}`,
     rows: runRows(measurement, DURATION_UNIT),
   }));
@@ -150,7 +153,7 @@ function runByRunGroups(summary, racers, runSummaries) {
     const scopeTitle = PROFILE_SCOPES.find(s => s.scope === scope.scope)?.title || scope.title;
     for (const metric of scope.metrics) {
       groups.push({
-        id: `runs:${metric.key}`,
+        id: `runs:profile:${metric.key}`,
         title: `Run-by-Run: ${metric.name} (${scopeTitle})`,
         rows: runRows(metric, unitOf(metric.key)),
       });
@@ -223,6 +226,7 @@ function serializeModel(model) {
   return JSON.stringify(model).replaceAll('<', LT_ESCAPE);
 }
 
+/** One preview cell: empty, a number carrying its raw value, or escaped text. */
 function cellHtml(value) {
   if (value == null) return fill('spreadsheet-empty');
   if (typeof value === 'number') return fill('spreadsheet-number', { value: String(value), text: String(value) });

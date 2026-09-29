@@ -118,7 +118,7 @@ describe('buildSpreadsheetModel', () => {
 
     it('adds one run-by-run table per measurement: every run, then median and average', () => {
       const model = buildSpreadsheetModel(median, { runSummaries });
-      const load = groupById(model, 'runs:Load');
+      const load = groupById(model, 'runs:section:Load');
       expect(load.title).toBe('Run-by-Run: Load');
       expect(load.rows).toEqual([
         { cells: ['Run 1'], unit: 's', values: [1, 3] },
@@ -130,12 +130,23 @@ describe('buildSpreadsheetModel', () => {
 
     it('adds one run-by-run table per profile metric, named with its scope and in its unit', () => {
       const model = buildSpreadsheetModel(median, { runSummaries });
-      const script = groupById(model, 'runs:measured.scriptDuration');
+      const script = groupById(model, 'runs:profile:measured.scriptDuration');
       expect(script.title).toBe('Run-by-Run: Script Execution (Race)');
       expect(script.rows.map(r => r.cells[0])).toEqual(['Run 1', 'Run 2', 'Median', 'Average']);
       expect(script.rows.every(r => r.unit === 'ms')).toBe(true);
       expect(script.rows[0].values).toEqual([100, 200]);
       expect(script.rows[3].values).toEqual([110, 190]);
+    });
+
+    it('keeps a section named like a profile metric key on its own checkbox', () => {
+      // Selection is tracked by id; a shared id would tick both tables at once.
+      const collide = name => ({ name, racers: [{ duration: 1 }, { duration: 2 }], winner: 'lauda' });
+      const runs = runSummaries.map(s => ({ ...s, comparisons: [collide('measured.scriptDuration')] }));
+      const med = { ...median, comparisons: [collide('measured.scriptDuration')] };
+      const ids = buildSpreadsheetModel(med, { runSummaries: runs }).groups.map(g => g.id);
+      expect(ids).toContain('runs:section:measured.scriptDuration');
+      expect(ids).toContain('runs:profile:measured.scriptDuration');
+      expect(new Set(ids).size).toBe(ids.length);
     });
 
     it('adds no run-by-run tables for a single run', () => {

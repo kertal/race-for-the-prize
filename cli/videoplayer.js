@@ -37,7 +37,7 @@ import {
 } from './player-sections.js';
 import calibration from './player-runtime/calibration.cjs';
 import { resolveSkin, DEFAULT_THEME_COLOR } from './skins.js';
-import { buildSpreadsheetModel, buildSpreadsheetPanelHtml, SPREADSHEET_CSS } from './spreadsheet-export.js';
+import { buildSpreadsheetModel, buildSpreadsheetPanelHtml, SPREADSHEET_CSS, SPREADSHEET_RUNTIME } from './spreadsheet-export.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -100,6 +100,13 @@ function buildSkinStyles(skin) {
 
 function buildPlayerScript() {
   return '<script>\n(function() {\n' + RUNTIME + '\n})();\n</script>';
+}
+
+// A report with no videos gets no player runtime (there is nothing to play),
+// but its spreadsheet panel still needs its own: without this the copy and
+// download buttons would render and do nothing.
+function buildSpreadsheetOnlyScript() {
+  return '<script>\n(function() {\n' + SPREADSHEET_RUNTIME + '\n})();\n</script>';
 }
 
 // Serialize race config for embedding in a <script type="application/json"> block.
@@ -211,7 +218,8 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   const hasClipTimes = clipTimes?.some(calibration.isValidClipEntry);
   const hasMergedVideo = !!mergedVideoFile;
 
-  const { playerSection = '', scriptTag = '', raceConfigJson = '', debugPanelOut = '' } = hasVideos
+  const spreadsheet = buildSpreadsheetSection(summary, runSummaries || null);
+  const { playerSection = '', scriptTag = spreadsheet ? buildSpreadsheetOnlyScript() : '', raceConfigJson = '', debugPanelOut = '' } = hasVideos
     ? buildVideoPlayer(summary, videoFiles, { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, placementOrder, ffmpegDir })
     : {};
 
@@ -243,7 +251,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
       ...profileComparison,
       rawProfileMetrics: summary.profileMetrics || [],
     }, racers),
-    spreadsheet: buildSpreadsheetSection(summary, runSummaries || null),
+    spreadsheet,
     files: buildFilesHtml(racers, videoFiles, {
       fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, raceConfigFile,
       altFormat, altFiles, placementOrder,

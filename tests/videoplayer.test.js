@@ -491,11 +491,12 @@ describe('buildPlayerHtml', () => {
     expect(huntCard[1]).toBe('#3498db');
   });
 
-  it('omits script tag when no videos provided', () => {
+  it('omits the player runtime when no videos provided', () => {
     const html = buildPlayerHtml(makeSummary(), [], null, null, {
       runNavigation: { currentRun: 'median', totalRuns: 3, pathPrefix: '' },
     });
-    expect(html).not.toContain('<script>');
+    // Only the spreadsheet panel's own script remains; nothing of the player's.
+    expect(html).not.toContain('seekAllWithVerify');
     expect(html).toContain('Results');
   });
 
@@ -1807,9 +1808,9 @@ describe('buildPlayerHtml run-by-run comparison', () => {
   it('exports the run-by-run numbers to the spreadsheet panel too', () => {
     const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
     expect(html).toContain('<input type="checkbox" value="results" checked> Race Results (median of 2 runs)');
-    expect(html).toContain('<input type="checkbox" value="runs:Load" checked> Run-by-Run: Load');
-    expect(html).toContain('<input type="checkbox" value="runs:measured.scriptDuration" checked> Run-by-Run: Script Execution (Race)');
-    expect(html).toContain('<tr data-group="runs:Load"><td>Run-by-Run: Load</td><td>Run 2</td><td>s</td><td class="spreadsheet-num" data-value="2">2</td><td class="spreadsheet-num" data-value="4">4</td></tr>');
+    expect(html).toContain('<input type="checkbox" value="runs:section:Load" checked> Run-by-Run: Load');
+    expect(html).toContain('<input type="checkbox" value="runs:profile:measured.scriptDuration" checked> Run-by-Run: Script Execution (Race)');
+    expect(html).toContain('<tr data-group="runs:section:Load"><td>Run-by-Run: Load</td><td>Run 2</td><td>s</td><td class="spreadsheet-num" data-value="2">2</td><td class="spreadsheet-num" data-value="4">4</td></tr>');
     expect(html).toContain('<td>Median</td><td>s</td><td class="spreadsheet-num" data-value="1.5">1.5</td>');
   });
 });
@@ -1857,10 +1858,18 @@ describe('buildPlayerHtml spreadsheet export', () => {
     expect(html).toContain('<td>Network Transfer</td><td>bytes</td><td class="spreadsheet-num" data-value="1000">1000</td>');
   });
 
-  it('keeps the preview table on a report without videos, which has no runtime', () => {
+  it('gives a report without videos the panel runtime, but not the player runtime', () => {
+    // No videos means no player script — but the copy and download buttons
+    // still need their own, or they would render and do nothing.
     expect(noVideosHtml).toContain('<h2>Spreadsheet Export</h2>');
     expect(noVideosHtml).toContain('<tr data-group="results">');
-    expect(noVideosHtml).not.toContain('<script>');
+    expect(noVideosHtml.match(/<script>/g)).toHaveLength(1);
+    expect(noVideosHtml).toContain('initSpreadsheetPanel');
+    expect(noVideosHtml).toContain('function spreadsheetTsv');
+    expect(noVideosHtml).not.toContain('seekAllWithVerify');
+    expect(noVideosHtml).not.toContain('startHtmlExport');
+    // With nothing to export there is no panel, and so no script at all.
+    expect(buildPlayerHtml(makeSummary({ comparisons: [] }), [])).not.toContain('<script>');
   });
 
   it('leaves the section out when the race measured nothing', () => {

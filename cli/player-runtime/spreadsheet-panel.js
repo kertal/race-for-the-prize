@@ -26,11 +26,16 @@
   const rows = Array.from(root.querySelectorAll('tbody tr[data-group]'));
   const numberCells = Array.from(root.querySelectorAll('td[data-value]'));
 
+  /** The ids of the ticked groups, in panel order. */
   const selectedIds = () => boxes.filter(box => box.checked).map(box => box.value);
+  /** The decimal mark the reader asked for. */
   const decimal = () => (decimalBox && decimalBox.checked ? ',' : '.');
+  /** Put a line in the status output under the toolbar. */
   const say = (text) => { if (status) status.textContent = text; };
+  /** "1 row" / "n rows". */
   const rowWord = (n) => (n === 1 ? '1 row' : n + ' rows');
 
+  /** Show the ticked groups' rows, reformat the numbers, and count what would be copied. */
   function sync() {
     const selected = new Set(selectedIds());
     rows.forEach(tr => { tr.hidden = !selected.has(tr.dataset.group); });
@@ -39,8 +44,11 @@
     say(count === 0 ? 'Nothing selected.' : rowWord(count) + ' selected.');
   }
 
-  // navigator.clipboard needs a secure context; a report opened over plain
-  // http from another machine falls back to the selection-based copy.
+  /**
+   * Put text on the clipboard. navigator.clipboard needs a secure context; a
+   * report opened over plain http from another machine falls back to the
+   * selection-based copy. Resolves to whether either way worked.
+   */
   async function copyText(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       try { await navigator.clipboard.writeText(text); return true; } catch { /* fall through */ }
@@ -57,6 +65,7 @@
     return copied;
   }
 
+  /** Copy the selected tables as tab-separated text and report the outcome. */
   async function copySelection() {
     const table = spreadsheetTable(model, selectedIds());
     if (table.rows.length === 0) { say('Nothing selected — tick at least one table.'); return; }
@@ -66,6 +75,7 @@
       : 'Copy failed — select the table below and copy it by hand.');
   }
 
+  /** Hand the selected tables over as a CSV file named after the page. */
   function downloadCsv() {
     const table = spreadsheetTable(model, selectedIds());
     if (table.rows.length === 0) { say('Nothing selected — tick at least one table.'); return; }
