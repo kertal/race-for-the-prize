@@ -263,6 +263,60 @@ describeMaybe('spreadsheet export panel integration', () => {
     });
   });
 
+  describe('on the run-by-run comparison', () => {
+    let panel;
+
+    beforeAll(async () => {
+      const url = writePage('run-copy', buildPlayerHtml(medianSummary, [], null, null, { runSummaries }));
+      panel = await openPanel(url);
+      await panel.page.$eval('.run-comparison', el => { el.closest('details').open = true; });
+    });
+
+    afterAll(async () => { await panel.context.close(); });
+
+    const loadTable = '.run-comparison[data-group="runs:section:Load"]';
+    const copy = async (selector) => {
+      await panel.page.evaluate(() => { window.__copied = null; });
+      await panel.page.click(selector);
+      await panel.page.waitForFunction(() => window.__copied !== null);
+      return panel.copied();
+    };
+
+    it('copies one table as Markdown, the way the page shows it', async () => {
+      const md = await copy(`${loadTable} [data-run-copy="markdown"]`);
+      expect(md.split('\n').slice(0, 5)).toEqual([
+        '**Race Section Load**',
+        '',
+        '| Run | 🔴 lauda | 🔵 hunt |',
+        '| --- | --- | --- |',
+        '| 1 | 1.000s (🏆 67% ahead) | 3.000s (+2.000s, +200%) |',
+      ]);
+      expect(md).toContain('| **Median** | **1.000s (🏆 67% ahead)** | **3.000s (+2.000s, +200%)** |');
+      expect(await panel.page.textContent(`${loadTable} .run-copy-status`)).toBe('Copied the table as Markdown.');
+    });
+
+    it('copies one table as tab-separated numbers from the export model', async () => {
+      const tsv = await copy(`${loadTable} [data-run-copy="tsv"]`);
+      expect(tsv.split('\n').slice(0, 2)).toEqual([
+        'Section\tMeasurement\tUnit\t🔴 lauda\t🔵 hunt\tWinner\tDelta to 2nd\tDelta %',
+        'Run-by-Run: Load\tRun 1\ts\t1\t3\t🔴 lauda\t2\t66.7',
+      ]);
+      expect(tsv.split('\n').every((line, i) => i === 0 || line.startsWith('Run-by-Run: Load\t'))).toBe(true);
+    });
+
+    it('copies every table from the bar on top', async () => {
+      const tables = await panel.page.$$eval('.run-comparison', els => els.length);
+      const md = await copy('.run-copy-all [data-run-copy="markdown"]');
+      expect(md.match(/^\*\*.+\*\*$/gm)).toHaveLength(tables);
+      const tsv = await copy('.run-copy-all [data-run-copy="tsv"]');
+      expect(tsv).toContain('Run-by-Run: Render\t');
+      expect(tsv).toContain('Run-by-Run: Script Execution (Race)\t');
+      expect(tsv).not.toContain('Race Results');
+      expect(await panel.page.textContent('.run-copy-all .run-copy-status')).toBe(`Copied ${tables} tables for a spreadsheet.`);
+      expect(panel.errors).toEqual([]);
+    });
+  });
+
   describe('on the condition matrix', () => {
     it('exports one metric per group with the condition coordinates as columns', async () => {
       const url = writePage('matrix', buildConditionIndexHtml('lauda vs hunt', conditionEntries));

@@ -94,6 +94,14 @@ without JavaScript it still shows every table, and selecting it and copying by
 hand pastes into a sheet as cells too. Exported HTML and ZIP bundles keep the section, working, since the data
 travels inside the page.
 
+The **Run-by-Run Comparison** section on a `--runs=N` median page has copy
+buttons of its own: above each table, **Copy for spreadsheet** and **Copy as
+Markdown** take just that table, and the bar on top of the section takes all of
+them. The spreadsheet copy is the same tab-separated numbers the export panel
+gives for that table; the Markdown copy is the table as the page shows it —
+trophies, gaps, the median and average rows in bold — under a bold title, so it
+reads the same in a GitHub pull request as it does in the report.
+
 Disclaimer: Due to the nature of the way the video is transformed, the aim here is not accuracy, it's to showcase, to visualize performance. To compare between different network and browser settings.
 Do double check and question the metrics and findings. It should be a helpful tool supporting performance related narratives, but don't assume 100% accuracy. However, this generally applies to many 
 browser gained performance metrics. There are many side effects. And screen recording, plus video cutting is another one.

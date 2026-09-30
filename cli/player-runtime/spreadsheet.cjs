@@ -152,6 +152,20 @@ function spreadsheetMarkdown(table, options = {}) {
   ].join('\n');
 }
 
+/**
+ * Report tables as the page shows them — formatted values, trophies, deltas —
+ * in GitHub Markdown, each under its bold title. Markdown has no row style,
+ * so a bold row (median, average) is bolded cell by cell.
+ *
+ * @param {Array<{title: string, header: string[], rows: Array<{cells: string[], bold?: boolean}>}>} tables
+ */
+function titledMarkdownTables(tables) {
+  return tables.map(({ title, header, rows }) => {
+    const cells = rows.map(row => row.cells.map(text => (row.bold && text ? `**${text}**` : text)));
+    return `**${title}**\n\n` + spreadsheetMarkdown({ header, rows: cells });
+  }).join('\n\n');
+}
+
 /** A safe download name from a page title: "Race: lauda vs hunt" -> race_lauda_vs_hunt.csv. */
 function spreadsheetFileName(title) {
   const base = String(title || '').replace(/[^a-zA-Z0-9-]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
@@ -159,5 +173,5 @@ function spreadsheetFileName(title) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { spreadsheetTable, spreadsheetRowKey, rowVerdict, spreadsheetCell, spreadsheetText, spreadsheetTsv, spreadsheetCsv, spreadsheetMarkdown, spreadsheetFileName };
+  module.exports = { spreadsheetTable, spreadsheetRowKey, rowVerdict, spreadsheetCell, spreadsheetText, spreadsheetTsv, spreadsheetCsv, spreadsheetMarkdown, titledMarkdownTables, spreadsheetFileName };
 }

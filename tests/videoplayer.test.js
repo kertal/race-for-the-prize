@@ -1805,6 +1805,21 @@ describe('buildPlayerHtml run-by-run comparison', () => {
     expect(html).not.toContain('Run-by-Run Comparison');
   });
 
+  it('offers copy buttons above each table, and for all tables on top of the section', () => {
+    const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
+    const section = html.slice(html.indexOf('<h2>Run-by-Run Comparison</h2>'));
+    // The copy-all bar comes before the first table.
+    expect(section.indexOf('run-copy-all')).toBeGreaterThan(-1);
+    expect(section.indexOf('run-copy-all')).toBeLessThan(section.indexOf('run-comparison-table'));
+    // Each table names its spreadsheet-export group and its title.
+    expect(html).toContain('<div class="run-comparison" data-group="runs:section:Load" data-title="Race Section Load">');
+    expect(html).toContain('<div class="run-comparison" data-group="runs:profile:measured.scriptDuration" data-title="Script Execution (Performance: Race)">');
+    const tables = (section.match(/class="run-comparison-table"/g) || []).length;
+    // One tsv + one markdown button per table, plus the pair on top.
+    expect((section.match(/data-run-copy="tsv"/g) || []).length).toBe(tables + 1);
+    expect((section.match(/data-run-copy="markdown"/g) || []).length).toBe(tables + 1);
+  });
+
   it('exports the run-by-run numbers to the spreadsheet panel too', () => {
     const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
     expect(html).toContain('<input type="checkbox" value="results" checked> Race Results (median of 2 runs)');

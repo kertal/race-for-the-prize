@@ -716,6 +716,33 @@ video {
 }
 .run-delta { opacity: 0.5; }
 
+/* Copy bars: one above each run-by-run table, one on top for all of them. */
+.run-copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.6rem;
+  margin: 0 0 0.3rem;
+  color: var(--text-faint);
+  font-size: var(--font-size-sm);
+}
+.run-copy-all { margin-bottom: 0.8rem; }
+.run-copy-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-dim);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.run-copy-btn:hover { color: var(--accent); }
+.run-copy-btn:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+.run-copy-status { color: var(--text-subtle); }
+
 /* --- Performance profile ------------------------------------------------- */
 .profile-note {
   color: var(--text-faint);

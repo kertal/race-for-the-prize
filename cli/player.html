@@ -152,8 +152,12 @@
   <div class="section-metric-body">{{rows}}</div>
 </details></template>
 
-<!-- Run-by-run comparison table. -->
-<template id="build-comparison-table"><table class="run-comparison-table"><thead><tr><th>Run</th>{{header}}</tr></thead><tbody>{{rows}}</tbody></table></template>
+<!-- Run-by-run comparison table. data-group names its group in the spreadsheet
+     export model (the tab-separated copy); the Markdown copy reads the table
+     as shown. The bar on top of the section copies every table at once. -->
+<template id="build-run-copy-all"><div class="run-copy run-copy-all"><span class="run-copy-label">Copy all tables</span><button type="button" class="run-copy-btn" data-run-copy="tsv" title="Copy every run-by-run table as tab-separated numbers">for spreadsheet</button><button type="button" class="run-copy-btn" data-run-copy="markdown" title="Copy every run-by-run table as GitHub-flavored Markdown">as Markdown</button><output class="run-copy-status" aria-live="polite"></output></div>
+</template>
+<template id="build-comparison-table"><div class="run-comparison" data-group="{{group}}" data-title="{{title}}"><div class="run-copy"><span class="run-copy-label">Copy</span><button type="button" class="run-copy-btn" data-run-copy="tsv" title="Copy this table as tab-separated numbers">for spreadsheet</button><button type="button" class="run-copy-btn" data-run-copy="markdown" title="Copy this table as GitHub-flavored Markdown">as Markdown</button><output class="run-copy-status" aria-live="polite"></output></div><table class="run-comparison-table"><thead><tr><th>Run</th>{{header}}</tr></thead><tbody>{{rows}}</tbody></table></div></template>
 <template id="build-comparison-header-cell"><th style="--racer-color:{{color}}">{{name}}</th></template>
 <template id="build-comparison-row"><tr><td>{{label}}</td>{{cells}}</tr></template>
 <template id="build-comparison-summary-row"><tr class="run-comparison-median"><td><strong>{{label}}</strong></td>{{cells}}</tr></template>

@@ -152,11 +152,8 @@ function runByRunGroups(summary, racers, runSummaries) {
   const model = buildRunComparisonModel(runSummaries, summary, racers, PROFILE_METRICS);
   if (model.isEmpty) return [];
 
-  // Measurements and profile metrics get separate namespaces: a section a
-  // spec happened to call "measured.scriptDuration" must not share an id
-  // (and so a checkbox) with the profile metric of that key.
   const groups = model.measurements.map(measurement => ({
-    id: `runs:section:${measurement.name}`,
+    id: measurement.id,
     title: `Run-by-Run: ${measurement.name}`,
     rows: runRows(measurement, DURATION_UNIT),
   }));
@@ -164,7 +161,7 @@ function runByRunGroups(summary, racers, runSummaries) {
     const scopeTitle = PROFILE_SCOPES.find(s => s.scope === scope.scope)?.title || scope.title;
     for (const metric of scope.metrics) {
       groups.push({
-        id: `runs:profile:${metric.key}`,
+        id: metric.id,
         title: `Run-by-Run: ${metric.name} (${scopeTitle})`,
         rows: runRows(metric, unitOf(metric.key)),
       });

@@ -16,6 +16,7 @@ const {
   spreadsheetTsv,
   spreadsheetCsv,
   spreadsheetMarkdown,
+  titledMarkdownTables,
   spreadsheetFileName,
 } = require('../cli/player-runtime/spreadsheet.cjs');
 
@@ -240,6 +241,37 @@ describe('spreadsheetMarkdown', () => {
   it('honours the decimal comma', () => {
     const md = spreadsheetMarkdown(spreadsheetTable(model, ['results']), { decimal: ',' });
     expect(md).toContain('| 1,5 | 3,7 | 🔴 lauda | 2,2 | 59,5 |');
+  });
+});
+
+describe('titledMarkdownTables', () => {
+  const load = {
+    title: 'Race Section Load',
+    header: ['Run', '🔴 lauda', '🔵 hunt'],
+    rows: [
+      { cells: ['1', '1.000s (🏆 67% ahead)', '3.000s (+2.000s, +200%)'] },
+      { cells: ['Median', '1.500s (🏆 57% ahead)', '-'], bold: true },
+    ],
+  };
+
+  it('writes each table under its bold title, bolding the cells of a bold row', () => {
+    expect(titledMarkdownTables([load])).toBe(
+      '**Race Section Load**\n\n'
+      + '| Run | 🔴 lauda | 🔵 hunt |\n'
+      + '| --- | --- | --- |\n'
+      + '| 1 | 1.000s (🏆 67% ahead) | 3.000s (+2.000s, +200%) |\n'
+      + '| **Median** | **1.500s (🏆 57% ahead)** | **-** |'
+    );
+  });
+
+  it('separates several tables with a blank line and leaves empty cells unbolded', () => {
+    const md = titledMarkdownTables([load, { title: 'Other', header: ['Run', 'a'], rows: [{ cells: ['Average', ''], bold: true }] }]);
+    expect(md).toContain('| **-** |\n\n**Other**\n\n| Run | a |');
+    expect(md.endsWith('| **Average** |  |')).toBe(true);
+  });
+
+  it('escapes pipes in cells', () => {
+    expect(titledMarkdownTables([{ title: 't', header: ['a'], rows: [{ cells: ['x | y'] }] }])).toContain('| x \\| y |');
   });
 });
 

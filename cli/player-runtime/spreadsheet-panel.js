@@ -11,7 +11,8 @@
  * decimal option reformats the numbers, Copy puts tab-separated text or a
  * Markdown table on the clipboard and Download CSV hands over a file.
  * Everything textual comes from spreadsheet.cjs, so the clipboard and the
- * preview can never disagree about a value.
+ * preview can never disagree about a value. The run-by-run tables' copy
+ * buttons are wired here too: they export groups of the same model.
  *
  * Wrapped in its own scope: it is concatenated into the player runtime but
  * also inlined on the condition-matrix page, which has no player at all.
@@ -62,9 +63,10 @@
   /**
    * Put text on the clipboard. navigator.clipboard needs a secure context; a
    * report opened over plain http from another machine falls back to the
-   * selection-based copy. Resolves to whether either way worked.
+   * selection-based copy, typed into a scratch field inside `host`. Resolves
+   * to whether either way worked.
    */
-  async function copyText(text) {
+  async function copyText(text, host = root) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       try { await navigator.clipboard.writeText(text); return true; } catch { /* fall through */ }
     }
@@ -72,7 +74,7 @@
     scratch.value = text;
     scratch.setAttribute('readonly', '');
     scratch.className = 'sr-only';
-    root.appendChild(scratch);
+    host.appendChild(scratch);
     scratch.select();
     let copied = false;
     try { copied = document.execCommand('copy'); } catch { copied = false; }
@@ -113,6 +115,40 @@
     say('Downloaded ' + link.download + ' (' + rowWord(table.rows.length) + ').');
   }
 
+  /** One run-by-run table as the page shows it, for the Markdown copy. */
+  function shownRunTable(container) {
+    return {
+      title: container.dataset.title,
+      header: ['Run', ...(model.racerLabels || model.racers || [])],
+      rows: Array.from(container.querySelectorAll('tbody tr')).map(tr => ({
+        bold: tr.classList.contains('run-comparison-median'),
+        cells: Array.from(tr.cells).map(td => td.textContent.trim()),
+      })),
+    };
+  }
+
+  /**
+   * The run-by-run section's copy buttons: a bar above each table copies that
+   * table, the bar on top copies them all. The spreadsheet copy takes the
+   * tables' groups from this model (plain numbers); the Markdown copy takes
+   * the tables as shown, trophies and deltas included.
+   */
+  async function copyRunTables(button) {
+    const own = button.closest('.run-comparison');
+    const containers = own ? [own] : Array.from(document.querySelectorAll('.run-comparison'));
+    if (containers.length === 0) return;
+    const markdown = button.dataset.runCopy === 'markdown';
+    const text = markdown
+      ? titledMarkdownTables(containers.map(shownRunTable))
+      : spreadsheetTsv(spreadsheetTable(model, containers.map(c => c.dataset.group)));
+    const bar = button.closest('.run-copy');
+    const ok = await copyText(text, bar);
+    const what = containers.length === 1 ? 'Copied the table' : 'Copied ' + containers.length + ' tables';
+    bar.querySelector('.run-copy-status').textContent = ok
+      ? what + (markdown ? ' as Markdown.' : ' for a spreadsheet.')
+      : 'Copy failed.';
+  }
+
   root.addEventListener('change', (e) => {
     const box = e.target;
     if (!box || !box.matches('input[type="checkbox"]')) return;
@@ -130,6 +166,10 @@
     if (e.target.closest('#spreadsheetCopy')) copySelection('tsv');
     else if (e.target.closest('#spreadsheetMarkdown')) copySelection('markdown');
     else if (e.target.closest('#spreadsheetCsv')) downloadCsv();
+  });
+  document.addEventListener('click', (e) => {
+    const button = e.target.closest('[data-run-copy]');
+    if (button) copyRunTables(button);
   });
 
   sync();

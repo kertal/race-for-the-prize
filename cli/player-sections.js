@@ -417,7 +417,9 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
     : '';
 
   /** Render one table (run rows + median/average rows) from a model entry. */
-  const buildTable = ({ runRows, medianRow, averageRow }) => fill('comparison-table', {
+  const buildTable = ({ id, runRows, medianRow, averageRow }, title) => fill('comparison-table', {
+    group: escHtml(id),
+    title: escHtml(title),
     header,
     rows: runRows.map(row => fill('comparison-row', {
       label: row.label,
@@ -427,12 +429,13 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
       + summaryRow('Average', averageRow),
   });
 
-  let body = '';
+  let body = fill('run-copy-all');
 
   // --- Measurement comparisons ---
   for (const measurement of model.measurements) {
-    body += fill('profile-heading', { title: escHtml(formatSectionTitle(measurement.name)) });
-    body += buildTable(measurement);
+    const title = formatSectionTitle(measurement.name);
+    body += fill('profile-heading', { title: escHtml(title) });
+    body += buildTable(measurement, title);
   }
 
   // --- Performance metrics comparisons ---
@@ -441,7 +444,7 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
 
     for (const metric of scope.metrics) {
       body += fill('profile-subheading', { titleAttr: '', label: escHtml(metric.name) });
-      body += buildTable(metric);
+      body += buildTable(metric, `${metric.name} (Performance: ${scope.title})`);
     }
   }
 
