@@ -244,6 +244,41 @@ describeMaybe('spreadsheet export panel integration', () => {
       await context.close();
     });
 
+    it('exports from the run-by-run section through its own buttons', async () => {
+      // The section toolbar: every run-by-run table, and nothing else.
+      await panel.page.evaluate(() => { window.__copied = null; });
+      const toolbar = await panel.page.$('.run-export [data-spreadsheet-action="copy-tsv"]');
+      await panel.page.$eval('.run-export', el => { el.closest('details').open = true; });
+      await toolbar.click();
+      await panel.page.waitForFunction(() => window.__copied !== null);
+      const lines = (await panel.copied()).split('\n');
+      expect(lines[0]).toContain('Section\tMeasurement\tUnit\t🔴 lauda\t🔵 hunt');
+      expect(lines.slice(1).every(line => line.startsWith('Run-by-Run: '))).toBe(true);
+      expect(lines.some(line => line.startsWith('Run-by-Run: Load\tRun 1\ts\t1\t3\t🔴 lauda\t2\t66.7'))).toBe(true);
+      expect(lines.some(line => line.startsWith('Run-by-Run: Script Execution (Race)\tMedian\tms\t100\t200'))).toBe(true);
+      // Feedback lands on the button itself, then the label comes back.
+      expect(await toolbar.textContent()).toBe('Copied!');
+      await panel.page.waitForFunction(el => el.textContent === 'Copy for spreadsheet', toolbar);
+
+      // One table's own pair: just that table, as Markdown.
+      await panel.page.evaluate(() => { window.__copied = null; });
+      await panel.page.click('.run-table-export [data-spreadsheet-groups*="runs:section:Render"][data-spreadsheet-action="copy-markdown"]');
+      await panel.page.waitForFunction(() => window.__copied !== null);
+      const md = (await panel.copied()).split('\n');
+      expect(md[0]).toBe('| Section | Measurement | Unit | 🔴 lauda | 🔵 hunt | Winner | Delta to 2nd | Delta % |');
+      expect(md.slice(2).every(line => line.startsWith('| Run-by-Run: Render |'))).toBe(true);
+      expect(md).toHaveLength(2 + 4);
+
+      // "Pick single rows…" hands over to the panel with exactly these tables ticked.
+      await panel.page.click('.run-export [data-spreadsheet-action="pick"]');
+      const ticked = await panel.page.$$eval('#spreadsheetPanel .spreadsheet-group input', boxes =>
+        boxes.filter(b => b.checked).map(b => b.value));
+      expect(ticked.every(id => id.startsWith('runs:'))).toBe(true);
+      expect(ticked).toContain('runs:section:Load');
+      expect(ticked).not.toContain('results');
+      expect(await panel.page.$eval('#spreadsheetPanel', el => el.closest('details').open)).toBe(true);
+    });
+
     it('raised no page errors', () => {
       expect(panel.errors).toEqual([]);
     });

@@ -95,10 +95,8 @@
       : ' — paste into a sheet.'));
   }
 
-  /** Hand the selected rows over as a CSV file named after the page. */
-  function downloadCsv() {
-    const table = spreadsheetTable(model, selectedKeys());
-    if (table.rows.length === 0) { say('Nothing selected — tick at least one row.'); return; }
+  /** Hand a table over as a CSV file named after the page; returns the file name. */
+  function downloadTable(table) {
     // The byte-order mark is what makes Excel read the file as UTF-8, so a
     // racer called "café" keeps its accent.
     const blob = new Blob(['﻿', spreadsheetCsv(table, { decimal: decimal() })], { type: 'text/csv;charset=utf-8' });
@@ -110,8 +108,60 @@
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    say('Downloaded ' + link.download + ' (' + rowWord(table.rows.length) + ').');
+    return link.download;
   }
+
+  /** Download the selected rows as CSV and report the outcome. */
+  function downloadCsv() {
+    const table = spreadsheetTable(model, selectedKeys());
+    if (table.rows.length === 0) { say('Nothing selected — tick at least one row.'); return; }
+    const name = downloadTable(table);
+    say('Downloaded ' + name + ' (' + rowWord(table.rows.length) + ').');
+  }
+
+  // --- Export buttons elsewhere on the page ---------------------------------
+  // The run-by-run section carries its own copy/download buttons, each naming
+  // the export-model groups it stands for. They report on the button itself,
+  // since the panel's status line is nowhere near them.
+
+  /** Briefly replace a button's label with an outcome, then put it back. */
+  function flash(button, text) {
+    if (button.dataset.flashing) return;
+    const label = button.textContent;
+    button.dataset.flashing = '1';
+    button.textContent = text;
+    setTimeout(() => { button.textContent = label; delete button.dataset.flashing; }, 1500);
+  }
+
+  /** Tick exactly these groups' rows in the panel, open it and scroll to it. */
+  function pickGroups(groups) {
+    const wanted = new Set(groups);
+    rowBoxes.forEach(box => { box.checked = wanted.has(box.closest('tr').dataset.group); });
+    sync();
+    const section = root.closest('details');
+    if (section) section.open = true;
+    root.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  /** One click on a [data-spreadsheet-action] button: copy, download or pick its groups. */
+  async function runAction(button) {
+    let groups;
+    try { groups = JSON.parse(button.dataset.spreadsheetGroups || '[]'); } catch { return; }
+    const action = button.dataset.spreadsheetAction;
+    if (action === 'pick') { pickGroups(groups); return; }
+    const table = spreadsheetTable(model, groups);
+    if (table.rows.length === 0) { flash(button, 'Nothing to export'); return; }
+    if (action === 'download-csv') { downloadTable(table); flash(button, 'Downloaded'); return; }
+    const text = action === 'copy-markdown'
+      ? spreadsheetMarkdown(table, { decimal: decimal() })
+      : spreadsheetTsv(table, { decimal: decimal() });
+    flash(button, (await copyText(text)) ? 'Copied!' : 'Copy failed');
+  }
+
+  document.addEventListener('click', (e) => {
+    const button = e.target.closest('[data-spreadsheet-action]');
+    if (button && !root.contains(button)) runAction(button);
+  });
 
   root.addEventListener('change', (e) => {
     const box = e.target;

@@ -1805,6 +1805,26 @@ describe('buildPlayerHtml run-by-run comparison', () => {
     expect(html).not.toContain('Run-by-Run Comparison');
   });
 
+  it('carries export buttons of its own, naming the panel groups they act on', () => {
+    const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
+    const section = html.slice(html.indexOf('<h2>Run-by-Run Comparison</h2>'), html.indexOf('<h2>Performance Results</h2>'));
+    // The toolbar names every table of the section, as a JSON list the runtime parses back.
+    const all = '&quot;runs:section:Load&quot;,&quot;runs:profile:measured.scriptDuration&quot;';
+    expect(section).toContain(`data-spreadsheet-groups="[${all}]" data-spreadsheet-action="copy-tsv"`);
+    expect(section).toContain(`data-spreadsheet-groups="[${all}]" data-spreadsheet-action="copy-markdown"`);
+    expect(section).toContain(`data-spreadsheet-groups="[${all}]" data-spreadsheet-action="download-csv"`);
+    expect(section).toContain(`data-spreadsheet-groups="[${all}]" data-spreadsheet-action="pick"`);
+    // Each table gets a copy pair of its own, right under its heading.
+    expect(section).toMatch(/<h3>Race Section Load<\/h3>\s*<div class="run-table-export">\s*<button[^>]*data-spreadsheet-groups="\[&quot;runs:section:Load&quot;\]" data-spreadsheet-action="copy-tsv"/);
+    expect(section).toMatch(/<h4>Script Execution<\/h4>\s*<div class="run-table-export">\s*<button[^>]*data-spreadsheet-groups="\[&quot;runs:profile:measured.scriptDuration&quot;\]" data-spreadsheet-action="copy-tsv"/);
+    // The ids the buttons name are the ids the panel's checkboxes carry.
+    for (const id of ['runs:section:Load', 'runs:profile:measured.scriptDuration']) {
+      expect(html).toContain(`<input type="checkbox" value="${id}" checked>`);
+    }
+    // A single-run page has no section, and so none of this.
+    expect(buildPlayerHtml(medianSummary, videoFiles)).not.toContain('class="run-export"');
+  });
+
   it('exports the run-by-run numbers to the spreadsheet panel too', () => {
     const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
     expect(html).toContain('<input type="checkbox" value="results" checked> Race Results (median of 2 runs)');

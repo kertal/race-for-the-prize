@@ -10,6 +10,7 @@ import { escHtml, render } from './html-templates.js';
 import { PROFILE_METRICS, categoryDescriptions, determineProfileMetricOutcome } from './profile-analysis.js';
 import { formatSettingValue, sortSettingKeys, sourceLabel, SOURCE_DEFAULT } from './race-config.js';
 import { formatPlatform } from './summary.js';
+import spreadsheet from './player-runtime/spreadsheet.cjs';
 import {
   buildResultsModel,
   buildRunComparisonModel,
@@ -427,11 +428,22 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
       + summaryRow('Average', averageRow),
   });
 
-  let body = '';
+  // Every table here is also a group of the spreadsheet export model, under
+  // the id the shared core assigns it; the export buttons name those groups
+  // (as a JSON list in a data attribute) and the panel runtime does the rest.
+  const groupsAttr = ids => escHtml(JSON.stringify(ids));
+  const tableExport = id => fill('run-table-export', { groups: groupsAttr([id]) });
+  const allGroups = [
+    ...model.measurements.map(m => spreadsheet.spreadsheetRunGroupId('section', m.name)),
+    ...model.profileScopes.flatMap(scope => scope.metrics.map(m => spreadsheet.spreadsheetRunGroupId('profile', m.key))),
+  ];
+
+  let body = fill('run-export', { groups: groupsAttr(allGroups) });
 
   // --- Measurement comparisons ---
   for (const measurement of model.measurements) {
     body += fill('profile-heading', { title: escHtml(formatSectionTitle(measurement.name)) });
+    body += tableExport(spreadsheet.spreadsheetRunGroupId('section', measurement.name));
     body += buildTable(measurement);
   }
 
@@ -441,6 +453,7 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
 
     for (const metric of scope.metrics) {
       body += fill('profile-subheading', { titleAttr: '', label: escHtml(metric.name) });
+      body += tableExport(spreadsheet.spreadsheetRunGroupId('profile', metric.key));
       body += buildTable(metric);
     }
   }

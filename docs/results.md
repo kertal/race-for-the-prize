@@ -79,7 +79,7 @@ right-aligned). The tables on offer follow what the race produced:
 | Page | Tables |
 |---|---|
 | Single race | **Race Results** (every timed section plus the total, in seconds) · **Performance: Race** and **Performance: Total Recording** (the CDP metrics, in bytes, requests, ms or score) · one **Performance: Section …** table per timed section when there are several |
-| `--runs=N` median page | The same, with the results marked as the median, plus one **Run-by-Run** table per measurement and per profile metric: every run, then the median and the average |
+| `--runs=N` median page | The same, with the results marked as the median, plus one **Run-by-Run** table per measurement and per profile metric: every run, then the median and the average. The **Run-by-Run Comparison** section carries its own export buttons too — a toolbar that copies or downloads every one of its tables, a Copy / Markdown pair under each table, and a **Pick single rows…** link that opens the export section with just those tables ticked |
 | Multi-condition matrix | One table per metric — total time and every captured profile metric — with a row per throttling condition and its network preset and CPU rate as columns of their own, so a sheet can pivot on either |
 
 Values are the raw numbers behind the formatted ones (`12345` bytes rather than

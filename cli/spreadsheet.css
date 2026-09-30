@@ -90,6 +90,11 @@
     border-color var(--duration),
     color var(--duration);
 }
+/* The compact size the run-by-run section uses beside its table headings. */
+.spreadsheet-btn-sm {
+  padding: 0.2rem 0.6rem;
+  font-size: var(--font-size-sm);
+}
 .spreadsheet-btn:hover {
   background: var(--surface-raised);
   border-color: var(--accent);

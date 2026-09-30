@@ -161,6 +161,26 @@
 <template id="build-comparison-cell-bold"><td><strong>{{content}}</strong></td></template>
 <template id="build-run-delta"> <span class="run-delta">({{delta}})</span></template>
 
+<!-- Export controls inside the run-by-run section. Each button names the
+     export-model groups it acts on (a JSON list); the spreadsheet panel's
+     runtime handles the click, so the section shares its clipboard, CSV and
+     Markdown paths. The section toolbar covers every table; the pair under
+     each heading covers that one table. -->
+<template id="build-run-export">
+<div class="run-export">
+  <span class="run-export-label">Export these tables</span>
+  <button type="button" class="spreadsheet-btn spreadsheet-btn-sm" data-spreadsheet-groups="{{groups}}" data-spreadsheet-action="copy-tsv" title="Copy every run-by-run table as tab-separated text">Copy for spreadsheet</button>
+  <button type="button" class="spreadsheet-btn spreadsheet-btn-sm" data-spreadsheet-groups="{{groups}}" data-spreadsheet-action="copy-markdown" title="Copy every run-by-run table as a Markdown table">Copy as Markdown</button>
+  <button type="button" class="spreadsheet-btn spreadsheet-btn-sm" data-spreadsheet-groups="{{groups}}" data-spreadsheet-action="download-csv" title="Download every run-by-run table as a CSV file">Download CSV</button>
+  <button type="button" class="spreadsheet-link" data-spreadsheet-groups="{{groups}}" data-spreadsheet-action="pick" title="Open the Spreadsheet Export section with just these tables ticked">Pick single rows…</button>
+</div>
+</template>
+<template id="build-run-table-export"><div class="run-table-export">
+  <button type="button" class="spreadsheet-btn spreadsheet-btn-sm" data-spreadsheet-groups="{{groups}}" data-spreadsheet-action="copy-tsv" title="Copy this table as tab-separated text">Copy</button>
+  <button type="button" class="spreadsheet-btn spreadsheet-btn-sm" data-spreadsheet-groups="{{groups}}" data-spreadsheet-action="copy-markdown" title="Copy this table as a Markdown table">Markdown</button>
+</div>
+</template>
+
 <!-- Downloadable artefacts. -->
 <template id="build-file-links">
     <div class="file-links">
