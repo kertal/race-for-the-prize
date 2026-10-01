@@ -64,6 +64,8 @@ const RUNTIME_FILES = [
   'segments.js',       // segment navigation + racer filter UI
   'finish-results.cjs', // final per-section placements, independent of recording order
   'finish-display.js', // show each placement at that racer's own finish
+  'speed-curve.cjs',   // pure speed-curve math (Node-testable)
+  'speed-curve.js',    // <speed-curve-editor> + transport wiring; before main.js, whose startup seeks sync it
   'main.js',           // startup: initial verified seek + metadata pass
   'export-layout.cjs', // pure side-by-side export layout math (Node-testable)
   'export-progress.cjs', // pure export-conversion progress math (Node-testable)

@@ -1330,9 +1330,10 @@ describe('buildPlayerHtml export', () => {
     expect(defaultHtml).toContain('rawH % 2');
   });
 
-  it('export timer starts from 0 using exportTimeOffset', () => {
-    expect(defaultHtml).toContain('exportTimeOffset');
-    expect(defaultHtml).toContain('cur - exportTimeOffset');
+  // Racers start at different recording times, so the shared clock must
+  // measure each one from its own seek target, never from absolute time.
+  it('export timer measures every racer from its own start', () => {
+    expect(defaultHtml).toContain('(raceVideos[i]?.currentTime || 0) - seekTargets[j]');
   });
 
   it('export modal canvas has max-height to keep buttons visible', () => {
@@ -1480,7 +1481,7 @@ describe('buildPlayerHtml clip alignment', () => {
 
   it('export seek code uses elapsed-based alignment', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
-    const exportSection = html.slice(html.indexOf('seekPromises'));
+    const exportSection = html.slice(html.indexOf('const seekTargets'));
     expect(exportSection).toContain('const elapsed = startTime - activeClip.start');
     expect(exportSection).toContain('target = ct[i].start + elapsed');
   });

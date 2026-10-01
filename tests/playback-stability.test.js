@@ -25,7 +25,7 @@ function harness(times = [2]) {
     activeClip: { start: 2, end: 12 }, duration: 20, playing: true, scrubber: { value: 0 },
     pendingSeekVerifications: new Map(),
     getAdjustedClipTimes: () => clips, isValidClipEntry: c => !!c,
-    updateFramePositions() {}, updateTimeDisplay() {}, setPlayState: vi.fn(),
+    updateFramePositions() {}, updateTimeDisplay() {}, setPlayState: vi.fn(), applySpeedCurve() {},
     clipOffset: () => 2, clipDuration: () => 10,
     SEEK_SNAP_TOLERANCE: .15, MAX_SEEK_RETRIES: 10, ZERO_START_THRESHOLD: .001,
   };
@@ -158,7 +158,7 @@ describe('duration probe', () => {
       timeDisplay: {}, frameDisplay: {}, activeSegmentName: null,
       calibrateClipTimes: () => ({ convertedAny: false, pending: false }),
       resolveAdjustedClip: () => null, revealCalibrationToggle() {}, buildSegmentNav() {},
-      updateDebugStats() {}, finalizeCalibration() {}, updateFinishDisplays() {},
+      updateDebugStats() {}, finalizeCalibration() {}, updateFinishDisplays() {}, syncSpeedCurveEditor() {},
     };
     vm.createContext(ctx);
     vm.runInContext(block(playback, 'function fmt(', '\n// --- Debug mode'), ctx);

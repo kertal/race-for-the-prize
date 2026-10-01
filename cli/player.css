@@ -328,6 +328,18 @@ h1 {
   margin-bottom: 0.8rem;
 }
 
+/* --- Speed Curve panel --------------------------------------------------- */
+.speed-curve-panel {
+  max-width: var(--content-max);
+  width: 100%;
+  padding: 0 var(--gutter) 0.8rem;
+}
+/* Lit while a curve is drawn: it then owns the playback speed. */
+.frame-btn.speed-curve-btn.active {
+  background: var(--surface-raised);
+  border-color: var(--accent);
+}
+
 /* --- Settings panel ------------------------------------------------------ */
 .settings-panel.visible { display: block; }
 .settings-row {

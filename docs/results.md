@@ -37,6 +37,8 @@ By default, the HTML player handles virtual trimming via clip times and uses CDP
 
 The player includes segment navigation buttons — **Race Recording** (all measurements combined), individual named segments (one per `raceStart`/`raceEnd` pair), and **Whole Recording** (full unclipped video when available). This lets you scrub directly to any specific measurement.
 
+The **∿** button opens the speed curve: draw keyframes over the clip to vary playback speed (0.1x–4x) — fly through the page load, then drop into slow motion for the finish. Click to add a keyframe, drag to move it, right-click to remove it; from the keyboard, Enter adds one at the playhead, Page Up/Down picks one, the arrows move it and Delete removes it. Each racer's clip is shown as a strip in its colour under the curve. While a curve is drawn it sets the speed — the speed menu is disabled until you reset it — and **Export Recording** follows the same curve.
+
 The videos are laid out in finishing order — winner first, then 2nd, 3rd — ranked by total time across all sections, the same way the overall winner is decided. (When two totals are within a frame of each other, the per-section rankings break the tie.)
 
 With `--fps`, the profile grows a **Smoothness** category — median, 95th

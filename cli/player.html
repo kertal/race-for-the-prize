@@ -217,6 +217,7 @@
     <option value="1" selected>🚙 1x</option>
     <option value="2">🏎️ 2x</option>
   </select>
+  <button class="frame-btn speed-curve-btn" id="speedCurveToggle" title="Speed curve" aria-label="Speed curve editor" aria-controls="speedCurvePanel" aria-expanded="false">&#x223F;</button>
   <button class="frame-btn calibration-btn" id="modeDebug" title="Calibration" aria-label="Toggle calibration" style="display:none">🎛️</button>
   <button class="control-action-btn" id="fullscreenBtn" title="Fullscreen (F)" aria-label="Toggle fullscreen">&#x26F6;</button>
   <span class="control-action-group">
@@ -228,6 +229,9 @@
     </div>
   </span>
   <button class="control-action-btn" id="settingsToggle" title="Settings" aria-label="Toggle settings">&#x2699;</button>
+</div>
+<div class="speed-curve-panel" id="speedCurvePanel" hidden>
+  <speed-curve-editor id="speedCurveEditor"></speed-curve-editor>
 </div>
 </div>
 </template>
@@ -303,6 +307,30 @@
       <div class="export-actions"><button class="export-cancel">Cancel</button></div>
     </div>
   </div>
+</template>
+
+<!-- Shadow DOM of <speed-curve-editor>. Tokens inherit through the shadow
+     boundary, so skins theme it like the rest of the player. -->
+<template id="tmpl-speed-curve">
+  <style>
+    :host { display: block; }
+    .hdr { display: flex; align-items: center; gap: 0.6rem; padding: 0.2rem 0 0.4rem; font-family: var(--font-ui); }
+    .title { font-size: var(--font-size-xs); color: var(--accent); text-transform: uppercase; letter-spacing: var(--tracking-wide); font-weight: bold; flex-shrink: 0; }
+    .hint { font-size: var(--font-size-xs); color: var(--text-faint); flex: 1; }
+    .reset { background: var(--surface); color: var(--text-dim); border: var(--border-width) solid var(--border); border-radius: var(--radius); padding: 0.15rem 0.5rem; font: inherit; font-size: var(--font-size-xs); cursor: pointer; flex-shrink: 0; }
+    .reset:hover { border-color: var(--accent); color: var(--text); }
+    canvas { width: 100%; height: 110px; display: block; border: var(--border-width) solid var(--border-subtle); border-radius: var(--radius); cursor: crosshair; touch-action: none; }
+    canvas:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  </style>
+  <div class="hdr">
+    <span class="title">Speed Curve</span>
+    <span class="hint">Click to add &middot; drag to move &middot; right-click to remove</span>
+    <button type="button" class="reset">Reset</button>
+  </div>
+  <canvas tabindex="0" role="application" aria-roledescription="speed curve" aria-label="Playback speed over time" aria-describedby="keys"></canvas>
+  <span class="sr-only" id="keys">Enter adds a keyframe at the playhead. Page Up and Page Down select a keyframe. Left and Right arrows move it in time, Up and Down change its speed, Delete removes it.</span>
+  <output class="sr-only status"></output>
 </template>
 
 {{scriptTag}}
