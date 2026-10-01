@@ -217,6 +217,7 @@
     <option value="1" selected>🚙 1x</option>
     <option value="2">🏎️ 2x</option>
   </select>
+  <button class="frame-btn" id="speedCurveToggle" title="Speed Curve" aria-label="Toggle speed curve editor">&#x223F;</button>
   <button class="frame-btn calibration-btn" id="modeDebug" title="Calibration" aria-label="Toggle calibration" style="display:none">🎛️</button>
   <button class="control-action-btn" id="fullscreenBtn" title="Fullscreen (F)" aria-label="Toggle fullscreen">&#x26F6;</button>
   <span class="control-action-group">
@@ -228,6 +229,9 @@
     </div>
   </span>
   <button class="control-action-btn" id="settingsToggle" title="Settings" aria-label="Toggle settings">&#x2699;</button>
+</div>
+<div class="speed-curve-panel" id="speedCurvePanel" style="display:none">
+  <speed-curve-editor id="speedCurveEditor"></speed-curve-editor>
 </div>
 </div>
 </template>

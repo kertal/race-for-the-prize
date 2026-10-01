@@ -71,6 +71,7 @@ const RUNTIME_FILES = [
   'fullscreen.js',     // fullscreen mode
   'zip.cjs',           // pure CRC32/ZIP builder (Node-testable)
   'export-zip.js',     // self-contained HTML/ZIP export flows
+  'speed-curve.js',    // variable-speed curve editor (web component + integration)
 ];
 const RUNTIME = RUNTIME_FILES
   .map(f => fs.readFileSync(path.join(__dirname, 'player-runtime', f), 'utf-8'))

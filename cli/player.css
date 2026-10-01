@@ -328,6 +328,13 @@ h1 {
   margin-bottom: 0.8rem;
 }
 
+/* --- Speed Curve panel --------------------------------------------------- */
+.speed-curve-panel {
+  max-width: 900px;
+  width: 100%;
+  padding: 0 1.5rem 0.8rem;
+}
+
 /* --- Settings panel ------------------------------------------------------ */
 .settings-panel.visible { display: block; }
 .settings-row {

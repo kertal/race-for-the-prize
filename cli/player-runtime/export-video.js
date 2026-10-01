@@ -322,8 +322,10 @@ async function startExport() {
 
   recorder.start();
   const exportRate = Number.parseFloat(speedSelect.value) || 1;
-  visibleIndices.forEach(i => { const v = raceVideos[i]; if (v) { v.playbackRate = exportRate; v.play(); } });
-  const speedLabel = exportRate !== 1 ? ' (' + exportRate + 'x)' : '';
+  const hasCurve = !!(typeof speedCurveEditor !== 'undefined' && speedCurveEditor && speedCurveEditor.hasPoints);
+  if (!hasCurve) visibleIndices.forEach(i => { const v = raceVideos[i]; if (v) v.playbackRate = exportRate; });
+  visibleIndices.forEach(i => { const v = raceVideos[i]; if (v) v.play(); });
+  const speedLabel = exportRate !== 1 && !hasCurve ? ' (' + exportRate + 'x)' : '';
 
   let exportTimeOffset = null;
   function tick() {
@@ -331,6 +333,10 @@ async function startExport() {
     const cur = Math.max(...visibleIndices.map(i => raceVideos[i]?.currentTime || 0));
     if (exportTimeOffset === null) exportTimeOffset = cur;
     const elapsed = cur - exportTimeOffset;
+    if (hasCurve) {
+      const speed = speedCurveEditor.getSpeedAt(elapsed);
+      visibleIndices.forEach(i => { const v = raceVideos[i]; if (v) v.playbackRate = speed; });
+    }
     drawExportFrame(ctx, layout, elapsed, visibleIndices);
     const progress = totalDur > 0 ? Math.min(1, elapsed / totalDur) : 0;
     progressFill.style.width = (progress * 100).toFixed(1) + '%';
