@@ -245,17 +245,25 @@ async function startExport() {
     return (activeClip && ct?.[i]) ? ct[i].end : endTime;
   });
 
-  const seekPromises = visibleIndices.map((i) => {
+  // Where each visible racer starts, indexed by visible position j. The
+  // export clock measures every racer from its own start, so racers whose
+  // clips begin at different recording times still share one timeline.
+  const seekTargets = visibleIndices.map((i) => {
+    const v = raceVideos[i];
+    let target = startTime;
+    if (activeClip && ct?.[i]) {
+      const elapsed = startTime - activeClip.start;
+      target = ct[i].start + elapsed;
+      target = Math.max(ct[i].start, Math.min(ct[i].end, target));
+    }
+    return Math.min(target, v?.duration || target);
+  });
+
+  const seekPromises = visibleIndices.map((i, j) => {
     const v = raceVideos[i];
     if (!v) return Promise.resolve();
     return new Promise((resolve) => {
-      let target = startTime;
-      if (activeClip && ct?.[i]) {
-        const elapsed = startTime - activeClip.start;
-        target = ct[i].start + elapsed;
-        target = Math.max(ct[i].start, Math.min(ct[i].end, target));
-      }
-      const targetTime = Math.min(target, v.duration || target);
+      const targetTime = seekTargets[j];
       // Chrome fires no 'seeked' event when currentTime is assigned the value
       // it already holds — common when exporting from the start of a clip.
       // Without this guard the promise never settles and the export sits at
@@ -322,21 +330,19 @@ async function startExport() {
 
   recorder.start();
   const exportRate = Number.parseFloat(speedSelect.value) || 1;
-  const hasCurve = !!(typeof speedCurveEditor !== 'undefined' && speedCurveEditor && speedCurveEditor.hasPoints);
-  if (!hasCurve) visibleIndices.forEach(i => { const v = raceVideos[i]; if (v) v.playbackRate = exportRate; });
-  visibleIndices.forEach(i => { const v = raceVideos[i]; if (v) v.play(); });
-  const speedLabel = exportRate !== 1 && !hasCurve ? ' (' + exportRate + 'x)' : '';
+  const hasCurve = speedCurveActive();
+  const rateFor = (elapsed) => (hasCurve ? speedCurveEditor.speedAt(elapsed) : exportRate);
+  const setExportRate = (rate) => visibleIndices.forEach(i => { const v = raceVideos[i]; if (v) v.playbackRate = rate; });
+  setExportRate(rateFor(0));
+  visibleIndices.forEach(i => raceVideos[i]?.play());
+  let speedLabel = '';
+  if (hasCurve) speedLabel = ' (speed curve)';
+  else if (exportRate !== 1) speedLabel = ' (' + exportRate + 'x)';
 
-  let exportTimeOffset = null;
   function tick() {
     if (cancelled) return;
-    const cur = Math.max(...visibleIndices.map(i => raceVideos[i]?.currentTime || 0));
-    if (exportTimeOffset === null) exportTimeOffset = cur;
-    const elapsed = cur - exportTimeOffset;
-    if (hasCurve) {
-      const speed = speedCurveEditor.getSpeedAt(elapsed);
-      visibleIndices.forEach(i => { const v = raceVideos[i]; if (v) v.playbackRate = speed; });
-    }
+    const elapsed = Math.max(0, ...visibleIndices.map((i, j) => (raceVideos[i]?.currentTime || 0) - seekTargets[j]));
+    if (hasCurve) setExportRate(rateFor(elapsed));
     drawExportFrame(ctx, layout, elapsed, visibleIndices);
     const progress = totalDur > 0 ? Math.min(1, elapsed / totalDur) : 0;
     progressFill.style.width = (progress * 100).toFixed(1) + '%';
