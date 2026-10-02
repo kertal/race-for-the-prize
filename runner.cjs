@@ -276,7 +276,6 @@ function mergeFrameStats(profileMetrics, frameStats, id) {
  * @param {boolean} [options.noRecording]
  * @param {boolean} [options.cueMarkers]
  * @param {boolean} [options.wallClock]
- * @param {{network: string, cpu: number}|null} [options.throttle] - re-applied after lazily attaching a CDP session
  */
 async function runMarkerMode(page, config, {
   barriers = null,
@@ -287,7 +286,6 @@ async function runMarkerMode(page, config, {
   noRecording = false,
   cueMarkers = false,
   wallClock = false,
-  throttle = null,
 } = {}) {
   const { id, script: raceScript, vars } = config;
 
@@ -420,7 +418,6 @@ async function runMarkerMode(page, config, {
       if (!cdpSession) {
         cdpSession = await page.context().newCDPSession(page);
         await cdpSession.send('Performance.enable');
-        await applyThrottling(page, throttle, id);
       }
       const getCounters = async () => {
         const { metrics } = await cdpSession.send('Performance.getMetrics');
@@ -568,13 +565,12 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     page.setDefaultTimeout(PAGE_TIMEOUT_MS);
     page.setDefaultNavigationTimeout(PAGE_TIMEOUT_MS);
 
-    metricsCollector = await startProfiling(page, browser, id, { fps });
-
-    // Must follow every newCDPSession: attaching a session resets CPU throttling.
     await applyThrottling(page, throttle, id);
 
+    metricsCollector = await startProfiling(page, browser, id, { fps });
+
     const result = await runMarkerMode(page, config, {
-      barriers, isParallel, recordingStartTime, noOverlay, metricsCollector, noRecording, cueMarkers, wallClock, throttle,
+      barriers, isParallel, recordingStartTime, noOverlay, metricsCollector, noRecording, cueMarkers, wallClock,
     });
     const markerSegments = result?.segments || [];
     const markerMeasurements = result?.measurements || [];
