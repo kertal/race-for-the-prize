@@ -78,7 +78,7 @@ The aim here is not laboratory accuracy — it's to *showcase* performance, to m
 - Built on top of the mighty [Playwright](https://playwright.dev/) — the browser automation framework that makes all of this possible.
 - Built with support of the great "[Race for the Prize](https://www.youtube.com/watch?v=bs56ygZplQA)" song by [The Flaming Lips](https://www.flaminglips.com/).
 
-The full pit crew — every dependency, the pages the demos drive, and the people — is in **[Credits](docs/credits.md)**.
+The people who inspired and tested it are in **[Credits](docs/credits.md)**.
 
 ## License
 
