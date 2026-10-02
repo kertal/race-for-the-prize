@@ -287,13 +287,9 @@ export function buildResultsModel(comparisons, racers) {
  * @param {Object} profileMetricDefs - PROFILE_METRICS map ("scope.metric" keys)
  * @returns {{
  *   isEmpty: boolean,
- *   measurements: Array<{ id, name, runRows, medianRow, averageRow }>,
- *   profileScopes: Array<{ scope, title, metrics: Array<{ id, key, name, runRows, medianRow, averageRow }> }>
+ *   measurements: Array<{ name, runRows, medianRow, averageRow }>,
+ *   profileScopes: Array<{ scope, title, metrics: Array<{ key, name, runRows, medianRow, averageRow }> }>
  * }}
- * `id` names the table's group in the spreadsheet export model, so the
- * player's copy buttons can export exactly that table. Measurements and
- * profile metrics get separate namespaces: a section a spec happened to call
- * "measured.scriptDuration" must not share an id with that profile metric.
  * Each runRow is { label, cells }; medianRow/averageRow are { cells } or null
  * (median: absent from the median summary; average: no racer has data).
  */
@@ -321,7 +317,7 @@ function buildMeasurementModel(name, summaries, medianSummary, racers) {
   const avgDurations = racers.map((_, j) =>
     averageOf(summaries.map(s => s.comparisons.find(c => c.name === name)?.racers[j]?.duration ?? null)));
 
-  return { id: `runs:section:${name}`, name, runRows, medianRow, averageRow: buildAverageDurationRow(avgDurations) };
+  return { name, runRows, medianRow, averageRow: buildAverageDurationRow(avgDurations) };
 }
 
 // Per-run / median / average rows for one profile metric within a scope.
@@ -347,8 +343,7 @@ function buildProfileMetricModel(metric, scopeName, metricName, summaries, media
   // `key` is the PROFILE_METRICS key ("scope.metric"), so an emitter that
   // needs more than the display name — the spreadsheet export wants the
   // metric's unit — can look the definition up again.
-  const key = `${scopeName}.${metricName}`;
-  return { id: `runs:profile:${key}`, key, name: metric.name, runRows, medianRow, averageRow };
+  return { key: `${scopeName}.${metricName}`, name: metric.name, runRows, medianRow, averageRow };
 }
 
 // Profile metric tables grouped by scope (race vs. total recording).

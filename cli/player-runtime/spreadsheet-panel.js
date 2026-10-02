@@ -11,8 +11,7 @@
  * decimal option reformats the numbers, Copy puts tab-separated text or a
  * Markdown table on the clipboard and Download CSV hands over a file.
  * Everything textual comes from spreadsheet.cjs, so the clipboard and the
- * preview can never disagree about a value. The run-by-run tables' copy
- * buttons are wired here too: they export groups of the same model.
+ * preview can never disagree about a value.
  *
  * Wrapped in its own scope: it is concatenated into the player runtime but
  * also inlined on the condition-matrix page, which has no player at all.
@@ -63,10 +62,9 @@
   /**
    * Put text on the clipboard. navigator.clipboard needs a secure context; a
    * report opened over plain http from another machine falls back to the
-   * selection-based copy, typed into a scratch field inside `host`. Resolves
-   * to whether either way worked.
+   * selection-based copy. Resolves to whether either way worked.
    */
-  async function copyText(text, host = root) {
+  async function copyText(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       try { await navigator.clipboard.writeText(text); return true; } catch { /* fall through */ }
     }
@@ -74,7 +72,7 @@
     scratch.value = text;
     scratch.setAttribute('readonly', '');
     scratch.className = 'sr-only';
-    host.appendChild(scratch);
+    root.appendChild(scratch);
     scratch.select();
     let copied = false;
     try { copied = document.execCommand('copy'); } catch { copied = false; }
@@ -97,10 +95,8 @@
       : ' — paste into a sheet.'));
   }
 
-  /** Hand the selected rows over as a CSV file named after the page. */
-  function downloadCsv() {
-    const table = spreadsheetTable(model, selectedKeys());
-    if (table.rows.length === 0) { say('Nothing selected — tick at least one row.'); return; }
+  /** Hand a table over as a CSV file named after the page; returns the file name. */
+  function downloadTable(table) {
     // The byte-order mark is what makes Excel read the file as UTF-8, so a
     // racer called "café" keeps its accent.
     const blob = new Blob(['﻿', spreadsheetCsv(table, { decimal: decimal() })], { type: 'text/csv;charset=utf-8' });
@@ -112,42 +108,76 @@
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    say('Downloaded ' + link.download + ' (' + rowWord(table.rows.length) + ').');
+    return link.download;
   }
 
-  /** One run-by-run table as the page shows it, for the Markdown copy. */
-  function shownRunTable(container) {
+  /** Download the selected rows as CSV and report the outcome. */
+  function downloadCsv() {
+    const table = spreadsheetTable(model, selectedKeys());
+    if (table.rows.length === 0) { say('Nothing selected — tick at least one row.'); return; }
+    const name = downloadTable(table);
+    say('Downloaded ' + name + ' (' + rowWord(table.rows.length) + ').');
+  }
+
+  // --- Export buttons elsewhere on the page ---------------------------------
+  // The run-by-run section carries its own copy/download buttons, each naming
+  // the export-model groups it stands for; its Markdown copy is the tables as
+  // shown rather than raw numbers. They report on the button itself,
+  // since the panel's status line is nowhere near them.
+
+  /** Briefly replace a button's label with an outcome, then put it back. */
+  function flash(button, text) {
+    if (button.dataset.flashing) return;
+    const label = button.textContent;
+    button.dataset.flashing = '1';
+    button.textContent = text;
+    setTimeout(() => { button.textContent = label; delete button.dataset.flashing; }, 1500);
+  }
+
+  /** Tick exactly these groups' rows in the panel, open it and scroll to it. */
+  function pickGroups(groups) {
+    const wanted = new Set(groups);
+    rowBoxes.forEach(box => { box.checked = wanted.has(box.closest('tr').dataset.group); });
+    sync();
+    const section = root.closest('details');
+    if (section) section.open = true;
+    root.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  /** A run-by-run table as the page shows it — trophies, gaps, bold summary rows. */
+  function shownTable(table) {
     return {
-      title: container.dataset.title,
+      title: table.dataset.title,
       header: ['Run', ...(model.racerLabels || model.racers || [])],
-      rows: Array.from(container.querySelectorAll('tbody tr')).map(tr => ({
+      rows: Array.from(table.tBodies[0].rows).map(tr => ({
         bold: tr.classList.contains('run-comparison-median'),
         cells: Array.from(tr.cells).map(td => td.textContent.trim()),
       })),
     };
   }
 
-  /**
-   * The run-by-run section's copy buttons: a bar above each table copies that
-   * table, the bar on top copies them all. The spreadsheet copy takes the
-   * tables' groups from this model (plain numbers); the Markdown copy takes
-   * the tables as shown, trophies and deltas included.
-   */
-  async function copyRunTables(button) {
-    const own = button.closest('.run-comparison');
-    const containers = own ? [own] : Array.from(document.querySelectorAll('.run-comparison'));
-    if (containers.length === 0) return;
-    const markdown = button.dataset.runCopy === 'markdown';
-    const text = markdown
-      ? titledMarkdownTables(containers.map(shownRunTable))
-      : spreadsheetTsv(spreadsheetTable(model, containers.map(c => c.dataset.group)));
-    const bar = button.closest('.run-copy');
-    const ok = await copyText(text, bar);
-    const what = containers.length === 1 ? 'Copied the table' : 'Copied ' + containers.length + ' tables';
-    bar.querySelector('.run-copy-status').textContent = ok
-      ? what + (markdown ? ' as Markdown.' : ' for a spreadsheet.')
-      : 'Copy failed.';
+  /** One click on a [data-spreadsheet-action] button: copy, download or pick its groups. */
+  async function runAction(button) {
+    let groups;
+    try { groups = JSON.parse(button.dataset.spreadsheetGroups || '[]'); } catch { return; }
+    const action = button.dataset.spreadsheetAction;
+    if (action === 'pick') { pickGroups(groups); return; }
+    const table = spreadsheetTable(model, groups);
+    if (table.rows.length === 0) { flash(button, 'Nothing to export'); return; }
+    if (action === 'download-csv') { downloadTable(table); flash(button, 'Downloaded'); return; }
+    const wanted = new Set(groups);
+    const text = action === 'copy-markdown'
+      ? titledMarkdownTables(Array.from(document.querySelectorAll('.run-comparison-table[data-group]'))
+        .filter(el => wanted.has(el.dataset.group))
+        .map(shownTable))
+      : spreadsheetTsv(table, { decimal: decimal() });
+    flash(button, (await copyText(text)) ? 'Copied!' : 'Copy failed');
   }
+
+  document.addEventListener('click', (e) => {
+    const button = e.target.closest('[data-spreadsheet-action]');
+    if (button && !root.contains(button)) runAction(button);
+  });
 
   root.addEventListener('change', (e) => {
     const box = e.target;
@@ -166,10 +196,6 @@
     if (e.target.closest('#spreadsheetCopy')) copySelection('tsv');
     else if (e.target.closest('#spreadsheetMarkdown')) copySelection('markdown');
     else if (e.target.closest('#spreadsheetCsv')) downloadCsv();
-  });
-  document.addEventListener('click', (e) => {
-    const button = e.target.closest('[data-run-copy]');
-    if (button) copyRunTables(button);
   });
 
   sync();

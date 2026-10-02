@@ -10,6 +10,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const {
   spreadsheetTable,
+  spreadsheetRunGroupId,
   spreadsheetRowKey,
   rowVerdict,
   spreadsheetCell,
@@ -81,6 +82,12 @@ describe('spreadsheetTable', () => {
   it('keeps only the selected groups, in model order', () => {
     expect(spreadsheetTable(model, ['profile.measured']).rows).toEqual([BYTES_ROW]);
     expect(spreadsheetTable(model, []).rows).toEqual([]);
+  });
+
+  it('names run-by-run groups in separate namespaces for sections and profile metrics', () => {
+    expect(spreadsheetRunGroupId('section', 'Load')).toBe('runs:section:Load');
+    expect(spreadsheetRunGroupId('profile', 'measured.scriptDuration')).toBe('runs:profile:measured.scriptDuration');
+    expect(spreadsheetRunGroupId('section', 'measured.scriptDuration')).not.toBe(spreadsheetRunGroupId('profile', 'measured.scriptDuration'));
   });
 
   it('keeps single rows by key, mixed with whole groups, in model order', () => {

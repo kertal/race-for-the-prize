@@ -10,6 +10,7 @@ import { escHtml, render } from './html-templates.js';
 import { PROFILE_METRICS, categoryDescriptions, determineProfileMetricOutcome } from './profile-analysis.js';
 import { formatSettingValue, sortSettingKeys, sourceLabel, SOURCE_DEFAULT } from './race-config.js';
 import { formatPlatform } from './summary.js';
+import spreadsheet from './player-runtime/spreadsheet.cjs';
 import {
   buildResultsModel,
   buildRunComparisonModel,
@@ -417,8 +418,8 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
     : '';
 
   /** Render one table (run rows + median/average rows) from a model entry. */
-  const buildTable = ({ id, runRows, medianRow, averageRow }, title) => fill('comparison-table', {
-    group: escHtml(id),
+  const buildTable = ({ runRows, medianRow, averageRow }, group, title) => fill('comparison-table', {
+    group: escHtml(group),
     title: escHtml(title),
     header,
     rows: runRows.map(row => fill('comparison-row', {
@@ -429,13 +430,25 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
       + summaryRow('Average', averageRow),
   });
 
-  let body = fill('run-copy-all');
+  // Every table here is also a group of the spreadsheet export model, under
+  // the id the shared core assigns it; the export buttons name those groups
+  // (as a JSON list in a data attribute) and the panel runtime does the rest.
+  const groupsAttr = ids => escHtml(JSON.stringify(ids));
+  const tableExport = id => fill('run-table-export', { groups: groupsAttr([id]) });
+  const allGroups = [
+    ...model.measurements.map(m => spreadsheet.spreadsheetRunGroupId('section', m.name)),
+    ...model.profileScopes.flatMap(scope => scope.metrics.map(m => spreadsheet.spreadsheetRunGroupId('profile', m.key))),
+  ];
+
+  let body = fill('run-export', { groups: groupsAttr(allGroups) });
 
   // --- Measurement comparisons ---
   for (const measurement of model.measurements) {
+    const group = spreadsheet.spreadsheetRunGroupId('section', measurement.name);
     const title = formatSectionTitle(measurement.name);
     body += fill('profile-heading', { title: escHtml(title) });
-    body += buildTable(measurement, title);
+    body += tableExport(group);
+    body += buildTable(measurement, group, title);
   }
 
   // --- Performance metrics comparisons ---
@@ -443,8 +456,10 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
     body += fill('profile-heading', { title: `Performance: ${escHtml(scope.title)}` });
 
     for (const metric of scope.metrics) {
+      const group = spreadsheet.spreadsheetRunGroupId('profile', metric.key);
       body += fill('profile-subheading', { titleAttr: '', label: escHtml(metric.name) });
-      body += buildTable(metric, `${metric.name} (Performance: ${scope.title})`);
+      body += tableExport(group);
+      body += buildTable(metric, group, `${metric.name} (Performance: ${scope.title})`);
     }
   }
 

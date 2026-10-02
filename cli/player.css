@@ -716,32 +716,28 @@ video {
 }
 .run-delta { opacity: 0.5; }
 
-/* Copy bars: one above each run-by-run table, one on top for all of them. */
-.run-copy {
+/* --- Run-by-run export controls -------------------------------------------
+   The buttons themselves are the spreadsheet panel's (.spreadsheet-btn, in
+   spreadsheet.css); only their placement in this section lives here. */
+.run-export {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.3rem 0.6rem;
-  margin: 0 0 0.3rem;
+  gap: 0.5rem;
+  margin: 0.4rem 0 0.6rem;
+}
+.run-export-label {
   color: var(--text-faint);
   font-size: var(--font-size-sm);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking);
+  margin-right: 0.3rem;
 }
-.run-copy-all { margin-bottom: 0.8rem; }
-.run-copy-btn {
-  background: none;
-  border: none;
-  padding: 0;
-  color: var(--text-dim);
-  font: inherit;
-  text-decoration: underline;
-  cursor: pointer;
+.run-table-export {
+  display: flex;
+  gap: 0.4rem;
+  margin: -0.2rem 0 0.5rem;
 }
-.run-copy-btn:hover { color: var(--accent); }
-.run-copy-btn:focus-visible {
-  outline: var(--focus-ring);
-  outline-offset: 1px;
-}
-.run-copy-status { color: var(--text-subtle); }
 
 /* --- Performance profile ------------------------------------------------- */
 .profile-note {

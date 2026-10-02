@@ -79,7 +79,7 @@ right-aligned). The tables on offer follow what the race produced:
 | Page | Tables |
 |---|---|
 | Single race | **Race Results** (every timed section plus the total, in seconds) · **Performance: Race** and **Performance: Total Recording** (the CDP metrics, in bytes, requests, ms or score) · one **Performance: Section …** table per timed section when there are several |
-| `--runs=N` median page | The same, with the results marked as the median, plus one **Run-by-Run** table per measurement and per profile metric: every run, then the median and the average |
+| `--runs=N` median page | The same, with the results marked as the median, plus one **Run-by-Run** table per measurement and per profile metric: every run, then the median and the average. The **Run-by-Run Comparison** section carries its own export buttons too — a toolbar that copies or downloads every one of its tables, a Copy / Markdown pair under each table, and a **Pick single rows…** link that opens the export section with just those tables ticked |
 | Multi-condition matrix | One table per metric — total time and every captured profile metric — with a row per throttling condition and its network preset and CPU rate as columns of their own, so a sheet can pivot on either |
 
 Values are the raw numbers behind the formatted ones (`12345` bytes rather than
@@ -94,13 +94,11 @@ without JavaScript it still shows every table, and selecting it and copying by
 hand pastes into a sheet as cells too. Exported HTML and ZIP bundles keep the section, working, since the data
 travels inside the page.
 
-The **Run-by-Run Comparison** section on a `--runs=N` median page has copy
-buttons of its own: above each table, **Copy for spreadsheet** and **Copy as
-Markdown** take just that table, and the bar on top of the section takes all of
-them. The spreadsheet copy is the same tab-separated numbers the export panel
-gives for that table; the Markdown copy is the table as the page shows it —
-trophies, gaps, the median and average rows in bold — under a bold title, so it
-reads the same in a GitHub pull request as it does in the report.
+The run-by-run section's copy and download buttons export the same numbers the
+panel gives for those tables — except **Markdown**, which copies the tables as
+the page shows them: trophies, gaps, the median and average rows in bold, each
+under a bold title, so they read the same in a GitHub pull request as in the
+report.
 
 Disclaimer: Due to the nature of the way the video is transformed, the aim here is not accuracy, it's to showcase, to visualize performance. To compare between different network and browser settings.
 Do double check and question the metrics and findings. It should be a helpful tool supporting performance related narratives, but don't assume 100% accuracy. However, this generally applies to many 

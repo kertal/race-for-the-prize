@@ -153,7 +153,7 @@ function runByRunGroups(summary, racers, runSummaries) {
   if (model.isEmpty) return [];
 
   const groups = model.measurements.map(measurement => ({
-    id: measurement.id,
+    id: spreadsheet.spreadsheetRunGroupId('section', measurement.name),
     title: `Run-by-Run: ${measurement.name}`,
     rows: runRows(measurement, DURATION_UNIT),
   }));
@@ -161,7 +161,7 @@ function runByRunGroups(summary, racers, runSummaries) {
     const scopeTitle = PROFILE_SCOPES.find(s => s.scope === scope.scope)?.title || scope.title;
     for (const metric of scope.metrics) {
       groups.push({
-        id: metric.id,
+        id: spreadsheet.spreadsheetRunGroupId('profile', metric.key),
         title: `Run-by-Run: ${metric.name} (${scopeTitle})`,
         rows: runRows(metric, unitOf(metric.key)),
       });

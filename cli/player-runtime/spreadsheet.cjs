@@ -38,6 +38,18 @@ function rowVerdict(values, racerLabels) {
 }
 
 /**
+ * The id of a run-by-run group: `runs:section:<measurement>` for a timed
+ * section, `runs:profile:<scope.metric>` for a profile metric. Separate
+ * namespaces, so a section a spec happened to call "measured.scriptDuration"
+ * never shares an id (and so a checkbox) with the profile metric of that
+ * key. Both the export model and the run-by-run section's own export buttons
+ * name groups by this, which is why it lives in the shared core.
+ */
+function spreadsheetRunGroupId(kind, name) {
+  return `runs:${kind}:${name}`;
+}
+
+/**
  * The key of one row: its group's id and its position in the group. A
  * selection names rows by these, or whole groups by their id.
  */
@@ -173,5 +185,5 @@ function spreadsheetFileName(title) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { spreadsheetTable, spreadsheetRowKey, rowVerdict, spreadsheetCell, spreadsheetText, spreadsheetTsv, spreadsheetCsv, spreadsheetMarkdown, titledMarkdownTables, spreadsheetFileName };
+  module.exports = { spreadsheetTable, spreadsheetRunGroupId, spreadsheetRowKey, rowVerdict, spreadsheetCell, spreadsheetText, spreadsheetTsv, spreadsheetCsv, spreadsheetMarkdown, titledMarkdownTables, spreadsheetFileName };
 }

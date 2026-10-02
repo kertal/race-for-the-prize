@@ -244,6 +244,49 @@ describeMaybe('spreadsheet export panel integration', () => {
       await context.close();
     });
 
+    it('exports from the run-by-run section through its own buttons', async () => {
+      // The section toolbar: every run-by-run table, and nothing else.
+      await panel.page.evaluate(() => { window.__copied = null; });
+      const toolbar = await panel.page.$('.run-export [data-spreadsheet-action="copy-tsv"]');
+      await panel.page.$eval('.run-export', el => { el.closest('details').open = true; });
+      await toolbar.click();
+      await panel.page.waitForFunction(() => window.__copied !== null);
+      const lines = (await panel.copied()).split('\n');
+      expect(lines[0]).toContain('Section\tMeasurement\tUnit\t🔴 lauda\t🔵 hunt');
+      expect(lines.slice(1).every(line => line.startsWith('Run-by-Run: '))).toBe(true);
+      expect(lines.some(line => line.startsWith('Run-by-Run: Load\tRun 1\ts\t1\t3\t🔴 lauda\t2\t66.7'))).toBe(true);
+      expect(lines.some(line => line.startsWith('Run-by-Run: Script Execution (Race)\tMedian\tms\t100\t200'))).toBe(true);
+      // Feedback lands on the button itself, then the label comes back.
+      expect(await toolbar.textContent()).toBe('Copied!');
+      await panel.page.waitForFunction(el => el.textContent === 'Copy for spreadsheet', toolbar);
+
+      // One table's own pair: just that table, as Markdown the way the page shows it.
+      await panel.page.evaluate(() => { window.__copied = null; });
+      await panel.page.click('.run-table-export [data-spreadsheet-groups*="runs:section:Render"][data-spreadsheet-action="copy-markdown"]');
+      await panel.page.waitForFunction(() => window.__copied !== null);
+      const md = (await panel.copied()).split('\n');
+      expect(md.slice(0, 4)).toEqual(['**Race Section Render**', '', '| Run | 🔴 lauda | 🔵 hunt |', '| --- | --- | --- |']);
+      expect(md[4]).toMatch(/^\| 1 \| 0\.500s \(🏆 .+ ahead\) \| 0\.700s \(\+0\.200s, .+\) \|$/);
+      expect(md[6]).toMatch(/^\| \*\*Median\*\* \| \*\*0\.500s \(🏆/);
+      expect(md).toHaveLength(4 + 4);
+
+      // The toolbar's Markdown: every run-by-run table, each under its title.
+      await panel.page.evaluate(() => { window.__copied = null; });
+      await panel.page.click('.run-export [data-spreadsheet-action="copy-markdown"]');
+      await panel.page.waitForFunction(() => window.__copied !== null);
+      const tables = await panel.page.$$eval('.run-comparison-table', els => els.length);
+      expect((await panel.copied()).match(/^\*\*.+\*\*$/gm)).toHaveLength(tables);
+
+      // "Pick single rows…" hands over to the panel with exactly these tables ticked.
+      await panel.page.click('.run-export [data-spreadsheet-action="pick"]');
+      const ticked = await panel.page.$$eval('#spreadsheetPanel .spreadsheet-group input', boxes =>
+        boxes.filter(b => b.checked).map(b => b.value));
+      expect(ticked.every(id => id.startsWith('runs:'))).toBe(true);
+      expect(ticked).toContain('runs:section:Load');
+      expect(ticked).not.toContain('results');
+      expect(await panel.page.$eval('#spreadsheetPanel', el => el.closest('details').open)).toBe(true);
+    });
+
     it('raised no page errors', () => {
       expect(panel.errors).toEqual([]);
     });
@@ -260,60 +303,6 @@ describeMaybe('spreadsheet export panel integration', () => {
       expect((await panel.copied()).split('\n')).toHaveLength(4);
       expect(panel.errors).toEqual([]);
       await panel.context.close();
-    });
-  });
-
-  describe('on the run-by-run comparison', () => {
-    let panel;
-
-    beforeAll(async () => {
-      const url = writePage('run-copy', buildPlayerHtml(medianSummary, [], null, null, { runSummaries }));
-      panel = await openPanel(url);
-      await panel.page.$eval('.run-comparison', el => { el.closest('details').open = true; });
-    });
-
-    afterAll(async () => { await panel.context.close(); });
-
-    const loadTable = '.run-comparison[data-group="runs:section:Load"]';
-    const copy = async (selector) => {
-      await panel.page.evaluate(() => { window.__copied = null; });
-      await panel.page.click(selector);
-      await panel.page.waitForFunction(() => window.__copied !== null);
-      return panel.copied();
-    };
-
-    it('copies one table as Markdown, the way the page shows it', async () => {
-      const md = await copy(`${loadTable} [data-run-copy="markdown"]`);
-      expect(md.split('\n').slice(0, 5)).toEqual([
-        '**Race Section Load**',
-        '',
-        '| Run | 🔴 lauda | 🔵 hunt |',
-        '| --- | --- | --- |',
-        '| 1 | 1.000s (🏆 67% ahead) | 3.000s (+2.000s, +200%) |',
-      ]);
-      expect(md).toContain('| **Median** | **1.000s (🏆 67% ahead)** | **3.000s (+2.000s, +200%)** |');
-      expect(await panel.page.textContent(`${loadTable} .run-copy-status`)).toBe('Copied the table as Markdown.');
-    });
-
-    it('copies one table as tab-separated numbers from the export model', async () => {
-      const tsv = await copy(`${loadTable} [data-run-copy="tsv"]`);
-      expect(tsv.split('\n').slice(0, 2)).toEqual([
-        'Section\tMeasurement\tUnit\t🔴 lauda\t🔵 hunt\tWinner\tDelta to 2nd\tDelta %',
-        'Run-by-Run: Load\tRun 1\ts\t1\t3\t🔴 lauda\t2\t66.7',
-      ]);
-      expect(tsv.split('\n').every((line, i) => i === 0 || line.startsWith('Run-by-Run: Load\t'))).toBe(true);
-    });
-
-    it('copies every table from the bar on top', async () => {
-      const tables = await panel.page.$$eval('.run-comparison', els => els.length);
-      const md = await copy('.run-copy-all [data-run-copy="markdown"]');
-      expect(md.match(/^\*\*.+\*\*$/gm)).toHaveLength(tables);
-      const tsv = await copy('.run-copy-all [data-run-copy="tsv"]');
-      expect(tsv).toContain('Run-by-Run: Render\t');
-      expect(tsv).toContain('Run-by-Run: Script Execution (Race)\t');
-      expect(tsv).not.toContain('Race Results');
-      expect(await panel.page.textContent('.run-copy-all .run-copy-status')).toBe(`Copied ${tables} tables for a spreadsheet.`);
-      expect(panel.errors).toEqual([]);
     });
   });
 
