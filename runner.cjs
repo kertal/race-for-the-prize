@@ -419,8 +419,11 @@ async function runMarkerMode(page, config, {
     try {
       if (!cdpSession) {
         cdpSession = await page.context().newCDPSession(page);
-        await cdpSession.send('Performance.enable');
+        // Straight after the attach, before anything on the new session can
+        // fail: the catch below lets the race carry on without stability
+        // checks, and it must not carry on unthrottled as well.
         await applyThrottling(page, throttle, id);
+        await cdpSession.send('Performance.enable');
       }
       const getCounters = async () => {
         const { metrics } = await cdpSession.send('Performance.getMetrics');
