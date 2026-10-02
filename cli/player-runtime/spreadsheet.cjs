@@ -54,7 +54,11 @@ function spreadsheetRunGroupId(kind, name) {
  * selection names rows by these, or whole groups by their id.
  */
 function spreadsheetRowKey(groupId, index) {
-  return `${groupId}#${index}`;
+  // The `row:` prefix keeps row keys out of the group-id namespace: no group
+  // id starts with it (they start with "results", "profile.", "runs:" or a
+  // metric key), so a section called "x#0" can never make the first row of a
+  // section called "x" select the whole of it.
+  return `row:${groupId}#${index}`;
 }
 
 /**
@@ -151,7 +155,10 @@ function spreadsheetCsv(table, options = {}) {
  */
 function spreadsheetMarkdown(table, options = {}) {
   const decimal = options.decimal || '.';
-  const escape = text => text.replace(/[\r\n]+/g, ' ').replaceAll('|', '\\|');
+  // Backslashes first: escaping the pipe in "a\|b" without doubling the
+  // backslash would give "a\\|b", which GFM reads as a literal backslash
+  // followed by a column break.
+  const escape = text => text.replace(/[\r\n]+/g, ' ').replaceAll('\\', '\\\\').replaceAll('|', '\\|');
   const cell = value => escape(spreadsheetCell(value, decimal, false));
   const numeric = table.header.map((_, col) =>
     table.rows.some(row => typeof row[col] === 'number')

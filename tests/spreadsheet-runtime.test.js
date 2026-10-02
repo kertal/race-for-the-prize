@@ -91,11 +91,30 @@ describe('spreadsheetTable', () => {
   });
 
   it('keeps single rows by key, mixed with whole groups, in model order', () => {
-    expect(spreadsheetRowKey('results', 1)).toBe('results#1');
+    expect(spreadsheetRowKey('results', 1)).toBe('row:results#1');
     // The second results row alone, plus the whole profile group.
-    expect(spreadsheetTable(model, ['results#1', 'profile.measured']).rows).toEqual([LOAD_ROW, BYTES_ROW]);
+    expect(spreadsheetTable(model, ['row:results#1', 'profile.measured']).rows).toEqual([LOAD_ROW, BYTES_ROW]);
     // A key that names no row selects nothing.
-    expect(spreadsheetTable(model, ['results#7', 'nope#0']).rows).toEqual([]);
+    expect(spreadsheetTable(model, ['row:results#7', 'row:nope#0']).rows).toEqual([]);
+  });
+
+  it('never lets a row key collide with another group\'s id', () => {
+    // A section called "x#0" has the group id runs:section:x#0 — which is what
+    // the first row of a section called "x" would have been keyed as, had row
+    // keys shared the namespace. Picking that row must not take the group.
+    const x = spreadsheetRunGroupId('section', 'x');
+    const clash = spreadsheetRunGroupId('section', 'x#0');
+    const m = {
+      headers: ['Section', 'Measurement', 'Unit'],
+      racers: ['a'],
+      groups: [
+        { id: x, title: 'x', rows: [{ cells: ['Run 1'], unit: 's', values: [1] }, { cells: ['Run 2'], unit: 's', values: [2] }] },
+        { id: clash, title: 'x#0', rows: [{ cells: ['Run 1'], unit: 's', values: [9] }] },
+      ],
+    };
+    expect(spreadsheetRowKey(x, 0)).not.toBe(clash);
+    expect(spreadsheetTable(m, [spreadsheetRowKey(x, 0)]).rows).toEqual([['x', 'Run 1', 's', 1, null, null, null]]);
+    expect(spreadsheetTable(m, [clash]).rows).toEqual([['x#0', 'Run 1', 's', 9, null, null, null]]);
   });
 
   it('heads the racer columns with the bare names when a model carries no labels', () => {
@@ -238,6 +257,14 @@ describe('spreadsheetMarkdown', () => {
     const md = spreadsheetMarkdown({ header: ['label', 'n'], rows: [['a | b', 1], ['two\nlines', 2]] });
     expect(md).toContain('| a \\| b | 1 |');
     expect(md).toContain('| two lines | 2 |');
+  });
+
+  it('escapes backslashes before pipes, so a label already holding \\| keeps its column', () => {
+    // Unescaped, a\|b would become a\\|b, which GFM reads as a literal
+    // backslash and then a column break.
+    const md = spreadsheetMarkdown({ header: ['label'], rows: [['a\\|b'], ['c:\\dir']] });
+    expect(md).toContain('| a\\\\\\|b |');
+    expect(md).toContain('| c:\\\\dir |');
   });
 
   it('leaves formula-like labels as written, since nothing evaluates Markdown', () => {

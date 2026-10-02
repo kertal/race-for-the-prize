@@ -109,15 +109,53 @@ function profileGroup(summary, racers, { scope, title }) {
   return { id: `profile.${scope}`, title: `Performance: ${title}`, rows };
 }
 
+/** The median of the non-null values, or null when there are none. */
+function medianOf(values) {
+  const present = values.filter(v => typeof v === 'number' && Number.isFinite(v)).sort((a, b) => a - b);
+  if (present.length === 0) return null;
+  const mid = Math.floor(present.length / 2);
+  return present.length % 2 === 1 ? present[mid] : (present[mid - 1] + present[mid]) / 2;
+}
+
+/**
+ * Each racer's per-section measured metrics for this page. A single-run page
+ * carries them on its own summary. A --runs median summary does not: its
+ * profile metrics keep only the race and total scopes (see
+ * buildMedianProfileMetrics in summary.js), so there they are the median of
+ * each run's sections, racer by racer and metric by metric.
+ */
+function sectionProfiles(summary, racers, runSummaries) {
+  const own = summary.profileMetrics || [];
+  if (own.some(p => p?.measuredSections) || !Array.isArray(runSummaries) || runSummaries.length <= 1) return own;
+
+  return racers.map((_, i) => {
+    const samples = {};
+    for (const run of runSummaries) {
+      for (const [section, metrics] of Object.entries(run.profileMetrics?.[i]?.measuredSections || {})) {
+        samples[section] ??= {};
+        for (const [name, value] of Object.entries(metrics || {})) (samples[section][name] ??= []).push(value);
+      }
+    }
+    const measuredSections = {};
+    for (const [section, metrics] of Object.entries(samples)) {
+      measuredSections[section] = Object.fromEntries(
+        Object.entries(metrics).map(([name, values]) => [name, medianOf(values)]).filter(([, value]) => value != null)
+      );
+    }
+    return { measuredSections };
+  });
+}
+
 /**
  * Per-section profile metrics, one group per timed section. Only when there
  * is more than one section: with a single one they repeat the Race scope
  * exactly, which is why the player hides them then too.
  */
-function sectionProfileGroups(summary, racers) {
-  const profiles = summary.profileMetrics || [];
+function sectionProfileGroups(summary, racers, runSummaries) {
+  const profiles = sectionProfiles(summary, racers, runSummaries);
   const sectionNames = [...new Set(profiles.flatMap(p => Object.keys(p?.measuredSections || {})))];
   if (sectionNames.length < 2) return [];
+  const runs = summary.runs > 1 ? ` (median of ${summary.runs} runs)` : '';
 
   const measuredMetrics = Object.entries(PROFILE_METRICS).filter(([, metric]) => metric.scope === 'measured');
   const groups = [];
@@ -129,7 +167,7 @@ function sectionProfileGroups(summary, racers) {
       if (values.every(v => v == null)) continue;
       rows.push({ cells: [metric.name], unit: metric.unit || '', values });
     }
-    if (rows.length > 0) groups.push({ id: `profile.section:${section}`, title: `Performance: Section ${section}`, rows });
+    if (rows.length > 0) groups.push({ id: `profile.section:${section}`, title: `Performance: Section ${section}${runs}`, rows });
   }
   return groups;
 }
@@ -183,7 +221,7 @@ export function buildSpreadsheetModel(summary, options = {}) {
   const groups = [
     resultsGroup(summary, racers),
     ...PROFILE_SCOPES.map(scope => profileGroup(summary, racers, scope)),
-    ...sectionProfileGroups(summary, racers),
+    ...sectionProfileGroups(summary, racers, options.runSummaries),
     ...runByRunGroups(summary, racers, options.runSummaries),
   ].filter(Boolean);
   return { headers: ['Section', 'Measurement', 'Unit'], racers, racerLabels: racerLabelsFor(racers), groups };

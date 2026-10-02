@@ -151,6 +151,33 @@ describe('buildSpreadsheetModel', () => {
       expect(new Set(ids).size).toBe(ids.length);
     });
 
+    it('works the per-section profile tables out from the runs, since the median summary drops them', () => {
+      const sections = (load, render) => ({ Load: { scriptDuration: load }, Render: { scriptDuration: render } });
+      const runs = [[10, 30], [20, 40], [15, 35]].map(([load, render]) => ({
+        racers,
+        comparisons: [],
+        profileMetrics: [
+          { measured: {}, total: {}, measuredSections: sections(load, render) },
+          { measured: {}, total: {}, measuredSections: sections(load * 2, render * 2) },
+        ],
+      }));
+      // buildMedianProfileMetrics keeps only the measured and total scopes.
+      const med = summary({ runs: 3, comparisons: [], profileMetrics: [{ measured: {}, total: {} }, { measured: {}, total: {} }] });
+      const model = buildSpreadsheetModel(med, { runSummaries: runs });
+      expect(groupById(model, 'profile.section:Load')).toEqual({
+        id: 'profile.section:Load',
+        title: 'Performance: Section Load (median of 3 runs)',
+        rows: [{ cells: ['Script Execution'], unit: 'ms', values: [15, 30] }],
+      });
+      expect(groupById(model, 'profile.section:Render').rows[0].values).toEqual([35, 70]);
+      // A metric only some runs captured takes the median of those; one no run captured is left out.
+      runs[1].profileMetrics[0].measuredSections.Load.layoutDuration = 4;
+      expect(groupById(buildSpreadsheetModel(med, { runSummaries: runs }), 'profile.section:Load').rows).toEqual([
+        { cells: ['Script Execution'], unit: 'ms', values: [15, 30] },
+        { cells: ['Layout Time'], unit: 'ms', values: [4, null] },
+      ]);
+    });
+
     it('adds no run-by-run tables for a single run', () => {
       const ids = buildSpreadsheetModel(median, { runSummaries: [runSummaries[0]] }).groups.map(g => g.id);
       expect(ids.some(id => id.startsWith('runs:'))).toBe(false);
@@ -211,13 +238,13 @@ describe('buildSpreadsheetPanelHtml', () => {
   });
 
   it('renders every row up front, tagged with its group, so the page works without JavaScript', () => {
-    expect(html).toContain('<tr data-group="results"><td class="spreadsheet-pick"><input type="checkbox" data-row="results#0" checked aria-label="Include Race Results: Race"></td><td>Race Results</td><td>Race</td><td>s</td><td class="spreadsheet-num" data-value="1.5">1.5</td><td class="spreadsheet-num" data-value="3.7">3.7</td><td>🔴 lauda</td><td class="spreadsheet-num" data-value="2.2">2.2</td><td class="spreadsheet-num" data-value="59.5">59.5</td></tr>');
+    expect(html).toContain('<tr data-group="results"><td class="spreadsheet-pick"><input type="checkbox" data-row="row:results#0" checked aria-label="Include Race Results: Race"></td><td>Race Results</td><td>Race</td><td>s</td><td class="spreadsheet-num" data-value="1.5">1.5</td><td class="spreadsheet-num" data-value="3.7">3.7</td><td>🔴 lauda</td><td class="spreadsheet-num" data-value="2.2">2.2</td><td class="spreadsheet-num" data-value="59.5">59.5</td></tr>');
     const rowCount = model.groups.reduce((n, g) => n + g.rows.length, 0);
     expect(html.match(/<tr data-group=/g)).toHaveLength(rowCount);
     // One include checkbox per row, keyed to its model row, under a header only screen readers see.
     expect(html.match(/<input type="checkbox" data-row=/g)).toHaveLength(rowCount);
     expect(html).toContain('<th scope="col" class="spreadsheet-pick"><span class="sr-only">Include</span></th>');
-    expect(html).toContain('data-row="profile.total#1" checked aria-label="Include Performance: Total Recording: Cumulative Layout Shift (CLS)"');
+    expect(html).toContain('data-row="row:profile.total#1" checked aria-label="Include Performance: Total Recording: Cumulative Layout Shift (CLS)"');
     // A missing value is an empty cell, not a dash.
     expect(html).toContain('<td>score</td><td class="spreadsheet-num" data-value="0.01">0.01</td><td class="spreadsheet-num"></td>');
   });

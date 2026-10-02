@@ -148,7 +148,7 @@ describeMaybe('spreadsheet export panel integration', () => {
 
     it('leaves out a single measurement by its own checkbox, and shows the group as mixed', async () => {
       // The results group is the only one ticked; drop its middle row (Load).
-      await panel.page.uncheck('#spreadsheetPanel input[data-row="results#1"]');
+      await panel.page.uncheck('#spreadsheetPanel input[data-row="row:results#1"]');
       expect(await panel.visibleRows()).toBe(2);
       expect(await panel.status()).toBe('2 rows selected.');
       const group = await panel.page.$eval('#spreadsheetPanel .spreadsheet-group input[value="results"]', box => ({ checked: box.checked, indeterminate: box.indeterminate }));
