@@ -178,6 +178,24 @@ describe('buildSpreadsheetModel', () => {
       ]);
     });
 
+    it('keeps a section whose name is also an Object property', () => {
+      // A spec may call its sections anything; "constructor" must be stored as
+      // a key of its own, not resolve to the one every plain object inherits.
+      const runs = [10, 20].map(v => ({
+        racers,
+        comparisons: [],
+        profileMetrics: [
+          { measured: {}, total: {}, measuredSections: { constructor: { scriptDuration: v }, Load: { scriptDuration: v + 1 } } },
+          { measured: {}, total: {}, measuredSections: { constructor: { scriptDuration: v * 3 }, Load: { scriptDuration: v + 2 } } },
+        ],
+      }));
+      const med = summary({ runs: 2, comparisons: [], profileMetrics: [{ measured: {}, total: {} }, { measured: {}, total: {} }] });
+      const model = buildSpreadsheetModel(med, { runSummaries: runs });
+      expect(model.groups.map(g => g.id)).toEqual(['profile.section:constructor', 'profile.section:Load']);
+      expect(groupById(model, 'profile.section:constructor').rows).toEqual([{ cells: ['Script Execution'], unit: 'ms', values: [15, 45] }]);
+      expect(groupById(model, 'profile.section:Load').rows).toEqual([{ cells: ['Script Execution'], unit: 'ms', values: [16, 17] }]);
+    });
+
     it('adds no run-by-run tables for a single run', () => {
       const ids = buildSpreadsheetModel(median, { runSummaries: [runSummaries[0]] }).groups.map(g => g.id);
       expect(ids.some(id => id.startsWith('runs:'))).toBe(false);

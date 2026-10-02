@@ -128,15 +128,18 @@ function sectionProfiles(summary, racers, runSummaries) {
   const own = summary.profileMetrics || [];
   if (own.some(p => p?.measuredSections) || !Array.isArray(runSummaries) || runSummaries.length <= 1) return own;
 
+  // Section names are whatever a spec passed to raceStart(), so they are keys
+  // of prototype-less objects: on a plain one, a section called "constructor"
+  // would resolve to Object's and never be stored.
   return racers.map((_, i) => {
-    const samples = {};
+    const samples = Object.create(null);
     for (const run of runSummaries) {
       for (const [section, metrics] of Object.entries(run.profileMetrics?.[i]?.measuredSections || {})) {
-        samples[section] ??= {};
+        samples[section] ??= Object.create(null);
         for (const [name, value] of Object.entries(metrics || {})) (samples[section][name] ??= []).push(value);
       }
     }
-    const measuredSections = {};
+    const measuredSections = Object.create(null);
     for (const [section, metrics] of Object.entries(samples)) {
       measuredSections[section] = Object.fromEntries(
         Object.entries(metrics).map(([name, values]) => [name, medianOf(values)]).filter(([, value]) => value != null)
