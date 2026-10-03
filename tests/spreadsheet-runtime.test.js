@@ -308,6 +308,14 @@ describe('titledMarkdownTables', () => {
   it('escapes pipes in cells', () => {
     expect(titledMarkdownTables([{ title: 't', header: ['a'], rows: [{ cells: ['x | y'] }] }])).toContain('| x \\| y |');
   });
+
+  it('keeps a title with line breaks on one heading line', () => {
+    // raceStart() takes a name as given; a break in it must not split the
+    // bold heading or open a stray block above the table.
+    const md = titledMarkdownTables([{ title: 'Race Section\r\nLoad\nmore', header: ['a'], rows: [{ cells: ['1'] }] }]);
+    expect(md.split('\n')[0]).toBe('**Race Section Load more**');
+    expect(md).toBe('**Race Section Load more**\n\n| a |\n| --- |\n| 1 |');
+  });
 });
 
 describe('spreadsheetFileName', () => {

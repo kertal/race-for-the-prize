@@ -174,14 +174,18 @@ function spreadsheetMarkdown(table, options = {}) {
 /**
  * Report tables as the page shows them — formatted values, trophies, deltas —
  * in GitHub Markdown, each under its bold title. Markdown has no row style,
- * so a bold row (median, average) is bolded cell by cell.
+ * so a bold row (median, average) is bolded cell by cell. A title is a
+ * measurement name, which raceStart() takes as given: a line break in one
+ * would split the heading and open a stray block, so it is flattened the way
+ * the cells are.
  *
  * @param {Array<{title: string, header: string[], rows: Array<{cells: string[], bold?: boolean}>}>} tables
  */
 function titledMarkdownTables(tables) {
   return tables.map(({ title, header, rows }) => {
+    const heading = String(title ?? '').replace(/[\r\n]+/g, ' ').trim();
     const cells = rows.map(row => row.cells.map(text => (row.bold && text ? `**${text}**` : text)));
-    return `**${title}**\n\n` + spreadsheetMarkdown({ header, rows: cells });
+    return `**${heading}**\n\n` + spreadsheetMarkdown({ header, rows: cells });
   }).join('\n\n');
 }
 
