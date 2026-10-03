@@ -607,6 +607,7 @@ export function buildRaceContext({ racerNames, scripts, settings, rootDir = __di
     ffmpeg: settings.ffmpeg,
     har: settings.har,
     cueMarkers: settings.cueMarkers,
+    fps: settings.fps,
     wallClock: settings.wallClock,
     ignoreHTTPSErrors: settings.ignoreHTTPSErrors,
     viewportHeight: settings.viewportHeight,

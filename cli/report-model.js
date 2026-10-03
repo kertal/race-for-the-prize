@@ -110,6 +110,18 @@ function secondLowest(values) {
 }
 
 /**
+ * The formatter to use for a metric's *difference* rather than its value.
+ *
+ * Most metrics use one function for both, but a value formatter is free to
+ * annotate — a frame time reads better as "16.7ms (60fps)". That annotation is
+ * nonsense on a delta (a 2.9ms gap is not "345fps"), so such a metric declares
+ * a plain `formatDelta` and every delta goes through this.
+ */
+export function metricDeltaFormat(metric) {
+  return metric.formatDelta || metric.format;
+}
+
+/**
  * Build a target-independent cell model for one racer's value.
  * Returns { value, formatted, isWinner, delta, relative, advantage }:
  * - formatted: formatted value string, or null when the value is missing
@@ -120,10 +132,10 @@ function secondLowest(values) {
  * - advantage: on the winner cell only, how far it sits ahead of runnerUp (see
  *   formatWinnerAdvantage); null on losing cells and on a tied lead
  */
-export function buildValueCell(value, best, isWinner, format, runnerUp = null) {
+export function buildValueCell(value, best, isWinner, format, runnerUp = null, formatDelta = format) {
   if (value == null) return { value: null, formatted: null, isWinner: false, delta: null, relative: null, advantage: null };
   const hasDelta = !isWinner && best != null;
-  const delta = hasDelta ? format(value - best) : null;
+  const delta = hasDelta ? formatDelta(value - best) : null;
   const relative = hasDelta ? formatRelativeDelta(value, best) : null;
   const advantage = isWinner ? formatWinnerAdvantage(value, runnerUp) : null;
   return { value, formatted: format(value), isWinner, delta, relative, advantage };
@@ -152,7 +164,7 @@ export function buildComparisonCells(comp, racers) {
  * data, or all values are equal, no winner or deltas are flagged.
  * Used for profile-metric rows in run-by-run comparisons.
  */
-export function buildBestOfCells(values, format) {
+export function buildBestOfCells(values, format, formatDelta = format) {
   const withData = values
     .map((v, j) => (v != null ? { j, v } : null))
     .filter(Boolean)
@@ -162,7 +174,7 @@ export function buildBestOfCells(values, format) {
     : null;
   const winnerIdx = best != null ? withData[0].j : -1;
   const runnerUp = withData.length >= 2 ? withData[1].v : null;
-  return values.map((v, j) => buildValueCell(v, best, j === winnerIdx, format, runnerUp));
+  return values.map((v, j) => buildValueCell(v, best, j === winnerIdx, format, runnerUp, formatDelta));
 }
 
 /**
@@ -276,7 +288,7 @@ export function buildResultsModel(comparisons, racers) {
  * @returns {{
  *   isEmpty: boolean,
  *   measurements: Array<{ name, runRows, medianRow, averageRow }>,
- *   profileScopes: Array<{ scope, title, metrics: Array<{ name, runRows, medianRow, averageRow }> }>
+ *   profileScopes: Array<{ scope, title, metrics: Array<{ key, name, runRows, medianRow, averageRow }> }>
  * }}
  * Each runRow is { label, cells }; medianRow/averageRow are { cells } or null
  * (median: absent from the median summary; average: no racer has data).
@@ -311,20 +323,27 @@ function buildMeasurementModel(name, summaries, medianSummary, racers) {
 // Per-run / median / average rows for one profile metric within a scope.
 function buildProfileMetricModel(metric, scopeName, metricName, summaries, medianSummary, racers) {
   const format = (v) => metric.format(v);
+  // A frame-time gap must not be annotated with a frame rate here either; the
+  // run-by-run tables format deltas through the same rule as every other view.
+  const deltaFormat = metricDeltaFormat(metric);
+  const formatDelta = (v) => deltaFormat(v);
   const valueAt = (s, j) => s.profileMetrics?.[j]?.[scopeName]?.[metricName] ?? null;
 
   const runRows = summaries.map((s, i) => ({
     label: String(i + 1),
-    cells: buildBestOfCells(racers.map((_, j) => valueAt(s, j)), format),
+    cells: buildBestOfCells(racers.map((_, j) => valueAt(s, j)), format, formatDelta),
   }));
 
   const medVals = racers.map((_, j) => valueAt(medianSummary, j));
-  const medianRow = medVals.some(v => v != null) ? { cells: buildBestOfCells(medVals, format) } : null;
+  const medianRow = medVals.some(v => v != null) ? { cells: buildBestOfCells(medVals, format, formatDelta) } : null;
 
   const avgVals = racers.map((_, j) => averageOf(summaries.map(s => valueAt(s, j))));
-  const averageRow = avgVals.some(v => v != null) ? { cells: buildBestOfCells(avgVals, format) } : null;
+  const averageRow = avgVals.some(v => v != null) ? { cells: buildBestOfCells(avgVals, format, formatDelta) } : null;
 
-  return { name: metric.name, runRows, medianRow, averageRow };
+  // `key` is the PROFILE_METRICS key ("scope.metric"), so an emitter that
+  // needs more than the display name — the spreadsheet export wants the
+  // metric's unit — can look the definition up again.
+  return { key: `${scopeName}.${metricName}`, name: metric.name, runRows, medianRow, averageRow };
 }
 
 // Profile metric tables grouped by scope (race vs. total recording).

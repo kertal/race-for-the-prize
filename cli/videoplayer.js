@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { loadTemplates, escHtml, render } from './html-templates.js';
+import { loadTemplates, escHtml, render, serializeJsonForScript } from './html-templates.js';
 import {
   RACER_CSS_COLORS,
   setTemplates,
@@ -36,6 +36,7 @@ import {
 } from './player-sections.js';
 import calibration from './player-runtime/calibration.cjs';
 import { resolveSkin, DEFAULT_THEME_COLOR } from './skins.js';
+import { buildSpreadsheetModel, buildSpreadsheetPanelHtml, SPREADSHEET_CSS, SPREADSHEET_RUNTIME } from './spreadsheet-export.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -47,8 +48,11 @@ setTemplates(BUILD_TEMPLATES);
 // Shared design tokens first, then this page's component rules. Both reports
 // inline the same tokens.css so the player and the condition overview cannot
 // drift apart, and one skin themes both.
+// The spreadsheet panel's rules come last: the panel is shared with the
+// condition overview, which inlines the same file after its own component CSS.
 const CSS = fs.readFileSync(path.join(__dirname, 'tokens.css'), 'utf-8') + '\n'
-  + fs.readFileSync(path.join(__dirname, 'player.css'), 'utf-8');
+  + fs.readFileSync(path.join(__dirname, 'player.css'), 'utf-8') + '\n'
+  + SPREADSHEET_CSS;
 
 // Browser-side player runtime, split into concern-scoped files that are
 // concatenated in dependency order into the single IIFE scope emitted by
@@ -70,6 +74,8 @@ const RUNTIME_FILES = [
   'fullscreen.js',     // fullscreen mode
   'zip.cjs',           // pure CRC32/ZIP builder (Node-testable)
   'export-zip.js',     // self-contained HTML/ZIP export flows
+  'spreadsheet.cjs',   // pure TSV/CSV serialization of the export model (Node-testable)
+  'spreadsheet-panel.js', // the Spreadsheet Export section: selection, copy, download
 ];
 const RUNTIME = RUNTIME_FILES
   .map(f => fs.readFileSync(path.join(__dirname, 'player-runtime', f), 'utf-8'))
@@ -95,10 +101,16 @@ function buildPlayerScript() {
   return '<script>\n(function() {\n' + RUNTIME + '\n})();\n</script>';
 }
 
-// Serialize race config for embedding in a <script type="application/json"> block.
-// Escapes '<' so a value can't break out of the </script> context.
+// A report with no videos gets no player runtime (there is nothing to play),
+// but its spreadsheet panel still needs its own: without this the copy and
+// download buttons would render and do nothing.
+function buildSpreadsheetOnlyScript() {
+  return '<script>\n(function() {\n' + SPREADSHEET_RUNTIME + '\n})();\n</script>';
+}
+
+// The race config, for the <script type="application/json"> block the runtime reads.
 function serializeRaceConfig(config) {
-  return JSON.stringify(config).replaceAll('<', String.raw`\u003c`);
+  return serializeJsonForScript(config);
 }
 
 // Stable identity for one race run, stamped into #race-config. The browser
@@ -123,6 +135,14 @@ function playerContainerMaxWidth(count) {
 function trophyHtml(isWinner, isTie) {
   if (!isWinner) return '';
   return fill('trophy', { medal: isTie ? '&#129309;' : '&#127942;' });
+}
+
+// The numbers behind every table on the page, as one panel the reader can
+// copy into a spreadsheet. Empty when the race measured nothing.
+function buildSpreadsheetSection(summary, runSummaries) {
+  const panel = buildSpreadsheetPanelHtml(buildSpreadsheetModel(summary, { runSummaries }));
+  if (!panel) return '';
+  return fill('section', { openAttr: '', title: 'Spreadsheet Export', body: '\n' + panel + '\n  ' });
 }
 
 // Build the player section, debug panel, runtime script tag, and race-config
@@ -200,7 +220,8 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   const hasClipTimes = clipTimes?.some(calibration.isValidClipEntry);
   const hasMergedVideo = !!mergedVideoFile;
 
-  const { playerSection = '', scriptTag = '', raceConfigJson = '', debugPanelOut = '' } = hasVideos
+  const spreadsheet = buildSpreadsheetSection(summary, runSummaries || null);
+  const { playerSection = '', scriptTag = spreadsheet ? buildSpreadsheetOnlyScript() : '', raceConfigJson = '', debugPanelOut = '' } = hasVideos
     ? buildVideoPlayer(summary, videoFiles, { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, displayOrder, ffmpegDir })
     : {};
 
@@ -232,6 +253,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
       ...profileComparison,
       rawProfileMetrics: summary.profileMetrics || [],
     }, racers),
+    spreadsheet,
     files: buildFilesHtml(racers, videoFiles, {
       fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, raceConfigFile,
       altFormat, altFiles, displayOrder,

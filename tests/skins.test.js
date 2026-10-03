@@ -203,7 +203,14 @@ describe('design tokens', () => {
   // Every stylesheet that consumes the tokens, so the rules below hold for the
   // whole report set rather than just the player.
   const matrixCss = fs.readFileSync(path.join(cliDir, 'condition-matrix.css'), 'utf-8');
-  const css = rootBlock + componentCss + matrixCss;
+  // The spreadsheet-export panel is shared by both pages and inlined after each.
+  const spreadsheetCss = fs.readFileSync(path.join(cliDir, 'spreadsheet.css'), 'utf-8');
+  const componentLayers = [
+    ['player.css', () => componentCss],
+    ['condition-matrix.css', () => matrixCss],
+    ['spreadsheet.css', () => spreadsheetCss],
+  ];
+  const css = rootBlock + componentCss + matrixCss + spreadsheetCss;
 
   it('declares the semantic roles skins are expected to override', () => {
     for (const token of ['--bg', '--surface', '--text', '--accent', '--border', '--font-ui', '--font-display', '--radius', '--tool-accent']) {
@@ -211,7 +218,7 @@ describe('design tokens', () => {
     }
   });
 
-  it.each([['player.css', () => componentCss], ['condition-matrix.css', () => matrixCss]])(
+  it.each(componentLayers)(
     'keeps literal colours out of %s',
     (_name, get) => {
       const literals = get()
@@ -221,7 +228,7 @@ describe('design tokens', () => {
     }
   );
 
-  it.each([['player.css', () => componentCss], ['condition-matrix.css', () => matrixCss]])(
+  it.each(componentLayers)(
     'keeps raw palette tokens out of %s',
     (_name, get) => {
       // Components must read semantic roles (--text-muted), never the palette
@@ -236,10 +243,10 @@ describe('design tokens', () => {
     // it locally on the element it applies to (e.g. --racer-label-height on
     // .racer, a derived length no skin should be overriding).
     const declared = new Set(
-      [...(rootBlock + componentCss + matrixCss).matchAll(/^\s*(--[a-z0-9-]+):/gm)].map(m => m[1])
+      [...css.matchAll(/^\s*(--[a-z0-9-]+):/gm)].map(m => m[1])
     );
     const referenced = new Set(
-      [...(componentCss + matrixCss).matchAll(/var\(\s*(--[a-z0-9-]+)/g)].map(m => m[1])
+      [...(componentCss + matrixCss + spreadsheetCss).matchAll(/var\(\s*(--[a-z0-9-]+)/g)].map(m => m[1])
     );
     // Set inline per element from JS, so they appear in no stylesheet.
     referenced.delete('--racer-color');

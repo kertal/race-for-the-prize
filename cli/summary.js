@@ -46,7 +46,7 @@ export function getMachineInfo() {
 // --- Helper functions to eliminate duplication ---
 
 /** Compute the median of a numeric array, ignoring null/undefined values. Returns null if empty. */
-function medianOf(values) {
+export function medianOf(values) {
   const vals = values.filter(v => v != null).sort((a, b) => a - b);
   if (vals.length === 0) return null;
   const mid = Math.floor(vals.length / 2);

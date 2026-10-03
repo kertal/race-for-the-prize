@@ -229,9 +229,9 @@ async function bundleOtherFiles(otherPaths, zipBuilder, ctx) {
   return fetched;
 }
 
-// Slugify the document title into a safe download filename base.
+// The download name stem, by the same rule the CSV export uses (spreadsheet.cjs).
 function exportBaseName() {
-  return document.title.replace(/[^a-zA-Z0-9-]/g, '_').replace(/_+/g, '_').toLowerCase() || 'race-export';
+  return exportSlug(document.title);
 }
 
 // Finish the overlay with a completion message and a download button.

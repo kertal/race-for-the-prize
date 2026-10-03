@@ -3,7 +3,8 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { buildProfileComparison, PROFILE_METRICS, printProfileAnalysis, buildProfileMarkdown } from '../cli/profile-analysis.js';
+import { buildProfileComparison, PROFILE_METRICS, printProfileAnalysis, buildProfileMarkdown, categoryLabels, categoryDescriptions, determineProfileMetricOutcome } from '../cli/profile-analysis.js';
+import { metricDeltaFormat } from '../cli/report-model.js';
 
 describe('buildProfileComparison', () => {
   it('returns empty comparisons when no metrics provided', () => {
@@ -460,5 +461,59 @@ describe('multi-racer support (3-4 racers)', () => {
     expect(markdown).toContain('react');
     expect(markdown).toContain('svelte');
     expect(markdown).toContain('| Metric | angular | react | svelte | Winner |');
+  });
+});
+
+describe('metric categories', () => {
+  it('gives every category a label and a description', () => {
+    const categories = new Set(Object.values(PROFILE_METRICS).map(m => m.category));
+    expect(categories.size).toBeGreaterThan(0);
+    for (const category of categories) {
+      expect(categoryLabels, `label for "${category}"`).toHaveProperty(category);
+      expect(categoryDescriptions, `description for "${category}"`).toHaveProperty(category);
+    }
+  });
+});
+
+describe('frame metric formatting', () => {
+  it('annotates a frame time with its frame rate', () => {
+    expect(PROFILE_METRICS['measured.medianFrameMs'].format(16.7)).toBe('16.7ms (60fps)');
+    expect(PROFILE_METRICS['measured.medianFrameMs'].format(8.3)).toBe('8.3ms (120fps)');
+  });
+
+  it('formats a frame time delta without inventing a frame rate', () => {
+    // A 2.9ms gap between two racers is not "345fps"; the annotation belongs
+    // on values only.
+    const metric = PROFILE_METRICS['measured.medianFrameMs'];
+    expect(metricDeltaFormat(metric)(2.9)).toBe('2.9ms');
+    expect(metricDeltaFormat(metric)(2.9)).not.toContain('fps');
+  });
+
+  it('leaves metrics without a delta formatter using their value formatter', () => {
+    const metric = PROFILE_METRICS['measured.scriptDuration'];
+    expect(metricDeltaFormat(metric)).toBe(metric.format);
+  });
+
+  it('never annotates a delta for any metric whose value format does', () => {
+    for (const [key, metric] of Object.entries(PROFILE_METRICS)) {
+      if (!metric.format(12).includes('fps')) continue;
+      expect(metricDeltaFormat(metric)(12), `delta format for ${key}`).not.toContain('fps');
+    }
+  });
+});
+
+describe('dropped frames noise floor', () => {
+  it('does not call a small dropped-frame gap a win', () => {
+    // Real numbers from a scripted scroll race: the 9-frame gap is the spec's
+    // stepping cadence, not one racer drawing more smoothly than the other.
+    const metric = PROFILE_METRICS['measured.droppedFrames'];
+    const outcome = determineProfileMetricOutcome(metric, ['hunt', 'lauda'], [142, 151]);
+    expect(outcome.winner).toBeNull();
+  });
+
+  it('still calls a large one', () => {
+    const metric = PROFILE_METRICS['measured.droppedFrames'];
+    const outcome = determineProfileMetricOutcome(metric, ['hunt', 'lauda'], [20, 140]);
+    expect(outcome.winner).toBe('hunt');
   });
 });

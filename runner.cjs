@@ -20,6 +20,7 @@ const fs = require('fs');
 const path = require('path');
 const { waitForStability } = require('./visual-stability.cjs');
 const { deriveTraceTiming } = require('./trace-calibration.cjs');
+const { deriveFrameStats } = require('./frame-stats.cjs');
 const { flashCue, OverlayController } = require('./overlay.cjs');
 const { createRaceApi } = require('./race-api.cjs');
 const { RESULT_SENTINEL, PROTOCOL_VERSION, MAX_RACERS, isSafeRacerId, confinePath, formatRaceMessage, formatContextClosed } = require('./runner-protocol.cjs');
@@ -171,7 +172,14 @@ function sameMeasurementNames(a, b) {
  * @param {object|null} traceTiming - deriveTraceTiming() output, or null
  * @param {Array} markerSegments - segments from the race API
  * @param {Array} markerMeasurements - measurements from the race API
- * @returns {{recordingSegments: Array, measurements: Array, usedTraceSegments: boolean}}
+ * `measurementsComplete` is reported separately because frame timing needs
+ * less than the video does: it slices the trace's own frame timeline by the
+ * trace's own measurement marks, so it only needs those marks to describe the
+ * same sections the results report. A trace that is uncalibratable for video
+ * reasons can still be sliced.
+ *
+ * @returns {{recordingSegments: Array, measurements: Array,
+ *            usedTraceSegments: boolean, measurementsComplete: boolean}}
  */
 function selectRaceTiming(traceTiming, markerSegments, markerMeasurements) {
   const traceSegments = traceTiming?.recordingSegments || [];
@@ -195,7 +203,45 @@ function selectRaceTiming(traceTiming, markerSegments, markerMeasurements) {
     recordingSegments: usedTraceSegments ? traceSegments : markerSegments,
     measurements: usedTraceSegments ? traceMeasurements : markerMeasurements,
     usedTraceSegments,
+    measurementsComplete,
   };
+}
+
+/**
+ * Fold trace-derived frame timing into the metrics the parent already reports.
+ *
+ * Frame stats reuse the profile scopes rather than travelling as their own
+ * result field: `total` is the whole trace, `measured` combines the timed
+ * sections, and `measuredSections` gets one entry per section — exactly the
+ * shape cli/profile-analysis.js already renders.
+ *
+ * @param {object|null} profileMetrics - mutated in place
+ * @param {object|null} frameStats - deriveFrameStats() output, or null
+ * @param {string} id - racer id, for the warning
+ */
+function mergeFrameStats(profileMetrics, frameStats, id) {
+  if (!profileMetrics) return;
+  if (!frameStats) {
+    // --fps was asked for but the trace carried no DrawFrame events, so the
+    // frame columns stay empty rather than reporting a confident zero.
+    console.error(`[${id}] Warning: --fps found no frame events in the trace`);
+    return;
+  }
+  profileMetrics.frameTiming = {
+    displayFrameMs: frameStats.displayFrameMs,
+    budgetFrameMs: frameStats.budgetFrameMs,
+  };
+  Object.assign(profileMetrics.total, frameStats.total || {});
+  Object.assign(profileMetrics.measured, frameStats.measured || {});
+  for (const [name, stats] of Object.entries(frameStats.sections)) {
+    if (!stats) continue;
+    // A section the collector never saw (its CDP snapshot failed) still gets
+    // its frame numbers; the CPU columns stay null.
+    profileMetrics.measuredSections[name] = {
+      ...(profileMetrics.measuredSections[name] || {}),
+      ...stats,
+    };
+  }
 }
 
 // --- Race API (marker mode) ---
@@ -230,6 +276,7 @@ function selectRaceTiming(traceTiming, markerSegments, markerMeasurements) {
  * @param {boolean} [options.noRecording]
  * @param {boolean} [options.cueMarkers]
  * @param {boolean} [options.wallClock]
+ * @param {{network: string, cpu: number}|null} [options.throttle] - re-applied after lazily attaching a CDP session
  */
 async function runMarkerMode(page, config, {
   barriers = null,
@@ -240,6 +287,7 @@ async function runMarkerMode(page, config, {
   noRecording = false,
   cueMarkers = false,
   wallClock = false,
+  throttle = null,
 } = {}) {
   const { id, script: raceScript, vars } = config;
 
@@ -371,6 +419,10 @@ async function runMarkerMode(page, config, {
     try {
       if (!cdpSession) {
         cdpSession = await page.context().newCDPSession(page);
+        // Straight after the attach, before anything on the new session can
+        // fail: the catch below lets the race carry on without stability
+        // checks, and it must not carry on unthrottled as well.
+        await applyThrottling(page, throttle, id);
         await cdpSession.send('Performance.enable');
       }
       const getCounters = async () => {
@@ -466,7 +518,7 @@ async function runMarkerMode(page, config, {
  * Called N times (once per racer) by runParallel or runSequential.
  */
 async function runBrowserRecording(config, barriers, isParallel, sharedState, opts = {}) {
-  const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, noRecording = false, ffmpeg = false, har = false, cueMarkers = false, wallClock = false, recordingsDir = null, ignoreHTTPSErrors = false, viewportHeight: configViewportHeight = null } = opts;
+  const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, noRecording = false, ffmpeg = false, har = false, cueMarkers = false, wallClock = false, fps = false, recordingsDir = null, ignoreHTTPSErrors = false, viewportHeight: configViewportHeight = null } = opts;
   const { id, headless: headlessRaw } = config;
   const headless = headlessRaw === true;
   // id is validated at config entry (isSafeRacerId); confinePath re-checks the
@@ -519,19 +571,37 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     page.setDefaultTimeout(PAGE_TIMEOUT_MS);
     page.setDefaultNavigationTimeout(PAGE_TIMEOUT_MS);
 
+    metricsCollector = await startProfiling(page, browser, id, { fps });
+
+    // Must follow every newCDPSession: attaching a session resets CPU throttling.
     await applyThrottling(page, throttle, id);
 
-    metricsCollector = await startProfiling(page, browser, id);
-
     const result = await runMarkerMode(page, config, {
-      barriers, isParallel, recordingStartTime, noOverlay, metricsCollector, noRecording, cueMarkers, wallClock,
+      barriers, isParallel, recordingStartTime, noOverlay, metricsCollector, noRecording, cueMarkers, wallClock, throttle,
     });
     const markerSegments = result?.segments || [];
     const markerMeasurements = result?.measurements || [];
 
     const { tracePath, profileMetrics, traceText } = await collectProfilingResults(browser, metricsCollector, outputDir, id);
     const traceTiming = deriveTraceTiming(traceText);
-    const { recordingSegments, measurements, usedTraceSegments } = selectRaceTiming(traceTiming, markerSegments, markerMeasurements);
+    const { recordingSegments, measurements, usedTraceSegments, measurementsComplete } = selectRaceTiming(traceTiming, markerSegments, markerMeasurements);
+
+    // Frame timing rides on the same trace, sliced by the trace's own
+    // measurement marks. Those marks only describe the reported sections when
+    // they survived intact — a mark lost to a navigation pairs the rest
+    // wrongly, and selectRaceTiming has then fallen back to the marker clock,
+    // which counts from context creation and cannot index trace timestamps.
+    // The whole-race numbers need no marks, so they are reported either way.
+    if (fps) {
+      const frameStats = deriveFrameStats(
+        traceText,
+        measurementsComplete ? (traceTiming?.measurements || []) : []
+      );
+      mergeFrameStats(profileMetrics, frameStats, id);
+      if (frameStats && !measurementsComplete) {
+        console.error(`[${id}] Warning: --fps reporting whole-race frame timing only (trace measurement marks incomplete)`);
+      }
+    }
 
     await context.close();
     const wallClockDuration = (Date.now() - contextCreationStart) / 1000;
@@ -798,7 +868,7 @@ async function main() {
     process.exit(1);
   }
 
-  const { browsers, executionMode, throttle, headless: headlessRaw, slowmo, noOverlay, noRecording, ffmpeg, har, cueMarkers, wallClock, recordingsDir, ignoreHTTPSErrors, viewportHeight } = config;
+  const { browsers, executionMode, throttle, headless: headlessRaw, slowmo, noOverlay, noRecording, ffmpeg, har, cueMarkers, wallClock, fps, recordingsDir, ignoreHTTPSErrors, viewportHeight } = config;
 
   // Racer ids become directory/file names under the recordings dir, so reject
   // anything that isn't a plain basename before any path is built from them.
@@ -827,7 +897,7 @@ async function main() {
   const recBase = path.resolve(recordingsDir || path.join(__dirname, 'recordings'));
   fs.mkdirSync(recBase, { recursive: true });
 
-  const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, har, cueMarkers, wallClock, recordingsDir: recBase, ignoreHTTPSErrors, viewportHeight };
+  const runOpts = { throttle, slowmo, noOverlay, noRecording, ffmpeg, har, cueMarkers, wallClock, fps, recordingsDir: recBase, ignoreHTTPSErrors, viewportHeight };
 
   // Set headless flag on all browser configs (strict boolean — strings must not slip through)
   for (const browser of browsers) {
@@ -876,4 +946,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { RESULT_SENTINEL, setupMetricsCollection, runMarkerMode, selectRaceTiming, attachSharedError, settleRacers };  // RESULT_SENTINEL/setupMetricsCollection re-exported for back-compat with existing imports.
+module.exports = { RESULT_SENTINEL, setupMetricsCollection, runMarkerMode, selectRaceTiming, attachSharedError, settleRacers, mergeFrameStats };  // RESULT_SENTINEL/setupMetricsCollection re-exported for back-compat with existing imports.

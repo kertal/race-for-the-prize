@@ -122,10 +122,11 @@ describe('runner.cjs config validation', () => {
   });
 
   it(`accepts a config with exactly ${MAX_RACERS} browsers`, () => {
-    // The cap is inclusive: a full grid must get past validation. Empty
-    // scripts keep this to the config check — no page is ever driven.
+    // The cap is inclusive: a full grid must get past validation. Empty scripts
+    // drive no page, but getting past the check means the runner really does
+    // launch a browser per racer, so this one needs more than the default 5s.
     const browsers = Array.from({ length: MAX_RACERS }, (_, i) => ({ id: `r${i}`, script: '' }));
     const proc = runRunner({ protocolVersion: PROTOCOL_VERSION, browsers, executionMode: 'sequential' });
     expect(proc.stderr).not.toContain('can race');
-  });
+  }, 60_000);
 });
