@@ -716,6 +716,29 @@ video {
 }
 .run-delta { opacity: 0.5; }
 
+/* --- Run-by-run export controls -------------------------------------------
+   The buttons themselves are the spreadsheet panel's (.spreadsheet-btn, in
+   spreadsheet.css); only their placement in this section lives here. */
+.run-export {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.4rem 0 0.6rem;
+}
+.run-export-label {
+  color: var(--text-faint);
+  font-size: var(--font-size-sm);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking);
+  margin-right: 0.3rem;
+}
+.run-table-export {
+  display: flex;
+  gap: 0.4rem;
+  margin: -0.2rem 0 0.5rem;
+}
+
 /* --- Performance profile ------------------------------------------------- */
 .profile-note {
   color: var(--text-faint);

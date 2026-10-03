@@ -40,6 +40,18 @@ export function escHtml(str) {
 }
 
 /**
+ * Serialize a value for a `<script type="application/json">` block. '<' is
+ * written as its \u escape so no string in the data can close the block early
+ * ("</script>" inside a racer name would otherwise end it). The escape is
+ * built from the code point rather than typed: an editor once decoded the
+ * typed form back into a bare '<' and silently disabled it.
+ */
+const LT_ESCAPE = '\\u' + '<'.codePointAt(0).toString(16).padStart(4, '0');
+export function serializeJsonForScript(value) {
+  return JSON.stringify(value).replaceAll('<', LT_ESCAPE);
+}
+
+/**
  * Split a markup file into its page shell and its build-time fragments.
  *
  * @param {string} html - contents of a `.html` file

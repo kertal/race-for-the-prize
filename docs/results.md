@@ -52,6 +52,58 @@ The winner carries the other side of that gap: `1.000s (🏆 60% ahead)` means i
 
 The moment a racer's own finish frame plays, a placement badge appears under its video — `🥈 2nd · 3.000s total` — computed from the final results rather than from recording order, so it matches the summary (including joint places). With `--runs`, that total is the summary's median while the video is one representative run, so the badge can read a little off from the frames it sits over; it is the race result, not a stopwatch on that clip. The in-browser side-by-side export draws the same label. `--ffmpeg` output (trimmed videos, the merged side-by-side file, MOV/GIF) carries no placement; the results table is the record there.
 
+## Taking the Numbers to a Spreadsheet
+
+Every report carries a collapsed **Spreadsheet Export** section — in the results
+player and, for a multi-condition race, in the performance matrix above it —
+that hands the numbers over the way a spreadsheet wants them: plain values, the
+unit in its own column, one column per racer, one row per measurement. Each
+racer column is headed by the name behind its colour dot (`🔴 lauda`, `🔵 hunt`),
+the colour it wears on the page, and every row ends with three verdict columns:
+**Winner** (the report's own verdict for that row — the racer it named, or
+`🤝 Tie`, which includes a gap the report judged too small to count: a profile
+metric below its noise threshold, or a total within the tie epsilon),
+**Delta to 2nd** (the gap between the two lowest values, in the row's unit) and
+**Delta %** (that gap as a percentage of the runner-up — the same "60% ahead"
+the report prints beside a winner). A tie still shows its raw gap, so the sheet
+has the number the report called insignificant. A row with fewer than two
+values has nobody to beat and leaves all three empty.
+
+Tick the tables you want — or, for a finer cut, use the checkbox on each row of
+the preview to include or leave out single measurements; a table's checkbox
+shows a mixed state while only some of its rows are in, and a row that is left
+out stays in the preview, struck through, so it can be brought back. Then
+either **Copy for spreadsheet** (tab-separated
+text — click a cell in Excel, Google Sheets or Numbers and paste),
+**Download CSV**, or **Copy as Markdown** (a GitHub-flavored table, ready to
+paste into an issue, a pull request or a README, with the racer columns
+right-aligned). The tables on offer follow what the race produced:
+
+| Page | Tables |
+|---|---|
+| Single race | **Race Results** (every timed section plus the total, in seconds) · **Performance: Race** and **Performance: Total Recording** (the CDP metrics in bytes, requests, ms or score, and — with `--fps` — the trace-derived frame metrics in ms or frames) · one **Performance: Section …** table per timed section when there are several |
+| `--runs=N` median page | The same, with the results and the per-section tables marked as medians (the per-section medians are worked out from the runs, since the median summary itself keeps only the race and total scopes), plus one **Run-by-Run** table per measurement and per profile metric: every run, then the median and the average. The **Run-by-Run Comparison** section carries its own export buttons too — a toolbar that copies or downloads every one of its tables, a Copy / Markdown pair under each table, and a **Pick single rows…** link that opens the export section with just those tables ticked |
+| Multi-condition matrix | One table per metric — total time and every captured profile metric — with a row per throttling condition and its network preset and CPU rate as columns of their own, so a sheet can pivot on either |
+
+Values are the raw numbers behind the formatted ones (`12345` bytes rather than
+`12.1 KB`), rounded to six decimals; a racer that recorded nothing leaves an
+empty cell, never a dash or a zero. A label that starts like a formula (`=`,
+`+`, `-`, `@`) is prefixed with an apostrophe, which spreadsheets read as
+"plain text" and hide, so a section name can never run as one — in the copy,
+the CSV and the preview table alike. Tick **Decimal comma** if your spreadsheet
+speaks a comma-decimal locale — the copy switches `1.234` to `1,234` and the CSV
+to semicolons, so nothing lands as text or a date. The preview table under the
+controls shows exactly what will be copied, minus the struck-through rows;
+without JavaScript it still shows every table, and selecting it and copying by
+hand pastes into a sheet as cells too. Exported HTML and ZIP bundles keep the section, working, since the data
+travels inside the page.
+
+The run-by-run section's copy and download buttons export the same numbers the
+panel gives for those tables — except **Markdown**, which copies the tables as
+the page shows them: trophies, gaps, the median and average rows in bold, each
+under a bold title, so they read the same in a GitHub pull request as in the
+report.
+
 Disclaimer: Due to the nature of the way the video is transformed, the aim here is not accuracy, it's to showcase, to visualize performance. To compare between different network and browser settings.
 Do double check and question the metrics and findings. It should be a helpful tool supporting performance related narratives, but don't assume 100% accuracy. However, this generally applies to many 
 browser gained performance metrics. There are many side effects. And screen recording, plus video cutting is another one.

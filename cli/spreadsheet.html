@@ -1,0 +1,50 @@
+<!-- Spreadsheet Export: the panel both reports embed, rendered at build time by
+     cli/spreadsheet-export.js. There is no page shell here — only fragments;
+     each page wraps the panel in its own section. The preview table already
+     holds every group's rows (tagged data-group) so the page works without
+     JavaScript; the runtime only hides the rows of unticked groups. -->
+<template id="build-spreadsheet-panel">
+<div class="spreadsheet" id="spreadsheetPanel">
+  <p class="spreadsheet-note">{{note}}</p>
+  <p class="spreadsheet-hint">Tick a table to take all of it, or use the checkbox on each row of the preview to include or leave out single measurements.</p>
+  <div class="spreadsheet-groups">
+{{groups}}
+  </div>
+  <div class="spreadsheet-toolbar">
+    <span class="spreadsheet-select">Select <button type="button" class="spreadsheet-link" data-spreadsheet-select="all">all</button> · <button type="button" class="spreadsheet-link" data-spreadsheet-select="none">none</button></span>
+    <label class="spreadsheet-option"><input type="checkbox" id="spreadsheetDecimalComma"> Decimal comma (1,234)</label>
+    <span class="spreadsheet-actions">
+      <button type="button" class="spreadsheet-btn" id="spreadsheetCopy" title="Copy the selected tables as tab-separated text">Copy for spreadsheet</button>
+      <button type="button" class="spreadsheet-btn" id="spreadsheetMarkdown" title="Copy the selected tables as a GitHub-flavored Markdown table">Copy as Markdown</button>
+      <button type="button" class="spreadsheet-btn" id="spreadsheetCsv" title="Download the selected tables as a CSV file">Download CSV</button>
+    </span>
+    <output class="spreadsheet-status" id="spreadsheetStatus" aria-live="polite"></output>
+  </div>
+  <div class="spreadsheet-scroll">
+    <table class="spreadsheet-table">
+      <thead><tr>{{headerCells}}</tr></thead>
+      <tbody>
+{{rows}}
+      </tbody>
+    </table>
+  </div>
+  <script id="spreadsheet-data" type="application/json">{{data}}</script>
+</div></template>
+
+<template id="build-spreadsheet-group">    <label class="spreadsheet-group"><input type="checkbox" value="{{id}}" checked> {{title}}</label></template>
+
+<!-- The include column: one checkbox per row, headed by a label only screen
+     readers see. The table checkboxes above tick and untick these in bulk. -->
+<template id="build-spreadsheet-pick-header"><th scope="col" class="spreadsheet-pick"><span class="sr-only">Include</span></th></template>
+<template id="build-spreadsheet-pick"><td class="spreadsheet-pick"><input type="checkbox" data-row="{{key}}" checked aria-label="Include {{label}}"></td></template>
+
+<template id="build-spreadsheet-header-cell"><th scope="col">{{label}}</th></template>
+<!-- Racer columns carry the racer's colour the same way every other table does. -->
+<template id="build-spreadsheet-racer-cell"><th scope="col" style="--racer-color:{{color}}">{{name}}</th></template>
+
+<template id="build-spreadsheet-row">        <tr data-group="{{group}}">{{cells}}</tr></template>
+<template id="build-spreadsheet-cell"><td>{{text}}</td></template>
+<!-- data-value keeps the raw number so the runtime can re-render it with a
+     different decimal mark without re-parsing the visible text. -->
+<template id="build-spreadsheet-number"><td class="spreadsheet-num" data-value="{{value}}">{{text}}</td></template>
+<template id="build-spreadsheet-empty"><td class="spreadsheet-num"></td></template>
