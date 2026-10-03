@@ -63,10 +63,11 @@ describe('rowVerdict', () => {
     expect(rowVerdict([900, 903], labels, { winner: null, tie: true })).toEqual(['🤝 Tie', 3, 0.3]);
     // A named winner is taken as given, even on equal values.
     expect(rowVerdict([2, 2], labels, { winner: 1, tie: false })).toEqual(['🔵 b', 0, 0]);
-    // A verdict that names nobody over two values is a tie; one that names an
-    // unknown racer falls back to the raw rule.
-    expect(rowVerdict([4, 1, 2], labels, { winner: null, tie: false })).toEqual(['🤝 Tie', 1, 50]);
-    expect(rowVerdict([4, 1, 2], labels, { winner: 9, tie: false })).toEqual(['🔵 b', 1, 50]);
+    // A verdict that names nobody and calls no tie is the report showing none
+    // (the matrix's "—"): the Winner cell stays empty, the gap is still given.
+    expect(rowVerdict([4, 1, 2], labels, { winner: null, tie: false })).toEqual([null, 1, 50]);
+    // One that names a racer the row does not have is no verdict either.
+    expect(rowVerdict([4, 1, 2], labels, { winner: 9, tie: false })).toEqual([null, 1, 50]);
   });
 
   it('has no verdict for fewer than two values', () => {

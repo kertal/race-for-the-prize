@@ -25,10 +25,12 @@ function roundTo(value, decimals) {
  * one (`verdict.winner`, a racer index, or `verdict.tie`): the report calls a
  * gap below a metric's noise floor or a total within its tie epsilon a tie,
  * and the sheet must say the same, or a pivot on the Winner column disagrees
- * with the tallies above it. Without a verdict the lowest value wins and only
- * exact equality ties. Fewer than two values leave all three cells empty,
- * there being nobody to beat; a tie still reports the raw gap, which is what
- * the report judged too small to count.
+ * with the tallies above it. A verdict that names nobody and calls no tie is
+ * the report showing no verdict at all (the matrix's "—"), and the Winner
+ * cell stays empty. Without a verdict the lowest value wins and only exact
+ * equality ties. Fewer than two values leave all three cells empty, there
+ * being nobody to beat; a tie still reports the raw gap, which is what the
+ * report judged too small to count.
  */
 function rowVerdict(values, racerLabels, verdict = null) {
   const present = values
@@ -40,9 +42,12 @@ function rowVerdict(values, racerLabels, verdict = null) {
   const delta = roundTo(second.value - best.value, 6);
   const percent = delta === 0 ? 0 : second.value > 0 ? roundTo((delta / second.value) * 100, 1) : null;
   let label;
-  if (verdict && typeof verdict.winner === 'number' && racerLabels[verdict.winner] != null) label = racerLabels[verdict.winner];
-  else if (verdict ? verdict.tie || verdict.winner == null : best.value === second.value) label = TIE_LABEL;
-  else label = racerLabels[best.i];
+  if (verdict) {
+    if (typeof verdict.winner === 'number' && racerLabels[verdict.winner] != null) label = racerLabels[verdict.winner];
+    else label = verdict.tie ? TIE_LABEL : null;
+  } else {
+    label = best.value === second.value ? TIE_LABEL : racerLabels[best.i];
+  }
   return [label, delta, percent];
 }
 

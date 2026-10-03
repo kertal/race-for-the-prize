@@ -8,6 +8,9 @@ import {
 } from '../cli/spreadsheet-export.js';
 import { buildConditionMatrix, TOTAL_TIME_METRIC } from '../cli/condition-matrix.js';
 import { PROFILE_METRICS } from '../cli/profile-analysis.js';
+import { createRequire } from 'node:module';
+
+const { spreadsheetTable } = createRequire(import.meta.url)('../cli/player-runtime/spreadsheet.cjs');
 
 const racers = ['lauda', 'hunt'];
 
@@ -258,6 +261,22 @@ describe('buildConditionSpreadsheetModel', () => {
     // that captured no LCP still gets its row, empty.
     expect(model.groups[1].rows.map(r => r.values)).toEqual([[900, 1000], [null, null]]);
     expect(model.groups[1].rows[0].unit).toBe('ms');
+  });
+
+  it('carries the series\' own tie and no-verdict states, as the matrix shows them', () => {
+    // A tie the race declared is a tie; an exact tie the race left without a
+    // verdict (overallWinner null) shows "—" in the matrix, and exports with an
+    // empty Winner cell rather than a tie the matrix never called.
+    const model = buildConditionSpreadsheetModel(buildConditionMatrix([
+      { label: 'tied', network: 'none', cpu: 1, summary: { ...summaryOf([2, 2]), overallWinner: 'tie' } },
+      { label: 'open', network: 'none', cpu: 4, summary: { ...summaryOf([2, 2]), overallWinner: null } },
+    ]));
+    const [tied, open] = model.groups[0].rows;
+    expect(tied).toMatchObject({ values: [2, 2], winner: null, tie: true });
+    expect(open).toMatchObject({ values: [2, 2], winner: null, tie: false });
+    const table = spreadsheetTable(model);
+    expect(table.rows[0].slice(-3)).toEqual(['🤝 Tie', 0, 0]);
+    expect(table.rows[1].slice(-3)).toEqual([null, 0, 0]);
   });
 
   it('leaves network and CPU blank for a condition without coordinates', () => {

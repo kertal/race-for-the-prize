@@ -277,13 +277,17 @@ export function buildConditionSpreadsheetModel(matrix) {
       const series = cell.metrics?.[metric.key];
       const values = racers.map(() => null);
       for (const racer of series?.racers || []) values[racer.index] = num(racer.value);
-      // The series carries the matrix's own verdict: the race's overall winner
-      // for total time, the thresholded outcome for a profile metric.
+      // The series carries the matrix's own verdict — the race's overall winner
+      // for total time, the thresholded outcome for a profile metric — and its
+      // own notion of a tie, taken as given: a cell the matrix shows without a
+      // verdict (neither winner nor tie) exports the same way.
+      const winner = series?.winner ? racers.indexOf(series.winner) : -1;
       return {
         cells: [cell.title, cell.network ?? '', cell.cpu ?? ''],
         unit: metric.unit || '',
         values,
-        ...verdictOf(series?.winner ? racers.indexOf(series.winner) : null, values),
+        winner: winner >= 0 ? winner : null,
+        tie: !!series?.isTie,
       };
     }),
   }));
