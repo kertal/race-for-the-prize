@@ -262,11 +262,17 @@ function serializeModel(model) {
   return serializeJsonForScript(model);
 }
 
-/** One preview cell: empty, a number carrying its raw value, or escaped text. */
+/**
+ * One preview cell: empty, a number carrying its raw value, or escaped text.
+ * Text goes through the same spreadsheetCell() as the TSV and CSV, so a label
+ * that starts like a formula wears its apostrophe in the preview too: the
+ * preview is meant to be selected and pasted by hand when there is no
+ * JavaScript, and that paste must be as safe as the copy button's.
+ */
 function cellHtml(value) {
   if (value == null) return fill('spreadsheet-empty');
   if (typeof value === 'number') return fill('spreadsheet-number', { value: String(value), text: String(value) });
-  return fill('spreadsheet-cell', { text: escHtml(value) });
+  return fill('spreadsheet-cell', { text: escHtml(spreadsheet.spreadsheetCell(value)) });
 }
 
 /**

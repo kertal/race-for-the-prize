@@ -298,6 +298,21 @@ describe('buildSpreadsheetPanelHtml', () => {
     expect(html).toContain('<output class="spreadsheet-status" id="spreadsheetStatus" aria-live="polite">');
   });
 
+  it('defuses formula-like labels in the preview, which is pasted by hand without JavaScript', () => {
+    const hostile = buildSpreadsheetPanelHtml(buildSpreadsheetModel(summary({
+      racers: ['=HYPERLINK("x")', 'hunt'],
+      comparisons: [{ name: '-1+1', racers: [{ duration: 1 }, { duration: 2 }], winner: null }],
+    })));
+    // The same apostrophe the TSV and CSV carry, HTML-escaped on the way out.
+    expect(hostile).toContain('<td>&#39;-1+1</td>');
+    expect(hostile).not.toContain('<td>-1+1</td>');
+    // A racer name only ever shows behind its colour dot, so it needs none.
+    expect(hostile).toContain('<td>🔴 =HYPERLINK(&quot;x&quot;)</td>');
+    // A plain label and the numbers are untouched.
+    expect(hostile).toContain('<td>Race Results</td>');
+    expect(hostile).toContain('data-value="1">1</td>');
+  });
+
   it('takes a page-specific note', () => {
     expect(buildSpreadsheetPanelHtml(model, { note: 'Rows are <conditions>.' })).toContain('<p class="spreadsheet-note">Rows are &lt;conditions&gt;.</p>');
   });
