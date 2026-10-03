@@ -21,7 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadTemplates, escHtml, serializeJsonForScript } from './html-templates.js';
-import { PROFILE_METRICS } from './profile-analysis.js';
+import { PROFILE_METRICS, determineProfileMetricOutcome } from './profile-analysis.js';
 import { sortComparisonsForDisplay, buildRunComparisonModel } from './report-model.js';
 import { medianOf } from './summary.js';
 import { RACER_CSS_COLORS, RACER_EMOJI } from './player-sections.js';
@@ -50,6 +50,26 @@ const PROFILE_SCOPES = [
 const NOTE = 'Plain numbers, one unit per row, one column per racer — tick the tables you want, '
   + 'then copy them as tab-separated text or download a CSV (both paste into Excel, Google Sheets or Numbers as numbers), '
   + 'or copy them as a Markdown table for a GitHub issue, pull request or README.';
+
+/**
+ * The verdict a row carries into the sheet, as the report decided it:
+ * `winner` is the index of the racer the report named, or null; `tie` says
+ * two or more racers had values and none was named — a dead heat, or a gap
+ * the report judged below its noise floor or tie epsilon. With fewer than two
+ * values there is nobody to beat and neither is set.
+ */
+function verdictOf(winnerIndex, values) {
+  const measured = values.filter(v => v != null).length;
+  if (winnerIndex != null && winnerIndex >= 0) return { winner: winnerIndex, tie: false };
+  return { winner: null, tie: measured >= 2 };
+}
+
+/** The verdict of a report row whose cells carry isWinner flags (the run-by-run tables). */
+function verdictOfCells(cells, values) {
+  const winners = cells.map((cell, i) => (cell.isWinner ? i : -1)).filter(i => i >= 0);
+  // Several flagged winners (an average two racers share) is a tie.
+  return verdictOf(winners.length === 1 ? winners[0] : null, values);
+}
 
 /**
  * A value as the spreadsheet should carry it: a finite number rounded to six
@@ -87,12 +107,23 @@ function resultsGroup(summary, racers) {
   return {
     id: 'results',
     title: `Race Results${runs}`,
-    rows: comparisons.map(comp => ({
-      cells: [comp.name],
-      unit: DURATION_UNIT,
-      values: racers.map((_, i) => num(comp.racers?.[i]?.duration)),
-    })),
+    rows: comparisons.map(comp => {
+      const values = racers.map((_, i) => num(comp.racers?.[i]?.duration));
+      // comp.winner is the report's call: null on a dead heat, and on a
+      // synthetic total whose racers finish within its tie epsilon.
+      return { cells: [comp.name], unit: DURATION_UNIT, values, ...verdictOf(racers.indexOf(comp.winner), values) };
+    }),
   };
+}
+
+/**
+ * One profile metric's row, with the verdict the Performance Profile shows:
+ * determineProfileMetricOutcome applies the category's percentage threshold
+ * and the metric's noise floor, so a 900ms vs 905ms LCP is a tie here too.
+ */
+function profileRow(metric, racers, values) {
+  const { winner } = determineProfileMetricOutcome(metric, racers, values);
+  return { cells: [metric.name], unit: metric.unit || '', values, ...verdictOf(racers.indexOf(winner), values) };
 }
 
 /** One profile scope's metrics — those at least one racer has a value for. */
@@ -104,7 +135,7 @@ function profileGroup(summary, racers, { scope, title }) {
     const [, name] = key.split('.');
     const values = racers.map((_, i) => num(profiles[i]?.[scope]?.[name]));
     if (values.every(v => v == null)) continue;
-    rows.push({ cells: [metric.name], unit: metric.unit || '', values });
+    rows.push(profileRow(metric, racers, values));
   }
   if (rows.length === 0) return null;
   return { id: `profile.${scope}`, title: `Performance: ${title}`, rows };
@@ -161,7 +192,7 @@ function sectionProfileGroups(summary, racers, runSummaries) {
       const [, name] = key.split('.');
       const values = racers.map((_, i) => num(profiles[i]?.measuredSections?.[section]?.[name]));
       if (values.every(v => v == null)) continue;
-      rows.push({ cells: [metric.name], unit: metric.unit || '', values });
+      rows.push(profileRow(metric, racers, values));
     }
     if (rows.length > 0) groups.push({ id: `profile.section:${section}`, title: `Performance: Section ${section}${runs}`, rows });
   }
@@ -170,13 +201,15 @@ function sectionProfileGroups(summary, racers, runSummaries) {
 
 /** Run 1..N, then Median and Average, from a run-comparison model entry. */
 function runRows(entry, unit) {
-  const rows = entry.runRows.map(row => ({
-    cells: [`Run ${row.label}`],
-    unit,
-    values: row.cells.map(cell => num(cell.value)),
-  }));
-  if (entry.medianRow) rows.push({ cells: ['Median'], unit, values: entry.medianRow.cells.map(cell => num(cell.value)) });
-  if (entry.averageRow) rows.push({ cells: ['Average'], unit, values: entry.averageRow.cells.map(cell => num(cell.value)) });
+  // The verdict is the one the Run-by-Run Comparison table shows: the cells
+  // the report model flagged as winners.
+  const row = (label, cells) => {
+    const values = cells.map(cell => num(cell.value));
+    return { cells: [label], unit, values, ...verdictOfCells(cells, values) };
+  };
+  const rows = entry.runRows.map(r => row(`Run ${r.label}`, r.cells));
+  if (entry.medianRow) rows.push(row('Median', entry.medianRow.cells));
+  if (entry.averageRow) rows.push(row('Average', entry.averageRow.cells));
   return rows;
 }
 
@@ -241,12 +274,16 @@ export function buildConditionSpreadsheetModel(matrix) {
     title: metric.name,
     rows: (matrix.cells || []).map(cell => {
       // Series rows are ranked best-first; put them back into racer order.
+      const series = cell.metrics?.[metric.key];
       const values = racers.map(() => null);
-      for (const racer of cell.metrics?.[metric.key]?.racers || []) values[racer.index] = num(racer.value);
+      for (const racer of series?.racers || []) values[racer.index] = num(racer.value);
+      // The series carries the matrix's own verdict: the race's overall winner
+      // for total time, the thresholded outcome for a profile metric.
       return {
         cells: [cell.title, cell.network ?? '', cell.cpu ?? ''],
         unit: metric.unit || '',
         values,
+        ...verdictOf(series?.winner ? racers.indexOf(series.winner) : null, values),
       };
     }),
   }));

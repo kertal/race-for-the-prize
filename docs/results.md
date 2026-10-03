@@ -60,11 +60,14 @@ that hands the numbers over the way a spreadsheet wants them: plain values, the
 unit in its own column, one column per racer, one row per measurement. Each
 racer column is headed by the name behind its colour dot (`🔴 lauda`, `🔵 hunt`),
 the colour it wears on the page, and every row ends with three verdict columns:
-**Winner** (the racer with the lowest value in that row, or `🤝 Tie`),
-**Delta to 2nd** (the winner's lead over the runner-up, in the row's unit) and
-**Delta %** (that lead as a percentage of the runner-up — the same "60% ahead"
-the report prints beside a winner). A row with fewer than two values has nobody
-to beat and leaves all three empty.
+**Winner** (the report's own verdict for that row — the racer it named, or
+`🤝 Tie`, which includes a gap the report judged too small to count: a profile
+metric below its noise threshold, or a total within the tie epsilon),
+**Delta to 2nd** (the gap between the two lowest values, in the row's unit) and
+**Delta %** (that gap as a percentage of the runner-up — the same "60% ahead"
+the report prints beside a winner). A tie still shows its raw gap, so the sheet
+has the number the report called insignificant. A row with fewer than two
+values has nobody to beat and leaves all three empty.
 
 Tick the tables you want — or, for a finer cut, use the checkbox on each row of
 the preview to include or leave out single measurements; a table's checkbox

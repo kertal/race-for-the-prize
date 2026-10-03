@@ -57,6 +57,18 @@ describe('rowVerdict', () => {
     expect(rowVerdict([0, 0], labels)).toEqual(['🤝 Tie', 0, 0]);
   });
 
+  it('prefers the verdict the model carries, keeping the raw gap', () => {
+    // The report called 900 vs 903 a tie (under the 5ms LCP noise floor); the
+    // raw rule would have crowned a. The gap is still worth a column.
+    expect(rowVerdict([900, 903], labels, { winner: null, tie: true })).toEqual(['🤝 Tie', 3, 0.3]);
+    // A named winner is taken as given, even on equal values.
+    expect(rowVerdict([2, 2], labels, { winner: 1, tie: false })).toEqual(['🔵 b', 0, 0]);
+    // A verdict that names nobody over two values is a tie; one that names an
+    // unknown racer falls back to the raw rule.
+    expect(rowVerdict([4, 1, 2], labels, { winner: null, tie: false })).toEqual(['🤝 Tie', 1, 50]);
+    expect(rowVerdict([4, 1, 2], labels, { winner: 9, tie: false })).toEqual(['🔵 b', 1, 50]);
+  });
+
   it('has no verdict for fewer than two values', () => {
     expect(rowVerdict([2, null, null], labels)).toEqual([null, null, null]);
     expect(rowVerdict([null, null], labels)).toEqual([null, null, null]);
@@ -83,6 +95,11 @@ describe('spreadsheetTable', () => {
   it('keeps only the selected groups, in model order', () => {
     expect(spreadsheetTable(model, ['profile.measured']).rows).toEqual([BYTES_ROW]);
     expect(spreadsheetTable(model, []).rows).toEqual([]);
+  });
+
+  it('uses a row\'s own verdict when the model carries one', () => {
+    const tied = { ...model, groups: [{ id: 'g', title: 'G', rows: [{ cells: ['x'], unit: 'ms', values: [900, 903], winner: null, tie: true }] }] };
+    expect(spreadsheetTable(tied).rows).toEqual([['G', 'x', 'ms', 900, 903, '🤝 Tie', 3, 0.3]]);
   });
 
   it('names run-by-run groups in separate namespaces for sections and profile metrics', () => {

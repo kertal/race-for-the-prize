@@ -17,24 +17,33 @@ function roundTo(value, decimals) {
 }
 
 /**
- * Who won a row and by how much: the racer with the lowest value (every
- * metric here is lower-is-better), the gap between it and the runner-up in
- * the row's unit, and that gap as a percentage of the runner-up — the same
- * "60% ahead" the reports print beside a winner. Two racers sharing the
- * lowest value are a tie with no lead; fewer than two values leave all three
- * cells empty, there being nobody to beat.
+ * Who won a row and by how much: the winner's label, the gap between the two
+ * lowest values in the row's unit, and that gap as a percentage of the
+ * runner-up — the same "60% ahead" the reports print beside a winner.
+ *
+ * The winner is the report's own verdict for that row when the model carries
+ * one (`verdict.winner`, a racer index, or `verdict.tie`): the report calls a
+ * gap below a metric's noise floor or a total within its tie epsilon a tie,
+ * and the sheet must say the same, or a pivot on the Winner column disagrees
+ * with the tallies above it. Without a verdict the lowest value wins and only
+ * exact equality ties. Fewer than two values leave all three cells empty,
+ * there being nobody to beat; a tie still reports the raw gap, which is what
+ * the report judged too small to count.
  */
-function rowVerdict(values, racerLabels) {
+function rowVerdict(values, racerLabels, verdict = null) {
   const present = values
     .map((value, i) => (typeof value === 'number' && Number.isFinite(value) ? { value, i } : null))
     .filter(Boolean)
     .sort((a, b) => a.value - b.value);
   if (present.length < 2) return [null, null, null];
   const [best, second] = present;
-  if (best.value === second.value) return [TIE_LABEL, 0, 0];
   const delta = roundTo(second.value - best.value, 6);
-  const percent = second.value > 0 ? roundTo((delta / second.value) * 100, 1) : null;
-  return [racerLabels[best.i], delta, percent];
+  const percent = delta === 0 ? 0 : second.value > 0 ? roundTo((delta / second.value) * 100, 1) : null;
+  let label;
+  if (verdict && typeof verdict.winner === 'number' && racerLabels[verdict.winner] != null) label = racerLabels[verdict.winner];
+  else if (verdict ? verdict.tie || verdict.winner == null : best.value === second.value) label = TIE_LABEL;
+  else label = racerLabels[best.i];
+  return [label, delta, percent];
 }
 
 /**
@@ -83,7 +92,8 @@ function spreadsheetTable(model, selected = null) {
     (group.rows || []).forEach((row, index) => {
       if (wanted && !wanted.has(group.id) && !wanted.has(spreadsheetRowKey(group.id, index))) return;
       const values = row.values || [];
-      rows.push([group.title, ...(row.cells || []), row.unit ?? '', ...values, ...rowVerdict(values, racerLabels)]);
+      const verdict = 'winner' in row || 'tie' in row ? { winner: row.winner, tie: row.tie } : null;
+      rows.push([group.title, ...(row.cells || []), row.unit ?? '', ...values, ...rowVerdict(values, racerLabels, verdict)]);
     });
   }
   return { header, rows };

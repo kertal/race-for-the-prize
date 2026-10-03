@@ -68,14 +68,15 @@ describe('buildSpreadsheetModel', () => {
     expect(measured.title).toBe('Performance: Race');
     // Bytes stay bytes — "12.1 KB" is a label, 12345 is a value.
     expect(measured.rows).toEqual([
-      { cells: ['Network Transfer'], unit: 'bytes', values: [12345, 23456] },
-      { cells: ['Script Execution'], unit: 'ms', values: [100, 200] },
+      { cells: ['Network Transfer'], unit: 'bytes', values: [12345, 23456], winner: 0, tie: false },
+      { cells: ['Script Execution'], unit: 'ms', values: [100, 200], winner: 0, tie: false },
     ]);
     const total = groupById(model, 'profile.total');
     expect(total.title).toBe('Performance: Total Recording');
     expect(total.rows.map(r => r.cells[0])).toEqual(['Largest Contentful Paint (LCP)', 'Cumulative Layout Shift (CLS)']);
     // A metric only one racer captured keeps the row, with the other cell empty.
-    expect(total.rows[1]).toEqual({ cells: ['Cumulative Layout Shift (CLS)'], unit: 'score', values: [0.01, null] });
+    // One value: nobody to beat, so neither a winner nor a tie.
+    expect(total.rows[1]).toEqual({ cells: ['Cumulative Layout Shift (CLS)'], unit: 'score', values: [0.01, null], winner: null, tie: false });
   });
 
   it('skips profile groups and metrics nobody captured', () => {
@@ -99,8 +100,29 @@ describe('buildSpreadsheetModel', () => {
     expect(groupById(model, 'profile.section:Load')).toEqual({
       id: 'profile.section:Load',
       title: 'Performance: Section Load',
-      rows: [{ cells: ['Script Execution'], unit: 'ms', values: [10, 20] }],
+      rows: [{ cells: ['Script Execution'], unit: 'ms', values: [10, 20], winner: 0, tie: false }],
     });
+  });
+
+  it('carries the report\'s verdict, not raw equality, into each row', () => {
+    // 900ms vs 903ms LCP is under the 5ms noise floor: the Performance Profile
+    // calls it a tie, so the sheet must too — while still giving the raw gap.
+    const close = buildSpreadsheetModel(summary({
+      comparisons: [
+        // A dead heat the report left without a winner, and a total it called
+        // a tie within its epsilon although the durations differ.
+        { name: 'Load', racers: [{ duration: 1 }, { duration: 1 }], winner: null },
+        { name: 'Race', isSyntheticTotal: true, racers: [{ duration: 2.001 }, { duration: 2.005 }], winner: null },
+      ],
+      profileMetrics: [{ measured: {}, total: { lcp: 900 } }, { measured: {}, total: { lcp: 903 } }],
+    }));
+    const [total, load] = groupById(close, 'results').rows;
+    expect(total).toMatchObject({ cells: ['Race'], winner: null, tie: true });
+    expect(load).toMatchObject({ cells: ['Load'], winner: null, tie: true });
+    expect(groupById(close, 'profile.total').rows[0]).toMatchObject({ cells: ['Largest Contentful Paint (LCP)'], values: [900, 903], winner: null, tie: true });
+    // Over the floor and the 2.5% loading threshold, the lower value wins.
+    const clear = buildSpreadsheetModel(summary({ comparisons: [], profileMetrics: [{ measured: {}, total: { lcp: 900 } }, { measured: {}, total: { lcp: 1800 } }] }));
+    expect(groupById(clear, 'profile.total').rows[0]).toMatchObject({ winner: 0, tie: false });
   });
 
   it('has nothing to export for a race that measured nothing', () => {
@@ -123,10 +145,10 @@ describe('buildSpreadsheetModel', () => {
       const load = groupById(model, 'runs:section:Load');
       expect(load.title).toBe('Run-by-Run: Load');
       expect(load.rows).toEqual([
-        { cells: ['Run 1'], unit: 's', values: [1, 3] },
-        { cells: ['Run 2'], unit: 's', values: [2, 4] },
-        { cells: ['Median'], unit: 's', values: [1.5, 3.5] },
-        { cells: ['Average'], unit: 's', values: [1.5, 3.5] },
+        { cells: ['Run 1'], unit: 's', values: [1, 3], winner: 0, tie: false },
+        { cells: ['Run 2'], unit: 's', values: [2, 4], winner: 0, tie: false },
+        { cells: ['Median'], unit: 's', values: [1.5, 3.5], winner: 0, tie: false },
+        { cells: ['Average'], unit: 's', values: [1.5, 3.5], winner: 0, tie: false },
       ]);
     });
 
@@ -167,14 +189,14 @@ describe('buildSpreadsheetModel', () => {
       expect(groupById(model, 'profile.section:Load')).toEqual({
         id: 'profile.section:Load',
         title: 'Performance: Section Load (median of 3 runs)',
-        rows: [{ cells: ['Script Execution'], unit: 'ms', values: [15, 30] }],
+        rows: [{ cells: ['Script Execution'], unit: 'ms', values: [15, 30], winner: 0, tie: false }],
       });
       expect(groupById(model, 'profile.section:Render').rows[0].values).toEqual([35, 70]);
       // A metric only some runs captured takes the median of those; one no run captured is left out.
       runs[1].profileMetrics[0].measuredSections.Load.layoutDuration = 4;
       expect(groupById(buildSpreadsheetModel(med, { runSummaries: runs }), 'profile.section:Load').rows).toEqual([
-        { cells: ['Script Execution'], unit: 'ms', values: [15, 30] },
-        { cells: ['Layout Time'], unit: 'ms', values: [4, null] },
+        { cells: ['Script Execution'], unit: 'ms', values: [15, 30], winner: 0, tie: false },
+        { cells: ['Layout Time'], unit: 'ms', values: [4, null], winner: null, tie: false },
       ]);
     });
 
@@ -192,8 +214,8 @@ describe('buildSpreadsheetModel', () => {
       const med = summary({ runs: 2, comparisons: [], profileMetrics: [{ measured: {}, total: {} }, { measured: {}, total: {} }] });
       const model = buildSpreadsheetModel(med, { runSummaries: runs });
       expect(model.groups.map(g => g.id)).toEqual(['profile.section:constructor', 'profile.section:Load']);
-      expect(groupById(model, 'profile.section:constructor').rows).toEqual([{ cells: ['Script Execution'], unit: 'ms', values: [15, 45] }]);
-      expect(groupById(model, 'profile.section:Load').rows).toEqual([{ cells: ['Script Execution'], unit: 'ms', values: [16, 17] }]);
+      expect(groupById(model, 'profile.section:constructor').rows).toEqual([{ cells: ['Script Execution'], unit: 'ms', values: [15, 45], winner: 0, tie: false }]);
+      expect(groupById(model, 'profile.section:Load').rows).toEqual([{ cells: ['Script Execution'], unit: 'ms', values: [16, 17], winner: 0, tie: false }]);
     });
 
     it('adds no run-by-run tables for a single run', () => {
@@ -228,8 +250,9 @@ describe('buildConditionSpreadsheetModel', () => {
     const time = model.groups[0];
     expect(time.title).toBe('Total Time');
     expect(time.rows).toEqual([
-      { cells: ['Network: none · CPU: 1x', 'none', 1], unit: 's', values: [1, 2] },
-      { cells: ['Network: none · CPU: 4x', 'none', 4], unit: 's', values: [4, null] },
+      { cells: ['Network: none · CPU: 1x', 'none', 1], unit: 's', values: [1, 2], winner: 0, tie: false },
+      // The race named its winner even though only one racer finished; the matrix shows that, so the sheet does too.
+      { cells: ['Network: none · CPU: 4x', 'none', 4], unit: 's', values: [4, null], winner: 0, tie: false },
     ]);
     // The series ranks hunt's 1000ms after lauda's 900ms either way; a condition
     // that captured no LCP still gets its row, empty.
@@ -301,7 +324,7 @@ describe('buildSpreadsheetPanelHtml', () => {
   it('defuses formula-like labels in the preview, which is pasted by hand without JavaScript', () => {
     const hostile = buildSpreadsheetPanelHtml(buildSpreadsheetModel(summary({
       racers: ['=HYPERLINK("x")', 'hunt'],
-      comparisons: [{ name: '-1+1', racers: [{ duration: 1 }, { duration: 2 }], winner: null }],
+      comparisons: [{ name: '-1+1', racers: [{ duration: 1 }, { duration: 2 }], winner: '=HYPERLINK("x")' }],
     })));
     // The same apostrophe the TSV and CSV carry, HTML-escaped on the way out.
     expect(hostile).toContain('<td>&#39;-1+1</td>');
