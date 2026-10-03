@@ -79,6 +79,8 @@ function buildMetricRowsHtml(ranking, winner) {
       color,
       name: escHtml(entry.name),
       barPct,
+      valueText: escHtml(entry.formatted),
+      barLabel: escHtml(`${entry.name}: ${entry.formatted}`),
       value: escHtml(entry.formatted) + delta,
       medal: winner === entry.name ? fill('profile-medal') : '',
     });
@@ -123,6 +125,21 @@ function buildSectionMeasuredComparisons(rawProfileMetrics, racers) {
 // ---------------------------------------------------------------------------
 // Section Builders
 // ---------------------------------------------------------------------------
+
+/**
+ * Matches the run nav exactly as the `build-run-nav` fragment renders it, so
+ * `race.js` can swap a built report's nav for one that knows every run's
+ * winner. The opening and closing tags come from the fragment rather than a
+ * copy of them: when that element changed from a div to a nav, a pattern
+ * written out by hand elsewhere silently stopped matching, and because a miss
+ * just skips the rewrite, the winner colours quietly went missing.
+ */
+export function runNavPattern() {
+  const SPLIT = '\u0000';
+  const [open, close] = fill('run-nav', { items: SPLIT }).split(SPLIT);
+  const quote = (t) => t.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(quote(open) + '[\\s\\S]*?' + quote(close));
+}
 
 export function buildRunNavHtml(runNav, racers, runSummaries) {
   if (!runNav) return '';
@@ -422,6 +439,7 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
     group: escHtml(group),
     title: escHtml(title),
     header,
+    caption: escHtml(`${title} per run, by racer`),
     rows: runRows.map(row => fill('comparison-row', {
       label: row.label,
       cells: row.cells.map(cell => renderHtmlCell(cell, false)).join(''),
@@ -467,9 +485,9 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
 }
 
 export function buildFilesHtml(racers, videoFiles, options) {
-  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, raceConfigFile, altFormat, altFiles, placementOrder } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, raceConfigFile, altFormat, altFiles, displayOrder } = options;
   const links = [];
-  const order = placementOrder || racers.map((_, i) => i);
+  const order = displayOrder || racers.map((_, i) => i);
 
   order.forEach(i => {
     if (videoFiles[i]) links.push(render(T['file-link'], { href: escHtml(videoFiles[i]), attrs: '', text: `${escHtml(racers[i])} (race)` }));
@@ -522,24 +540,24 @@ export function buildFilesHtml(racers, videoFiles, options) {
   });
 }
 
-export function buildDebugPanelHtml(racers, placementOrder, clipTimes) {
-  const orderedClipTimes = placementOrder.map(i => clipTimes[i] || null);
+export function buildDebugPanelHtml(racers, displayOrder, clipTimes) {
+  const orderedClipTimes = displayOrder.map(i => clipTimes[i] || null);
 
-  const debugRows = placementOrder.map((origIdx, displayIdx) => {
+  const debugRows = displayOrder.map((origIdx, displayIdx) => {
     const clip = orderedClipTimes[displayIdx];
     const startVal = clip && Number.isFinite(clip.start) ? clip.start.toFixed(3) : '0.000';
     return render(T['debug-row'], { displayIdx, racerNameSpan: racerName(racers, origIdx), startVal });
   }).join('');
 
-  const statsRows = placementOrder.map((origIdx, displayIdx) =>
+  const statsRows = displayOrder.map((origIdx, displayIdx) =>
     render(T['debug-stats-row'], { displayIdx, racerNameSpan: racerName(racers, origIdx) })
   ).join('\n');
 
-  const frameRows = placementOrder.map((origIdx, displayIdx) =>
+  const frameRows = displayOrder.map((origIdx, displayIdx) =>
     render(T['debug-frame-row'], { displayIdx, racerNameSpan: racerName(racers, origIdx) })
   ).join('\n');
 
-  const timingRows = placementOrder.map((origIdx, displayIdx) =>
+  const timingRows = displayOrder.map((origIdx, displayIdx) =>
     render(T['debug-timing-racer'], { displayIdx, racerNameSpan: racerName(racers, origIdx) })
   ).join('\n');
 
