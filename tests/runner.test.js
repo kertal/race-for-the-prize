@@ -556,3 +556,101 @@ describe('runner metrics collection', () => {
     expect(profileMetrics.measured.recalcStyleDuration).toBeNull();
   });
 });
+
+describe('CPU throttling across CDP sessions', () => {
+  // Chrome keeps the CPU throttling rate per CDP session, and attaching another
+  // session to the page starts over at 1x. raceWaitForVisualStability attaches
+  // one lazily, in the middle of the race — so the throttle has to be applied
+  // again right behind it, or a --cpu race runs unthrottled from there on.
+  function makeRecordingPage(calls) {
+    let sessions = 0;
+    return {
+      on() {},
+      context() {
+        return {
+          newCDPSession: async () => {
+            const session = ++sessions;
+            // The attach itself is an event too: a session kept alive for
+            // nothing is what the default-throttle case must not produce.
+            calls.push({ session, method: 'attach' });
+            return {
+              on() {},
+              async send(method, params) {
+                calls.push({ session, method, params });
+                return method === 'Performance.getMetrics' ? makePerformanceMetrics() : {};
+              },
+              async detach() {},
+            };
+          },
+        };
+      },
+      async evaluate() { return null; },
+      async addInitScript() {},
+      async waitForTimeout() {},
+    };
+  }
+  const script = "await page.raceWaitForVisualStability({ timeout: 30, pollInterval: 5, stabilityWindow: 5 });";
+
+  it('re-applies the throttle right after raceWaitForVisualStability attaches its session', async () => {
+    const calls = [];
+    await runMarkerMode(makeRecordingPage(calls), { id: 't', script }, {
+      noOverlay: true, noRecording: true, throttle: { network: 'none', cpu: 4 },
+    });
+
+    const enable = calls.findIndex(c => c.method === 'Performance.enable');
+    const rate = calls.findIndex(c => c.method === 'Emulation.setCPUThrottlingRate');
+    expect(enable).toBeGreaterThan(-1);
+    expect(rate).toBeGreaterThan(-1);
+    expect(calls[rate].params).toEqual({ rate: 4 });
+    // The stability session is attached first (session 1); the throttle then
+    // goes out on a fresh session of its own (applyThrottling keeps that one
+    // alive, since detaching would undo it) — and before the first command on
+    // the stability session, so a failing Performance.enable cannot leave the
+    // race unthrottled.
+    expect(calls[enable].session).toBe(1);
+    expect(calls[rate].session).toBe(2);
+    expect(rate).toBeLessThan(enable);
+    // The counters were read on the stability session, after the throttle was back.
+    const metrics = calls.findIndex(c => c.method === 'Performance.getMetrics');
+    expect(metrics).toBeGreaterThan(rate);
+    expect(calls[metrics].session).toBe(1);
+  });
+
+  it('keeps the throttle even when enabling the Performance domain fails', async () => {
+    const calls = [];
+    const page = makeRecordingPage(calls);
+    const sessionOf = page.context().newCDPSession;
+    page.context = () => ({
+      newCDPSession: async () => {
+        const session = await sessionOf();
+        const send = session.send;
+        session.send = async (method, params) => {
+          if (method === 'Performance.enable') throw new Error('Performance domain unavailable');
+          return send(method, params);
+        };
+        return session;
+      },
+    });
+    const result = await runMarkerMode(page, { id: 't', script }, {
+      noOverlay: true, noRecording: true, throttle: { network: 'none', cpu: 4 },
+    });
+    // The race goes on without stability checks, but still at 4x.
+    expect(result).toBeTruthy();
+    expect(calls.some(c => c.method === 'Emulation.setCPUThrottlingRate' && c.params.rate === 4)).toBe(true);
+  });
+
+  it('attaches no extra session when the race is not throttled', async () => {
+    // race.js always hands the runner a throttle object; the default one asks
+    // for nothing, and must not leave a second session attached for the rest
+    // of the race either. The same holds for no throttle object at all.
+    for (const throttle of [{ network: 'none', cpu: 1 }, null]) {
+      const calls = [];
+      await runMarkerMode(makeRecordingPage(calls), { id: 't', script }, { noOverlay: true, noRecording: true, throttle });
+      expect(calls.some(c => c.method === 'Emulation.setCPUThrottlingRate')).toBe(false);
+      expect(calls.some(c => c.method === 'Network.emulateNetworkConditions')).toBe(false);
+      // Only the stability session was ever attached.
+      expect(calls.filter(c => c.method === 'attach')).toHaveLength(1);
+      expect(new Set(calls.map(c => c.session)).size).toBe(1);
+    }
+  });
+});
