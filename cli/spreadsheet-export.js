@@ -20,9 +20,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadTemplates, escHtml } from './html-templates.js';
+import { loadTemplates, escHtml, serializeJsonForScript } from './html-templates.js';
 import { PROFILE_METRICS } from './profile-analysis.js';
 import { sortComparisonsForDisplay, buildRunComparisonModel } from './report-model.js';
+import { medianOf } from './summary.js';
 import { RACER_CSS_COLORS, RACER_EMOJI } from './player-sections.js';
 import spreadsheet from './player-runtime/spreadsheet.cjs';
 
@@ -107,14 +108,6 @@ function profileGroup(summary, racers, { scope, title }) {
   }
   if (rows.length === 0) return null;
   return { id: `profile.${scope}`, title: `Performance: ${title}`, rows };
-}
-
-/** The median of the non-null values, or null when there are none. */
-function medianOf(values) {
-  const present = values.filter(v => typeof v === 'number' && Number.isFinite(v)).sort((a, b) => a - b);
-  if (present.length === 0) return null;
-  const mid = Math.floor(present.length / 2);
-  return present.length % 2 === 1 ? present[mid] : (present[mid - 1] + present[mid]) / 2;
 }
 
 /**
@@ -264,15 +257,9 @@ export function buildConditionSpreadsheetModel(matrix) {
 // Rendering
 // ---------------------------------------------------------------------------
 
-/**
- * Escape '<' so a racer name can never close the JSON block early — the same
- * form videoplayer.js gives its race config. (Built from the code point rather
- * than written as an escape sequence, which an editor once decoded back into a
- * bare '<' and silently disabled the escaping.)
- */
-const LT_ESCAPE = '\\u' + '<'.codePointAt(0).toString(16).padStart(4, '0');
+/** The model, for the <script type="application/json"> block the runtime reads. */
 function serializeModel(model) {
-  return JSON.stringify(model).replaceAll('<', LT_ESCAPE);
+  return serializeJsonForScript(model);
 }
 
 /** One preview cell: empty, a number carrying its raw value, or escaped text. */
@@ -298,9 +285,10 @@ export function buildSpreadsheetPanelHtml(model, options = {}) {
     .join('\n');
 
   // The preview shows exactly the table the copy and download produce, so it
-  // is built by the same flattening: the shared core, one group at a time so
-  // each row can carry its group id. Only the racer columns are styled.
-  const { header } = spreadsheet.spreadsheetTable(model, []);
+  // is built by the same flattening: the shared core, once, with its rows
+  // handed back to their groups in order so each can carry its group id.
+  // Only the racer columns are styled.
+  const { header, rows: flatRows } = spreadsheet.spreadsheetTable(model);
   const racerStart = model.headers.length;
   const racerEnd = racerStart + model.racers.length;
   const headerCells = fill('spreadsheet-pick-header') + header.map((label, i) => (i >= racerStart && i < racerEnd
@@ -310,13 +298,14 @@ export function buildSpreadsheetPanelHtml(model, options = {}) {
 
   // Each row leads with its own include checkbox, keyed so the runtime can
   // map it back to the model row it stands for.
+  let next = 0;
   const rows = model.groups.flatMap(group =>
-    spreadsheet.spreadsheetTable(model, [group.id]).rows.map((cells, index) => fill('spreadsheet-row', {
+    group.rows.map((row, index) => fill('spreadsheet-row', {
       group: escHtml(group.id),
       cells: fill('spreadsheet-pick', {
         key: escHtml(spreadsheet.spreadsheetRowKey(group.id, index)),
-        label: escHtml(`${group.title}: ${group.rows[index].cells.join(' ')}`),
-      }) + cells.map(cellHtml).join(''),
+        label: escHtml(`${group.title}: ${row.cells.join(' ')}`),
+      }) + flatRows[next++].map(cellHtml).join(''),
     }))).join('\n');
 
   return fill('spreadsheet-panel', {

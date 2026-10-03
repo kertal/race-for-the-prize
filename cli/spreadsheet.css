@@ -163,9 +163,9 @@
   text-decoration: line-through;
 }
 
-/* The clipboard fallback types into an off-screen textarea; the player has
-   this utility already, the overview page does not. */
-.spreadsheet .sr-only {
+/* The clipboard fallback types into an off-screen textarea on <body>; the
+   player has this utility already, the overview page does not. */
+.sr-only {
   position: absolute; width: 1px; height: 1px;
   padding: 0; margin: -1px; overflow: hidden;
   clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;

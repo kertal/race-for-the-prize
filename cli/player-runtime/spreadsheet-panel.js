@@ -28,6 +28,10 @@
   const decimalBox = document.getElementById('spreadsheetDecimalComma');
   const status = document.getElementById('spreadsheetStatus');
   const numberCells = Array.from(root.querySelectorAll('td[data-value]'));
+  // The byte-order mark is what makes Excel read a CSV as UTF-8, so a racer
+  // called "café" keeps its accent. Spelled out, not typed: an invisible
+  // character in the source is one an editor can silently drop.
+  const BOM = String.fromCharCode(0xFEFF);
 
   /** The row checkboxes belonging to one group, by the group id on their row. */
   const rowBoxesOf = (groupId) => rowBoxes.filter(box => box.closest('tr').dataset.group === groupId);
@@ -49,9 +53,13 @@
       box.checked = rows.length > 0 && on === rows.length;
       box.indeterminate = on > 0 && on < rows.length;
     });
-    numberCells.forEach(td => { td.textContent = spreadsheetCell(Number(td.dataset.value), decimal()); });
     const count = selectedKeys().length;
     say(count === 0 ? 'Nothing selected.' : rowWord(count) + ' selected.');
+  }
+
+  /** Re-render every number in the preview with the current decimal mark. */
+  function renderNumbers() {
+    numberCells.forEach(td => { td.textContent = spreadsheetCell(Number(td.dataset.value), decimal()); });
   }
 
   /** Tick or untick every row of one group. */
@@ -72,7 +80,11 @@
     scratch.value = text;
     scratch.setAttribute('readonly', '');
     scratch.className = 'sr-only';
-    root.appendChild(scratch);
+    // On <body>, not in the panel: the panel sits in a <details> that is
+    // closed until opened, and a textarea inside a closed one is not
+    // rendered, so it cannot be selected — and the run-by-run buttons copy
+    // without the panel ever having been opened.
+    document.body.appendChild(scratch);
     scratch.select();
     let copied = false;
     try { copied = document.execCommand('copy'); } catch { copied = false; }
@@ -97,9 +109,7 @@
 
   /** Hand a table over as a CSV file named after the page; returns the file name. */
   function downloadTable(table) {
-    // The byte-order mark is what makes Excel read the file as UTF-8, so a
-    // racer called "café" keeps its accent.
-    const blob = new Blob(['﻿', spreadsheetCsv(table, { decimal: decimal() })], { type: 'text/csv;charset=utf-8' });
+    const blob = new Blob([BOM, spreadsheetCsv(table, { decimal: decimal() })], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -182,6 +192,7 @@
   root.addEventListener('change', (e) => {
     const box = e.target;
     if (!box || !box.matches('input[type="checkbox"]')) return;
+    if (box === decimalBox) { renderNumbers(); return; }
     if (box.closest('.spreadsheet-group')) setGroup(box.value, box.checked);
     sync();
   });

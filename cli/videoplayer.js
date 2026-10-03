@@ -18,7 +18,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { getPlacementOrder } from './summary.js';
-import { loadTemplates, escHtml, render } from './html-templates.js';
+import { loadTemplates, escHtml, render, serializeJsonForScript } from './html-templates.js';
 import {
   RACER_CSS_COLORS,
   setTemplates,
@@ -109,10 +109,9 @@ function buildSpreadsheetOnlyScript() {
   return '<script>\n(function() {\n' + SPREADSHEET_RUNTIME + '\n})();\n</script>';
 }
 
-// Serialize race config for embedding in a <script type="application/json"> block.
-// Escapes '<' so a value can't break out of the </script> context.
+// The race config, for the <script type="application/json"> block the runtime reads.
 function serializeRaceConfig(config) {
-  return JSON.stringify(config).replaceAll('<', String.raw`\u003c`);
+  return serializeJsonForScript(config);
 }
 
 // Stable identity for one race run, stamped into #race-config. The browser

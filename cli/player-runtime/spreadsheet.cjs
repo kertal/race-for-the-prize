@@ -185,12 +185,21 @@ function titledMarkdownTables(tables) {
   }).join('\n\n');
 }
 
-/** A safe download name from a page title: "Race: lauda vs hunt" -> race_lauda_vs_hunt.csv. */
+/**
+ * A safe file-name stem from a page title: "Race: lauda vs hunt" ->
+ * race_lauda_vs_hunt. The one rule for every download a report offers — the
+ * CSV here, the HTML and ZIP bundles in export-zip.js — so they sit together
+ * in a downloads folder.
+ */
+function exportSlug(title) {
+  return String(title || '').replace(/[^a-zA-Z0-9-]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase() || 'race-export';
+}
+
+/** The CSV download's name for a page. */
 function spreadsheetFileName(title) {
-  const base = String(title || '').replace(/[^a-zA-Z0-9-]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
-  return `${base || 'race-results'}.csv`;
+  return `${exportSlug(title)}.csv`;
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { spreadsheetTable, spreadsheetRunGroupId, spreadsheetRowKey, rowVerdict, spreadsheetCell, spreadsheetText, spreadsheetTsv, spreadsheetCsv, spreadsheetMarkdown, titledMarkdownTables, spreadsheetFileName };
+  module.exports = { spreadsheetTable, spreadsheetRunGroupId, spreadsheetRowKey, rowVerdict, spreadsheetCell, spreadsheetText, spreadsheetTsv, spreadsheetCsv, spreadsheetMarkdown, titledMarkdownTables, exportSlug, spreadsheetFileName };
 }

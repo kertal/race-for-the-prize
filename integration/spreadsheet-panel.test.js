@@ -240,7 +240,18 @@ describeMaybe('spreadsheet export panel integration', () => {
       expect(await page.evaluate(() => window.__execCopied)).toContain('Section\tMeasurement\tUnit\t🔴 lauda\t🔵 hunt\tWinner\tDelta to 2nd\tDelta %\n');
       expect(await page.textContent('#spreadsheetStatus')).toMatch(/^Copied \d+ rows/);
       // The scratch textarea is gone again.
-      expect(await page.$('#spreadsheetPanel textarea')).toBeNull();
+      expect(await page.$('textarea.sr-only')).toBeNull();
+
+      // The run-by-run buttons copy without the export section ever having been
+      // opened; the scratch textarea must not end up inside that closed section,
+      // where it would be unrendered and unselectable.
+      await page.reload();
+      await page.$eval('.run-export', el => { el.closest('details').open = true; });
+      expect(await page.$eval('#spreadsheetPanel', el => el.closest('details').open)).toBe(false);
+      await page.evaluate(() => { window.__execCopied = null; });
+      await page.click('.run-export [data-spreadsheet-action="copy-tsv"]');
+      await page.waitForFunction(() => window.__execCopied !== null);
+      expect(await page.evaluate(() => window.__execCopied)).toContain('Run-by-Run: Load\tRun 1\ts\t');
       await context.close();
     });
 

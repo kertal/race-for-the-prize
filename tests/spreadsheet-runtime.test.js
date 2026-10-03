@@ -18,6 +18,7 @@ const {
   spreadsheetCsv,
   spreadsheetMarkdown,
   titledMarkdownTables,
+  exportSlug,
   spreadsheetFileName,
 } = require('../cli/player-runtime/spreadsheet.cjs');
 
@@ -316,7 +317,14 @@ describe('spreadsheetFileName', () => {
   });
 
   it('falls back to a generic name for an empty title', () => {
-    expect(spreadsheetFileName('')).toBe('race-results.csv');
-    expect(spreadsheetFileName('—')).toBe('race-results.csv');
+    expect(spreadsheetFileName('')).toBe('race-export.csv');
+    expect(spreadsheetFileName('—')).toBe('race-export.csv');
+  });
+
+  it('shares its stem with the HTML and ZIP downloads', () => {
+    // export-zip.js names its bundles exportSlug(title) + '.zip' / '.html'.
+    expect(exportSlug('Race: lauda vs hunt')).toBe('race_lauda_vs_hunt');
+    expect(spreadsheetFileName('Race: lauda vs hunt')).toBe(exportSlug('Race: lauda vs hunt') + '.csv');
+    expect(exportSlug('')).toBe('race-export');
   });
 });
