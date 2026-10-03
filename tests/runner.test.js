@@ -570,6 +570,9 @@ describe('CPU throttling across CDP sessions', () => {
         return {
           newCDPSession: async () => {
             const session = ++sessions;
+            // The attach itself is an event too: a session kept alive for
+            // nothing is what the default-throttle case must not produce.
+            calls.push({ session, method: 'attach' });
             return {
               on() {},
               async send(method, params) {
@@ -636,12 +639,18 @@ describe('CPU throttling across CDP sessions', () => {
     expect(calls.some(c => c.method === 'Emulation.setCPUThrottlingRate' && c.params.rate === 4)).toBe(true);
   });
 
-  it('touches no emulation at all when the race is not throttled', async () => {
-    const calls = [];
-    await runMarkerMode(makeRecordingPage(calls), { id: 't', script }, { noOverlay: true, noRecording: true });
-    expect(calls.some(c => c.method === 'Emulation.setCPUThrottlingRate')).toBe(false);
-    expect(calls.some(c => c.method === 'Network.emulateNetworkConditions')).toBe(false);
-    // Only the stability session was ever attached.
-    expect(new Set(calls.map(c => c.session)).size).toBe(1);
+  it('attaches no extra session when the race is not throttled', async () => {
+    // race.js always hands the runner a throttle object; the default one asks
+    // for nothing, and must not leave a second session attached for the rest
+    // of the race either. The same holds for no throttle object at all.
+    for (const throttle of [{ network: 'none', cpu: 1 }, null]) {
+      const calls = [];
+      await runMarkerMode(makeRecordingPage(calls), { id: 't', script }, { noOverlay: true, noRecording: true, throttle });
+      expect(calls.some(c => c.method === 'Emulation.setCPUThrottlingRate')).toBe(false);
+      expect(calls.some(c => c.method === 'Network.emulateNetworkConditions')).toBe(false);
+      // Only the stability session was ever attached.
+      expect(calls.filter(c => c.method === 'attach')).toHaveLength(1);
+      expect(new Set(calls.map(c => c.session)).size).toBe(1);
+    }
   });
 });
