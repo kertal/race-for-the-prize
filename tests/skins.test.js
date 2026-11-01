@@ -228,6 +228,34 @@ describe('design tokens', () => {
     }
   );
 
+  it.each([['tokens.css', () => rootBlock], ...componentLayers])(
+    'keeps !important out of %s',
+    (_name, get) => {
+      // A rule that needs !important to win is a rule in the wrong place: a
+      // skin or a later layer can then no longer override it.
+      expect(get()).not.toContain('!important');
+    }
+  );
+
+  it.each(componentLayers)(
+    'times every transition in %s with a duration token',
+    (_name, get) => {
+      // Reduced motion works by zeroing the duration tokens, so a literal
+      // duration would keep moving for a reader who asked it not to.
+      const literal = [...get().matchAll(/\b(?:transition|animation)[^;{}]*;/g)]
+        .map(([decl]) => decl)
+        .filter(decl => /\d\s*m?s\b/.test(decl));
+      expect(literal).toEqual([]);
+    }
+  );
+
+  it('zeroes the duration tokens when the reader asks for reduced motion', () => {
+    const reduced = rootBlock.slice(rootBlock.indexOf('prefers-reduced-motion'));
+    for (const token of ['--duration-fast', '--duration', '--duration-slow']) {
+      expect(reduced).toMatch(new RegExp(`${token}:\\s*0s;`));
+    }
+  });
+
   it.each(componentLayers)(
     'keeps raw palette tokens out of %s',
     (_name, get) => {

@@ -1193,13 +1193,6 @@ video {
   clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    transition-duration: 0.01ms !important;
-    animation-duration: 0.01ms !important;
-  }
-}
-
 @media (max-width: 600px) {
   /* Every pixel of a phone is worth more to the report than to its margins. */
   body { --gutter: 1rem; }

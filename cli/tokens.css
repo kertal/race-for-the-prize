@@ -159,3 +159,15 @@
     --control-size-sm: 36px;
   }
 }
+
+/* Motion is optional. Every transition in the component layers is timed with
+   the duration tokens, so when the reader asks for less motion the tokens go
+   to zero and the transitions go with them, with nothing to outrank: no
+   universal selector, no override flag. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0s;
+    --duration: 0s;
+    --duration-slow: 0s;
+  }
+}
