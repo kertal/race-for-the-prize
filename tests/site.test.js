@@ -118,6 +118,7 @@ describe('credits', () => {
   it('names the crew, the dependencies and the song', () => {
     for (const needle of ['Playwright', 'FFmpeg', 'Vitest', 'The Flaming Lips', '@kertal', '@drewdaemon', '@bartoval', '@dmlemeshko', 'Simon Haidenbauer', 'Werner Mayer', 'MIT']) {
       expect(creditsMd, needle).toContain(needle);
+      expect(creditsBody, needle).toContain(needle);
     }
   });
 
