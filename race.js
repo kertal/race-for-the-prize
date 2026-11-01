@@ -564,6 +564,25 @@ export function buildRaceOutput(ctx, runDir, results, getBrowserData, runNavigat
  * Build a race context from resolved settings and racer info.
  * This is the config object passed to spawnRunner/runSingleRace.
  */
+/**
+ * The context for racers that run one at a time. Split mode (per-racer setup
+ * scripts, --pause) ignores --parallel, and everything downstream has to agree:
+ * a one-browser "parallel" run would still get parallel mode's half-screen
+ * window and viewport, and config.json and the report's Mode row would claim
+ * a mode that never ran. The command line in the record still shows the flag.
+ * `raceConfigFor(settings)` rebuilds the record for the normalized settings.
+ */
+export function sequentialContext(ctx, raceConfigFor) {
+  const settings = { ...ctx.settings, parallel: false };
+  return {
+    ...ctx,
+    settings,
+    executionMode: 'sequential',
+    runnerConfig: { ...ctx.runnerConfig, executionMode: 'sequential' },
+    raceConfig: raceConfigFor(settings),
+  };
+}
+
 export function buildRaceContext({ racerNames, scripts, settings, rootDir = __dirname, raceDir = null, racerFiles = null }) {
   const executionMode = settings.parallel ? 'parallel' : 'sequential';
   const throttle = { network: settings.network, cpu: settings.cpuThrottle };
@@ -1051,15 +1070,12 @@ async function runRacerAlone(browserIdx, racerRunDir) {
   fs.mkdirSync(recordingsDir, { recursive: true });
   fs.mkdirSync(racerRunDir, { recursive: true });
 
-  // One racer at a time is sequential by definition: a one-browser "parallel"
-  // run would still get parallel mode's half-screen window and viewport.
+  // ctx is already sequential here (see sequentialContext in main()).
   const singleCtx = {
     ...ctx,
     racerNames: [racerNames[browserIdx]],
-    executionMode: 'sequential',
     runnerConfig: {
       ...ctx.runnerConfig,
-      executionMode: 'sequential',
       browsers: [ctx.runnerConfig.browsers[browserIdx]],
       recordingsDir,
     },
@@ -1257,10 +1273,13 @@ async function main() {
 
     // Split mode runs each racer alone and sequentially, which is fundamentally
     // incompatible with --parallel. Warn once (not per network condition)
-    // instead of silently ignoring the flag.
+    // instead of silently ignoring the flag, and race — and record — the mode
+    // that actually runs.
     if (settings.parallel && (settings.pauseBetweenRuns || racerScripts.some(r => r.setup))) {
       const reason = racerScripts.some(r => r.setup) ? 'per-racer setup scripts are present' : '--pause is set';
       console.error(`  ${c.yellow}Note: --parallel is ignored because ${reason}; racers will run one at a time.${c.reset}`);
+      ctx = sequentialContext(ctx, raceConfigFor);
+      settings = ctx.settings;
     }
 
     // Race each throttling condition separately. With a single condition this

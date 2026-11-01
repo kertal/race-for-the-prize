@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { runSingleRace, buildRaceContext } from '../race.js';
+import { runSingleRace, buildRaceContext, sequentialContext } from '../race.js';
+import { buildSummary, buildRaceInfoRows } from '../cli/summary.js';
 
 /**
  * runSingleRace with the runner replaced by a stub that drops files into the
@@ -95,5 +96,42 @@ describe('runSingleRace', () => {
     }
     expect(clipTimes).toHaveLength(2);
     expect(clipTimes[0]).toMatchObject({ start: 0, end: 1.5 });
+  });
+});
+
+describe('sequentialContext', () => {
+  // Split mode ignores --parallel. Every solo run, the record and the report
+  // have to agree on the mode that actually ran.
+  const parallelCtx = () => buildRaceContext({
+    racerNames, scripts: ['', ''], settings: { ...baseSettings, parallel: true }, raceDir: '/tmp/x',
+  });
+
+  it('runs the solo browsers in sequential mode with sequential settings', () => {
+    const ctx = sequentialContext(parallelCtx(), (settings) => ({ settings }));
+    expect(ctx.executionMode).toBe('sequential');
+    expect(ctx.runnerConfig.executionMode).toBe('sequential');
+    expect(ctx.settings.parallel).toBe(false);
+    expect(ctx.racerNames).toEqual(racerNames);
+  });
+
+  it('rebuilds the race record from the normalized settings', () => {
+    const raceConfigFor = vi.fn((settings) => ({ settings: { ...settings } }));
+    const ctx = sequentialContext(parallelCtx(), raceConfigFor);
+    expect(raceConfigFor).toHaveBeenCalledWith(expect.objectContaining({ parallel: false }));
+    expect(ctx.raceConfig.settings.parallel).toBe(false);
+  });
+
+  it('makes the report\'s Mode row read sequential', () => {
+    const ctx = sequentialContext(parallelCtx(), (settings) => ({ settings }));
+    const summary = buildSummary(racerNames, racerNames.map(() => ({ measurements: [] })), ctx.settings, '/tmp/x');
+    expect(buildRaceInfoRows(summary).find(r => r.label === 'Mode').value).toBe('sequential');
+  });
+
+  it('leaves the original context untouched', () => {
+    const original = parallelCtx();
+    sequentialContext(original, (settings) => ({ settings }));
+    expect(original.executionMode).toBe('parallel');
+    expect(original.runnerConfig.executionMode).toBe('parallel');
+    expect(original.settings.parallel).toBe(true);
   });
 });

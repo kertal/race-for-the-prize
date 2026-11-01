@@ -225,12 +225,13 @@ describe('page.race* API (race-api.cjs)', () => {
       expect(api.segments).toHaveLength(0);
     });
 
-    it('opens a second segment while an un-awaited recording end is still marking', async () => {
+    it('opens a second segment after an un-awaited recording end has finished marking', async () => {
       // A spec that fires raceRecordingEnd() without awaiting it and then awaits
       // the next raceRecordingStart() used to find the slot still occupied —
       // the segment was only released after the trace mark's round-trip — so
       // the second segment never opened (and in parallel mode the partner sat
-      // at the recordingStart gate until the backstop).
+      // at the recordingStart gate until the backstop). Now the start waits
+      // for the stop to finish, then opens.
       let releaseMark = null;
       const { api, page } = createTestApi({
         // Only the first segment's mark is held back; the second ends freely.
@@ -239,13 +240,40 @@ describe('page.race* API (race-api.cjs)', () => {
 
       await page.raceRecordingStart();
       const firstEnd = page.raceRecordingEnd(); // not awaited
-      await page.raceRecordingStart();
-      expect(api.currentSegmentStart).not.toBeNull();
+      const secondStart = page.raceRecordingStart();
+      await Promise.resolve();
+      expect(api.currentSegmentStart).toBeNull(); // waiting for the first stop
 
       releaseMark();
-      await firstEnd;
+      await Promise.all([firstEnd, secondStart]);
+      expect(api.currentSegmentStart).not.toBeNull();
       await page.raceRecordingEnd();
       expect(api.segments).toHaveLength(2);
+    });
+
+    it('runs a new segment\'s start hooks only after the previous stop hooks', async () => {
+      // The trace marks must stay in segment order, and the old stop must not
+      // switch off the overlay the new segment just turned on.
+      const events = [];
+      let releaseMark = null;
+      const { page } = createTestApi({
+        hooks: {
+          onRecordingStart: async () => { events.push('start'); },
+          markRecordingEnd: () => {
+            events.push('mark');
+            return releaseMark ? Promise.resolve() : new Promise(resolve => { releaseMark = resolve; });
+          },
+          onRecordingStop: async () => { events.push('stop'); },
+        },
+      });
+
+      await page.raceRecordingStart();
+      const firstEnd = page.raceRecordingEnd(); // not awaited
+      const secondStart = page.raceRecordingStart();
+      releaseMark();
+      await Promise.all([firstEnd, secondStart]);
+
+      expect(events).toEqual(['start', 'mark', 'stop', 'start']);
     });
 
     it('finalize waits for an in-flight recording end instead of closing the segment twice', async () => {
@@ -268,39 +296,6 @@ describe('page.race* API (race-api.cjs)', () => {
       expect(stops).toHaveLength(1);
     });
 
-    it('finalize waits for every in-flight stop, in segment order', async () => {
-      // With the segment slot freed before the hooks run, a spec can close a
-      // second segment while the first stop is still marking. finalize() must
-      // not return until both have finished, and the stop hooks must land in
-      // the order the segments closed.
-      let releaseFirstMark = null;
-      const stops = [];
-      const { api, page } = createTestApi({
-        hooks: {
-          markRecordingEnd: () => (releaseFirstMark
-            ? Promise.resolve()
-            : new Promise(resolve => { releaseFirstMark = resolve; })),
-          onRecordingStop: async ({ segmentEnd }) => { stops.push(segmentEnd); },
-        },
-      });
-
-      await page.raceRecordingStart();
-      page.raceRecordingEnd(); // not awaited; its mark is held back
-      await page.raceRecordingStart();
-      await new Promise(r => setTimeout(r, 5));
-      const secondEnd = page.raceRecordingEnd();
-
-      let finalized = false;
-      const done = api.finalize().then(() => { finalized = true; });
-      await Promise.resolve();
-      expect(finalized).toBe(false);
-      expect(stops).toEqual([]);
-
-      releaseFirstMark();
-      await Promise.all([secondEnd, done]);
-      expect(api.segments).toHaveLength(2);
-      expect(stops).toEqual(api.segments.map(s => s.end));
-    });
   });
 
   describe('auto-recording behavior', () => {

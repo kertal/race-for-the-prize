@@ -78,6 +78,13 @@ function createRaceApi({ recordingStartTime = Date.now(), now = Date.now, hooks 
 
   const startRecording = async () => {
     if (currentSegmentStart !== null) return;
+    // The previous segment's stop may still be running its hooks (finish flag,
+    // trace mark, overlay). The new segment waits for it: otherwise its start
+    // mark could overtake the previous end mark in the trace, and the old stop
+    // could switch off the overlay and clock the new segment just turned on.
+    // With at most one stop in flight, finalize() awaiting stopPromise covers
+    // every stop there is.
+    if (stopPromise) await stopPromise;
     if (gateRecordingStart) {
       const result = await gateRecordingStart();
       if (result?.aborted) return;
@@ -98,13 +105,7 @@ function createRaceApi({ recordingStartTime = Date.now(), now = Date.now, hooks 
     // call wait on this stop rather than opening a duplicate segment.
     currentSegmentStart = null;
     segments.push({ start: segmentStart, end: segmentEnd });
-    // Each stop queues behind the previous one: a second segment can close
-    // while the first stop's hooks are still in flight, and finalize() awaits
-    // only the latest stopPromise, so it must cover every stop before it. The
-    // chain also keeps the stop hooks in segment order.
-    const previousStop = stopPromise;
     stopPromise = (async () => {
-      if (previousStop) await previousStop;
       if (markRecordingEnd) await markRecordingEnd();
       // The finish is the last measurement that ended inside this segment. An
       // earlier segment's measurement must not leak into a later one, and a
