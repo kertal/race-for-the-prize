@@ -661,6 +661,23 @@ describe('buildConditionIndexHtml matrix', () => {
   });
 });
 
+describe('buildConditionIndexHtml matrix option', () => {
+  const entries = [{ label: '4g', network: '4g', cpu: 1, summary: summaryOf({ lauda: 2.5, hunt: 1.5 }, 'hunt') }];
+
+  it('renders a matrix the caller already built instead of building it again', () => {
+    // race.js prints the matrix first and hands the same one over; a different
+    // matrix than the entries would yield proves it is the one rendered.
+    const other = buildConditionMatrix([{ label: 'wifi', network: 'wifi', cpu: 2, summary: summaryOf({ lauda: 1.0, hunt: 4.0 }, 'lauda') }]);
+    const html = buildConditionIndexHtml('race', entries, { matrix: other });
+    expect(html).toContain('wifi');
+    expect(html).not.toContain('4g');
+  });
+
+  it('builds the matrix from the entries when none is supplied', () => {
+    expect(buildConditionIndexHtml('race', entries)).toBe(buildConditionIndexHtml('race', entries, { matrix: buildConditionMatrix(entries) }));
+  });
+});
+
 describe('buildConditionIndexHtml spreadsheet export', () => {
   const html = buildConditionIndexHtml('lauda vs hunt', [
     {

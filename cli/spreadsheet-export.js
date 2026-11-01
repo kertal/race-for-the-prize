@@ -22,7 +22,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadTemplates, escHtml, serializeJsonForScript } from './html-templates.js';
 import { PROFILE_METRICS, determineProfileMetricOutcome } from './profile-analysis.js';
-import { sortComparisonsForDisplay, buildRunComparisonModel } from './report-model.js';
+import { sortComparisonsForDisplay, buildRunComparisonModel, PROFILE_SCOPES } from './report-model.js';
 import { medianOf } from './summary.js';
 import { RACER_CSS_COLORS, RACER_EMOJI } from './player-sections.js';
 import spreadsheet from './player-runtime/spreadsheet.cjs';
@@ -40,12 +40,6 @@ export const SPREADSHEET_RUNTIME = ['spreadsheet.cjs', 'spreadsheet-panel.js']
   .join('\n');
 
 const DURATION_UNIT = 's';
-
-/** Profile scopes in the order the reports list them, with the titles the export uses. */
-const PROFILE_SCOPES = [
-  { scope: 'measured', title: 'Race' },
-  { scope: 'total', title: 'Total Recording' },
-];
 
 const NOTE = 'Plain numbers, one unit per row, one column per racer — tick the tables you want, '
   + 'then copy them as tab-separated text or download a CSV (both paste into Excel, Google Sheets or Numbers as numbers), '
@@ -127,7 +121,7 @@ function profileRow(metric, racers, values) {
 }
 
 /** One profile scope's metrics — those at least one racer has a value for. */
-function profileGroup(summary, racers, { scope, title }) {
+function profileGroup(summary, racers, { scope, shortTitle }) {
   const profiles = summary.profileMetrics || [];
   const rows = [];
   for (const [key, metric] of Object.entries(PROFILE_METRICS)) {
@@ -138,7 +132,7 @@ function profileGroup(summary, racers, { scope, title }) {
     rows.push(profileRow(metric, racers, values));
   }
   if (rows.length === 0) return null;
-  return { id: `profile.${scope}`, title: `Performance: ${title}`, rows };
+  return { id: `profile.${scope}`, title: `Performance: ${shortTitle}`, rows };
 }
 
 /**
@@ -225,11 +219,10 @@ function runByRunGroups(summary, racers, runSummaries) {
     rows: runRows(measurement, DURATION_UNIT),
   }));
   for (const scope of model.profileScopes) {
-    const scopeTitle = PROFILE_SCOPES.find(s => s.scope === scope.scope)?.title || scope.title;
     for (const metric of scope.metrics) {
       groups.push({
         id: spreadsheet.spreadsheetRunGroupId('profile', metric.key),
-        title: `Run-by-Run: ${metric.name} (${scopeTitle})`,
+        title: `Run-by-Run: ${metric.name} (${scope.shortTitle})`,
         rows: runRows(metric, unitOf(metric.key)),
       });
     }
@@ -298,11 +291,6 @@ export function buildConditionSpreadsheetModel(matrix) {
 // Rendering
 // ---------------------------------------------------------------------------
 
-/** The model, for the <script type="application/json"> block the runtime reads. */
-function serializeModel(model) {
-  return serializeJsonForScript(model);
-}
-
 /**
  * One preview cell: empty, a number carrying its raw value, or escaped text.
  * Text goes through the same spreadsheetCell() as the TSV and CSV, so a label
@@ -360,6 +348,7 @@ export function buildSpreadsheetPanelHtml(model, options = {}) {
     groups,
     headerCells,
     rows,
-    data: serializeModel(model),
+    // The model itself, for the <script type="application/json"> block the runtime reads.
+    data: serializeJsonForScript(model),
   });
 }

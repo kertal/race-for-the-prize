@@ -1266,7 +1266,6 @@ describe('buildPlayerHtml timing events', () => {
   it('saves _wcStart and _wcEnd in onMeta before trace conversion', () => {
     expect(timingHtml).toContain('_wcStart = ');
     expect(timingHtml).toContain('_wcEnd = ');
-    expect(timingHtml).not.toContain('_ptsScale = scale');
   });
 
   it('script contains timing event labels and column headers', () => {
@@ -1291,7 +1290,6 @@ describe('buildPlayerHtml timing events', () => {
     expect(timingHtml).toContain('timingData');
     expect(timingHtml).toContain('videoDuration');
     expect(timingHtml).toContain('_wcStart');
-    expect(timingHtml).toContain('_ptsScale');
   });
 
   it('handles clipTimes without measurements gracefully', () => {
@@ -1451,9 +1449,12 @@ describe('buildPlayerHtml clip alignment', () => {
     expect(fnMatch[1]).not.toContain('primary.currentTime');
   });
 
-  it('timeupdate clip-end handler sets scrubber to 1000 and returns', () => {
+  it('timeupdate clip-end handler sets scrubber to its max and returns', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
-    expect(html).toContain('scrubber.value = 1000');
+    expect(html).toContain('scrubber.value = SCRUBBER_MAX');
+    // The constant is the one source of the range; no handler hardcodes it.
+    expect(html).not.toMatch(/scrubber\.value\s*\/\s*1000\b/);
+    expect(html).not.toContain('scrubber.value = 1000');
   });
 
   it('stepFrame derives position from scrubber for elapsed-time consistency', () => {

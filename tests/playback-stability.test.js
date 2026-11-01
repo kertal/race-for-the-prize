@@ -1,8 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
 const playback = fs.readFileSync(new URL('../cli/player-runtime/playback.js', import.meta.url), 'utf8');
 const main = fs.readFileSync(new URL('../cli/player-runtime/main.js', import.meta.url), 'utf8');
+const { SCRUBBER_MAX } = require('../cli/player-runtime/calibration.cjs');
 const block = (s, a, b) => s.slice(s.indexOf(a), s.indexOf(b, s.indexOf(a)));
 function video(time) {
   const listeners = new Map();
@@ -27,12 +30,12 @@ function harness(times = [2]) {
     getAdjustedClipTimes: () => clips, isValidClipEntry: c => !!c,
     updateFramePositions() {}, updateTimeDisplay() {}, setPlayState: vi.fn(),
     clipOffset: () => 2, clipDuration: () => 10,
-    SEEK_SNAP_TOLERANCE: .15, MAX_SEEK_RETRIES: 10, ZERO_START_THRESHOLD: .001,
+    SEEK_SNAP_TOLERANCE: .15, MAX_SEEK_RETRIES: 10, ZERO_START_THRESHOLD: .001, SCRUBBER_MAX,
   };
   vm.createContext(ctx);
   vm.runInContext(block(playback, 'function cancelSeekVerifications()', '\n// --- Formatting'), ctx);
   vm.runInContext(block(playback, 'function videoTargetTime(', '\n// --- Metadata'), ctx);
-  vm.runInContext(block(playback, 'function videoClipElapsed(', '\nfunction onEnded()'), ctx);
+  vm.runInContext(block(playback, 'function holdAtClipEnd(', '\nfunction onEnded()'), ctx);
   vm.runInContext(block(main, 'function nudgePaint(', '\nfunction seekAllWithVerify('), ctx);
   vm.runInContext(block(main, 'function seekAllWithVerify(', '\nif (clipTimes)'), ctx);
   return ctx;
@@ -154,7 +157,7 @@ describe('duration probe', () => {
   // duration that never resolved can be followed all the way to the clock.
   function metaHarness() {
     const ctx = {
-      setTimeout, Date, activeClip: null, duration: 0, scrubber: { value: 0 },
+      setTimeout, Date, activeClip: null, duration: 0, scrubber: { value: 0 }, SCRUBBER_MAX,
       timeDisplay: {}, frameDisplay: {}, activeSegmentName: null,
       calibrateClipTimes: () => ({ convertedAny: false, pending: false }),
       resolveAdjustedClip: () => null, revealCalibrationToggle() {}, buildSegmentNav() {},

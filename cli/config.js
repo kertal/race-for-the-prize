@@ -13,22 +13,6 @@ import { createRequire } from 'module';
 export const { MAX_RACERS } = createRequire(import.meta.url)('../runner-protocol.cjs');
 
 const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'height', 'gemini-spec', 'skin']);
-const BOOLEAN_VALUE_FLAGS = new Set([
-  'parallel', 'headless', 'overlay', 'recording',
-  'ffmpeg', 'har', 'wasm', 'serve', 'pause', 'ignore-https-errors', 'gemini',
-  'cue-markers', 'wall-clock', 'fps',
-]);
-
-/** Boolean flags the CLI recognises. Unknown flags produce an error. */
-export const KNOWN_BOOL_FLAGS = new Set([
-  'parallel', 'headless', 'overlay', 'recording',
-  'ffmpeg', 'har', 'wasm', 'serve', 'pause', 'ignore-https-errors',
-  'gemini', 'results', 'init', 'verbose', 'help', 'version', 'yes',
-  'cue-markers', 'wall-clock', 'fps',
-]);
-
-/** Combined set of all valid flag names (bool + kv). */
-export const KNOWN_FLAGS = new Set([...KNOWN_BOOL_FLAGS, ...KV_FLAG_NAMES]);
 
 /**
  * CLI flag name → the settings key `applyOverrides` writes for it. Flags that
@@ -37,6 +21,10 @@ export const KNOWN_FLAGS = new Set([...KNOWN_BOOL_FLAGS, ...KV_FLAG_NAMES]);
  * This is what lets a race record say where each effective setting came from
  * (see `cli/race-config.js`) without re-running the overrides. A unit test
  * cross-checks every entry against `applyOverrides`, so the two cannot drift.
+ *
+ * It is also where the boolean flags are declared: every entry that is not a
+ * value flag is one, and `BOOLEAN_VALUE_FLAGS` / `BOOLEAN_SETTING_KEYS` below
+ * derive from it rather than repeating the list.
  */
 export const FLAG_SETTING_KEYS = {
   parallel: 'parallel',
@@ -62,10 +50,28 @@ export const FLAG_SETTING_KEYS = {
   height: 'viewportHeight',
 };
 
-function isBooleanLikeValue(value) {
-  if (typeof value !== 'string') return false;
-  const s = value.trim().toLowerCase();
-  return s === 'true' || s === 'false' || s === '1' || s === '0' || s === 'yes' || s === 'no';
+/** Boolean flags that also accept an explicit value (`--headless=false`, `--serve 0`). */
+const BOOLEAN_VALUE_FLAGS = new Set(Object.keys(FLAG_SETTING_KEYS).filter(flag => !KV_FLAG_NAMES.has(flag)));
+
+/** Flags that steer the CLI itself rather than a race setting. */
+const CLI_SWITCH_FLAGS = ['results', 'init', 'verbose', 'help', 'version', 'yes'];
+
+/** Boolean flags the CLI recognises. Unknown flags produce an error. */
+const KNOWN_BOOL_FLAGS = new Set([...BOOLEAN_VALUE_FLAGS, ...CLI_SWITCH_FLAGS]);
+
+/** Combined set of all valid flag names (bool + kv). */
+export const KNOWN_FLAGS = new Set([...KNOWN_BOOL_FLAGS, ...KV_FLAG_NAMES]);
+
+/** The spellings of a boolean accepted on the CLI and in settings.json. */
+const BOOLEAN_WORDS = new Map([
+  ['true', true], ['1', true], ['yes', true],
+  ['false', false], ['0', false], ['no', false],
+]);
+
+/** The boolean a string spells, or undefined when it spells none. */
+function parseBooleanWord(value) {
+  if (typeof value !== 'string') return undefined;
+  return BOOLEAN_WORDS.get(value.trim().toLowerCase());
 }
 
 export function parseArgs(argv) {
@@ -88,7 +94,7 @@ export function parseArgs(argv) {
           BOOLEAN_VALUE_FLAGS.has(name) &&
           argv[i + 1] !== undefined &&
           !argv[i + 1].startsWith('--') &&
-          isBooleanLikeValue(argv[i + 1])
+          parseBooleanWord(argv[i + 1]) !== undefined
         ) {
           kvFlags[name] = argv[i + 1];
           i++;
@@ -184,7 +190,7 @@ export function resolveSharedRacerNames(settings) {
   if (names.length > MAX_RACERS) {
     throw new InvalidSettingError(`shared-spec mode supports up to ${MAX_RACERS} racers, found ${names.length}`);
   }
-  const emptyName = names.find(name => typeof name !== 'string' || name.trim() === '');
+  const emptyName = names.find(name => name.trim() === '');
   if (emptyName !== undefined) {
     throw new InvalidSettingError('shared-spec mode racer names must be non-empty strings');
   }
@@ -266,22 +272,11 @@ try {
 `;
 }
 
-/** Settings keys that must be real booleans (JSON often has strings — "false" is truthy in JS). */
-const BOOLEAN_SETTING_KEYS = [
-  'parallel',
-  'headless',
-  'noOverlay',
-  'noRecording',
-  'ffmpeg',
-  'har',
-  'noWasm',
-  'noServe',
-  'pauseBetweenRuns',
-  'ignoreHTTPSErrors',
-  'cueMarkers',
-  'wallClock',
-  'fps',
-];
+/**
+ * Settings keys that must be real booleans (JSON often has strings — "false"
+ * is truthy in JS): one per boolean flag, so a key cannot be left out.
+ */
+const BOOLEAN_SETTING_KEYS = [...BOOLEAN_VALUE_FLAGS].map(flag => FLAG_SETTING_KEYS[flag]);
 
 /**
  * Coerce a settings value to boolean. Strings like "false" / "0" / "no" → false.
@@ -290,9 +285,9 @@ export function coerceBooleanSetting(value) {
   if (value === true || value === 1) return true;
   if (value === false || value === 0 || value === null || value === undefined) return false;
   if (typeof value === 'string') {
-    const s = value.trim().toLowerCase();
-    if (s === 'true' || s === '1' || s === 'yes') return true;
-    if (s === 'false' || s === '0' || s === 'no' || s === '') return false;
+    if (value.trim() === '') return false;
+    const parsed = parseBooleanWord(value);
+    if (parsed !== undefined) return parsed;
   }
   return Boolean(value);
 }
@@ -323,6 +318,7 @@ export function applyDefaults(settings) {
     cueMarkers: false,
     wallClock: false,
     fps: false,
+    gemini: false,
     viewportHeight: 720,
     format: 'webm',
     network: 'none',
@@ -337,8 +333,8 @@ export function applyDefaults(settings) {
   return result;
 }
 
-export const VALID_NETWORKS = ['none', 'slow-3g', 'fast-3g', '4g'];
-export const VALID_FORMATS = ['webm', 'mov', 'gif'];
+const VALID_NETWORKS = ['none', 'slow-3g', 'fast-3g', '4g'];
+const VALID_FORMATS = ['webm', 'mov', 'gif'];
 
 /**
  * Parse a throttling setting into a validated list of conditions. Accepts a
@@ -457,11 +453,8 @@ export function buildRaceConditions(networks, cpus) {
 function parseCliBoolean(value, flagName) {
   if (value === true || value === 1) return true;
   if (value === false || value === 0) return false;
-  if (typeof value === 'string') {
-    const s = value.trim().toLowerCase();
-    if (s === 'true' || s === '1' || s === 'yes') return true;
-    if (s === 'false' || s === '0' || s === 'no') return false;
-  }
+  const parsed = parseBooleanWord(value);
+  if (parsed !== undefined) return parsed;
   throw new InvalidSettingError(`${flagName} must be a boolean (true/false, 1/0, yes/no), got "${value}"`);
 }
 
@@ -556,17 +549,19 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   // `"format": "avi"` fell back to .webm while every label said avi.
   // A key the CLI overrides is skipped: only the effective value has to be
   // valid, so `--format webm` still rescues a bad settings.json entry.
-  if (s.viewportHeight != null) {
-    s.viewportHeight = resolveViewportHeight(s.viewportHeight, '"viewportHeight" in settings.json');
-  }
   if (s.format != null && kvFlags.format === undefined) s.format = resolveFormat(s.format, '"format" in settings.json');
   if (s.runs != null && kvFlags.runs === undefined) s.runs = resolveRuns(s.runs, '"runs" in settings.json');
   if (s.slowmo != null && kvFlags.slowmo === undefined) s.slowmo = resolveSlowmo(s.slowmo, '"slowmo" in settings.json');
   // `height` is the settings.json alias for `viewportHeight`, mirroring the
   // --height CLI flag. A null value means "not set", as for every other key —
   // applyDefaults strips nulls, but it runs after this, so guard here too.
-  if (s.height != null) {
-    s.viewportHeight = resolveViewportHeight(s.height, '"height" in settings.json');
+  if (kvFlags.height === undefined) {
+    if (s.viewportHeight != null) {
+      s.viewportHeight = resolveViewportHeight(s.viewportHeight, '"viewportHeight" in settings.json');
+    }
+    if (s.height != null) {
+      s.viewportHeight = resolveViewportHeight(s.height, '"height" in settings.json');
+    }
   }
   delete s.height;
   if (boolFlags.has('parallel')) s.parallel = true;

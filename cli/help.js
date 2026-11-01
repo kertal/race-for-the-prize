@@ -62,12 +62,11 @@ export function resolveInvocation(argv1 = process.argv[1]) {
 /**
  * Render the help screen.
  *
- * @param {string} [cmd] - command prefix for every example
+ * @param {string} [run] - command prefix for every example
  * @param {string[]} [skins] - built-in skin names
  * @returns {string} the full help text, ANSI-colored
  */
-export function buildHelp(cmd = resolveInvocation(), skins = listSkins()) {
-  const run = cmd || 'node race.js';
+export function buildHelp(run = resolveInvocation(), skins = listSkins()) {
   const rule = `${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}`;
 
   return `

@@ -200,6 +200,19 @@ function convertWithFFmpeg(blob, format, ui, opts = {}) {
   });
 }
 
+// Hold each exported racer at its own clip end on the frame clock. Playback's
+// rAF clamp (watchClipEnd) only runs while `playing`, which the export clears,
+// and the timeupdate backstop fires about four times a second — long enough
+// for a racer with a shorter clip to draw a quarter second of post-clip footage
+// into the file before being snapped back. perVideoEnd is parallel to
+// visibleIndices.
+function holdExportClips(visibleIndices, perVideoEnd) {
+  visibleIndices.forEach((i, j) => {
+    const v = raceVideos[i];
+    if (v) holdAtClipEnd(v, perVideoEnd[j]);
+  });
+}
+
 async function startExport() {
   if (!HTMLCanvasElement.prototype.captureStream || !window.MediaRecorder) {
     alert('Export requires a browser that supports Canvas.captureStream and MediaRecorder (Chrome, Firefox, or Edge).');
@@ -328,6 +341,7 @@ async function startExport() {
   let exportTimeOffset = null;
   function tick() {
     if (cancelled) return;
+    holdExportClips(visibleIndices, perVideoEnd);
     const cur = Math.max(...visibleIndices.map(i => raceVideos[i]?.currentTime || 0));
     if (exportTimeOffset === null) exportTimeOffset = cur;
     const elapsed = cur - exportTimeOffset;

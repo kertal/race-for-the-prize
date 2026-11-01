@@ -176,7 +176,7 @@ it has no default, and the entry below is an example.)
 | `wallClock` | `--wall-clock` | `true` / `false` | `false` |
 | `cueMarkers` | `--cue-markers` | `true` / `false` — calibration-test cues; they perturb the metrics | `false` |
 | `fps` | `--fps` | `true` / `false` — adds frame timing to the profile, at the cost of a bigger trace | `false` |
-| `gemini` | `--gemini` | `true` / `false` — post-race commentary, needs the `gemini` CLI on your PATH | not set (off) |
+| `gemini` | `--gemini` | `true` / `false` — post-race commentary, needs the `gemini` CLI on your PATH | `false` |
 | `viewportHeight` | `--height=<px>` | integer, 480–4320 (also accepted as `height` in settings.json) | `720` |
 | `skin` | `--skin=<name\|path>` | `light`, `neon`, or a path to a `.css` file — see [Skinning the player](skinning.md) | not set (built-in dark theme) |
 | `racers` | — | optional object keyed by racer name | not present by default |

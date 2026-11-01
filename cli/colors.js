@@ -2,10 +2,10 @@
 export const c = {
   green: '\x1b[32m', blue: '\x1b[34m', yellow: '\x1b[33m',
   cyan: '\x1b[36m', red: '\x1b[31m', magenta: '\x1b[35m',
-  white: '\x1b[37m',
-  dim: '\x1b[2m', bold: '\x1b[1m', italic: '\x1b[3m', reset: '\x1b[0m',
+  dim: '\x1b[2m', bold: '\x1b[1m', reset: '\x1b[0m',
   hideCursor: '\x1b[?25l', showCursor: '\x1b[?25h',
 };
 
-// Color palette, one entry per racer slot (see MAX_RACERS in config.js)
+// Color palette, one entry per racer slot (see MAX_RACERS in
+// runner-protocol.cjs, re-exported from config.js)
 export const RACER_COLORS = [c.red, c.blue, c.green, c.yellow];

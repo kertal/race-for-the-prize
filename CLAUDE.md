@@ -23,7 +23,7 @@ node race.js demo:lauda-vs-hunt                   # Run a bundled demo race (`de
 
 **Playwright engine:** `runner.cjs` (CommonJS) — launched as a subprocess by `race.js`. Owns the browser lifecycle: launches 2–4 Chromium instances (parallel or sequential), attaches the race API to pages, records video, collects traces, and prints one JSON result line on stdout. Its supporting modules:
 
-- `runner-protocol.cjs` — the versioned parent ↔ runner contract: `PROTOCOL_VERSION` (both sides reject a mismatch), the `RESULT_SENTINEL` stdout prefix, and builders/parsers for the machine-read stderr line formats (`__raceMessage__`, context-closed marker).
+- `runner-protocol.cjs` — the versioned parent ↔ runner contract: `PROTOCOL_VERSION` (both sides reject a mismatch), the `RESULT_SENTINEL` stdout prefix, builders/parsers for the machine-read stderr line formats (`__raceMessage__`, context-closed marker), and `signalExitCode` (the signal → exit code mapping both processes exit with).
 - `race-api.cjs` — the `page.race*` state machine (segments, measurements, auto-recording). Pure and unit-tested; runner-specific side effects (trace marks, overlays, cues, metrics, barriers) are injected as hooks by `runner.cjs`.
 - `runner-metrics.cjs` — CDP metrics collector (network totals, Performance API deltas, web vitals, per-section metrics) and the tracing lifecycle.
 - `runner-video.cjs` — recording lookup, ffmpeg segment extraction/concatenation, stale-video cleanup.

@@ -41,7 +41,6 @@ export function startProgress(msg) {
     // Non-TTY: print once, skip spinner animation and cursor escapes.
     process.stderr.write(`  ${msg}\n`);
     return {
-      update(newMsg) { msg = newMsg; },
       done(doneMsg) { process.stderr.write(`  ✓ ${doneMsg || msg}\n`); },
       fail(failMsg) { process.stderr.write(`  ${failMsg || msg}\n`); },
     };
@@ -53,7 +52,6 @@ export function startProgress(msg) {
   write();
   const interval = setInterval(write, SPINNER_INTERVAL_MS);
   return {
-    update(newMsg) { msg = newMsg; },
     done(doneMsg) {
       clearInterval(interval);
       process.stderr.write(`\r  ${c.green}${c.bold}✓${c.reset} ${c.dim}${doneMsg || msg}${c.reset}\x1b[K\n`);

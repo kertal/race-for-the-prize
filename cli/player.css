@@ -381,14 +381,6 @@ h1 {
 }
 
 /* --- Banners & notes ----------------------------------------------------- */
-.winner-banner {
-  text-align: center;
-  font-family: var(--font-display);
-  font-size: var(--font-size-3xl);
-  color: var(--text);
-  padding-bottom: 1rem;
-}
-.winner-banner:empty { display: none; }
 /* Zero-height inline-block: the emoji renders centered on the text but adds
    nothing to the line box, keeping winner and non-winner labels identical. */
 .trophy {

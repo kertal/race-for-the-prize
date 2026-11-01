@@ -57,7 +57,6 @@ function applyCalibrationToClip(ct, ptsStart, videoDuration) {
   const segDuration = ct._wcEnd - ct._wcStart;
   ct.calibratedStart = ptsStart;
   ct.calibratedEnd = ptsStart + segDuration;
-  ct._ptsScale = null;
   ct.start = ptsStart;
   const end = Number.isFinite(videoDuration) ? Math.min(ptsStart + segDuration, videoDuration) : ptsStart + segDuration;
   // Never clamp below the start: an inverted entry fails isValidClipEntry, and
@@ -142,7 +141,7 @@ function computeSegmentClipTimes(entries, name) {
   });
 }
 
-// Pure core of resolveClip()/resolveAdjustedClip(): computes the shared
+// Pure core of resolveAdjustedClip(): computes the shared
 // playback window { start, end } over a set of clip entries, skipping
 // hidden racer indices. Uses maxDuration (not maxEnd) so every racer plays
 // its full clip from the common start.

@@ -48,9 +48,11 @@ export function applySettingsOrExit(base, boolFlags, kvFlags, raceDir = null) {
  * @param {object} options.kvFlags - parsed CLI key=value flags
  * @param {string} options.rootDir - repo root (where runner.cjs lives)
  * @param {function} options.buildContext - buildRaceContext from race.js
- * @returns {{ ctx: object, settings: object, racerNames: string[], fileSettings: object }}
+ * @returns {{ ctx: object, settings: object, racerNames: string[], fileSettings: object, mode: 'shared-spec'|'directory' }}
  *   `fileSettings` is the raw settings.json (`{}` when the file is absent), kept
- *   so the race record can say which values came from the file.
+ *   so the race record can say which values came from the file. `mode` says
+ *   how the racers were found: one `race.spec.js` shared by the racers named
+ *   in `settings.racers`, or one script file per racer.
  */
 export function loadRaceDir(raceDir, { boolFlags, kvFlags, rootDir, buildContext }) {
   if (!fs.existsSync(raceDir)) {
@@ -97,11 +99,12 @@ export function loadRaceDir(raceDir, { boolFlags, kvFlags, rootDir, buildContext
     process.exit(1);
   }
 
+  const mode = hasOnlySharedSpec ? 'shared-spec' : 'directory';
   let racerNames;
   let effectiveRacerFiles;
   let scriptFiles;
 
-  if (hasOnlySharedSpec && hasRacersConfig) {
+  if (hasOnlySharedSpec) {
     try {
       racerNames = resolveSharedRacerNames(settings);
     } catch (e) {
@@ -196,5 +199,5 @@ export function loadRaceDir(raceDir, { boolFlags, kvFlags, rootDir, buildContext
   const scripts = scriptFiles.map(f => fs.readFileSync(path.join(raceDir, f), 'utf-8'));
 
   const ctx = buildContext({ racerNames, scripts, settings, rootDir, raceDir, racerFiles: effectiveRacerFiles });
-  return { ctx, settings, racerNames, fileSettings };
+  return { ctx, settings, racerNames, fileSettings, mode };
 }

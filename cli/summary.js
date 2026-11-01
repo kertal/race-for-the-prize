@@ -16,8 +16,7 @@ import {
   buildRunComparisonModel,
   rankEntries,
   formatDuration,
-  formatDeltaLabel,
-  formatAdvantageLabel,
+  gapLabel,
 } from './report-model.js';
 
 const PLATFORM_NAMES = { darwin: 'macOS', linux: 'Linux', win32: 'Windows' };
@@ -41,6 +40,40 @@ export function getMachineInfo() {
     totalMemoryMB: Math.round(os.totalmem() / (1024 * 1024)),
     nodeVersion: process.version,
   };
+}
+
+/**
+ * The Race Info rows both reports show, as { label, value } pairs of plain
+ * text: when the race ran, who raced, and the settings that shaped it. The
+ * Markdown table and the player's info grid render the same list, so a
+ * setting shown in one can never go missing from the other.
+ */
+export function buildRaceInfoRows(summary) {
+  const { racers, settings, timestamp } = summary;
+  const rows = [];
+  if (timestamp) rows.push({ label: 'Date', value: new Date(timestamp).toISOString() });
+  racers.forEach((r, i) => rows.push({ label: `Racer ${i + 1}`, value: r }));
+  if (settings) {
+    rows.push({ label: 'Mode', value: settings.parallel === false ? 'sequential' : 'parallel' });
+    if (settings.network && settings.network !== 'none') rows.push({ label: 'Network', value: settings.network });
+    if (settings.cpuThrottle && settings.cpuThrottle > 1) rows.push({ label: 'CPU Throttle', value: `${settings.cpuThrottle}x slower` });
+    if (settings.format && settings.format !== 'webm') rows.push({ label: 'Format', value: settings.format });
+    if (settings.headless) rows.push({ label: 'Headless', value: 'yes' });
+    if (settings.runs && settings.runs > 1) rows.push({ label: 'Runs', value: String(settings.runs) });
+  }
+  return rows;
+}
+
+/** The machine rows both reports show, as { label, value } pairs; empty without machine info. */
+export function buildMachineInfoRows(machineInfo) {
+  if (!machineInfo) return [];
+  const rows = [
+    { label: 'OS', value: `${formatPlatform(machineInfo.platform)} ${machineInfo.osRelease} (${machineInfo.arch})` },
+    { label: 'CPU', value: `${machineInfo.cpuModel} (${machineInfo.cpuCores} cores)` },
+  ];
+  if (machineInfo.totalMemoryMB) rows.push({ label: 'Memory', value: `${(machineInfo.totalMemoryMB / 1024).toFixed(1)} GB` });
+  if (machineInfo.nodeVersion) rows.push({ label: 'Node.js', value: machineInfo.nodeVersion });
+  return rows;
 }
 
 // --- Helper functions to eliminate duplication ---
@@ -79,19 +112,7 @@ function appendSyntheticTotalComparison(comparisons, racerNames) {
     return { duration: durs.reduce((a, b) => a + b, 0) };
   });
 
-  const totalComp = computeComparison(getSyntheticTotalName(comparisons), totalVals, racerNames);
-  const validTotals = totalVals
-    .map((v, i) => v ? { i, duration: v.duration } : null)
-    .filter(Boolean);
-  if (validTotals.length >= 2) {
-    const best = Math.min(...validTotals.map(v => v.duration));
-    const worst = Math.max(...validTotals.map(v => v.duration));
-    if (Math.abs(worst - best) <= TOTAL_TIE_EPSILON) {
-      totalComp.winner = null;
-      totalComp.diff = 0;
-      totalComp.diffPercent = 0;
-    }
-  }
+  const totalComp = computeComparison(getSyntheticTotalName(comparisons), totalVals, racerNames, TOTAL_TIE_EPSILON);
   totalComp.isSyntheticTotal = true;
   comparisons.push(totalComp);
 }
@@ -125,8 +146,14 @@ function computeOverallWinner(racerNames, comparisons) {
 /**
  * Compute comparison stats for a single measurement across racers.
  * Returns { name, racers, winner, diff, diffPercent, rankings }.
+ *
+ * The win goes to the sole holder of the fastest time: racers within
+ * `tieEpsilon` of it share the lead, and a shared lead has no winner — the
+ * same rule computeOverallWinner applies to the totals. Sections use an exact
+ * comparison (any real difference, even sub-millisecond, resolves to the
+ * faster racer); the synthetic total passes TOTAL_TIE_EPSILON.
  */
-function computeComparison(name, vals, racerNames) {
+function computeComparison(name, vals, racerNames, tieEpsilon = 0) {
   const comp = { name, racers: vals, winner: null, diff: null, diffPercent: null, rankings: [] };
   const racersWithData = vals
     .map((v, i) => v ? { index: i, duration: v.duration } : null)
@@ -134,17 +161,16 @@ function computeComparison(name, vals, racerNames) {
     .sort((a, b) => a.duration - b.duration);
 
   if (racersWithData.length >= 2) {
-    const winIdx = racersWithData[0].index;
-    const loseIdx = racersWithData[racersWithData.length - 1].index;
-    comp.diff = vals[loseIdx].duration - vals[winIdx].duration;
-    comp.diffPercent = vals[winIdx].duration > 0
-      ? (comp.diff / vals[winIdx].duration * 100) : 0;
+    const fastest = racersWithData[0].duration;
+    const slowest = racersWithData[racersWithData.length - 1].duration;
+    comp.diff = slowest - fastest;
+    comp.diffPercent = fastest > 0 ? (comp.diff / fastest * 100) : 0;
     comp.rankings = racersWithData.map(r => racerNames[r.index]);
-    // A true dead heat (fastest and slowest measure identically) has no winner.
-    // Without this guard the stable sort would silently award the win to the
-    // lowest-indexed racer. Any real difference — even sub-millisecond — still
-    // resolves to the faster racer.
-    comp.winner = comp.diff > 0 ? racerNames[winIdx] : null;
+    // Without this guard the stable sort would silently crown the lowest-indexed
+    // racer of a dead heat — in a three-way field, even over a racer with the
+    // identical time.
+    const leaders = racersWithData.filter(r => r.duration - fastest <= tieEpsilon);
+    comp.winner = leaders.length === 1 ? racerNames[leaders[0].index] : null;
   }
   return comp;
 }
@@ -209,14 +235,12 @@ export function getPlacementOrder(summary) {
  */
 function renderMarkdownCell(cell, bold) {
   if (cell.value == null) return bold ? '**-**' : '-';
+  const gap = gapLabel(cell);
   let content;
   if (cell.isWinner) {
-    const lead = formatAdvantageLabel(cell.advantage);
-    content = lead ? `${cell.formatted} (\uD83C\uDFC6 ${lead})` : `${cell.formatted} (\uD83C\uDFC6)`;
-  } else if (cell.delta != null) {
-    content = `${cell.formatted} (${formatDeltaLabel(cell.delta, cell.relative)})`;
+    content = gap ? `${cell.formatted} (\uD83C\uDFC6 ${gap})` : `${cell.formatted} (\uD83C\uDFC6)`;
   } else {
-    content = cell.formatted;
+    content = gap ? `${cell.formatted} (${gap})` : cell.formatted;
   }
   return bold ? `**${content}**` : content;
 }
@@ -291,7 +315,7 @@ function printBar(label, duration, maxDuration, color, isWinner, width = 30, lab
 }
 
 export function printSummary(summary) {
-  const { racers, comparisons, overallWinner, wins, errors, profileComparison } = summary;
+  const { racers, comparisons, overallWinner, errors, profileComparison } = summary;
   const w = 54;
   const labelWidth = Math.max(12, ...racers.map(r => r.length));
 
@@ -324,9 +348,7 @@ export function printSummary(summary) {
         const color = RACER_COLORS[entry.index % RACER_COLORS.length];
         if (entry.racer) {
           const isWinner = comp.winner === entry.name;
-          const gap = entry.delta != null
-            ? formatDeltaLabel(entry.delta, entry.relative)
-            : formatAdvantageLabel(entry.advantage);
+          const gap = gapLabel(entry);
           const delta = gap ? ` ${c.dim}(${gap})${c.reset}` : '';
           write(`${printBar(entry.name, entry.racer.duration, maxDur, color, isWinner, 30, labelWidth)}${delta}\n`);
         } else {
@@ -353,7 +375,7 @@ export function printSummary(summary) {
 }
 
 export function buildMarkdownSummary(summary, sideBySideName) {
-  const { racers, comparisons, overallWinner, wins, errors, videos, settings, timestamp, profileComparison, machineInfo } = summary;
+  const { racers, comparisons, overallWinner, wins, errors, videos, profileComparison, machineInfo } = summary;
   const lines = [];
 
   // ASCII art header
@@ -381,27 +403,8 @@ export function buildMarkdownSummary(summary, sideBySideName) {
   lines.push('');
   lines.push(`| | |`);
   lines.push(`|---|---|`);
-  lines.push(`| **Date** | ${new Date(timestamp).toLocaleString()} |`);
-  racers.forEach((r, i) => lines.push(`| **Racer ${i + 1}** | ${r} |`));
-
-  if (settings) {
-    const mode = settings.parallel === false ? 'sequential' : 'parallel';
-    lines.push(`| **Mode** | ${mode} |`);
-    if (settings.network && settings.network !== 'none') lines.push(`| **Network** | ${settings.network} |`);
-    if (settings.cpuThrottle && settings.cpuThrottle > 1) lines.push(`| **CPU Throttle** | ${settings.cpuThrottle}x slower |`);
-    if (settings.format && settings.format !== 'webm') lines.push(`| **Format** | ${settings.format} |`);
-    if (settings.headless) lines.push(`| **Headless** | yes |`);
-    if (settings.runs && settings.runs > 1) lines.push(`| **Runs** | ${settings.runs} |`);
-  }
-  if (machineInfo) {
-    lines.push(`| **Machine** | ${formatPlatform(machineInfo.platform)} ${machineInfo.osRelease} (${machineInfo.arch}) |`);
-    lines.push(`| **CPU** | ${machineInfo.cpuModel} (${machineInfo.cpuCores} cores) |`);
-    if (machineInfo.totalMemoryMB) {
-      lines.push(`| **Memory** | ${(machineInfo.totalMemoryMB / 1024).toFixed(1)} GB |`);
-    }
-    if (machineInfo.nodeVersion) {
-      lines.push(`| **Node.js** | ${machineInfo.nodeVersion} |`);
-    }
+  for (const { label, value } of [...buildRaceInfoRows(summary), ...buildMachineInfoRows(machineInfo)]) {
+    lines.push(`| **${label}** | ${value} |`);
   }
   lines.push('');
 

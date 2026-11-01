@@ -100,6 +100,18 @@ export function formatAdvantageLabel(advantage) {
 }
 
 /**
+ * The one label a cell or ranked entry wears beside its value: a loser's gap
+ * to the best ("+1.500s, +150%"), or the best's lead over the runner-up
+ * ("60% ahead"). Null when the entry has neither — a shared lead, a missing
+ * value, or a field of one.
+ */
+export function gapLabel(entry) {
+  return entry.delta != null
+    ? formatDeltaLabel(entry.delta, entry.relative)
+    : formatAdvantageLabel(entry.advantage);
+}
+
+/**
  * The second-lowest value present — what the winner actually beat. Null when
  * fewer than two racers have a value. A tie for the lead returns the tied
  * value, which formatWinnerAdvantage then reads as "no advantage".
@@ -126,7 +138,8 @@ export function metricDeltaFormat(metric) {
  * Returns { value, formatted, isWinner, delta, relative, advantage }:
  * - formatted: formatted value string, or null when the value is missing
  * - delta: formatted (value - best) string WITHOUT the leading '+', or null
- *   when no delta applies (missing value, winner cell, or no best value)
+ *   when no delta applies (missing value, winner cell, no best value, or a
+ *   value equal to the best — a shared lead is not a gap)
  * - relative: the same gap as a percentage of the best (see
  *   formatRelativeDelta), or null whenever delta is null or best is not > 0
  * - advantage: on the winner cell only, how far it sits ahead of runnerUp (see
@@ -134,7 +147,7 @@ export function metricDeltaFormat(metric) {
  */
 export function buildValueCell(value, best, isWinner, format, runnerUp = null, formatDelta = format) {
   if (value == null) return { value: null, formatted: null, isWinner: false, delta: null, relative: null, advantage: null };
-  const hasDelta = !isWinner && best != null;
+  const hasDelta = !isWinner && best != null && value !== best;
   const delta = hasDelta ? formatDelta(value - best) : null;
   const relative = hasDelta ? formatRelativeDelta(value, best) : null;
   const advantage = isWinner ? formatWinnerAdvantage(value, runnerUp) : null;
@@ -148,20 +161,25 @@ export function buildDurationCell(duration, bestDuration, isWinner, runnerUp = n
 
 /**
  * Build duration cells (in racer order) for a measurement comparison.
- * The best duration is the declared winner's; ties against it still get a
- * "+0.000s" delta, matching historical behavior.
+ * Deltas are measured against the fastest time whether or not the comparison
+ * declared a winner — in a three-way field where two racers share the lead,
+ * the third still trails by something worth printing. Only comp.winner wears
+ * the trophy; a shared lead has none.
  */
 export function buildComparisonCells(comp, racers) {
   const durations = racers.map((_, i) => comp.racers[i]?.duration ?? null);
-  const bestDur = comp.winner ? durations[racers.indexOf(comp.winner)] : null;
+  const present = durations.filter(d => d != null);
+  const bestDur = present.length >= 2 ? Math.min(...present) : null;
   const runnerUp = secondLowest(durations);
   return racers.map((r, i) => buildDurationCell(durations[i], bestDur, comp.winner === r, runnerUp));
 }
 
 /**
- * Build cells for a row of raw values where the winner is the single lowest
- * value (first by racer order on exact ties). When fewer than two racers have
- * data, or all values are equal, no winner or deltas are flagged.
+ * Build cells for a row of raw values where the winner is the sole holder of
+ * the lowest value. A shared lowest value crowns nobody — the stable sort
+ * would otherwise hand the win to whichever tied racer was listed first — but
+ * the racers behind it still get their deltas. When fewer than two racers
+ * have data there is no best value at all.
  * Used for profile-metric rows in run-by-run comparisons.
  */
 export function buildBestOfCells(values, format, formatDelta = format) {
@@ -169,11 +187,9 @@ export function buildBestOfCells(values, format, formatDelta = format) {
     .map((v, j) => (v != null ? { j, v } : null))
     .filter(Boolean)
     .sort((a, b) => a.v - b.v);
-  const best = withData.length >= 2 && withData[0].v !== withData[withData.length - 1].v
-    ? withData[0].v
-    : null;
-  const winnerIdx = best != null ? withData[0].j : -1;
+  const best = withData.length >= 2 ? withData[0].v : null;
   const runnerUp = withData.length >= 2 ? withData[1].v : null;
+  const winnerIdx = best != null && runnerUp !== best ? withData[0].j : -1;
   return values.map((v, j) => buildValueCell(v, best, j === winnerIdx, format, runnerUp, formatDelta));
 }
 
@@ -250,6 +266,35 @@ export function rankComparisonDurations(comp, racers) {
 }
 
 // ---------------------------------------------------------------------------
+// Profile scopes
+// ---------------------------------------------------------------------------
+
+/**
+ * The two profile-metric scopes, in the order every report lists them.
+ * `title` is the heading the reports print, `shortTitle` the form that fits a
+ * spreadsheet label, `description` what the player says under the heading.
+ */
+export const PROFILE_SCOPES = [
+  {
+    scope: 'measured',
+    title: 'Race',
+    shortTitle: 'Race',
+    description: 'Metrics captured only between raceStart() and raceEnd() calls \u2014 isolates the code being tested.',
+  },
+  {
+    scope: 'total',
+    title: 'Total Recording (Including Pre and Post race)',
+    shortTitle: 'Total Recording',
+    description: 'Metrics for the entire recording window including pre-race setup and post-race teardown.',
+  },
+];
+
+/** The PROFILE_SCOPES entry for a scope key ('measured' or 'total'). */
+export function profileScope(scope) {
+  return PROFILE_SCOPES.find(s => s.scope === scope);
+}
+
+// ---------------------------------------------------------------------------
 // Results table model
 // ---------------------------------------------------------------------------
 
@@ -278,21 +323,6 @@ export function buildResultsModel(comparisons, racers) {
 // Run-by-run comparison model
 // ---------------------------------------------------------------------------
 
-/**
- * Model for the run-by-run comparison section (multi-run races).
- *
- * @param {Object[]} summaries - Per-run summaries
- * @param {Object} medianSummary - Median summary across runs
- * @param {string[]} racers - Racer names
- * @param {Object} profileMetricDefs - PROFILE_METRICS map ("scope.metric" keys)
- * @returns {{
- *   isEmpty: boolean,
- *   measurements: Array<{ name, runRows, medianRow, averageRow }>,
- *   profileScopes: Array<{ scope, title, metrics: Array<{ key, name, runRows, medianRow, averageRow }> }>
- * }}
- * Each runRow is { label, cells }; medianRow/averageRow are { cells } or null
- * (median: absent from the median summary; average: no racer has data).
- */
 // Mean of the non-null values, or null when there are none.
 function averageOf(vals) {
   const present = vals.filter(v => v != null);
@@ -355,21 +385,32 @@ function buildProfileScopes(summaries, medianSummary, racers, profileMetricDefs)
     if (hasData) metricsWithData.push({ metric, scope, metricName });
   }
 
-  const scopes = [
-    { scope: 'measured', title: 'Race' },
-    { scope: 'total', title: 'Total Recording (Including Pre and Post race)' },
-  ];
   const profileScopes = [];
-  for (const { scope: scopeName, title } of scopes) {
+  for (const { scope: scopeName, title, shortTitle } of PROFILE_SCOPES) {
     const scopeMetrics = metricsWithData.filter(m => m.scope === scopeName);
     if (scopeMetrics.length === 0) continue;
     const metrics = scopeMetrics.map(({ metric, metricName }) =>
       buildProfileMetricModel(metric, scopeName, metricName, summaries, medianSummary, racers));
-    profileScopes.push({ scope: scopeName, title, metrics });
+    profileScopes.push({ scope: scopeName, title, shortTitle, metrics });
   }
   return profileScopes;
 }
 
+/**
+ * Model for the run-by-run comparison section (multi-run races).
+ *
+ * @param {Object[]} summaries - Per-run summaries
+ * @param {Object} medianSummary - Median summary across runs
+ * @param {string[]} racers - Racer names
+ * @param {Object} profileMetricDefs - PROFILE_METRICS map ("scope.metric" keys)
+ * @returns {{
+ *   isEmpty: boolean,
+ *   measurements: Array<{ name, runRows, medianRow, averageRow }>,
+ *   profileScopes: Array<{ scope, title, shortTitle, metrics: Array<{ key, name, runRows, medianRow, averageRow }> }>
+ * }}
+ * Each runRow is { label, cells }; medianRow/averageRow are { cells } or null
+ * (median: absent from the median summary; average: no racer has data).
+ */
 export function buildRunComparisonModel(summaries, medianSummary, racers, profileMetricDefs) {
   // Keep each name's synthetic-total flag: sortComparisonsForDisplay decides
   // order from it, so mapping names to bare { name } objects (as this did

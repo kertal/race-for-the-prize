@@ -23,7 +23,7 @@ const { deriveTraceTiming } = require('./trace-calibration.cjs');
 const { deriveFrameStats } = require('./frame-stats.cjs');
 const { flashCue, OverlayController } = require('./overlay.cjs');
 const { createRaceApi } = require('./race-api.cjs');
-const { RESULT_SENTINEL, PROTOCOL_VERSION, MAX_RACERS, isSafeRacerId, confinePath, formatRaceMessage, formatContextClosed } = require('./runner-protocol.cjs');
+const { RESULT_SENTINEL, PROTOCOL_VERSION, MAX_RACERS, isSafeRacerId, confinePath, formatRaceMessage, formatContextClosed, signalExitCode } = require('./runner-protocol.cjs');
 const { cleanupOldVideos, trimVideoWithFfmpeg } = require('./runner-video.cjs');
 const { setupMetricsCollection, startProfiling, collectProfilingResults } = require('./runner-metrics.cjs');
 const { applyThrottling } = require('./runner-throttling.cjs');
@@ -64,14 +64,6 @@ async function loadConstants() {
 }
 
 // --- Signal handling ---
-
-/** Convert a signal name to its conventional exit code (128 + signum). */
-function signalExitCode(signal) {
-  if (signal === 'SIGINT') return 130;
-  if (signal === 'SIGTERM') return 143;
-  if (signal === 'SIGHUP') return 129;
-  return 1;
-}
 
 // Remember which signal first triggered cleanup so a second signal exits with
 // the same conventional code (rather than always 130).
@@ -763,9 +755,10 @@ function settleRacers(promises, ids, sharedState, { graceMs = ABANDON_GRACE_MS, 
     );
   });
 
+  let timer = null;
   const abandoned = new Promise(resolve => {
     let deadline = null;
-    const timer = setInterval(() => {
+    timer = setInterval(() => {
       if (!sharedState?.hasError) return;
       deadline ??= Date.now() + graceMs;
       if (Date.now() < deadline) return;
@@ -784,7 +777,11 @@ function settleRacers(promises, ids, sharedState, { graceMs = ABANDON_GRACE_MS, 
     timer.unref();
   });
 
-  return Promise.race([Promise.allSettled(promises), abandoned]);
+  // Once everyone has settled there is nobody left to give up on: stop the
+  // poll, or a failed race whose racers all unwound in time would still log
+  // "giving up" after the grace period.
+  return Promise.race([Promise.allSettled(promises), abandoned])
+    .finally(() => clearInterval(timer));
 }
 
 /**

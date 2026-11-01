@@ -166,7 +166,7 @@ const HTML_MAX_LENGTH = 8000;
  * Accepts an existing Playwright `browser` instance to avoid redundant launches.
  * Returns a truncated string suitable for embedding in a Gemini prompt.
  */
-export async function fetchPageHtml(url, browser, maxLength = HTML_MAX_LENGTH) {
+async function fetchPageHtml(url, browser, maxLength = HTML_MAX_LENGTH) {
   const page = await browser.newPage();
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });

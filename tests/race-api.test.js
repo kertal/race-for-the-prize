@@ -224,6 +224,49 @@ describe('page.race* API (race-api.cjs)', () => {
       expect(api.currentSegmentStart).toBeNull();
       expect(api.segments).toHaveLength(0);
     });
+
+    it('opens a second segment while an un-awaited recording end is still marking', async () => {
+      // A spec that fires raceRecordingEnd() without awaiting it and then awaits
+      // the next raceRecordingStart() used to find the slot still occupied —
+      // the segment was only released after the trace mark's round-trip — so
+      // the second segment never opened (and in parallel mode the partner sat
+      // at the recordingStart gate until the backstop).
+      let releaseMark = null;
+      const { api, page } = createTestApi({
+        // Only the first segment's mark is held back; the second ends freely.
+        hooks: { markRecordingEnd: () => (releaseMark ? Promise.resolve() : new Promise(resolve => { releaseMark = resolve; })) },
+      });
+
+      await page.raceRecordingStart();
+      const firstEnd = page.raceRecordingEnd(); // not awaited
+      await page.raceRecordingStart();
+      expect(api.currentSegmentStart).not.toBeNull();
+
+      releaseMark();
+      await firstEnd;
+      await page.raceRecordingEnd();
+      expect(api.segments).toHaveLength(2);
+    });
+
+    it('finalize waits for an in-flight recording end instead of closing the segment twice', async () => {
+      let releaseMark;
+      const stops = [];
+      const { api, page } = createTestApi({
+        hooks: {
+          markRecordingEnd: () => new Promise(resolve => { releaseMark = resolve; }),
+          onRecordingStop: async (info) => { stops.push(info); },
+        },
+      });
+
+      await page.raceRecordingStart();
+      page.raceRecordingEnd(); // not awaited
+      const done = api.finalize();
+      releaseMark();
+      await done;
+
+      expect(api.segments).toHaveLength(1);
+      expect(stops).toHaveLength(1);
+    });
   });
 
   describe('auto-recording behavior', () => {
@@ -329,6 +372,28 @@ describe('page.race* API (race-api.cjs)', () => {
       page.raceEnd('outer');
 
       expect(ends).toEqual([['inner', 1], ['outer', 0]]);
+    });
+
+    it('does not end a section for an unmatched raceEnd', async () => {
+      // The runner's onSectionEnd overwrites the section's end metrics, so a
+      // stray second raceEnd('load') long after the first would make the
+      // finished 'load' row account for everything that ran since.
+      const ends = [];
+      const unmatched = [];
+      const { page } = createTestApi({
+        hooks: {
+          onSectionEnd: (name) => ends.push(name),
+          onUnmatchedMeasureEnd: (name) => unmatched.push(name),
+        },
+      });
+
+      await page.raceStart('load');
+      page.raceEnd('load');
+      page.raceEnd('load');
+      page.raceEnd('typo');
+
+      expect(ends).toEqual(['load']);
+      expect(unmatched).toEqual(['load', 'typo']);
     });
 
     it('passes both the last measurement end and the segment close to onRecordingStop', async () => {

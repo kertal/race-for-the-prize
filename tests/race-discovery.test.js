@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -445,6 +445,19 @@ describe('settings override', () => {
     expect(applyOverrides({ height: false }, new Set(), {}).viewportHeight).toBe(720);
     expect(applyOverrides({ height: [900] }, new Set(), {}).viewportHeight).toBe(720);
     expect(applyOverrides({ height: { px: 900 } }, new Set(), {}).viewportHeight).toBe(720);
+  });
+
+  it('--height skips validating a settings.json height it overrides, like the other flags', () => {
+    // Regression: a bad "viewportHeight" warned "using default 720" and then
+    // the flag's 900 was used anyway — a warning about a value that never ran.
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(applyOverrides({ viewportHeight: 'abc' }, new Set(), { height: '900' }).viewportHeight).toBe(900);
+      expect(applyOverrides({ height: 'abc' }, new Set(), { height: '900' }).viewportHeight).toBe(900);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('settings.json "viewportHeight" is validated like the alias', () => {

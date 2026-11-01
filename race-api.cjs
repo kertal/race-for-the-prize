@@ -90,10 +90,16 @@ function createRaceApi({ recordingStartTime = Date.now(), now = Date.now, hooks 
     if (currentSegmentStart === null) return stopPromise;
     const segmentStart = currentSegmentStart;
     const segmentEnd = elapsed();
-    segments.push({ start: segmentStart, end: segmentEnd });
-    if (markRecordingEnd) await markRecordingEnd();
+    // The segment is closed before any hook is awaited: a spec that fires
+    // raceRecordingEnd() without awaiting it and then awaits the next
+    // raceRecordingStart() must find the slot free, or the second segment is
+    // silently skipped (and in parallel mode the partner waits at the gate).
+    // stopPromise is set in the same breath so finalize() and a second end
+    // call wait on this stop rather than opening a duplicate segment.
     currentSegmentStart = null;
+    segments.push({ start: segmentStart, end: segmentEnd });
     stopPromise = (async () => {
+      if (markRecordingEnd) await markRecordingEnd();
       // The finish is the last measurement that ended inside this segment. An
       // earlier segment's measurement must not leak into a later one, and a
       // segment with no measurement of its own finishes when it closed — not
@@ -152,8 +158,12 @@ function createRaceApi({ recordingStartTime = Date.now(), now = Date.now, hooks 
       await startMeasure(name);
     };
     page.raceEnd = (name = 'default') => {
+      // An unmatched raceEnd is ignored as a measurement, so it must not end a
+      // section either: the hook would overwrite the finished section's CDP
+      // metrics with whatever ran since (see runner-metrics stopSectionMeasurement).
+      const matched = activeMeasurements[name] !== undefined;
       const duration = endMeasure(name);
-      if (onSectionEnd) onSectionEnd(name, Object.keys(activeMeasurements).length);
+      if (matched && onSectionEnd) onSectionEnd(name, Object.keys(activeMeasurements).length);
       return duration;
     };
     return page;
