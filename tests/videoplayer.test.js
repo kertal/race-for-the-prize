@@ -138,7 +138,8 @@ describe('buildPlayerHtml', () => {
     expect(defaultHtml).toContain('Race Section Load');
     expect(defaultHtml).toContain('1.000s');
     expect(defaultHtml).toContain('2.000s');
-    expect(defaultHtml).toContain('(+1.000s)');
+    // Beside the absolute gap, how much slower that is as a share of the winner's time
+    expect(defaultHtml).toContain('(+1.000s, +100%)');
     expect(defaultHtml).toContain('profile-bar-fill');
   });
 
@@ -296,15 +297,15 @@ describe('buildPlayerHtml', () => {
     expect(getRaceConfig(html).videoCount).toBe(4);
   });
 
-  it('supports 5 racers with download links', () => {
-    const summary = makeSummary({ racers: ['r1', 'r2', 'r3', 'r4', 'r5'], comparisons: [], overallWinner: 'r1' });
-    const videos = ['r1/r1.webm', 'r2/r2.webm', 'r3/r3.webm', 'r4/r4.webm', 'r5/r5.webm'];
-    const altFiles = ['r1/r1.gif', 'r2/r2.gif', 'r3/r3.gif', 'r4/r4.gif', 'r5/r5.gif'];
+  it('offers a download link per racer on a full grid', () => {
+    const summary = makeSummary({ racers: ['r1', 'r2', 'r3', 'r4'], comparisons: [], overallWinner: 'r1' });
+    const videos = ['r1/r1.webm', 'r2/r2.webm', 'r3/r3.webm', 'r4/r4.webm'];
+    const altFiles = ['r1/r1.gif', 'r2/r2.gif', 'r3/r3.gif', 'r4/r4.gif'];
     const html = buildPlayerHtml(summary, videos, 'gif', altFiles);
-    expect(html).toContain('id="v4"');
+    expect(html).toContain('id="v3"');
     expect(html).toContain('r1 (.gif)');
-    expect(html).toContain('r5 (.gif)');
-    expect(getRaceConfig(html).videoCount).toBe(5);
+    expect(html).toContain('r4 (.gif)');
+    expect(getRaceConfig(html).videoCount).toBe(4);
   });
 
   it('assigns correct colors to racer labels via the --racer-color token', () => {
@@ -376,7 +377,8 @@ describe('buildPlayerHtml', () => {
     const html = withSummary({ profileComparison });
     const profileSection = getProfileSection(html);
     expect(profileSection.indexOf('>hunt<')).toBeLessThan(profileSection.indexOf('>lauda<'));
-    expect(profileSection).toContain('(+');
+    // 2000 bytes against 1000: +1000 B, and twice the winner's transfer
+    expect(profileSection).toContain('(+1000.0 B, +100%)');
   });
 
   it('does not render section timing metrics inside Race profile scope', () => {
@@ -489,11 +491,12 @@ describe('buildPlayerHtml', () => {
     expect(huntCard[1]).toBe('#3498db');
   });
 
-  it('omits script tag when no videos provided', () => {
+  it('omits the player runtime when no videos provided', () => {
     const html = buildPlayerHtml(makeSummary(), [], null, null, {
       runNavigation: { currentRun: 'median', totalRuns: 3, pathPrefix: '' },
     });
-    expect(html).not.toContain('<script>');
+    // Only the spreadsheet panel's own script remains; nothing of the player's.
+    expect(html).not.toContain('seekAllWithVerify');
     expect(html).toContain('Results');
   });
 
@@ -1609,19 +1612,23 @@ describe('buildPlayerHtml onMeta _durationForced (Chrome WebM Infinity duration)
     expect(fn).toContain('durationchange');
   });
 
-  it('ensureFiniteDurations always returns early while any video has non-finite duration', () => {
+  it('ensureFiniteDurations never reports ready while any video has non-finite duration', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
     const fn = sliceFn(html, 'function ensureFiniteDurations(');
-    // The return must be unconditional — it follows the scan call rather than
-    // sitting inside a branch, so a video mid-scan can never fall through to
-    // calibration.
+    // Starting a scan must set the waiting flag unconditionally — right after
+    // the scan call, not inside a branch — so a video mid-scan can never fall
+    // through to calibration. The loop keeps going so every unresolved video
+    // gets its scan started in the same pass.
     const scanIdx = fn.indexOf('forceDurationScan(v)');
     expect(scanIdx).toBeGreaterThan(-1);
-    const returnIdx = fn.indexOf('return false;', scanIdx);
-    expect(returnIdx).toBeGreaterThan(scanIdx);
-    const between = fn.slice(scanIdx + 'forceDurationScan(v)'.length, returnIdx)
+    const flagIdx = fn.indexOf('waiting = true', scanIdx);
+    expect(flagIdx).toBeGreaterThan(scanIdx);
+    const between = fn.slice(scanIdx + 'forceDurationScan(v)'.length, flagIdx)
       .replace(/\/\/[^\n]*/g, '').replace(/[;\s]/g, '');
     expect(between).toBe('');
+    // The only way out is the negated flag: no early `return true`.
+    expect(fn.slice(scanIdx)).not.toContain('return true');
+    expect(fn).toContain('return !waiting');
   });
 
   it('forceDurationScan only seeks once per src (WeakMap guard)', () => {
@@ -1767,10 +1774,10 @@ describe('buildPlayerHtml run-by-run comparison', () => {
   it('shows trophy for winner and delta for loser in comparison table', () => {
     const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
     // Winner gets trophy, no separate Winner column
-    expect(html).toContain('1.000s (\uD83C\uDFC6)');
+    expect(html).toContain('1.000s (\uD83C\uDFC6 67% ahead)');
     expect(html).not.toMatch(/<th>Winner<\/th>/);
-    // Loser gets delta (3.0 - 1.0 = 2.0)
-    expect(html).toContain('+2.000s');
+    // Loser gets delta (3.0 - 1.0 = 2.0), and how much slower that is (200%)
+    expect(html).toContain('(+2.000s, +200%)');
   });
 
   it('includes measurement rows and median row', () => {
@@ -1796,5 +1803,107 @@ describe('buildPlayerHtml run-by-run comparison', () => {
   it('omits comparison section when no runSummaries provided', () => {
     const html = buildPlayerHtml(medianSummary, videoFiles);
     expect(html).not.toContain('Run-by-Run Comparison');
+  });
+
+  it('carries export buttons of its own, naming the panel groups they act on', () => {
+    const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
+    const section = html.slice(html.indexOf('<h2>Run-by-Run Comparison</h2>'), html.indexOf('<h2>Performance Results</h2>'));
+    // The toolbar names every table of the section, as a JSON list the runtime parses back.
+    const all = '&quot;runs:section:Load&quot;,&quot;runs:profile:measured.scriptDuration&quot;';
+    expect(section).toContain(`data-spreadsheet-groups="[${all}]" data-spreadsheet-action="copy-tsv"`);
+    expect(section).toContain(`data-spreadsheet-groups="[${all}]" data-spreadsheet-action="copy-markdown"`);
+    expect(section).toContain(`data-spreadsheet-groups="[${all}]" data-spreadsheet-action="download-csv"`);
+    expect(section).toContain(`data-spreadsheet-groups="[${all}]" data-spreadsheet-action="pick"`);
+    // Each table gets a copy pair of its own, right under its heading.
+    expect(section).toMatch(/<h3>Race Section Load<\/h3>\s*<div class="run-table-export">\s*<button[^>]*data-spreadsheet-groups="\[&quot;runs:section:Load&quot;\]" data-spreadsheet-action="copy-tsv"/);
+    expect(section).toMatch(/<h4>Script Execution<\/h4>\s*<div class="run-table-export">\s*<button[^>]*data-spreadsheet-groups="\[&quot;runs:profile:measured.scriptDuration&quot;\]" data-spreadsheet-action="copy-tsv"/);
+    // The ids the buttons name are the ids the panel's checkboxes carry.
+    for (const id of ['runs:section:Load', 'runs:profile:measured.scriptDuration']) {
+      expect(html).toContain(`<input type="checkbox" value="${id}" checked>`);
+    }
+    // Each table names its group and title, so the Markdown copy can read it as shown.
+    expect(section).toContain('<table class="run-comparison-table" data-group="runs:section:Load" data-title="Race Section Load">');
+    expect(section).toContain('<table class="run-comparison-table" data-group="runs:profile:measured.scriptDuration" data-title="Script Execution (Performance: Race)">');
+    // A single-run page has no section, and so none of this.
+    expect(buildPlayerHtml(medianSummary, videoFiles)).not.toContain('class="run-export"');
+  });
+
+  it('exports the run-by-run numbers to the spreadsheet panel too', () => {
+    const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
+    expect(html).toContain('<input type="checkbox" value="results" checked> Race Results (median of 2 runs)');
+    expect(html).toContain('<input type="checkbox" value="runs:section:Load" checked> Run-by-Run: Load');
+    expect(html).toContain('<input type="checkbox" value="runs:profile:measured.scriptDuration" checked> Run-by-Run: Script Execution (Race)');
+    expect(html).toContain('<tr data-group="runs:section:Load"><td class="spreadsheet-pick"><input type="checkbox" data-row="row:runs:section:Load#1" checked aria-label="Include Run-by-Run: Load: Run 2"></td><td>Run-by-Run: Load</td><td>Run 2</td><td>s</td><td class="spreadsheet-num" data-value="2">2</td><td class="spreadsheet-num" data-value="4">4</td><td>🔴 lauda</td><td class="spreadsheet-num" data-value="2">2</td><td class="spreadsheet-num" data-value="50">50</td></tr>');
+    expect(html).toContain('<td>Median</td><td>s</td><td class="spreadsheet-num" data-value="1.5">1.5</td>');
+  });
+});
+
+// --- Spreadsheet export ---
+
+describe('buildPlayerHtml spreadsheet export', () => {
+  it('adds a Spreadsheet Export section between the profile and the files', () => {
+    expect(defaultHtml).toContain('<h2>Spreadsheet Export</h2>');
+    expect(defaultHtml).toContain('id="spreadsheetPanel"');
+    const section = defaultHtml.indexOf('<h2>Spreadsheet Export</h2>');
+    expect(section).toBeGreaterThan(defaultHtml.indexOf('<h2>Race Results</h2>'));
+    expect(section).toBeLessThan(defaultHtml.indexOf('<h2>Files</h2>'));
+    // Collapsed by default, like the other secondary sections.
+    expect(defaultHtml).toMatch(/<details class="section">\s*<summary><h2>Spreadsheet Export<\/h2>/);
+  });
+
+  it('previews the numbers as plain values with the unit in its own column', () => {
+    expect(defaultHtml).toContain('<th scope="col">Section</th><th scope="col">Measurement</th><th scope="col">Unit</th>');
+    expect(defaultHtml).toContain('<th scope="col" style="--racer-color:#e74c3c">🔴 lauda</th>');
+    expect(defaultHtml).toContain('<tr data-group="results"><td class="spreadsheet-pick"><input type="checkbox" data-row="row:results#0" checked aria-label="Include Race Results: Load"></td><td>Race Results</td><td>Load</td><td>s</td><td class="spreadsheet-num" data-value="1">1</td><td class="spreadsheet-num" data-value="2">2</td><td>🔴 lauda</td><td class="spreadsheet-num" data-value="1">1</td><td class="spreadsheet-num" data-value="50">50</td></tr>');
+  });
+
+  it('carries the export model as JSON and the runtime that reads it', () => {
+    const m = defaultHtml.match(/<script id="spreadsheet-data" type="application\/json">([\s\S]*?)<\/script>/);
+    expect(m).not.toBeNull();
+    const model = JSON.parse(m[1]);
+    expect(model.racers).toEqual(['lauda', 'hunt']);
+    expect(model.groups.map(g => g.id)).toEqual(['results']);
+    for (const fn of ['function spreadsheetTable', 'function spreadsheetTsv', 'function spreadsheetCsv', 'function spreadsheetMarkdown', 'initSpreadsheetPanel', 'navigator.clipboard']) {
+      expect(defaultHtml).toContain(fn);
+    }
+    expect(defaultHtml).toContain('id="spreadsheetCopy"');
+    expect(defaultHtml).toContain('id="spreadsheetMarkdown"');
+    expect(defaultHtml).toContain('id="spreadsheetCsv"');
+    expect(defaultHtml).toContain('id="spreadsheetDecimalComma"');
+  });
+
+  it('includes the profile metrics as raw values', () => {
+    const metrics1 = { total: { networkTransferSize: 1000 }, measured: { scriptDuration: 12.5 } };
+    const metrics2 = { total: { networkTransferSize: 2000 }, measured: { scriptDuration: 20 } };
+    const html = withSummary({ profileMetrics: [metrics1, metrics2] });
+    expect(html).toContain('<input type="checkbox" value="profile.measured" checked> Performance: Race');
+    expect(html).toContain('<input type="checkbox" value="profile.total" checked> Performance: Total Recording');
+    expect(html).toContain('<td>Script Execution</td><td>ms</td><td class="spreadsheet-num" data-value="12.5">12.5</td>');
+    expect(html).toContain('<td>Network Transfer</td><td>bytes</td><td class="spreadsheet-num" data-value="1000">1000</td>');
+  });
+
+  it('gives a report without videos the panel runtime, but not the player runtime', () => {
+    // No videos means no player script — but the copy and download buttons
+    // still need their own, or they would render and do nothing.
+    expect(noVideosHtml).toContain('<h2>Spreadsheet Export</h2>');
+    expect(noVideosHtml).toContain('<tr data-group="results">');
+    expect(noVideosHtml.match(/<script>/g)).toHaveLength(1);
+    expect(noVideosHtml).toContain('initSpreadsheetPanel');
+    expect(noVideosHtml).toContain('function spreadsheetTsv');
+    expect(noVideosHtml).not.toContain('seekAllWithVerify');
+    expect(noVideosHtml).not.toContain('startHtmlExport');
+    // With nothing to export there is no panel, and so no script at all.
+    expect(buildPlayerHtml(makeSummary({ comparisons: [] }), [])).not.toContain('<script>');
+  });
+
+  it('leaves the section out when the race measured nothing', () => {
+    const html = withSummary({ comparisons: [] });
+    expect(html).not.toContain('<h2>Spreadsheet Export</h2>');
+    expect(html).not.toContain('id="spreadsheetPanel"');
+  });
+
+  it('inlines the panel stylesheet after the player rules', () => {
+    expect(defaultHtml).toContain('.spreadsheet-table thead th');
+    expect(defaultHtml.indexOf('.spreadsheet-table')).toBeGreaterThan(defaultHtml.indexOf('.checkered-bar'));
   });
 });

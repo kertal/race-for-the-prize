@@ -13,32 +13,38 @@
 
 import { c, RACER_COLORS } from './colors.js';
 import { determineOverallWinner } from './race-utils.js';
-import { rankEntries } from './report-model.js';
+import { rankEntries, formatDeltaLabel, formatAdvantageLabel, metricDeltaFormat } from './report-model.js';
 
 /**
  * Performance metric definitions.
  * Keys use "scope.metric" format; scope/category are derived from the key structure.
+ * `unit` names the raw value's unit — what the spreadsheet export writes beside
+ * the unformatted number, since "1.2 KB" is a label and 1228.8 is a value.
  */
 const metricDefs = {
-  networkTransferSize: { name: 'Network Transfer', format: formatBytes, category: 'network', description: 'Total bytes transferred over the network (compressed). Less data means faster loads on slow connections.' },
-  networkRequestCount: { name: 'Network Requests', format: (v) => `${v} req`, category: 'network', description: 'Number of HTTP requests made. Fewer requests reduce connection overhead and latency.' },
-  scriptDuration:      { name: 'Script Execution', format: formatMs, category: 'computation', description: 'Time spent executing JavaScript. High values indicate CPU-heavy scripts that may block the main thread.' },
-  taskDuration:        { name: 'Task Duration', format: formatMs, category: 'computation', description: 'Total time spent on all browser tasks including script, layout, and rendering. Reflects overall main-thread busyness.' },
-  layoutDuration:      { name: 'Layout Time', format: formatMs, category: 'rendering', description: 'Time spent computing element positions and sizes. Frequent layout recalculations ("layout thrashing") hurt performance.' },
-  recalcStyleDuration: { name: 'Style Recalculation', format: formatMs, category: 'rendering', description: 'Time spent recalculating CSS styles. Complex selectors or frequent DOM changes increase this cost.' },
-  ttfb:                { name: 'Time to First Byte (TTFB)', format: formatMs, category: 'loading', description: 'Time from the request until the first byte of the response arrives. Reflects server speed, DNS, and connection latency. Good: under 800ms.' },
-  fcp:                 { name: 'First Contentful Paint (FCP)', format: formatMs, category: 'loading', description: 'Time until the first text, image, or canvas is painted on screen. A fast FCP reassures users that the page is loading. Good: under 1.8s.' },
-  lcp:                 { name: 'Largest Contentful Paint (LCP)', format: formatMs, category: 'loading', description: 'Time until the largest visible element (hero image, heading, etc.) finishes rendering. LCP is a Core Web Vital used by Google as a search ranking signal. Good: under 2.5s.' },
-  cls:                 { name: 'Cumulative Layout Shift (CLS)', format: formatCLS, category: 'loading', description: 'Measures unexpected layout movement — elements shifting after being rendered. CLS is a Core Web Vital; high values frustrate users who click the wrong target. Good: under 0.1.' },
-  domContentLoaded:    { name: 'DOM Content Loaded', format: formatMs, category: 'loading', description: 'Time until the HTML document is fully parsed and all deferred scripts have executed (DOMContentLoaded event).' },
-  domComplete:         { name: 'DOM Complete', format: formatMs, category: 'loading', description: 'Time until the page and all sub-resources (images, stylesheets, etc.) have finished loading.' },
-  jsHeapUsedSize:      { name: 'JS Heap Used', format: formatBytes, category: 'memory', description: 'JavaScript memory currently in use. High usage can trigger garbage collection pauses and indicates memory-heavy code.' },
+  networkTransferSize: { name: 'Network Transfer', format: formatBytes, unit: 'bytes', category: 'network', description: 'Total bytes transferred over the network (compressed). Less data means faster loads on slow connections.' },
+  networkRequestCount: { name: 'Network Requests', format: (v) => `${v} req`, unit: 'requests', category: 'network', description: 'Number of HTTP requests made. Fewer requests reduce connection overhead and latency.' },
+  scriptDuration:      { name: 'Script Execution', format: formatMs, unit: 'ms', category: 'computation', description: 'Time spent executing JavaScript. High values indicate CPU-heavy scripts that may block the main thread.' },
+  taskDuration:        { name: 'Task Duration', format: formatMs, unit: 'ms', category: 'computation', description: 'Total time spent on all browser tasks including script, layout, and rendering. Reflects overall main-thread busyness.' },
+  layoutDuration:      { name: 'Layout Time', format: formatMs, unit: 'ms', category: 'rendering', description: 'Time spent computing element positions and sizes. Frequent layout recalculations ("layout thrashing") hurt performance.' },
+  recalcStyleDuration: { name: 'Style Recalculation', format: formatMs, unit: 'ms', category: 'rendering', description: 'Time spent recalculating CSS styles. Complex selectors or frequent DOM changes increase this cost.' },
+  ttfb:                { name: 'Time to First Byte (TTFB)', format: formatMs, unit: 'ms', category: 'loading', description: 'Time from the request until the first byte of the response arrives. Reflects server speed, DNS, and connection latency. Good: under 800ms.' },
+  fcp:                 { name: 'First Contentful Paint (FCP)', format: formatMs, unit: 'ms', category: 'loading', description: 'Time until the first text, image, or canvas is painted on screen. A fast FCP reassures users that the page is loading. Good: under 1.8s.' },
+  lcp:                 { name: 'Largest Contentful Paint (LCP)', format: formatMs, unit: 'ms', category: 'loading', description: 'Time until the largest visible element (hero image, heading, etc.) finishes rendering. LCP is a Core Web Vital used by Google as a search ranking signal. Good: under 2.5s.' },
+  cls:                 { name: 'Cumulative Layout Shift (CLS)', format: formatCLS, unit: 'score', category: 'loading', description: 'Measures unexpected layout movement — elements shifting after being rendered. CLS is a Core Web Vital; high values frustrate users who click the wrong target. Good: under 0.1.' },
+  domContentLoaded:    { name: 'DOM Content Loaded', format: formatMs, unit: 'ms', category: 'loading', description: 'Time until the HTML document is fully parsed and all deferred scripts have executed (DOMContentLoaded event).' },
+  domComplete:         { name: 'DOM Complete', format: formatMs, unit: 'ms', category: 'loading', description: 'Time until the page and all sub-resources (images, stylesheets, etc.) have finished loading.' },
+  jsHeapUsedSize:      { name: 'JS Heap Used', format: formatBytes, unit: 'bytes', category: 'memory', description: 'JavaScript memory currently in use. High usage can trigger garbage collection pauses and indicates memory-heavy code.' },
+  medianFrameMs:       { name: 'Median Frame Time', format: formatFrameMs, formatDelta: formatMs, unit: 'ms', category: 'smoothness', description: 'The typical time between frames the browser actually drew, and the frame rate that amounts to. Derived from the trace, so measuring it costs the page nothing. Needs --fps.' },
+  p95FrameMs:          { name: '95th % Frame Time', format: formatFrameMs, formatDelta: formatMs, unit: 'ms', category: 'smoothness', description: 'The frame time only 5% of frames exceed — the hitches users notice. A good median with a bad 95th percentile means occasional stutter rather than steady slowness. Needs --fps.' },
+  worstFrameMs:        { name: 'Worst Frame Time', format: formatFrameMs, formatDelta: formatMs, unit: 'ms', category: 'smoothness', description: 'The longest single gap between drawn frames: the worst visible stall. Needs --fps.' },
+  droppedFrames:       { name: 'Dropped Frames', format: (v) => `${v} frames`, unit: 'frames', category: 'smoothness', description: 'Frames that took more than 1.5x the display refresh period, measured against the refresh rate observed during the race rather than an assumed 60Hz. Comparable between racers running the same spec. Needs --fps.' },
 };
 
 // Measured metrics (between raceStart/raceEnd)
-const MEASURED_METRICS = ['networkTransferSize', 'networkRequestCount', 'scriptDuration', 'taskDuration', 'layoutDuration', 'recalcStyleDuration'];
+const MEASURED_METRICS = ['networkTransferSize', 'networkRequestCount', 'scriptDuration', 'taskDuration', 'layoutDuration', 'recalcStyleDuration', 'medianFrameMs', 'p95FrameMs', 'worstFrameMs', 'droppedFrames'];
 // Total metrics (entire session) — includes loading/memory which are total-only
-const TOTAL_METRICS = ['networkTransferSize', 'networkRequestCount', 'ttfb', 'fcp', 'lcp', 'cls', 'domContentLoaded', 'domComplete', 'jsHeapUsedSize', 'scriptDuration', 'taskDuration', 'layoutDuration', 'recalcStyleDuration'];
+const TOTAL_METRICS = ['networkTransferSize', 'networkRequestCount', 'ttfb', 'fcp', 'lcp', 'cls', 'domContentLoaded', 'domComplete', 'jsHeapUsedSize', 'scriptDuration', 'taskDuration', 'layoutDuration', 'recalcStyleDuration', 'medianFrameMs', 'p95FrameMs', 'worstFrameMs', 'droppedFrames'];
 
 // Absolute noise floors, in each metric's own unit. A percentage threshold
 // says nothing when the values are tiny or the best one is 0, so a difference
@@ -57,6 +63,15 @@ const PROFILE_NOISE_FLOOR = {
   domComplete: 5,
   cls: 0.01,                      // layout-shift score
   jsHeapUsedSize: 64 * 1024,      // bytes
+  // Frame times: a fraction of a frame is jitter, not a smoothness difference.
+  medianFrameMs: 1,
+  p95FrameMs: 2,
+  worstFrameMs: 4,
+  // Dropped frames need a gap you could actually see — roughly a tenth of a
+  // second of stutter. The count also tracks how hard the spec drove the page:
+  // a scripted scroll that steps 30 times a second draws 30 times a second, so
+  // small differences here are pacing, not smoothness.
+  droppedFrames: 10,
 };
 
 // Build the full PROFILE_METRICS map with scope-prefixed keys
@@ -78,6 +93,7 @@ const PROFILE_CATEGORY_TIE_THRESHOLD_PERCENT = {
   rendering: 3,
   network: 4,
   memory: 4,
+  smoothness: 4,
 };
 
 function getProfileCategoryThresholdPercent(category) {
@@ -137,6 +153,16 @@ function formatMs(ms) {
   return `${(ms / 1000).toFixed(2)}s`;
 }
 
+/**
+ * Frame time, with the frame rate it amounts to. The ranked number is the
+ * duration (less is better, like every other metric here); the fps in brackets
+ * is what people actually think in.
+ */
+function formatFrameMs(ms) {
+  if (!(ms > 0)) return '0ms';
+  return `${ms.toFixed(1)}ms (${Math.round(1000 / ms)}fps)`;
+}
+
 function formatCLS(score) {
   return score.toFixed(3);
 }
@@ -154,7 +180,7 @@ function getMetricValue(profileData, key) {
 
 /**
  * Build profile comparison from captured metrics.
- * @param {string[]} racerNames - Names of the racers (supports 2-5)
+ * @param {string[]} racerNames - Names of the racers (supports 2-4)
  * @param {Object[]} profileData - Array of profile data for each racer (with total/measured sections)
  * @returns {Object} Profile comparison results with measured and total sections
  */
@@ -240,12 +266,13 @@ function groupByCategory(comparisons) {
   return groups;
 }
 
-const categoryLabels = {
+export const categoryLabels = {
   network: '🌐 Network',
   loading: '⏱️ Loading',
   memory: '🧠 Memory',
   computation: '⚡ Computation',
-  rendering: '🎨 Rendering'
+  rendering: '🎨 Rendering',
+  smoothness: '🎞️ Smoothness'
 };
 
 export const categoryDescriptions = {
@@ -254,6 +281,7 @@ export const categoryDescriptions = {
   memory: 'JavaScript memory usage. Lower memory consumption reduces garbage collection pauses and improves stability.',
   computation: 'CPU time spent on JavaScript execution and browser tasks. Less computation means a more responsive page.',
   rendering: 'Time spent on visual layout and style calculations. Less rendering work means smoother interactions.',
+  smoothness: 'How evenly frames reached the screen, derived from the trace. Steady, short frame times are what scrolling and animation feel like when they are smooth.',
 };
 
 /**
@@ -278,7 +306,7 @@ function printProfileSection(title, section, racers, w, write) {
       const { entries: sorted, maxValue } = rankEntries(
         racers,
         i => ({ val: comp.values[i], formatted: comp.formatted[i] }),
-        metricDef.format
+        metricDeltaFormat(metricDef)
       );
 
       write(`  ${c.dim}${comp.name}${c.reset}\n`);
@@ -293,8 +321,12 @@ function printProfileSection(title, section, racers, w, write) {
           : 0;
         const bar = '▓'.repeat(filled) + '░'.repeat(barWidth - filled);
 
-        // Show delta from best for non-best racers
-        const delta = entry.delta != null ? ` ${c.dim}(+${entry.delta})${c.reset}` : '';
+        // Show the gap to the best — absolute and relative — for non-best
+        // racers, and how far the best one sits ahead of the runner-up.
+        const gap = entry.delta != null
+          ? formatDeltaLabel(entry.delta, entry.relative)
+          : formatAdvantageLabel(entry.advantage);
+        const delta = gap ? ` ${c.dim}(${gap})${c.reset}` : '';
 
         write(`    ${color}${c.bold}${entry.name.padEnd(labelWidth)}${c.reset} ${color}${bar}${c.reset}  ${entry.formatted}${delta}${medal}\n`);
       }
@@ -337,6 +369,31 @@ export function printProfileAnalysis(profileComparison, racers) {
 }
 
 /**
+ * One metric row's cells, in racer order, labelled the way the terminal and the
+ * player label them: a loser's gap to the best value, or the best value's lead
+ * over the runner-up. The ranking is what carries those numbers, so the row is
+ * built from it and then put back into racer order.
+ *
+ * The labels hang off the best VALUE, not off comp.winner: a difference below
+ * the category's significance threshold leaves the metric without a winner, and
+ * the gap is still worth naming. This is what the other two emitters do.
+ */
+function buildMarkdownMetricCells(comp, racers) {
+  const metricDef = PROFILE_METRICS[comp.key];
+  const format = metricDef.format;
+  const { entries } = rankEntries(racers, i => ({ val: comp.values[i] }), metricDeltaFormat(metricDef));
+  const byIndex = new Map(entries.map(entry => [entry.index, entry]));
+  return racers.map((_, i) => {
+    if (comp.values[i] == null) return '-';
+    const entry = byIndex.get(i);
+    const label = entry.delta != null
+      ? formatDeltaLabel(entry.delta, entry.relative)
+      : formatAdvantageLabel(entry.advantage);
+    return label ? `${comp.formatted[i]} (${label})` : comp.formatted[i];
+  });
+}
+
+/**
  * Build markdown section for a profile scope.
  */
 function buildScopeMarkdown(title, section, racers) {
@@ -357,7 +414,7 @@ function buildScopeMarkdown(title, section, racers) {
 
     for (const comp of comps) {
       const winner = comp.winner || '-';
-      lines.push(`| ${comp.name} | ${comp.formatted.join(' | ')} | ${winner} |`);
+      lines.push(`| ${comp.name} | ${buildMarkdownMetricCells(comp, racers).join(' | ')} | ${winner} |`);
     }
     lines.push('');
   }

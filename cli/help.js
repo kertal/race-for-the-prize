@@ -81,7 +81,7 @@ ${c.dim}  Race two browsers. Measure everything. Crown a winner.  🏎️ 💨${
 
 ${c.bold}  Usage:${c.reset}
 ${rule}
-  ${c.cyan}${run}${c.reset} ${c.cyan}<url> <url> [url...]${c.reset}   Race page loads head-to-head (2–5 URLs)
+  ${c.cyan}${run}${c.reset} ${c.cyan}<url> <url> [url...]${c.reset}   Race page loads head-to-head (2–4 URLs)
   ${c.cyan}${run}${c.reset} ${c.magenta}demo:${c.cyan}<name>${c.reset}            Race one of the demos shipped with the CLI
   ${c.cyan}${run}${c.reset} ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset}           Scaffold a race directory (default: my-race/)
   ${c.cyan}${run}${c.reset} ${c.cyan}<dir>${c.reset} ${c.yellow}[flags]${c.reset}          Run a scripted race
@@ -168,6 +168,7 @@ ${rule}
   ${c.yellow}--overlay${c.reset}=${c.green}0${c.reset}            Disable overlays in recordings (1=enable, 0=disable)
   ${c.yellow}--recording${c.reset}=${c.green}0${c.reset}          Skip video recording, just measure (1=enable, 0=disable)
   ${c.yellow}--ffmpeg${c.reset}               Enable FFmpeg processing (trim, merge, convert)
+  ${c.yellow}--fps${c.reset}                  Measure frame rate and smoothness (larger traces)
   ${c.yellow}--har${c.reset}                  Record network HAR files alongside videos
   ${c.yellow}--wasm${c.reset}=${c.green}0${c.reset}               Skip copying ffmpeg.wasm files (~25 MB) to results
   ${c.yellow}--height${c.reset}=${c.green}900${c.reset}           Viewport/recording height in pixels (480–4320, default 720)

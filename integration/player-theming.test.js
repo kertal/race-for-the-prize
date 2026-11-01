@@ -82,11 +82,11 @@ function writePlayer(name, options, racers = summary.racers) {
   return `file://${path.join(dir, 'index.html')}`;
 }
 
-// Five racers whose names are long enough that no viewport fits the title.
+// A full grid of racers whose names are long enough that no viewport fits the
+// title.
 const LONG_RACERS = [
   'chromium-cold-cache-baseline', 'chromium-warm-cache-baseline',
   'chromium-service-worker-precache', 'chromium-http2-push-variant',
-  'chromium-brotli-only-variant',
 ];
 
 describeMaybe('player theming integration', () => {
@@ -320,7 +320,7 @@ describeMaybe('player theming integration', () => {
           expect.soft(band.truncated, `${name} @${width}px truncated`).toBe(true);
           expect.soft(band.ellipsis, `${name} @${width}px`).toBe('ellipsis');
           expect.soft(band.wraps, `${name} @${width}px wraps`).toBe(false);
-          expect.soft(band.tooltip, `${name} @${width}px tooltip`).toContain('chromium-brotli-only-variant');
+          expect.soft(band.tooltip, `${name} @${width}px tooltip`).toContain('chromium-http2-push-variant');
         }
         // The two pages cut it short the same way, at every width.
         expect.soft(matrix, `@${width}px`).toEqual(player);

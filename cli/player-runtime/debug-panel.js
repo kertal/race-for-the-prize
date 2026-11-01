@@ -313,11 +313,6 @@ function offsetWindows() {
   return activeSegmentClipTimes || clipTimes;
 }
 
-function offsetBase(idx) {
-  const base = offsetWindows();
-  return base ? base[idx] : null;
-}
-
 // The transport position to carry across an offset change, captured before the
 // offsets move the clip window.
 function transportPosition() {

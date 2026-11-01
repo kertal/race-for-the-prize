@@ -17,7 +17,7 @@
  *
  * @typedef {object} RunnerConfig
  * @property {number} protocolVersion  Must equal PROTOCOL_VERSION.
- * @property {Array<{id: string, script: string, vars?: object, headless?: boolean}>} browsers
+ * @property {Array<{id: string, script: string, vars?: object, headless?: boolean}>} browsers  At most MAX_RACERS of them.
  * @property {'parallel'|'sequential'} executionMode
  * @property {{network: string, cpu: number}} [throttle]
  * @property {boolean} [headless]
@@ -60,6 +60,13 @@ const path = require('path');
 //   v2: BrowserResult dropped videoPath, fullVideoPath and harPath, which the
 //       parent never read (it scans the recordings directory instead).
 const PROTOCOL_VERSION = 2;
+
+// Most racers a single heat can hold. Both processes have to agree: the parent
+// caps discovery, URL mode and settings.racers against it, and the runner
+// rejects a config that exceeds it, because every grid sized for it — the
+// parallel window layout, the side-by-side video layouts, the racer palettes —
+// has exactly this many slots. Raising it means widening all of them.
+const MAX_RACERS = 4;
 
 // Prefix for the single authoritative result line on runner stdout.
 // Any stdout line not starting with this prefix is treated as noise
@@ -150,6 +157,7 @@ function formatContextClosed(id) {
 
 module.exports = {
   PROTOCOL_VERSION,
+  MAX_RACERS,
   RESULT_SENTINEL,
   isSafeRacerId,
   confinePath,

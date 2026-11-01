@@ -103,16 +103,16 @@ describe('RaceAnimation', () => {
     expect(anim.finished).toEqual([false, false, false]);
   });
 
-  it('initializes finished array for 5 racers', () => {
-    const anim = new RaceAnimation(['a', 'b', 'c', 'd', 'e']);
-    expect(anim.finished).toEqual([false, false, false, false, false]);
+  it('initializes finished array for 4 racers', () => {
+    const anim = new RaceAnimation(['a', 'b', 'c', 'd']);
+    expect(anim.finished).toEqual([false, false, false, false]);
   });
 
   it('racerFinished works for any index', () => {
-    const anim = new RaceAnimation(['a', 'b', 'c', 'd', 'e']);
-    anim.racerFinished(2);
-    anim.racerFinished(4);
-    expect(anim.finished).toEqual([false, false, true, false, true]);
+    const anim = new RaceAnimation(['a', 'b', 'c', 'd']);
+    anim.racerFinished(1);
+    anim.racerFinished(3);
+    expect(anim.finished).toEqual([false, true, false, true]);
   });
 
   it('stop() marks all racers as finished', () => {

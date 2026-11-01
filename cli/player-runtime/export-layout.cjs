@@ -32,7 +32,7 @@ function computeExportLayout(count, aspect) {
     for (let i = 0; i < bottomCount; i++) positions.push({ x: bottomOffset + i * targetW, y: slotH });
   }
   // Size the canvas from the widest row so no row can overflow it. Identical to
-  // the previous formula for the 2–5 racers the CLI allows.
+  // the previous formula for the 2–4 racers the CLI allows.
   let widestRow;
   if (count <= 3) widestRow = cols;
   else if (count === 4) widestRow = cols;

@@ -26,19 +26,25 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { c, RACER_COLORS } from './colors.js';
 import { loadTemplates, escHtml, render } from './html-templates.js';
-import { sortComparisonsForDisplay, rankEntries, formatDuration } from './report-model.js';
+import { sortComparisonsForDisplay, rankEntries, metricDeltaFormat, formatDuration, formatDeltaLabel, formatAdvantageLabel } from './report-model.js';
 import { PROFILE_METRICS, determineProfileMetricOutcome } from './profile-analysis.js';
 import { RACER_CSS_COLORS } from './player-sections.js';
 import { resolveSkin, DEFAULT_THEME_COLOR } from './skins.js';
+import { buildConditionSpreadsheetModel, buildSpreadsheetPanelHtml, SPREADSHEET_CSS, SPREADSHEET_RUNTIME } from './spreadsheet-export.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Markup lives in condition-matrix.html (page shell + build-* fragments) and
 // styling in condition-matrix.css, both loaded once at import.
 const { shell: SHELL, fill } = loadTemplates(path.join(__dirname, 'condition-matrix.html'));
-/** Shared palette first, then this page's own component rules. */
+/** Shared palette first, then this page's own component rules, then the shared export panel's. */
 const CSS = fs.readFileSync(path.join(__dirname, 'tokens.css'), 'utf-8') + '\n'
-  + fs.readFileSync(path.join(__dirname, 'condition-matrix.css'), 'utf-8');
+  + fs.readFileSync(path.join(__dirname, 'condition-matrix.css'), 'utf-8') + '\n'
+  + SPREADSHEET_CSS;
+
+const SPREADSHEET_NOTE = 'Every condition as a row, every racer as a column, one metric per table — tick the '
+  + 'metrics you want, then copy them as tab-separated text or download a CSV (both paste into Excel, Google Sheets or Numbers as numbers), '
+  + 'or copy them as a Markdown table for a GitHub issue, pull request or README.';
 
 const WIN_MEDAL = '🏆';
 const TIE_MEDAL = '🤝';
@@ -57,6 +63,7 @@ export const TOTAL_TIME_METRIC = {
   name: 'Total Time',
   scope: 'race',
   format: formatDuration,
+  unit: 's',
   description: 'Total measured race time — the sum of every timed section.',
 };
 
@@ -155,7 +162,7 @@ function buildSeries(entry, racers, metric) {
   const { entries: ranked, bestValue, maxValue } = rankEntries(
     racers,
     i => ({ val: values[i] }),
-    metric.format
+    metricDeltaFormat(metric)
   );
 
   return {
@@ -169,6 +176,8 @@ function buildSeries(entry, racers, metric) {
       value: racer.val ?? null,
       formatted: racer.val != null ? metric.format(racer.val) : null,
       delta: racer.delta,
+      relative: racer.relative,
+      advantage: racer.advantage,
       isWinner: racer.name === winner,
     })),
   };
@@ -414,9 +423,13 @@ function seriesHtml(series, max) {
       name: escHtml(racer.name),
       width: width.toFixed(1),
       value: escHtml(racer.formatted || '-'),
-      // The delta column stays in the markup even when empty (the winner has
-      // none) so the values below it still line up.
-      delta: racer.delta != null ? `+${escHtml(racer.delta)}` : '',
+      // One column, read from whichever side the row is on: a loser's gap to
+      // the winner, or the winner's lead over the runner-up. It stays in the
+      // markup even when empty so the values below it still line up.
+      delta: escHtml(
+        (racer.delta != null
+          ? formatDeltaLabel(racer.delta, racer.relative)
+          : formatAdvantageLabel(racer.advantage)) || ''),
     });
   }).join('');
   return fill('series', { ...verdictSlots(series), rows });
@@ -478,6 +491,13 @@ export function buildConditionIndexHtml(raceTitle, entries, options = {}) {
       const tally = tallyLine(matrix, metric.key);
       return tally ? `Conditions won: ${escHtml(tally)}` : '';
     }),
-    scriptTag: fill('script'),
+    spreadsheet: spreadsheetHtml(matrix),
+    scriptTag: fill('script', { spreadsheetRuntime: SPREADSHEET_RUNTIME }),
   });
+}
+
+/** The Spreadsheet Export section, or nothing when no condition measured anything. */
+function spreadsheetHtml(matrix) {
+  const panel = buildSpreadsheetPanelHtml(buildConditionSpreadsheetModel(matrix), { note: SPREADSHEET_NOTE });
+  return panel ? fill('spreadsheet', { panel }) : '';
 }

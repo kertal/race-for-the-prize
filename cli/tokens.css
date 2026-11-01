@@ -151,3 +151,12 @@
   --video-border-width: var(--border-width-thick);
   --video-border-color: var(--border-subtle);
 }
+
+/* A fingertip is far blunter than a cursor: on touch screens the transport and
+   action buttons grow to a size that can be hit without zooming in first. */
+@media (pointer: coarse) {
+  :root {
+    --control-size: 40px;
+    --control-size-sm: 36px;
+  }
+}

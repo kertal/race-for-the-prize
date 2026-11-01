@@ -130,6 +130,10 @@ describe('buildConditionMatrix', () => {
     const rows = html.match(/<span class="r[^"]*"[\s\S]*?<\/span><\/span>/g) || [];
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) expect(row).toContain('<span class="d">');
+    // The loser's delta column names its gap to the winner both in seconds and
+    // as a share of the winner's time; the winner's names its lead instead.
+    expect(html).toContain('<span class="d">40% ahead</span>');
+    expect(html).toContain('<span class="d">+1.000s, +67%</span>');
   });
 
   it('ranks each cell fastest first and flags the winner', () => {
@@ -138,8 +142,8 @@ describe('buildConditionMatrix', () => {
     ]).cells;
 
     expect(seriesOf(cell).racers.map(r => r.name)).toEqual(['hunt', 'lauda']);
-    expect(seriesOf(cell).racers[0]).toMatchObject({ isWinner: true, formatted: '1.500s', delta: null });
-    expect(seriesOf(cell).racers[1]).toMatchObject({ isWinner: false, formatted: '2.500s', delta: '1.000s' });
+    expect(seriesOf(cell).racers[0]).toMatchObject({ isWinner: true, formatted: '1.500s', delta: null, relative: null });
+    expect(seriesOf(cell).racers[1]).toMatchObject({ isWinner: false, formatted: '2.500s', delta: '1.000s', relative: '67%' });
     expect(seriesOf(cell).best).toBe(1.5);
   });
 
@@ -654,6 +658,51 @@ describe('buildConditionIndexHtml matrix', () => {
       .split('\n')
       .filter(line => !line.includes('svg') && /#[0-9a-fA-F]{3,8}\b|\brgba?\(|var\(\s*--color-/.test(line));
     expect(offenders).toEqual([]);
+  });
+});
+
+describe('buildConditionIndexHtml spreadsheet export', () => {
+  const html = buildConditionIndexHtml('lauda vs hunt', [
+    {
+      label: 'none-cpu1x', title: 'Network: none · CPU: 1x', network: 'none', cpu: 1,
+      summary: summaryOf({ lauda: 1, hunt: 2 }, 'lauda', profilesOf({ total: { lcp: 900 } }, { total: { lcp: 1000 } })),
+    },
+    {
+      label: 'none-cpu4x', title: 'Network: none · CPU: 4x', network: 'none', cpu: 4,
+      summary: summaryOf({ lauda: 4, hunt: 8 }, 'lauda'),
+    },
+  ]);
+
+  it('adds a Spreadsheet Export section under the matrix, dressed like the player\'s', () => {
+    expect(html).toContain('<details class="section">');
+    expect(html).toContain('<summary><h2>Spreadsheet Export</h2></summary>');
+    expect(html.indexOf('<h2>Spreadsheet Export</h2>')).toBeGreaterThan(html.indexOf('Conditions won'));
+    expect(html).toContain('.section > summary::before');
+  });
+
+  it('offers one table per metric, with a row per condition and its coordinates', () => {
+    expect(html).toContain('<input type="checkbox" value="duration" checked> Total Time');
+    expect(html).toContain('<input type="checkbox" value="total.lcp" checked> Largest Contentful Paint (LCP)');
+    expect(html).toContain('<th scope="col">Metric</th><th scope="col">Condition</th><th scope="col">Network</th><th scope="col">CPU</th><th scope="col">Unit</th>');
+    expect(html).toContain('<tr data-group="duration"><td class="spreadsheet-pick"><input type="checkbox" data-row="row:duration#1" checked aria-label="Include Total Time: Network: none · CPU: 4x none 4"></td><td>Total Time</td><td>Network: none · CPU: 4x</td><td>none</td><td class="spreadsheet-num" data-value="4">4</td><td>s</td><td class="spreadsheet-num" data-value="4">4</td><td class="spreadsheet-num" data-value="8">8</td><td>🔴 lauda</td><td class="spreadsheet-num" data-value="4">4</td><td class="spreadsheet-num" data-value="50">50</td></tr>');
+    // A condition that captured no LCP keeps its row, with empty cells.
+    expect(html).toContain('<tr data-group="total.lcp"><td class="spreadsheet-pick"><input type="checkbox" data-row="row:total.lcp#1" checked aria-label="Include Largest Contentful Paint (LCP): Network: none · CPU: 4x none 4"></td><td>Largest Contentful Paint (LCP)</td><td>Network: none · CPU: 4x</td><td>none</td><td class="spreadsheet-num" data-value="4">4</td><td>ms</td><td class="spreadsheet-num"></td><td class="spreadsheet-num"></td><td class="spreadsheet-num"></td><td class="spreadsheet-num"></td><td class="spreadsheet-num"></td></tr>');
+  });
+
+  it('inlines the same runtime the player carries, inside the page\'s one script block', () => {
+    expect(html.match(/<script>/g)).toHaveLength(1);
+    expect(html).toContain('function spreadsheetTsv');
+    expect(html).toContain('initSpreadsheetPanel');
+    const m = html.match(/<script id="spreadsheet-data" type="application\/json">([\s\S]*?)<\/script>/);
+    expect(JSON.parse(m[1]).groups.map(g => g.id)).toEqual(['duration', 'total.lcp']);
+  });
+
+  it('leaves the section out when no condition has a summary', () => {
+    const empty = buildConditionIndexHtml('a vs b', [{ label: 'x', network: 'none', cpu: 1, summary: null }]);
+    // Total time is always offered as a metric, so the section is still there —
+    // with every value empty — and the racer list is simply empty.
+    expect(empty).toContain('<h2>Spreadsheet Export</h2>');
+    expect(empty).toContain('<tr data-group="duration"><td class="spreadsheet-pick"><input type="checkbox" data-row="row:duration#0" checked aria-label="Include Total Time: x none 1"></td><td>Total Time</td><td>x</td><td>none</td><td class="spreadsheet-num" data-value="1">1</td><td>s</td><td class="spreadsheet-num"></td><td class="spreadsheet-num"></td><td class="spreadsheet-num"></td></tr>');
   });
 });
 

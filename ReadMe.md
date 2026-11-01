@@ -4,7 +4,7 @@
 
 **Ladies and gentlemen, welcome to race day!**
 
-RaceForThePrize is a command-line showdown that pits browsers against each other in head-to-head performance battles. Line up 2 to 5 racers, write your [Playwright](https://playwright.dev/) scripts, fire the starting gun, and watch them tear down the track side by side — live terminal animation, video recordings, and a full race report that crowns the champion.
+RaceForThePrize is a command-line showdown that pits browsers against each other in head-to-head performance battles. Line up 2 to 4 racers, write your [Playwright](https://playwright.dev/) scripts, fire the starting gun, and watch them tear down the track side by side — live terminal animation, video recordings, and a full race report that crowns the champion.
 
 No judges, no bias — just cold, hard milliseconds on the clock.
 
@@ -51,6 +51,7 @@ Three more races are in the garage, two of them with a replay to watch right now
 - 🎬 An **interactive HTML player** with frame-accurate side-by-side replay
 - 📊 **Bar charts and medals** per timed section, and an overall winner
 - 📈 **Performance profiles** from the Chrome DevTools Protocol — transfer size, script time, layout, TTFB, FCP, LCP, CLS
+- 📋 **Spreadsheet export** — pick the tables you want and copy the raw numbers straight into Excel, Google Sheets or Numbers, or as a Markdown table into a GitHub issue
 - 🌧️ **Track conditions** on demand: network throttling, CPU ballast, repeated runs with a median
 - 🗂️ A **results folder you can reread months later** — videos, traces, report card, and the exact configuration the race ran with
 

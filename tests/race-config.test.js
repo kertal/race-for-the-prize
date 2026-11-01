@@ -19,6 +19,7 @@ import {
 import {
   FLAG_SETTING_KEYS,
   KNOWN_FLAGS,
+  applyDefaults,
   applyOverrides,
   buildRaceConditions,
   parseCpuList,
@@ -392,5 +393,21 @@ describe('storeRaceAssets', () => {
       expect(stored.raceConfigFile).toBeNull();
       expect(fs.existsSync(path.join(runDir, RACE_CONFIG_FILE))).toBe(false);
     });
+  });
+});
+
+describe('--fps', () => {
+  it('is off unless asked for', () => {
+    expect(applyOverrides({}, new Set(), {}).fps).toBeUndefined();
+    expect(applyDefaults({}).fps).toBe(false);
+  });
+
+  it('turns on from the presence flag', () => {
+    expect(applyOverrides({}, new Set(['fps']), {}).fps).toBe(true);
+  });
+
+  it('can be turned back off over a settings.json that enables it', () => {
+    const settings = applyOverrides({ fps: true }, new Set(), { fps: 'false' });
+    expect(settings.fps).toBe(false);
   });
 });

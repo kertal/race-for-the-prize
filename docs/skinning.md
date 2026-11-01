@@ -11,6 +11,7 @@ ahead of that page's component rules:
 | [`cli/tokens.css`](../cli/tokens.css) | Layers 1–2: the palette and semantic roles. Both pages inline it, so they cannot drift apart. |
 | [`cli/player.css`](../cli/player.css) | Layer 3 for the results player. |
 | [`cli/condition-matrix.css`](../cli/condition-matrix.css) | Layer 3 for the condition overview (its markup lives in [`cli/condition-matrix.html`](../cli/condition-matrix.html)). |
+| [`cli/spreadsheet.css`](../cli/spreadsheet.css) | Layer 3 for the Spreadsheet Export panel both pages embed (markup in [`cli/spreadsheet.html`](../cli/spreadsheet.html)), inlined after each page's own rules. |
 
 Together they form three layers, so a report can be re-themed without touching a
 single component rule:
@@ -21,9 +22,9 @@ single component rule:
 | **2. Semantic roles** | What a colour *means* | `--accent: var(--color-gold)` |
 | **3. Components** | The widgets themselves | `.play-btn { background: var(--accent) }` |
 
-Both component layers contain **no literal colours, fonts, radii, or durations**,
+The component layers contain **no literal colours, fonts, radii, or durations**,
 and never reach past the semantic roles into the raw palette — every value comes
-from a semantic token. Tests enforce both rules on both stylesheets. A skin is
+from a semantic token. Tests enforce both rules on every one of them. A skin is
 therefore just a CSS file that redefines tokens: there is no build step, no
 preprocessor, and no need to keep a fork of the stylesheet in sync.
 
@@ -122,8 +123,8 @@ Type, shape, motion and layout:
 | `--border-width`, `--border-width-thick` | Line weights |
 | `--shadow-popover`, `--focus-ring` | Menu shadow, focus outline |
 | `--duration-fast`, `--duration`, `--duration-slow` | Transition speeds |
-| `--content-max`, `--gutter` | Report column width (both pages share it), horizontal padding |
-| `--control-size`, `--play-btn-width` | Transport button geometry |
+| `--content-max`, `--gutter` | Report column width (both pages share it), horizontal padding. The player narrows `--gutter` to `1rem` on screens under 600px |
+| `--control-size`, `--control-size-sm`, `--play-btn-width` | Transport and action button geometry. On touch screens (`pointer: coarse`) `tokens.css` raises the two sizes to 40px and 36px so a fingertip can hit them. A skin that sets them overrides that too, so keep them tappable |
 
 Ornament and media:
 

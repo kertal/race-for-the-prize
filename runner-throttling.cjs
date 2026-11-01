@@ -9,8 +9,16 @@ const NETWORK_PRESETS = {
   '4g': { downloadThroughput: 4000 * 1024 / 8, uploadThroughput: 3000 * 1024 / 8, latency: 50 },
 };
 
+/** True when a throttle object asks for anything at all: a network preset or a CPU slowdown. */
+function throttles(throttle) {
+  return !!throttle && (!!NETWORK_PRESETS[throttle.network] || throttle.cpu > 1);
+}
+
 async function applyThrottling(page, throttle, id) {
-  if (!throttle) return;
+  // The default race carries { network: 'none', cpu: 1 }, which asks for
+  // nothing — and the session below is kept alive for the rest of the race,
+  // so it is only worth attaching when there is something to send on it.
+  if (!throttles(throttle)) return;
   try {
     // CDP session intentionally kept alive — detaching removes throttling.
     // Session is cleaned up when the browser context closes.
@@ -28,4 +36,4 @@ async function applyThrottling(page, throttle, id) {
   }
 }
 
-module.exports = { NETWORK_PRESETS, applyThrottling };
+module.exports = { NETWORK_PRESETS, applyThrottling, throttles };

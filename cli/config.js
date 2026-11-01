@@ -5,12 +5,18 @@
 
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
+
+// The racer cap is declared in runner-protocol.cjs, because the runner has to
+// enforce the same number on a config handed to it directly. Re-exported here
+// so the CLI side has one import site for it.
+export const { MAX_RACERS } = createRequire(import.meta.url)('../runner-protocol.cjs');
 
 const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'height', 'gemini-spec', 'skin']);
 const BOOLEAN_VALUE_FLAGS = new Set([
   'parallel', 'headless', 'overlay', 'recording',
   'ffmpeg', 'har', 'wasm', 'serve', 'pause', 'ignore-https-errors', 'gemini',
-  'cue-markers', 'wall-clock',
+  'cue-markers', 'wall-clock', 'fps',
 ]);
 
 /** Boolean flags the CLI recognises. Unknown flags produce an error. */
@@ -18,7 +24,7 @@ export const KNOWN_BOOL_FLAGS = new Set([
   'parallel', 'headless', 'overlay', 'recording',
   'ffmpeg', 'har', 'wasm', 'serve', 'pause', 'ignore-https-errors',
   'gemini', 'results', 'init', 'verbose', 'help', 'version', 'yes',
-  'cue-markers', 'wall-clock',
+  'cue-markers', 'wall-clock', 'fps',
 ]);
 
 /** Combined set of all valid flag names (bool + kv). */
@@ -46,6 +52,7 @@ export const FLAG_SETTING_KEYS = {
   gemini: 'gemini',
   'cue-markers': 'cueMarkers',
   'wall-clock': 'wallClock',
+  fps: 'fps',
   network: 'network',
   cpu: 'cpuThrottle',
   skin: 'skin',
@@ -137,9 +144,9 @@ export function discoverRacers(raceDir) {
   }
 
   const totalFound = racerFiles.length;
-  const dropped = racerFiles.length > 5 ? racerFiles.slice(5) : [];
-  if (racerFiles.length > 5) {
-    racerFiles = racerFiles.slice(0, 5);
+  const dropped = racerFiles.length > MAX_RACERS ? racerFiles.slice(MAX_RACERS) : [];
+  if (racerFiles.length > MAX_RACERS) {
+    racerFiles = racerFiles.slice(0, MAX_RACERS);
   }
 
   const racerNames = racerFiles.map(f => f.replace(/\.spec\.js$/, '').replace(/\.js$/, ''));
@@ -156,7 +163,7 @@ export function discoverRacers(raceDir) {
  * Shared-spec mode uses one race.spec.js script and settings-defined racers.
  *
  * Rules:
- * - settings.racers must be an object with 2..5 keys
+ * - settings.racers must be an object with 2..MAX_RACERS keys
  * - racer names must be non-empty strings
  * - racer order follows declaration order in settings.racers
  *
@@ -174,8 +181,8 @@ export function resolveSharedRacerNames(settings) {
   if (names.length < 2) {
     throw new InvalidSettingError(`shared-spec mode requires at least 2 racers in settings.racers, found ${names.length}`);
   }
-  if (names.length > 5) {
-    throw new InvalidSettingError(`shared-spec mode supports up to 5 racers, found ${names.length}`);
+  if (names.length > MAX_RACERS) {
+    throw new InvalidSettingError(`shared-spec mode supports up to ${MAX_RACERS} racers, found ${names.length}`);
   }
   const emptyName = names.find(name => typeof name !== 'string' || name.trim() === '');
   if (emptyName !== undefined) {
@@ -273,6 +280,7 @@ const BOOLEAN_SETTING_KEYS = [
   'ignoreHTTPSErrors',
   'cueMarkers',
   'wallClock',
+  'fps',
 ];
 
 /**
@@ -314,6 +322,7 @@ export function applyDefaults(settings) {
     ignoreHTTPSErrors: false,
     cueMarkers: false,
     wallClock: false,
+    fps: false,
     viewportHeight: 720,
     format: 'webm',
     network: 'none',
@@ -573,6 +582,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('gemini')) s.gemini = true;
   if (boolFlags.has('cue-markers')) s.cueMarkers = true;
   if (boolFlags.has('wall-clock')) s.wallClock = true;
+  if (boolFlags.has('fps')) s.fps = true;
   // Explicit boolean values (for example --parallel=false) override presence flags.
   if (kvFlags.parallel !== undefined) s.parallel = parseCliBoolean(kvFlags.parallel, '--parallel');
   if (kvFlags.headless !== undefined) s.headless = parseCliBoolean(kvFlags.headless, '--headless');
@@ -593,6 +603,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (kvFlags['wall-clock'] !== undefined) {
     s.wallClock = parseCliBoolean(kvFlags['wall-clock'], '--wall-clock');
   }
+  if (kvFlags.fps !== undefined) s.fps = parseCliBoolean(kvFlags.fps, '--fps');
   if (kvFlags.network !== undefined) {
     const networks = parseNetworkList(kvFlags.network);
     s.network = networks.length === 1 ? networks[0] : networks;

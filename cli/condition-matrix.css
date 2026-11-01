@@ -92,8 +92,11 @@ td a:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 /* Fixed side columns, not auto: sized to content, every row is its own grid
    and the bars start and end wherever that row's name and time happen to
    end, so nothing lines up between rows or between cards. Monospace makes ch
-   exact, and a name past the budget ellipsizes rather than shoving the bar. */
-.r { display: grid; grid-template-columns: 15ch 1fr 9ch 10ch; align-items: center;
+   exact, and a name past the budget ellipsizes rather than shoving the bar.
+   The delta column holds "+12.345s, +123%" on a losing row — the gap to the
+   winner and, beside it, the same gap as a share of the winner's value — and
+   "60% ahead" on the winning one, the same gap read from the runner-up. */
+.r { display: grid; grid-template-columns: 15ch 1fr 9ch 15ch; align-items: center;
      gap: 0.5rem; font-size: var(--font-size-xs); color: var(--text-subtle); padding: 0.12rem 0; }
 .n { color: var(--racer-color, currentcolor); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .r.win { color: var(--text); }
@@ -111,11 +114,32 @@ p.tally { text-align: center; color: var(--text-subtle); font-size: var(--font-s
 /* A footnote to the table it explains, so it sits closer to it than the tally does. */
 p.legend { text-align: center; color: var(--text-ghost); font-size: var(--font-size-xs); margin: 0.9rem 0 0; }
 
+/* A report section under the matrix (the spreadsheet export), dressed like the
+   player's: the same display-face heading and the same disclosure triangle, so
+   the click-through lands on a page that opens the same way. */
+.section { margin: 2.5rem 0 0; }
+.section > summary { display: flex; align-items: center; gap: 0.5rem; padding: 0.2rem 0;
+                     list-style: none; cursor: pointer; }
+.section > summary::-webkit-details-marker { display: none; }
+.section > summary::before { content: "\25B6"; font-size: var(--font-size-marker); color: var(--text-ghost);
+                             display: inline-block; flex-shrink: 0; transition: transform var(--duration); }
+.section[open] > summary::before { transform: rotate(90deg); }
+.section > summary:focus-visible { outline: var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-sm); }
+.section > summary h2 { font-family: var(--font-display); color: var(--accent); font-size: var(--font-size-xl);
+                        text-transform: uppercase; letter-spacing: var(--tracking-wide); margin: 0; }
+.section-body { padding-top: 0.6rem; }
+
 @media (max-width: 600px) {
   .wrap { padding: 0 1rem 2rem; }
   /* No h1 override here: the title clamps with the viewport already, and a
      size set only on this page would drift from the player's band. */
   td a { width: 250px; }
+  /* 250px cannot hold the name, bar, time and delta side by side — the delta
+     spilled out past the card. The bar drops to its own line underneath. */
+  .r { grid-template-columns: minmax(0, 1fr) auto auto; row-gap: 0.15rem; }
+  .bar { grid-column: 1 / -1; grid-row: 2; }
+  /* The condition names stay in view while a wide matrix scrolls past them. */
+  th[scope="row"] { position: sticky; left: 0; z-index: 1; background: var(--bg); }
 }
 @media (prefers-reduced-motion: reduce) {
   td a { transition: none; }

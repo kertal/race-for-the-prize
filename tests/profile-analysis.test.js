@@ -3,7 +3,8 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { buildProfileComparison, PROFILE_METRICS, printProfileAnalysis, buildProfileMarkdown } from '../cli/profile-analysis.js';
+import { buildProfileComparison, PROFILE_METRICS, printProfileAnalysis, buildProfileMarkdown, categoryLabels, categoryDescriptions, determineProfileMetricOutcome } from '../cli/profile-analysis.js';
+import { metricDeltaFormat } from '../cli/report-model.js';
 
 describe('buildProfileComparison', () => {
   it('returns empty comparisons when no metrics provided', () => {
@@ -328,7 +329,7 @@ describe('buildProfileMarkdown', () => {
     expect(markdown).toContain('racer2');
   });
 
-  it('includes percentage differences in markdown', () => {
+  it('labels every value with its gap, exactly as the terminal and player do', () => {
     const metrics1 = {
       total: {},
       measured: { networkTransferSize: 1000 }
@@ -341,10 +342,38 @@ describe('buildProfileMarkdown', () => {
     const markdown = buildProfileMarkdown(comparison, ['a', 'b']);
 
     expect(markdown).toContain('Winner');
+    // The loser's gap to the leanest racer, absolute and relative...
+    expect(markdown).toContain('2.0 KB (+1000.0 B, +100%)');
+    // ...and the leanest racer's lead over the runner-up.
+    expect(markdown).toContain('1000.0 B (50% ahead)');
+  });
+
+  it('labels the gap even when it is too small to award the metric', () => {
+    // 1% apart is under the 4% network threshold, so nobody wins the metric —
+    // the gap is still real and still worth naming.
+    const comparison = buildProfileComparison(['a', 'b'], [
+      { total: {}, measured: { networkRequestCount: 100 } },
+      { total: {}, measured: { networkRequestCount: 101 } },
+    ]);
+    expect(comparison.measured.comparisons[0].winner).toBeNull();
+
+    const markdown = buildProfileMarkdown(comparison, ['a', 'b']);
+    expect(markdown).toContain('101 req (+1 req, +1.0%)');
+    expect(markdown).toContain('100 req (1.0% ahead)');
+  });
+
+  it('leaves a racer with no data as a bare dash', () => {
+    const comparison = buildProfileComparison(['a', 'b'], [
+      { total: {}, measured: { networkTransferSize: 1000 } },
+      { total: {}, measured: {} },
+    ]);
+    const markdown = buildProfileMarkdown(comparison, ['a', 'b']);
+    // One racer alone has nothing to be ahead of, so neither cell gets a label.
+    expect(markdown).toContain('| Network Transfer | 1000.0 B | - | - |');
   });
 });
 
-describe('multi-racer support (3-5 racers)', () => {
+describe('multi-racer support (3-4 racers)', () => {
   it('compares all 4 racers and picks the best', () => {
     const data = [
       { total: { networkTransferSize: 3000 }, measured: { networkTransferSize: 1000 } },
@@ -432,5 +461,59 @@ describe('multi-racer support (3-5 racers)', () => {
     expect(markdown).toContain('react');
     expect(markdown).toContain('svelte');
     expect(markdown).toContain('| Metric | angular | react | svelte | Winner |');
+  });
+});
+
+describe('metric categories', () => {
+  it('gives every category a label and a description', () => {
+    const categories = new Set(Object.values(PROFILE_METRICS).map(m => m.category));
+    expect(categories.size).toBeGreaterThan(0);
+    for (const category of categories) {
+      expect(categoryLabels, `label for "${category}"`).toHaveProperty(category);
+      expect(categoryDescriptions, `description for "${category}"`).toHaveProperty(category);
+    }
+  });
+});
+
+describe('frame metric formatting', () => {
+  it('annotates a frame time with its frame rate', () => {
+    expect(PROFILE_METRICS['measured.medianFrameMs'].format(16.7)).toBe('16.7ms (60fps)');
+    expect(PROFILE_METRICS['measured.medianFrameMs'].format(8.3)).toBe('8.3ms (120fps)');
+  });
+
+  it('formats a frame time delta without inventing a frame rate', () => {
+    // A 2.9ms gap between two racers is not "345fps"; the annotation belongs
+    // on values only.
+    const metric = PROFILE_METRICS['measured.medianFrameMs'];
+    expect(metricDeltaFormat(metric)(2.9)).toBe('2.9ms');
+    expect(metricDeltaFormat(metric)(2.9)).not.toContain('fps');
+  });
+
+  it('leaves metrics without a delta formatter using their value formatter', () => {
+    const metric = PROFILE_METRICS['measured.scriptDuration'];
+    expect(metricDeltaFormat(metric)).toBe(metric.format);
+  });
+
+  it('never annotates a delta for any metric whose value format does', () => {
+    for (const [key, metric] of Object.entries(PROFILE_METRICS)) {
+      if (!metric.format(12).includes('fps')) continue;
+      expect(metricDeltaFormat(metric)(12), `delta format for ${key}`).not.toContain('fps');
+    }
+  });
+});
+
+describe('dropped frames noise floor', () => {
+  it('does not call a small dropped-frame gap a win', () => {
+    // Real numbers from a scripted scroll race: the 9-frame gap is the spec's
+    // stepping cadence, not one racer drawing more smoothly than the other.
+    const metric = PROFILE_METRICS['measured.droppedFrames'];
+    const outcome = determineProfileMetricOutcome(metric, ['hunt', 'lauda'], [142, 151]);
+    expect(outcome.winner).toBeNull();
+  });
+
+  it('still calls a large one', () => {
+    const metric = PROFILE_METRICS['measured.droppedFrames'];
+    const outcome = determineProfileMetricOutcome(metric, ['hunt', 'lauda'], [20, 140]);
+    expect(outcome.winner).toBe('hunt');
   });
 });

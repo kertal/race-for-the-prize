@@ -10,13 +10,23 @@ import { escHtml, render } from './html-templates.js';
 import { PROFILE_METRICS, categoryDescriptions, determineProfileMetricOutcome } from './profile-analysis.js';
 import { formatSettingValue, sortSettingKeys, sourceLabel, SOURCE_DEFAULT } from './race-config.js';
 import { formatPlatform } from './summary.js';
+import spreadsheet from './player-runtime/spreadsheet.cjs';
 import {
   buildResultsModel,
   buildRunComparisonModel,
   rankEntries,
+  metricDeltaFormat,
+  formatDeltaLabel,
+  formatAdvantageLabel,
 } from './report-model.js';
 
-export const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f', '#9b59b6'];
+export const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f'];
+/**
+ * The same palette as an emoji per racer, for text that carries no CSS — the
+ * spreadsheet export's racer columns. One slot per racer, in RACER_CSS_COLORS
+ * order, so the dot beside a name is the colour the name wears on the page.
+ */
+export const RACER_EMOJI = ['\u{1F534}', '\u{1F535}', '\u{1F7E2}', '\u{1F7E1}'];
 const NON_PREFIX_SECTION_NAMES = new Set(['Race', 'Race (All Sections)']);
 
 let T = {};
@@ -61,7 +71,10 @@ function buildMetricRowsHtml(ranking, winner) {
   for (const entry of entries) {
     const color = RACER_CSS_COLORS[entry.index % RACER_CSS_COLORS.length];
     const barPct = entry.val !== null && maxValue > 0 ? Math.round((entry.val / maxValue) * 100) : 0;
-    const delta = entry.delta != null ? fill('profile-delta', { delta: entry.delta }) : '';
+    const gap = entry.delta != null
+      ? formatDeltaLabel(entry.delta, entry.relative)
+      : formatAdvantageLabel(entry.advantage);
+    const delta = gap ? fill('profile-delta', { delta: escHtml(gap) }) : '';
     html += fill('profile-row', {
       color,
       name: escHtml(entry.name),
@@ -322,7 +335,7 @@ export function buildProfileHtml(profileComparison, racers) {
       }
       for (const comp of comps) {
         const metricDef = PROFILE_METRICS[comp.key];
-        const ranking = rankEntries(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }), metricDef.format);
+        const ranking = rankEntries(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }), metricDeltaFormat(metricDef));
         const desc = metricDef.description || '';
         body += fill('profile-metric', {
           metricClass: '',
@@ -339,7 +352,7 @@ export function buildProfileHtml(profileComparison, racers) {
         let sectionMetricsRows = '';
         for (const comp of section.comparisons) {
           const metricDef = PROFILE_METRICS[comp.key];
-          const ranking = rankEntries(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }), metricDef.format);
+          const ranking = rankEntries(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }), metricDeltaFormat(metricDef));
           sectionMetricsRows += fill('profile-metric', {
             metricClass: '',
             titleAttr: '',
@@ -374,9 +387,12 @@ function renderHtmlCell(cell, bold) {
   if (cell.value == null) return fill(template, { content: '-' });
   let content;
   if (cell.isWinner) {
-    content = `${escHtml(cell.formatted)} (\uD83C\uDFC6)`;
+    const lead = formatAdvantageLabel(cell.advantage);
+    content = lead
+      ? `${escHtml(cell.formatted)} (\uD83C\uDFC6 ${escHtml(lead)})`
+      : `${escHtml(cell.formatted)} (\uD83C\uDFC6)`;
   } else if (cell.delta != null) {
-    content = escHtml(cell.formatted) + fill('run-delta', { delta: escHtml(cell.delta) });
+    content = escHtml(cell.formatted) + fill('run-delta', { delta: escHtml(formatDeltaLabel(cell.delta, cell.relative)) });
   } else {
     content = escHtml(cell.formatted);
   }
@@ -402,7 +418,9 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
     : '';
 
   /** Render one table (run rows + median/average rows) from a model entry. */
-  const buildTable = ({ runRows, medianRow, averageRow }) => fill('comparison-table', {
+  const buildTable = ({ runRows, medianRow, averageRow }, group, title) => fill('comparison-table', {
+    group: escHtml(group),
+    title: escHtml(title),
     header,
     rows: runRows.map(row => fill('comparison-row', {
       label: row.label,
@@ -412,12 +430,25 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
       + summaryRow('Average', averageRow),
   });
 
-  let body = '';
+  // Every table here is also a group of the spreadsheet export model, under
+  // the id the shared core assigns it; the export buttons name those groups
+  // (as a JSON list in a data attribute) and the panel runtime does the rest.
+  const groupsAttr = ids => escHtml(JSON.stringify(ids));
+  const tableExport = id => fill('run-table-export', { groups: groupsAttr([id]) });
+  const allGroups = [
+    ...model.measurements.map(m => spreadsheet.spreadsheetRunGroupId('section', m.name)),
+    ...model.profileScopes.flatMap(scope => scope.metrics.map(m => spreadsheet.spreadsheetRunGroupId('profile', m.key))),
+  ];
+
+  let body = fill('run-export', { groups: groupsAttr(allGroups) });
 
   // --- Measurement comparisons ---
   for (const measurement of model.measurements) {
-    body += fill('profile-heading', { title: escHtml(formatSectionTitle(measurement.name)) });
-    body += buildTable(measurement);
+    const group = spreadsheet.spreadsheetRunGroupId('section', measurement.name);
+    const title = formatSectionTitle(measurement.name);
+    body += fill('profile-heading', { title: escHtml(title) });
+    body += tableExport(group);
+    body += buildTable(measurement, group, title);
   }
 
   // --- Performance metrics comparisons ---
@@ -425,8 +456,10 @@ export function buildRunComparisonHtml(summaries, medianSummary, racers) {
     body += fill('profile-heading', { title: `Performance: ${escHtml(scope.title)}` });
 
     for (const metric of scope.metrics) {
+      const group = spreadsheet.spreadsheetRunGroupId('profile', metric.key);
       body += fill('profile-subheading', { titleAttr: '', label: escHtml(metric.name) });
-      body += buildTable(metric);
+      body += tableExport(group);
+      body += buildTable(metric, group, `${metric.name} (Performance: ${scope.title})`);
     }
   }
 

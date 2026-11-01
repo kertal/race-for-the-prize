@@ -58,6 +58,7 @@ const KEY_ORDER = [
   'pauseBetweenRuns',
   'ignoreHTTPSErrors',
   'cueMarkers',
+  'fps',
   'wallClock',
   'skin',
   'gemini',
