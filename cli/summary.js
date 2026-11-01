@@ -14,8 +14,7 @@ import {
   sortComparisonsForDisplay,
   buildResultsModel,
   buildRunComparisonModel,
-  rankEntries,
-  formatDuration,
+  rankComparisonDurations,
   gapLabel,
 } from './report-model.js';
 
@@ -149,16 +148,18 @@ function computeOverallWinner(racerNames, comparisons) {
 
 /**
  * Compute comparison stats for a single measurement across racers.
- * Returns { name, racers, winner, diff, diffPercent, rankings }.
+ * Returns { name, racers, winner, diff, diffPercent, rankings, leaders }.
  *
  * The win goes to the sole holder of the fastest time: racers within
  * `tieEpsilon` of it share the lead, and a shared lead has no winner — the
  * same rule computeOverallWinner applies to the totals. Sections use an exact
  * comparison (any real difference, even sub-millisecond, resolves to the
- * faster racer); the synthetic total passes TOTAL_TIE_EPSILON.
+ * faster racer); the synthetic total passes TOTAL_TIE_EPSILON. `leaders`
+ * names everyone level with the fastest time, so the reports can leave a
+ * shared leader without a gap even when the epsilon, not equality, made it one.
  */
 function computeComparison(name, vals, racerNames, tieEpsilon = 0) {
-  const comp = { name, racers: vals, winner: null, diff: null, diffPercent: null, rankings: [] };
+  const comp = { name, racers: vals, winner: null, diff: null, diffPercent: null, rankings: [], leaders: [] };
   const racersWithData = vals
     .map((v, i) => v ? { index: i, duration: v.duration } : null)
     .filter(Boolean)
@@ -174,7 +175,8 @@ function computeComparison(name, vals, racerNames, tieEpsilon = 0) {
     // racer of a dead heat — in a three-way field, even over a racer with the
     // identical time.
     const leaders = racersWithData.filter(r => r.duration - fastest <= tieEpsilon);
-    comp.winner = leaders.length === 1 ? racerNames[leaders[0].index] : null;
+    comp.leaders = leaders.map(r => racerNames[r.index]);
+    comp.winner = leaders.length === 1 ? comp.leaders[0] : null;
   }
   return comp;
 }
@@ -341,20 +343,16 @@ export function printSummary(summary) {
       const maxDur = Math.max(...comp.racers.map(r => r?.duration || 0));
 
       // Sort racers by duration ascending (best/fastest first), nulls last
-      const { entries: sorted } = rankEntries(
-        racers,
-        i => ({ racer: comp.racers[i], val: comp.racers[i] ? comp.racers[i].duration : null }),
-        formatDuration
-      );
+      const { entries: sorted } = rankComparisonDurations(comp, racers);
 
       write(`  ${c.dim}⏱ ${comp.name}${c.reset}\n`);
       for (const entry of sorted) {
         const color = RACER_COLORS[entry.index % RACER_COLORS.length];
-        if (entry.racer) {
+        if (entry.val != null) {
           const isWinner = comp.winner === entry.name;
           const gap = gapLabel(entry);
           const delta = gap ? ` ${c.dim}(${gap})${c.reset}` : '';
-          write(`${printBar(entry.name, entry.racer.duration, maxDur, color, isWinner, 30, labelWidth)}${delta}\n`);
+          write(`${printBar(entry.name, entry.val, maxDur, color, isWinner, 30, labelWidth)}${delta}\n`);
         } else {
           write(`    ${color}${c.bold}${entry.name.padEnd(labelWidth)}${c.reset} ${c.dim}(no data)${c.reset}\n`);
         }

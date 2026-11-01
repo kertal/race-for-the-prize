@@ -160,18 +160,38 @@ export function buildDurationCell(duration, bestDuration, isWinner, runnerUp = n
 }
 
 /**
+ * The racers level with a comparison's fastest time. The summary records them
+ * as `comp.leaders` — the synthetic total counts anything within its tie
+ * epsilon as level, which equality would miss and print as "+0.000s" — and a
+ * comparison built without that field falls back to exact equality.
+ */
+function comparisonLeaders(comp, racers, durations, best) {
+  if (Array.isArray(comp.leaders)) return comp.leaders;
+  return racers.filter((_, i) => durations[i] != null && durations[i] === best);
+}
+
+/** A racer sharing the lead trails nobody and is ahead of nobody. */
+function clearGap(entry) {
+  return Object.assign(entry, { delta: null, relative: null, advantage: null });
+}
+
+/**
  * Build duration cells (in racer order) for a measurement comparison.
  * Deltas are measured against the fastest time whether or not the comparison
  * declared a winner — in a three-way field where two racers share the lead,
  * the third still trails by something worth printing. Only comp.winner wears
- * the trophy; a shared lead has none.
+ * the trophy; a shared lead has none, and no gaps between the leaders either.
  */
 export function buildComparisonCells(comp, racers) {
   const durations = racers.map((_, i) => comp.racers[i]?.duration ?? null);
   const present = durations.filter(d => d != null);
   const bestDur = present.length >= 2 ? Math.min(...present) : null;
   const runnerUp = secondLowest(durations);
-  return racers.map((r, i) => buildDurationCell(durations[i], bestDur, comp.winner === r, runnerUp));
+  const leaders = comparisonLeaders(comp, racers, durations, bestDur);
+  return racers.map((r, i) => {
+    const cell = buildDurationCell(durations[i], bestDur, comp.winner === r, runnerUp);
+    return leaders.length > 1 && leaders.includes(r) ? clearGap(cell) : cell;
+  });
 }
 
 /**
@@ -257,12 +277,24 @@ export function rankEntries(racers, getEntry, formatDelta) {
   return { entries, bestValue, maxValue };
 }
 
-/** Rank a measurement comparison's racers by duration (formatted, '-' for missing). */
+/**
+ * Rank a measurement comparison's racers by duration (formatted, '-' for
+ * missing). Racers sharing the lead get no gap and no advantage, by the same
+ * rule as buildComparisonCells.
+ */
 export function rankComparisonDurations(comp, racers) {
-  return rankEntries(racers, i => {
+  const ranked = rankEntries(racers, i => {
     const r = comp.racers[i];
     return { val: r ? r.duration : null, formatted: r ? formatDuration(r.duration) : '-' };
   }, formatDuration);
+  const durations = racers.map((_, i) => comp.racers[i]?.duration ?? null);
+  const leaders = comparisonLeaders(comp, racers, durations, ranked.bestValue);
+  if (leaders.length > 1) {
+    for (const entry of ranked.entries) {
+      if (leaders.includes(entry.name)) clearGap(entry);
+    }
+  }
+  return ranked;
 }
 
 // ---------------------------------------------------------------------------

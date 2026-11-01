@@ -261,6 +261,23 @@ describe('buildComparisonCells', () => {
     expect(cells[2]).toMatchObject({ delta: '1.000s', relative: '100%', advantage: null });
   });
 
+  it('gives the leaders the comparison names no gap, even when they are not exactly equal', () => {
+    // The synthetic total calls anything within its epsilon a shared lead;
+    // without `leaders` the second racer would read "2.000s (+0.000s, +0.0%)".
+    const comp = { name: 'Race', winner: null, leaders: ['a', 'b'], racers: [{ duration: 2.0 }, { duration: 2.0001 }, { duration: 3.0 }] };
+    const cells = buildComparisonCells(comp, racers);
+    expect(cells[0]).toMatchObject({ delta: null, relative: null, advantage: null });
+    expect(cells[1]).toMatchObject({ delta: null, relative: null, advantage: null });
+    expect(cells[2]).toMatchObject({ delta: '1.000s', relative: '50%', advantage: null });
+  });
+
+  it('keeps the sole leader\'s advantage when the comparison lists only one', () => {
+    const comp = { name: 'Race', winner: 'a', leaders: ['a'], racers: [{ duration: 1.0 }, { duration: 2.0 }] };
+    const cells = buildComparisonCells(comp, ['a', 'b']);
+    expect(cells[0].advantage).toBe('50%');
+    expect(cells[1].delta).toBe('1.000s');
+  });
+
   it('has no best value, and so no deltas, with a single measured racer', () => {
     const comp = { name: 'Load', winner: null, racers: [{ duration: 1.0 }, null, null] };
     const cells = buildComparisonCells(comp, racers);
@@ -459,6 +476,22 @@ describe('rankComparisonDurations', () => {
     expect(entries.map(e => e.name)).toEqual(['c', 'a', 'b']);
     expect(entries.map(e => e.formatted)).toEqual(['1.000s', '2.000s', '-']);
     expect(entries.map(e => e.delta)).toEqual([null, '1.000s', null]);
+  });
+
+  it('gives the comparison\'s shared leaders neither a gap nor an advantage', () => {
+    const comp = { winner: null, leaders: ['a', 'b'], racers: [{ duration: 2.0 }, { duration: 2.0001 }, { duration: 3.0 }] };
+    const { entries } = rankComparisonDurations(comp, ['a', 'b', 'c']);
+    expect(entries.map(e => e.name)).toEqual(['a', 'b', 'c']);
+    expect(entries[0]).toMatchObject({ delta: null, relative: null, advantage: null });
+    expect(entries[1]).toMatchObject({ delta: null, relative: null, advantage: null });
+    expect(entries[2]).toMatchObject({ delta: '1.000s', relative: '50%' });
+  });
+
+  it('falls back to exact equality when the comparison carries no leaders', () => {
+    const comp = { winner: null, racers: [{ duration: 1.0 }, { duration: 1.0 }, { duration: 2.0 }] };
+    const { entries } = rankComparisonDurations(comp, ['a', 'b', 'c']);
+    expect(entries.map(e => e.delta)).toEqual([null, null, '1.000s']);
+    expect(entries.map(e => e.advantage)).toEqual([null, null, null]);
   });
 });
 

@@ -888,6 +888,23 @@ describe('buildSummary with 3+ racers', () => {
     expect(summary.comparisons.find(c => c.isSyntheticTotal).winner).toBeNull();
   });
 
+  it('names the shared leaders on the total so the reports print no gap between them', () => {
+    const run = (s1, s2) => ({ measurements: [
+      { name: 's1', startTime: 0, endTime: s1, duration: s1 },
+      { name: 's2', startTime: s1, endTime: s1 + s2, duration: s2 },
+    ], videoPath: null, fullVideoPath: null, error: null });
+    const summary = buildSummary(threeNames, [run(1.0, 1.0), run(1.0, 1.005), run(1.0, 2.0)], {}, 'test-results');
+
+    const total = summary.comparisons.find(c => c.isSyntheticTotal);
+    expect(total.leaders).toEqual(['alpha', 'beta']);
+    // Sections compare exactly: beta's 1.005s is a real gap there.
+    expect(summary.comparisons.find(c => c.name === 's2').leaders).toEqual(['alpha']);
+
+    const md = buildMarkdownSummary(summary);
+    expect(md).toContain('| Race | 2.000s | 2.005s | 3.000s (+1.000s, +50%) |');
+    expect(md).toContain('| s2 | 1.000s (\uD83C\uDFC6 0.5% ahead) | 1.005s (+0.005s, +0.5%) | 2.000s (+1.000s, +100%) |');
+  });
+
   it('still crowns a sole fastest racer in a three-way total', () => {
     const run = (s1, s2) => ({ measurements: [
       { name: 's1', startTime: 0, endTime: s1, duration: s1 },
