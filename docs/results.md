@@ -37,7 +37,7 @@ By default, the HTML player handles virtual trimming via clip times and uses CDP
 
 The player includes segment navigation buttons — **Race Recording** (all measurements combined), individual named segments (one per `raceStart`/`raceEnd` pair), and **Whole Recording** (full unclipped video when available). This lets you scrub directly to any specific measurement.
 
-Under the videos, a **segment timeline** draws the same structure as one bar: the whole recording, the stretch the race recording covers, and a coloured block per measurement, with a playhead that follows playback. Click a block (or its label below the bar) to play that measurement; click anywhere else on the bar to jump to that moment of the recording.
+Under the videos, a **segment timeline** draws the same structure as one bar: the whole recording, the stretch the race recording covers, and a block per measurement in the colour of the racer that won it (a dead heat stays neutral), with a playhead that follows playback. Click a block (or its label below the bar) to play that measurement; click anywhere else on the bar to jump to that moment of the recording.
 
 The videos are laid out in finishing order — winner first, then 2nd, 3rd — ranked by total time across all sections, the same way the overall winner is decided. (When two totals are within a frame of each other, the per-section rankings break the tie.)
 

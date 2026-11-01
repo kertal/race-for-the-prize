@@ -8,15 +8,41 @@ import vm from 'node:vm';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { SEGMENT_COLORS, timelineSegments, timelinePercent } = require('../cli/player-runtime/timeline.cjs');
+const { sectionWinner, timelineSegments, timelinePercent } = require('../cli/player-runtime/timeline.cjs');
 const timelineSource = fs.readFileSync(new URL('../cli/player-runtime/timeline.js', import.meta.url), 'utf8');
 
+const COLORS = ['#111111', '#222222', '#333333'];
+
+describe('sectionWinner', () => {
+  it('is the fastest racer with a time', () => {
+    expect(sectionWinner([2, 1, 3])).toBe(1);
+    expect(sectionWinner([2, null, 1])).toBe(2);
+  });
+
+  it('is nobody for a dead heat or a section only one racer ran', () => {
+    expect(sectionWinner([1, 1])).toBeNull();
+    expect(sectionWinner([1, null])).toBeNull();
+    expect(sectionWinner([])).toBeNull();
+    expect(sectionWinner(undefined)).toBeNull();
+  });
+
+  it('follows the summary when two share the fastest time but a third is slower', () => {
+    expect(sectionWinner([1, 1, 2])).toBe(0);
+  });
+});
+
 describe('timelineSegments', () => {
+  const results = [
+    { name: 'Render', durations: [1, 2] },
+    { name: 'Reload', durations: [3, 2] },
+    { name: 'Total', isSyntheticTotal: true, durations: [4, 4] },
+  ];
+
   it('places each name at the mean of the racers\' windows, in the given order', () => {
     const segments = timelineSegments([
       { name: 'Render', windows: [{ start: 1, end: 2 }, { start: 1.2, end: 2.4 }] },
       { name: 'Reload', windows: [{ start: 3, end: 4 }, null] },
-    ]);
+    ], results, COLORS);
     expect(segments.map(s => s.name)).toEqual(['Render', 'Reload']);
     expect(segments[0].start).toBeCloseTo(1.1);
     expect(segments[0].end).toBeCloseTo(2.2);
@@ -27,16 +53,27 @@ describe('timelineSegments', () => {
     const segments = timelineSegments([
       { name: 'Ghost', windows: [null, null] },
       { name: 'Render', windows: [{ start: 1, end: 2 }] },
-    ]);
+    ], results, COLORS);
     expect(segments.map(s => s.name)).toEqual(['Render']);
   });
 
-  it('colours by first-seen position and wraps the palette', () => {
-    const many = Array.from({ length: SEGMENT_COLORS.length + 1 }, (_, i) => ({ name: 's' + i, windows: [{ start: i, end: i + 1 }] }));
-    const segments = timelineSegments(many);
-    expect(segments[0].color).toBe(SEGMENT_COLORS[0]);
-    expect(segments[SEGMENT_COLORS.length].color).toBe(SEGMENT_COLORS[0]);
-    expect(segments[1].color).toBe(SEGMENT_COLORS[1]);
+  it('colours each section by the racer that won it', () => {
+    const segments = timelineSegments([
+      { name: 'Render', windows: [{ start: 1, end: 2 }] },
+      { name: 'Reload', windows: [{ start: 3, end: 4 }] },
+    ], results, COLORS);
+    expect(segments.map(s => s.winner)).toEqual([0, 1]);
+    expect(segments.map(s => s.color)).toEqual([COLORS[0], COLORS[1]]);
+  });
+
+  it('leaves a dead heat, an unknown section and a missing result list uncoloured', () => {
+    const windows = [{ start: 1, end: 2 }];
+    const tie = timelineSegments([{ name: 'Tie', windows }], [{ name: 'Tie', durations: [2, 2] }], COLORS);
+    expect(tie[0]).toMatchObject({ winner: null, color: null });
+    const unknown = timelineSegments([{ name: 'Render', windows }], [], COLORS);
+    expect(unknown[0]).toMatchObject({ winner: null, color: null });
+    const none = timelineSegments([{ name: 'Render', windows }], undefined, COLORS);
+    expect(none[0]).toMatchObject({ winner: null, color: null });
   });
 });
 
@@ -80,10 +117,13 @@ function harness({ names = ['Render'], extent = 20, options = ['__full__', '__al
   ids.timelineLabels.className = 'timeline-labels';
   const video = { currentTime: 0, duration: extent };
   const windows = Object.fromEntries(names.map((name, i) => [name, [{ start: 2 + i * 3, end: 4 + i * 3 }]]));
+  // Racer 0 wins the first section, racer 1 the second, and so on round.
+  const finishResults = names.map((name, i) => ({ name, durations: [0, 1].map(r => (r === i % 2 ? 1 : 2)) }));
   const ctx = {
     document: { getElementById: id => ids[id] || null, createElement: fakeElement },
     clipTimes: [{ _converted: true, start: 1, end: 10 }],
-    raceVideos: [video],
+    raceVideos: [video], raceConfig: { finishResults },
+    racerNames: ['lauda', 'hunt'], racerColors: COLORS.slice(0, 2),
     segmentNav: { value: '__all__', options: options.map(value => ({ value })) },
     activeSegmentName: null, activeClip: { start: 1, end: 10 }, duration: extent,
     scrubber: { value: 0 }, SCRUBBER_MAX: 1000,
@@ -108,10 +148,26 @@ describe('timeline.js', () => {
     expect(region.style.left).toBe('5%');   // clip start 1s of 20s
     expect(region.style.width).toBe('45%'); // clip length 9s of 20s
     expect(blocks().map(b => b.style.left)).toEqual(['10%', '25%']);
-    expect(blocks().map(b => b.style['--segment-color'])).toEqual(SEGMENT_COLORS.slice(0, 2));
     expect(labels().map(l => l.textContent)).toEqual(['Render', 'Reload']);
     expect(ids.timelineBar.children.at(-1)).toBe(ids.timelinePlayhead); // playhead stays on top
     expect(ids.raceTimeline.style.display).toBe('');
+  });
+
+  it('paints each block and its label in the colour of the racer that won the section', () => {
+    const { ctx, blocks, labels } = harness({ names: ['Render', 'Reload'] });
+    ctx.buildTimeline();
+    expect(blocks().map(b => b.style['--racer-color'])).toEqual([COLORS[0], COLORS[1]]);
+    expect(labels().map(l => l.style['--racer-color'])).toEqual([COLORS[0], COLORS[1]]);
+    expect(blocks()[1].title).toBe('Reload (2.000s, won by hunt)');
+    expect(blocks()[1].attrs['aria-label']).toBe('Play Reload (5.000s – 7.000s, won by hunt)');
+  });
+
+  it('leaves a dead heat in the neutral colour', () => {
+    const { ctx, blocks } = harness({ names: ['Render'] });
+    ctx.raceConfig.finishResults = [{ name: 'Render', durations: [1, 1] }];
+    ctx.buildTimeline();
+    expect(blocks()[0].style['--racer-color']).toBeUndefined();
+    expect(blocks()[0].title).toBe('Render (2.000s)');
   });
 
   it('plays a clicked segment even when the dropdown has no option for it', () => {

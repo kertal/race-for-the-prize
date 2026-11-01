@@ -1,9 +1,10 @@
 /* eslint-env browser */
 /**
  * timeline.js — The segment timeline under the videos: one bar for the whole
- * recording, the race clip marked on it, and a block per measurement. Clicking
- * a block (or its label) plays that segment; clicking the bar itself seeks
- * freely to that moment of the recording. A playhead tracks the transport.
+ * recording, the race clip marked on it, and a block per measurement in the
+ * colour of the racer that won it. Clicking a block (or its label) plays that
+ * segment; clicking the bar itself seeks freely to that moment of the
+ * recording. A playhead tracks the transport.
  *
  * The bar is scaled to the race-mode reference video. Without --ffmpeg that
  * file is the whole recording, which is what the bar is for; with --ffmpeg it
@@ -92,12 +93,19 @@ function onTimelineLabelClick(e) {
   if (label) activateTimelineSegment(label.dataset.segmentName);
 }
 
+// Who took the section, for the block's tooltip and accessible name.
+function wonBy(seg) {
+  return seg.winner == null ? '' : ', won by ' + racerNames[seg.winner];
+}
+
 function segmentButton(className, seg) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = className;
   btn.dataset.segmentName = seg.name;
-  btn.style.setProperty('--segment-color', seg.color);
+  // The winner's colour, as every racer-coloured element carries it; a dead
+  // heat sets none and the stylesheet's neutral fallback shows.
+  if (seg.color) btn.style.setProperty('--racer-color', seg.color);
   return btn;
 }
 
@@ -111,8 +119,8 @@ function buildTimelineBar(segments, clip, extent) {
     const btn = segmentButton('timeline-segment', seg);
     btn.style.left = timelinePercent(seg.start, extent) + '%';
     btn.style.width = timelinePercent(seg.end - seg.start, extent) + '%';
-    btn.title = seg.name + ' (' + (seg.end - seg.start).toFixed(3) + 's)';
-    btn.setAttribute('aria-label', 'Play ' + seg.name + ' (' + seg.start.toFixed(3) + 's – ' + seg.end.toFixed(3) + 's)');
+    btn.title = seg.name + ' (' + (seg.end - seg.start).toFixed(3) + 's' + wonBy(seg) + ')';
+    btn.setAttribute('aria-label', 'Play ' + seg.name + ' (' + seg.start.toFixed(3) + 's – ' + seg.end.toFixed(3) + 's' + wonBy(seg) + ')');
     return btn;
   });
   // The playhead is the one static child and must stay on top of the blocks.
@@ -136,7 +144,8 @@ function buildTimeline() {
   const extent = ref && Number.isFinite(ref.duration) ? ref.duration : 0;
   const clip = resolveClip();
   if (!(extent > 0) || !clip) return;
-  const segments = timelineSegments(collectSegmentNames().map(name => ({ name, windows: getSegmentClipTimes(name) })));
+  const namedWindows = collectSegmentNames().map(name => ({ name, windows: getSegmentClipTimes(name) }));
+  const segments = timelineSegments(namedWindows, raceConfig.finishResults, racerColors);
   if (segments.length === 0) return;
 
   timelineExtent = extent;

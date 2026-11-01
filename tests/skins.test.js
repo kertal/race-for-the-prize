@@ -250,7 +250,6 @@ describe('design tokens', () => {
     );
     // Set inline per element from JS, so they appear in no stylesheet.
     referenced.delete('--racer-color');
-    referenced.delete('--segment-color');
     referenced.delete('--fs-cols');
     const missing = [...referenced].filter(token => !declared.has(token));
     expect(missing).toEqual([]);

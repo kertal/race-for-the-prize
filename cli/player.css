@@ -883,8 +883,8 @@ video {
 
 /* --- Segment timeline ----------------------------------------------------
    One bar for the whole recording, the race clip marked on it and a block per
-   measurement. Blocks and labels are buttons; each carries its measurement's
-   colour as --segment-color, the way a racer carries --racer-color. */
+   measurement. Blocks and labels are buttons carrying the --racer-color of
+   the racer that won the section; a dead heat carries none. */
 .race-timeline {
   max-width: var(--content-max);
   width: 100%;
@@ -918,7 +918,7 @@ video {
   padding: 0;
   border: 0;
   border-radius: var(--radius-sm);
-  background: var(--segment-color, var(--accent));
+  background: var(--racer-color, var(--accent));
   opacity: 0.7;
   cursor: pointer;
   transition: opacity var(--duration-fast);
@@ -950,7 +950,7 @@ video {
 /* A chip per measurement, coloured like its block — the racer filter's look,
    on the shared control chrome. */
 .timeline-label {
-  color: var(--segment-color, var(--text-dim));
+  color: var(--racer-color, var(--text-dim));
   border-color: currentcolor;
   padding: 0.15rem 0.5rem;
   font-size: var(--font-size-xs);
