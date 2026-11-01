@@ -9,7 +9,7 @@ change one, change the other; `tests/site.test.js` fails if they drift.)
 - [@drewdaemon](https://github.com/drewdaemon) — whose work sparked the start
   of this project: make visual performance comparisons simple. And the
   cooperation of [@dmlemeshko](https://github.com/dmlemeshko) introduced
-  @kertal to the power of the mighty playwright.
+  @kertal to the power of the mighty Playwright.
 - [@bartoval](https://github.com/bartoval) — whose work inspired the in-browser
   video export.
 - Simon Haidenbauer & Werner Mayer — the first QA crew, who proved that "but it
