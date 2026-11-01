@@ -255,14 +255,27 @@ async function setupMetricsCollection(page, id) {
           result.total.cls = timing.cls != null ? timing.cls : null;
         }
 
-        // Get final CDP metrics
+        // Get final CDP metrics. Durations are read before the forced GC
+        // below so the collection's own time never lands in them.
         const endMetrics = await getCdpMetrics();
         if (endMetrics) {
-          result.total.jsHeapUsedSize = endMetrics.jsHeapUsedSize || null;
           result.total.scriptDuration = endMetrics.scriptDuration || null;
           result.total.layoutDuration = endMetrics.layoutDuration || null;
           result.total.recalcStyleDuration = endMetrics.recalcStyleDuration || null;
           result.total.taskDuration = endMetrics.taskDuration || null;
+        }
+
+        // Force a full garbage collection before the heap snapshot, so
+        // jsHeapUsedSize reports the live set rather than live set plus
+        // whatever garbage happened to accumulate since the last GC — which
+        // depends on when V8's final major GC fell relative to the race's last
+        // section and can differ between racers by hundreds of MB.
+        if (client) {
+          await client.send('HeapProfiler.collectGarbage').catch(() => {});
+        }
+        const heapMetrics = await getCdpMetrics();
+        if (heapMetrics) {
+          result.total.jsHeapUsedSize = heapMetrics.jsHeapUsedSize || null;
         }
       } catch (error) {
         console.error(`[${id}] Warning: failed to collect metrics: ${error.message}`);
