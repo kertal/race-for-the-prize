@@ -213,12 +213,10 @@ function holdExportClips(visibleIndices, perVideoEnd) {
   });
 }
 
-// The export clock: how far the furthest racer has played into its own clip.
-// Each racer counts from its own clip start, never from the raw video time —
-// clips that begin at different points in their videos would otherwise stall
-// the clock while the earlier-ending racer is held and the other catches up,
-// freezing the baked timer and ending the progress bar short of 100%.
-// perVideoStart is parallel to visibleIndices.
+// The export clock: the furthest any racer has played into its own clip.
+// Counting from each clip's start (not raw video time) keeps the clock moving
+// while a held racer waits for the others. perVideoStart is parallel to
+// visibleIndices.
 function exportElapsed(visibleIndices, perVideoStart) {
   return Math.max(0, ...visibleIndices.map((i, j) => {
     const v = raceVideos[i];

@@ -160,14 +160,9 @@
   }
 }
 
-/* Motion is optional. Every transition in the component layers is timed with
-   the duration tokens, so when the reader asks for less motion the tokens go
-   to zero and the transitions go with them, with nothing to outrank: no
-   universal selector, no override flag. */
+/* Every transition is timed with these tokens, so zeroing them is all reduced
+   motion takes. The second selector outranks a skin's :root[data-theme="…"]. */
 @media (prefers-reduced-motion: reduce) {
-  /* A skin scopes its tokens to :root[data-theme="…"], which would outrank a
-     plain :root here. The second selector carries one element more, so the
-     reader's preference beats a skin's own durations. */
   :root,
   html:root[data-theme] {
     --duration-fast: 0s;

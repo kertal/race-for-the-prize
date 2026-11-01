@@ -79,17 +79,11 @@ function createRaceApi({ recordingStartTime = Date.now(), now = Date.now, hooks 
 
   const startRecording = () => {
     if (currentSegmentStart !== null) return Promise.resolve();
-    // Two un-awaited starts during a rollover would both get past the guard
-    // above, both wait on the same stop, and both run the start hooks — each
-    // taking a turn at the parallel-mode gate. They share one start instead.
+    // Overlapping starts share one gate pass and one set of start hooks.
     if (startPromise) return startPromise;
     startPromise = (async () => {
-      // The previous segment's stop may still be running its hooks (finish
-      // flag, trace mark, overlay). The new segment waits for it: otherwise
-      // its start mark could overtake the previous end mark in the trace, and
-      // the old stop could switch off the overlay and clock the new segment
-      // just turned on. With at most one stop in flight, finalize() awaiting
-      // stopPromise covers every stop there is.
+      // Wait for the previous stop's hooks: keeps the trace marks in order and
+      // stops the old segment's teardown from undoing this one's overlay.
       if (stopPromise) await stopPromise;
       if (gateRecordingStart) {
         const result = await gateRecordingStart();
@@ -97,9 +91,7 @@ function createRaceApi({ recordingStartTime = Date.now(), now = Date.now, hooks 
       }
       currentSegmentStart = elapsed();
       if (onRecordingStart) await onRecordingStart();
-    })().finally(() => { startPromise = null; });
-    // (.finally rather than a try/finally inside: with nothing to await, the
-    // body would finish synchronously and clear the slot before it was set.)
+    })().finally(() => { startPromise = null; }); // a try/finally would clear the slot before it is set
     return startPromise;
   };
 
@@ -107,20 +99,14 @@ function createRaceApi({ recordingStartTime = Date.now(), now = Date.now, hooks 
     if (currentSegmentStart === null) return stopPromise;
     const segmentStart = currentSegmentStart;
     const segmentEnd = elapsed();
-    // The segment is closed before any hook is awaited: a spec that fires
-    // raceRecordingEnd() without awaiting it and then awaits the next
-    // raceRecordingStart() must find the slot free, or the second segment is
-    // silently skipped (and in parallel mode the partner waits at the gate).
-    // stopPromise is set in the same breath so finalize() and a second end
-    // call wait on this stop rather than opening a duplicate segment.
+    // Close the segment before awaiting any hook, so an un-awaited
+    // raceRecordingEnd() followed by raceRecordingStart() finds the slot free.
     currentSegmentStart = null;
     segments.push({ start: segmentStart, end: segmentEnd });
     stopPromise = (async () => {
       if (markRecordingEnd) await markRecordingEnd();
-      // The finish is the last measurement that ended inside this segment. An
-      // earlier segment's measurement must not leak into a later one, and a
-      // segment with no measurement of its own finishes when it closed — not
-      // some later instant after the trace mark's round-trip.
+      // The finish is the last measurement that ended inside this segment;
+      // a segment without one finishes when it closed.
       const lastMeasurement = measurements[measurements.length - 1];
       const endTime = lastMeasurement && lastMeasurement.endTime >= segmentStart
         ? lastMeasurement.endTime

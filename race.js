@@ -565,12 +565,9 @@ export function buildRaceOutput(ctx, runDir, results, getBrowserData, runNavigat
  * This is the config object passed to spawnRunner/runSingleRace.
  */
 /**
- * The context for racers that run one at a time. Split mode (per-racer setup
- * scripts, --pause) ignores --parallel, and everything downstream has to agree:
- * a one-browser "parallel" run would still get parallel mode's half-screen
- * window and viewport, and config.json and the report's Mode row would claim
- * a mode that never ran. The command line in the record still shows the flag.
- * `raceConfigFor(settings)` rebuilds the record for the normalized settings.
+ * The context for split mode, which ignores --parallel: sequential execution,
+ * `parallel: false` in the settings, and a race record rebuilt from them, so
+ * the viewport, config.json and the Mode row all match what ran.
  */
 export function sequentialContext(ctx, raceConfigFor) {
   const settings = { ...ctx.settings, parallel: false };
@@ -1271,10 +1268,8 @@ async function main() {
 
     setupCompleted = true;
 
-    // Split mode runs each racer alone and sequentially, which is fundamentally
-    // incompatible with --parallel. Warn once (not per network condition)
-    // instead of silently ignoring the flag, and race — and record — the mode
-    // that actually runs.
+    // Split mode runs each racer alone, so --parallel cannot apply. Warn once
+    // (not per network condition) and switch the context to sequential.
     if (settings.parallel && (settings.pauseBetweenRuns || racerScripts.some(r => r.setup))) {
       const reason = racerScripts.some(r => r.setup) ? 'per-racer setup scripts are present' : '--pause is set';
       console.error(`  ${c.yellow}Note: --parallel is ignored because ${reason}; racers will run one at a time.${c.reset}`);

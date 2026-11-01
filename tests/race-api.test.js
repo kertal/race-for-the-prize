@@ -226,12 +226,8 @@ describe('page.race* API (race-api.cjs)', () => {
     });
 
     it('opens a second segment after an un-awaited recording end has finished marking', async () => {
-      // A spec that fires raceRecordingEnd() without awaiting it and then awaits
-      // the next raceRecordingStart() used to find the slot still occupied —
-      // the segment was only released after the trace mark's round-trip — so
-      // the second segment never opened (and in parallel mode the partner sat
-      // at the recordingStart gate until the backstop). Now the start waits
-      // for the stop to finish, then opens.
+      // An un-awaited raceRecordingEnd() used to leave the slot occupied until
+      // its trace mark returned, so the next raceRecordingStart() was skipped.
       let releaseMark = null;
       const { api, page } = createTestApi({
         // Only the first segment's mark is held back; the second ends freely.
@@ -252,9 +248,8 @@ describe('page.race* API (race-api.cjs)', () => {
     });
 
     it('shares one start between overlapping un-awaited start calls', async () => {
-      // Both calls arrive while the previous stop is still marking; neither
-      // has set the segment yet, so without coalescing both would run the
-      // start hooks and both would take a turn at the parallel-mode gate.
+      // Without coalescing, both calls would run the start hooks and both
+      // would take a turn at the parallel-mode gate.
       let releaseMark = null;
       let gates = 0;
       let starts = 0;
