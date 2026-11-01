@@ -114,6 +114,21 @@ p.tally { text-align: center; color: var(--text-subtle); font-size: var(--font-s
 /* A footnote to the table it explains, so it sits closer to it than the tally does. */
 p.legend { text-align: center; color: var(--text-ghost); font-size: var(--font-size-xs); margin: 0.9rem 0 0; }
 
+/* A report section under the matrix (the spreadsheet export), dressed like the
+   player's: the same display-face heading and the same disclosure triangle, so
+   the click-through lands on a page that opens the same way. */
+.section { margin: 2.5rem 0 0; }
+.section > summary { display: flex; align-items: center; gap: 0.5rem; padding: 0.2rem 0;
+                     list-style: none; cursor: pointer; }
+.section > summary::-webkit-details-marker { display: none; }
+.section > summary::before { content: "\25B6"; font-size: var(--font-size-marker); color: var(--text-ghost);
+                             display: inline-block; flex-shrink: 0; transition: transform var(--duration); }
+.section[open] > summary::before { transform: rotate(90deg); }
+.section > summary:focus-visible { outline: var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-sm); }
+.section > summary h2 { font-family: var(--font-display); color: var(--accent); font-size: var(--font-size-xl);
+                        text-transform: uppercase; letter-spacing: var(--tracking-wide); margin: 0; }
+.section-body { padding-top: 0.6rem; }
+
 @media (max-width: 600px) {
   .wrap { padding: 0 1rem 2rem; }
   /* No h1 override here: the title clamps with the viewport already, and a

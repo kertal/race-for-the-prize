@@ -288,7 +288,7 @@ export function buildResultsModel(comparisons, racers) {
  * @returns {{
  *   isEmpty: boolean,
  *   measurements: Array<{ name, runRows, medianRow, averageRow }>,
- *   profileScopes: Array<{ scope, title, metrics: Array<{ name, runRows, medianRow, averageRow }> }>
+ *   profileScopes: Array<{ scope, title, metrics: Array<{ key, name, runRows, medianRow, averageRow }> }>
  * }}
  * Each runRow is { label, cells }; medianRow/averageRow are { cells } or null
  * (median: absent from the median summary; average: no racer has data).
@@ -340,7 +340,10 @@ function buildProfileMetricModel(metric, scopeName, metricName, summaries, media
   const avgVals = racers.map((_, j) => averageOf(summaries.map(s => valueAt(s, j))));
   const averageRow = avgVals.some(v => v != null) ? { cells: buildBestOfCells(avgVals, format, formatDelta) } : null;
 
-  return { name: metric.name, runRows, medianRow, averageRow };
+  // `key` is the PROFILE_METRICS key ("scope.metric"), so an emitter that
+  // needs more than the display name — the spreadsheet export wants the
+  // metric's unit — can look the definition up again.
+  return { key: `${scopeName}.${metricName}`, name: metric.name, runRows, medianRow, averageRow };
 }
 
 // Profile metric tables grouped by scope (race vs. total recording).
