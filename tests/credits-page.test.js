@@ -69,6 +69,13 @@ describe('renderInline', () => {
   it('leaves quotes alone in text, so the generated file reads like the Markdown', () => {
     expect(renderInline(`"it works" isn't a case`)).toBe(`"it works" isn't a case`);
   });
+
+  it('only links to http(s) URLs, so no script can ride in on a credit', () => {
+    for (const href of ['javascript:alert(1)', 'data:text/html,hi', 'index.html', '//evil.example']) {
+      expect(() => renderInline(`[x](${href})`), href).toThrow(/not an http\(s\) URL/);
+    }
+    expect(renderInline('[ok](http://a.b) [ok](https://a.b/c?d=1)')).toContain('href="https://a.b/c?d=1"');
+  });
 });
 
 describe('renderCreditsPage', () => {
@@ -79,6 +86,13 @@ describe('renderCreditsPage', () => {
     expect(html).toContain('<p class="tagline">No car reaches the grid on its own.</p>');
     expect(html).not.toContain('<template');
     expect(html).not.toMatch(/\{\{\w+\}\}/);
+  });
+
+  it('escapes the title for the attributes it lands in', () => {
+    const html = renderCreditsPage('# A "quoted" & <odd> title\n');
+    expect(html).toContain('<title>A &quot;quoted&quot; &amp; &lt;odd&gt; title — RaceForThePrize</title>');
+    expect(html).toContain('content="RaceForThePrize — A &quot;quoted&quot; &amp; &lt;odd&gt; title"');
+    expect(html).not.toContain('"quoted"');
   });
 
   it('renders one section per heading, with its paragraphs and links', () => {

@@ -28,6 +28,9 @@ const PAGE = path.join(HERE, 'credits-page.html');
 
 const HEADING_RE = /^(#{1,2})\s+(.+?)\s*$/;
 const LINK_RE = /\[([^\]]+)\]\(([^)\s]+)\)/g;
+// Every credit links out to a website, so anything else — `javascript:` above
+// all — is a mistake, and the build says so rather than publishing it.
+const LINK_SCHEME_RE = /^https?:\/\//;
 // Deeper headings, lists, blockquotes, fences, tables and rules: Markdown the
 // page has no markup for, so a line starting one stops the build instead of
 // leaking through as a paragraph.
@@ -42,6 +45,7 @@ export function renderInline(text) {
   let last = 0;
   for (const match of text.matchAll(LINK_RE)) {
     const [whole, label, href] = match;
+    if (!LINK_SCHEME_RE.test(href)) throw new Error(`credits.md link is not an http(s) URL: "${href}"`);
     html += escText(text.slice(last, match.index)) + `<a href="${escHtml(href)}">${escText(label)}</a>`;
     last = match.index + whole.length;
   }
@@ -100,7 +104,8 @@ export function renderCreditsPage(markdown, pagePath = PAGE) {
   })).join('\n\n');
 
   return render(shell, {
-    title: escText(page.title),
+    // The title also lands in attributes (og:title), so quotes are escaped too.
+    title: escHtml(page.title),
     tagline: page.intro.map(text => fill('tagline', { text: renderInline(text) })).join('\n'),
     sections,
   });

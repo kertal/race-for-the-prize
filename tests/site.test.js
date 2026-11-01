@@ -123,6 +123,13 @@ describe('credits', () => {
     const pkg = JSON.parse(read('package.json'));
     expect(pkg.files).toContain('docs/credits.md');
   });
+
+  it('ships its builder too, so the build:credits script works from the package', () => {
+    const pkg = JSON.parse(read('package.json'));
+    expect(pkg.scripts['build:credits']).toBe('node scripts/build-credits.js');
+    expect(pkg.files).toContain('scripts/build-credits.js');
+    expect(pkg.files).toContain('scripts/credits-page.html');
+  });
 });
 
 describe('ReadMe', () => {
