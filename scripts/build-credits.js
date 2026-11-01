@@ -39,14 +39,17 @@ const UNSUPPORTED_RE = /^\s*(?:#{3,}\s|[-*+]\s|\d+[.)]\s|>|```|\||---)/;
 /** Text-node escaping: quotes stay readable in the generated file. */
 const escText = text => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
-/** Inline Markdown → HTML: escaped text with `[text](url)` turned into anchors. */
-export function renderInline(text) {
+/**
+ * Inline Markdown → HTML: escaped text with `[text](url)` turned into anchors,
+ * each rendered through the page's `build-link` fragment via `fill`.
+ */
+export function renderInline(text, fill) {
   let html = '';
   let last = 0;
   for (const match of text.matchAll(LINK_RE)) {
     const [whole, label, href] = match;
     if (!LINK_SCHEME_RE.test(href)) throw new Error(`credits.md link is not an http(s) URL: "${href}"`);
-    html += escText(text.slice(last, match.index)) + `<a href="${escHtml(href)}">${escText(label)}</a>`;
+    html += escText(text.slice(last, match.index)) + fill('link', { href: escHtml(href), label: escText(label) });
     last = match.index + whole.length;
   }
   return html + escText(text.slice(last));
@@ -70,13 +73,16 @@ export function parseCredits(markdown) {
       throw new Error(`credits.md uses Markdown the credits page cannot render: "${unsupported}"`);
     }
 
+    // A heading is a block of its own: one glued to a paragraph, on whichever
+    // line, would otherwise be published as prose.
+    const glued = lines.length > 1 && lines.find(line => HEADING_RE.test(line));
+    if (glued) throw new Error(`credits.md heading needs blank lines around it: "${glued}"`);
     const heading = lines[0].match(HEADING_RE);
     // The title opens the file: anything else first is a malformed edit.
     if (!page.title && heading?.[1] !== '#') {
       throw new Error(`credits.md has to start with a "# " title, not: "${lines[0]}"`);
     }
     if (heading) {
-      if (lines.length > 1) throw new Error(`credits.md heading needs a blank line after it: "${lines[0]}"`);
       const [, level, text] = heading;
       if (level === '#') {
         if (page.title) throw new Error(`credits.md has a second title: "${text}"`);
@@ -101,16 +107,17 @@ export function parseCredits(markdown) {
 export function renderCreditsPage(markdown, pagePath = PAGE) {
   const { shell, fill } = loadTemplates(pagePath);
   const page = parseCredits(markdown);
+  const inline = text => renderInline(text, fill);
 
   const sections = page.sections.map(section => fill('section', {
-    heading: renderInline(section.heading),
-    body: section.paragraphs.map(text => fill('paragraph', { text: renderInline(text) })).join('\n'),
+    heading: inline(section.heading),
+    body: section.paragraphs.map(text => fill('paragraph', { text: inline(text) })).join('\n'),
   })).join('\n\n');
 
   return render(shell, {
     // The title also lands in attributes (og:title), so quotes are escaped too.
     title: escHtml(page.title),
-    tagline: page.intro.map(text => fill('tagline', { text: renderInline(text) })).join('\n'),
+    tagline: page.intro.map(text => fill('tagline', { text: inline(text) })).join('\n'),
     sections,
   });
 }

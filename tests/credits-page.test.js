@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { parseCredits, renderInline, renderCreditsPage } from '../scripts/build-credits.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { loadTemplates } from '../cli/html-templates.js';
+import { parseCredits, renderInline as renderInlineWith, renderCreditsPage } from '../scripts/build-credits.js';
+
+const PAGE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'credits-page.html');
 
 const SAMPLE = `# Credits
 
@@ -59,12 +64,16 @@ describe('parseCredits', () => {
     expect(() => parseCredits('Stray prose first.\n\n# Credits\n')).toThrow(/start with a "# " title, not: "Stray prose first."/);
     expect(() => parseCredits('## A section first\n\n# Credits\n')).toThrow(/start with a "# " title, not: "## A section first"/);
     expect(() => parseCredits('# One\n\n# Two\n')).toThrow(/second title/);
-    expect(() => parseCredits('# T\n\n## Section\nglued paragraph\n')).toThrow(/blank line/);
+    expect(() => parseCredits('# T\n\n## Section\nglued paragraph\n')).toThrow(/blank lines around it: "## Section"/);
+    expect(() => parseCredits('# T\n\nIntro\n## Crew\n')).toThrow(/blank lines around it: "## Crew"/);
+    expect(() => parseCredits('# T\n\nIntro\nmore\n# Again\n')).toThrow(/blank lines around it: "# Again"/);
   });
 });
 
 describe('renderInline', () => {
-  it('turns links into anchors and escapes the rest', () => {
+  const { fill } = loadTemplates(PAGE);
+  const renderInline = text => renderInlineWith(text, fill);
+  it('turns links into anchors from the build-link fragment and escapes the rest', () => {
     expect(renderInline('see [a & b](https://x.y/?a=1&b=2) <now>'))
       .toBe('see <a href="https://x.y/?a=1&amp;b=2">a &amp; b</a> &lt;now&gt;');
   });
