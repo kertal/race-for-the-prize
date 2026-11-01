@@ -11,6 +11,8 @@
     "*.cjs",
     "cli/",
     "scripts/postinstall.cjs",
+    "scripts/build-credits.js",
+    "scripts/credits-page.html",
     "races/*/*.spec.js",
     "races/*/*.html",
     "races/*/settings.json",
@@ -29,7 +31,8 @@
     "postinstall": "node scripts/postinstall.cjs",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.js",
-    "race": "node race.js"
+    "race": "node race.js",
+    "build:credits": "node scripts/build-credits.js"
   },
   "keywords": [
     "browser",

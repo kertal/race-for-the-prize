@@ -57,17 +57,21 @@ RaceForThePrize/
 │   ├── react-vs-angular/     # ⚛️  Frontend framework showdown (4 racers)
 │   └── caching-comparison/   # 🤫 Encrypted vs plain vs no cache (3 racers, 6 conditions)
 ├── scripts/
-│   └── postinstall.cjs     # Downloads Chromium when the package installs
+│   ├── postinstall.cjs     # Downloads Chromium when the package installs
+│   ├── build-credits.js    # Renders docs/credits.md into docs/credits.html (npm run build:credits)
+│   └── credits-page.html   # The credits page shell + fragments the builder fills
 ├── docs/                   # The handbook — and the GitHub Pages site
 │   ├── index.html          # 🏁 Landing page (GitHub Pages serves this folder)
 │   ├── site.css            # Landing page styles — same flag, same palette
+│   ├── credits.html        # Generated from credits.md — edit the Markdown, then build
 │   ├── demos.md            # The bundled demo races
 │   ├── writing-races.md    # Race modes, the race API, setup/teardown
 │   ├── use-cases.md        # What people actually race
 │   ├── cli.md              # Flags & settings.json reference
 │   ├── results.md          # Results folder, HTML player, podium
 │   ├── development.md      # This file
-│   └── skinning.md         # Design tokens & how to write a player skin
+│   ├── skinning.md         # Design tokens & how to write a player skin
+│   └── credits.md          # The crew, the engine, the song — the only copy to edit
 ├── presentation/
 │   ├── slides.md           # Marp slide deck
 │   ├── slides.html         # The deck rendered by Marp — open it in a browser

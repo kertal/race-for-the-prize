@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { MAX_RACERS } from '../cli/config.js';
+import { renderCreditsPage } from '../scripts/build-credits.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (...p) => fs.readFileSync(path.join(ROOT, ...p), 'utf8');
@@ -90,14 +91,6 @@ describe('landing page', () => {
 });
 
 describe('credits', () => {
-  // The two pages point at each other, which is navigation rather than a
-  // credit — everything else they link to has to match.
-  const isNavigation = url =>
-    url.startsWith('https://kertal.github.io/race-for-the-prize/') ||
-    url.startsWith('https://github.com/kertal/race-for-the-prize/blob/');
-
-  const credited = urls => [...new Set(urls.filter(u => /^https?:/.test(u) && !isNavigation(u)))].sort();
-
   /** The rendered body, so the shared header's repo link stays out of it. */
   const creditsBody = creditsHtml.match(/<main>([\s\S]*)<\/main>/)[1];
 
@@ -107,17 +100,17 @@ describe('credits', () => {
     expect(creditsHtml).toContain('<title>Credits — RaceForThePrize</title>');
   });
 
-  it('credits the same names in the Markdown and on the site', () => {
-    const fromMd = credited([...creditsMd.matchAll(/\]\(([^)]+)\)/g)].map(m => m[1]));
-    const fromHtml = credited([...creditsBody.matchAll(/href="([^"]+)"/g)].map(m => m[1]));
-    // Guard against the mirror quietly emptying out.
-    expect(fromMd.length).toBeGreaterThan(10);
-    expect(fromHtml).toEqual(fromMd);
+  it('is generated from the Markdown, so the two cannot drift', () => {
+    // credits.md is the only copy anyone edits; the HTML is committed too, so
+    // Pages can serve it, and this is what keeps it fresh.
+    expect(creditsHtml, 'docs/credits.html is stale — run npm run build:credits')
+      .toBe(renderCreditsPage(creditsMd));
   });
 
   it('names the crew, the dependencies and the song', () => {
-    for (const needle of ['Playwright', 'FFmpeg', 'Vitest', 'The Flaming Lips', '@kertal', 'MIT']) {
+    for (const needle of ['Playwright', 'FFmpeg', 'Vitest', 'The Flaming Lips', '@kertal', '@drewdaemon', '@bartoval', '@dmlemeshko', 'Simon Haidenbauer', 'Werner Mayer', 'MIT']) {
       expect(creditsMd, needle).toContain(needle);
+      expect(creditsBody, needle).toContain(needle);
     }
   });
 
@@ -129,6 +122,13 @@ describe('credits', () => {
   it('ships with the npm package, like the rest of the handbook', () => {
     const pkg = JSON.parse(read('package.json'));
     expect(pkg.files).toContain('docs/credits.md');
+  });
+
+  it('ships its builder too, so the build:credits script works from the package', () => {
+    const pkg = JSON.parse(read('package.json'));
+    expect(pkg.scripts['build:credits']).toBe('node scripts/build-credits.js');
+    expect(pkg.files).toContain('scripts/build-credits.js');
+    expect(pkg.files).toContain('scripts/credits-page.html');
   });
 });
 
