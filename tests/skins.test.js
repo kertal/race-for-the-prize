@@ -256,6 +256,26 @@ describe('design tokens', () => {
     }
   });
 
+  it('outranks a skin that sets its own durations under reduced motion', () => {
+    // Skins scope their tokens to :root[data-theme="<name>"], and a skin is
+    // inlined after the base stylesheet. A skin with a nonzero --duration must
+    // still lose to the reader's preference, so the reduced-motion rule needs
+    // a selector of strictly higher specificity than the documented one.
+    const specificity = (selector) => [
+      (selector.match(/#[\w-]+/g) || []).length,
+      (selector.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length,
+      (selector.match(/(?:^|[\s>+~])[a-z][\w-]*/g) || []).length,
+    ];
+    const outranks = (a, b) => {
+      for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
+      return false;
+    };
+    const reduced = rootBlock.slice(rootBlock.indexOf('prefers-reduced-motion')).replace(/\/\*[\s\S]*?\*\//g, '');
+    const selectors = reduced.match(/\{\s*([^{}]+?)\s*\{/)[1].split(',').map(s => s.trim());
+    const skinSelector = ':root[data-theme="team"]';
+    expect(selectors.some(s => outranks(specificity(s), specificity(skinSelector)))).toBe(true);
+  });
+
   it.each(componentLayers)(
     'keeps raw palette tokens out of %s',
     (_name, get) => {

@@ -165,7 +165,11 @@
    to zero and the transitions go with them, with nothing to outrank: no
    universal selector, no override flag. */
 @media (prefers-reduced-motion: reduce) {
-  :root {
+  /* A skin scopes its tokens to :root[data-theme="…"], which would outrank a
+     plain :root here. The second selector carries one element more, so the
+     reader's preference beats a skin's own durations. */
+  :root,
+  html:root[data-theme] {
     --duration-fast: 0s;
     --duration: 0s;
     --duration-slow: 0s;

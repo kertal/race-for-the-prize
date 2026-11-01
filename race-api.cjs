@@ -73,24 +73,34 @@ function createRaceApi({ recordingStartTime = Date.now(), now = Date.now, hooks 
   let hasExplicitRecording = false;
   let autoRecordingStarted = false;
   let stopPromise = null;
+  let startPromise = null;
 
   const elapsed = () => (now() - recordingStartTime) / 1000;
 
-  const startRecording = async () => {
-    if (currentSegmentStart !== null) return;
-    // The previous segment's stop may still be running its hooks (finish flag,
-    // trace mark, overlay). The new segment waits for it: otherwise its start
-    // mark could overtake the previous end mark in the trace, and the old stop
-    // could switch off the overlay and clock the new segment just turned on.
-    // With at most one stop in flight, finalize() awaiting stopPromise covers
-    // every stop there is.
-    if (stopPromise) await stopPromise;
-    if (gateRecordingStart) {
-      const result = await gateRecordingStart();
-      if (result?.aborted) return;
-    }
-    currentSegmentStart = elapsed();
-    if (onRecordingStart) await onRecordingStart();
+  const startRecording = () => {
+    if (currentSegmentStart !== null) return Promise.resolve();
+    // Two un-awaited starts during a rollover would both get past the guard
+    // above, both wait on the same stop, and both run the start hooks — each
+    // taking a turn at the parallel-mode gate. They share one start instead.
+    if (startPromise) return startPromise;
+    startPromise = (async () => {
+      // The previous segment's stop may still be running its hooks (finish
+      // flag, trace mark, overlay). The new segment waits for it: otherwise
+      // its start mark could overtake the previous end mark in the trace, and
+      // the old stop could switch off the overlay and clock the new segment
+      // just turned on. With at most one stop in flight, finalize() awaiting
+      // stopPromise covers every stop there is.
+      if (stopPromise) await stopPromise;
+      if (gateRecordingStart) {
+        const result = await gateRecordingStart();
+        if (result?.aborted) return;
+      }
+      currentSegmentStart = elapsed();
+      if (onRecordingStart) await onRecordingStart();
+    })().finally(() => { startPromise = null; });
+    // (.finally rather than a try/finally inside: with nothing to await, the
+    // body would finish synchronously and clear the slot before it was set.)
+    return startPromise;
   };
 
   const stopRecording = async () => {

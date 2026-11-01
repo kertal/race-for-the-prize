@@ -251,6 +251,33 @@ describe('page.race* API (race-api.cjs)', () => {
       expect(api.segments).toHaveLength(2);
     });
 
+    it('shares one start between overlapping un-awaited start calls', async () => {
+      // Both calls arrive while the previous stop is still marking; neither
+      // has set the segment yet, so without coalescing both would run the
+      // start hooks and both would take a turn at the parallel-mode gate.
+      let releaseMark = null;
+      let gates = 0;
+      let starts = 0;
+      const { api, page } = createTestApi({
+        hooks: {
+          gateRecordingStart: async () => { gates++; },
+          onRecordingStart: async () => { starts++; },
+          markRecordingEnd: () => (releaseMark ? Promise.resolve() : new Promise(resolve => { releaseMark = resolve; })),
+        },
+      });
+
+      await page.raceRecordingStart();
+      const firstEnd = page.raceRecordingEnd(); // not awaited
+      const secondStart = page.raceRecordingStart();
+      const thirdStart = page.raceRecordingStart();
+      releaseMark();
+      await Promise.all([firstEnd, secondStart, thirdStart]);
+
+      expect(api.currentSegmentStart).not.toBeNull();
+      expect(gates).toBe(2); // one per segment, not one per call
+      expect(starts).toBe(2);
+    });
+
     it('runs a new segment\'s start hooks only after the previous stop hooks', async () => {
       // The trace marks must stay in segment order, and the old stop must not
       // switch off the overlay the new segment just turned on.
