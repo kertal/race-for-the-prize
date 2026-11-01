@@ -98,7 +98,13 @@ function createRaceApi({ recordingStartTime = Date.now(), now = Date.now, hooks 
     // call wait on this stop rather than opening a duplicate segment.
     currentSegmentStart = null;
     segments.push({ start: segmentStart, end: segmentEnd });
+    // Each stop queues behind the previous one: a second segment can close
+    // while the first stop's hooks are still in flight, and finalize() awaits
+    // only the latest stopPromise, so it must cover every stop before it. The
+    // chain also keeps the stop hooks in segment order.
+    const previousStop = stopPromise;
     stopPromise = (async () => {
+      if (previousStop) await previousStop;
       if (markRecordingEnd) await markRecordingEnd();
       // The finish is the last measurement that ended inside this segment. An
       // earlier segment's measurement must not leak into a later one, and a

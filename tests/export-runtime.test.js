@@ -73,7 +73,40 @@ describe('video export clip-end hold', () => {
   });
 
   it('runs the hold on every export frame, before the clock is read', () => {
-    const tick = block(exportVideo, 'function tick()', 'const cur =');
+    const tick = block(exportVideo, 'function tick()', 'const elapsed =');
     expect(tick).toContain('holdExportClips(visibleIndices, perVideoEnd)');
+  });
+});
+
+describe('video export clock', () => {
+  function harness(times) {
+    const videos = times.map(t => (t === null ? null : { currentTime: t, pause: vi.fn() }));
+    const ctx = { raceVideos: videos };
+    vm.createContext(ctx);
+    vm.runInContext(block(exportVideo, 'function exportElapsed(', '\nasync function startExport('), ctx);
+    return ctx.exportElapsed;
+  }
+
+  it('counts each racer from its own clip start', () => {
+    // Racer 0's clip is [8, 12], racer 1's is [0, 20]. Four seconds in, racer
+    // 0 sits held at 12 while racer 1 is at 4: the clock has to read 4, not
+    // stall at 12 until racer 1 passes it.
+    const elapsed = harness([12, 4]);
+    expect(elapsed([0, 1], [8, 0])).toBe(4);
+  });
+
+  it('follows the furthest racer once the held one is passed', () => {
+    const elapsed = harness([12, 15]);
+    expect(elapsed([0, 1], [8, 0])).toBe(15);
+  });
+
+  it('never runs backwards past zero when a seek landed a hair early', () => {
+    const elapsed = harness([7.98]);
+    expect(elapsed([0], [8])).toBe(0);
+  });
+
+  it('ignores hidden racers and missing videos', () => {
+    const elapsed = harness([30, null, 5]);
+    expect(elapsed([1, 2], [0, 2])).toBe(3);
   });
 });

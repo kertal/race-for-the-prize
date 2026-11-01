@@ -1329,9 +1329,9 @@ describe('buildPlayerHtml export', () => {
     expect(defaultHtml).toContain('rawH % 2');
   });
 
-  it('export timer starts from 0 using exportTimeOffset', () => {
-    expect(defaultHtml).toContain('exportTimeOffset');
-    expect(defaultHtml).toContain('cur - exportTimeOffset');
+  it('export timer counts each racer from its own clip start', () => {
+    expect(defaultHtml).toContain('exportElapsed(visibleIndices, perVideoStart)');
+    expect(defaultHtml).not.toContain('exportTimeOffset');
   });
 
   it('export modal canvas has max-height to keep buttons visible', () => {
@@ -1482,9 +1482,9 @@ describe('buildPlayerHtml clip alignment', () => {
 
   it('export seek code uses elapsed-based alignment', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
-    const exportSection = html.slice(html.indexOf('seekPromises'));
-    expect(exportSection).toContain('const elapsed = startTime - activeClip.start');
-    expect(exportSection).toContain('target = ct[i].start + elapsed');
+    const exportSection = html.slice(html.indexOf('const perVideoStart'));
+    expect(exportSection).toContain('ct[i].start + (startTime - activeClip.start)');
+    expect(exportSection).toContain('const target = perVideoStart[j]');
   });
 });
 

@@ -267,6 +267,40 @@ describe('page.race* API (race-api.cjs)', () => {
       expect(api.segments).toHaveLength(1);
       expect(stops).toHaveLength(1);
     });
+
+    it('finalize waits for every in-flight stop, in segment order', async () => {
+      // With the segment slot freed before the hooks run, a spec can close a
+      // second segment while the first stop is still marking. finalize() must
+      // not return until both have finished, and the stop hooks must land in
+      // the order the segments closed.
+      let releaseFirstMark = null;
+      const stops = [];
+      const { api, page } = createTestApi({
+        hooks: {
+          markRecordingEnd: () => (releaseFirstMark
+            ? Promise.resolve()
+            : new Promise(resolve => { releaseFirstMark = resolve; })),
+          onRecordingStop: async ({ segmentEnd }) => { stops.push(segmentEnd); },
+        },
+      });
+
+      await page.raceRecordingStart();
+      page.raceRecordingEnd(); // not awaited; its mark is held back
+      await page.raceRecordingStart();
+      await new Promise(r => setTimeout(r, 5));
+      const secondEnd = page.raceRecordingEnd();
+
+      let finalized = false;
+      const done = api.finalize().then(() => { finalized = true; });
+      await Promise.resolve();
+      expect(finalized).toBe(false);
+      expect(stops).toEqual([]);
+
+      releaseFirstMark();
+      await Promise.all([secondEnd, done]);
+      expect(api.segments).toHaveLength(2);
+      expect(stops).toEqual(api.segments.map(s => s.end));
+    });
   });
 
   describe('auto-recording behavior', () => {
