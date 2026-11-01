@@ -52,6 +52,14 @@ class SpeedCurveEditor extends HTMLElement {
 
   get hasPoints() { return this._pts.length > 0; }
 
+  get keyframes() { return this._pts.map(({ t, s }) => ({ t, s })); }
+
+  set keyframes(list) {
+    this._pts = normalizeKeyframes(list).map(k => ({ ...k, id: ++this._uid }));
+    this._dragId = this._hoverId = this._selId = -1;
+    this._changed();
+  }
+
   speedAt(t) { return curveSpeedAt(this._pts, t, this._baseSpeed); }
 
   // One call per sync so a playback tick redraws at most once.
@@ -408,6 +416,8 @@ function refreshSpeedCurveState() {
 
 if (speedCurveEditor) {
   speedCurveEditor.addEventListener('speedchange', refreshSpeedCurveState);
+  // An exported page carries the curve it was exported with.
+  if (raceConfig.speedCurve) speedCurveEditor.keyframes = raceConfig.speedCurve;
   speedCurveToggle.addEventListener('click', () => {
     const open = speedCurvePanel.hidden;
     speedCurvePanel.hidden = !open;

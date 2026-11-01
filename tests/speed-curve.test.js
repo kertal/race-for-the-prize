@@ -20,6 +20,7 @@ const {
   snapCurveSpeed,
   stepCurveSpeed,
   curvePlotHeight,
+  normalizeKeyframes,
 } = require('../cli/player-runtime/speed-curve.cjs');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -95,6 +96,19 @@ describe('stepCurveSpeed', () => {
   });
 });
 
+describe('normalizeKeyframes', () => {
+  it('sorts, clamps speeds to the axis, and drops malformed entries', () => {
+    expect(normalizeKeyframes([
+      { t: 3, s: 0.5 }, { t: 1, s: 99 }, { t: -1, s: 1 }, { t: 2, s: NaN }, null, { t: '4', s: 1 }, { t: 0, s: 0.01 },
+    ])).toEqual([{ t: 0, s: SPEED_CURVE_MIN }, { t: 1, s: SPEED_CURVE_MAX }, { t: 3, s: 0.5 }]);
+  });
+
+  it('treats anything but an array as no curve', () => {
+    expect(normalizeKeyframes(undefined)).toEqual([]);
+    expect(normalizeKeyframes({ t: 1, s: 1 })).toEqual([]);
+  });
+});
+
 describe('curvePlotHeight', () => {
   it('is the whole canvas without racer strips', () => {
     expect(curvePlotHeight(90, 0)).toBe(90);
@@ -152,7 +166,7 @@ describe('speed curve without keyframes (no regression)', () => {
   const src = fs.readFileSync(path.join(__dirname, '../cli/player-runtime/speed-curve.js'), 'utf-8');
   const wiring = src.slice(src.indexOf('// --- Transport wiring'));
 
-  function harness({ hasPoints = false, panelHidden = true } = {}) {
+  function harness({ hasPoints = false, panelHidden = true, raceConfig = {} } = {}) {
     const videos = [{ playbackRate: 2 }, { playbackRate: 2 }];
     const editor = { hasPoints, speedAt: () => 0.25, update: vi.fn(), addEventListener() {} };
     const panel = { hidden: panelHidden };
@@ -161,13 +175,22 @@ describe('speed curve without keyframes (no regression)', () => {
     const ctx = {
       document: { getElementById: id => byId[id] },
       videos, raceVideos: videos, clipTimes: null, activeClip: null, hiddenRacers: new Set(),
-      racerColors: [], speedSelect: { value: '2' }, scrubber: { value: 0 },
+      racerColors: [], speedSelect: { value: '2' }, scrubber: { value: 0 }, raceConfig,
       clipDuration: () => 10, getAdjustedClipTimes: () => null, isValidClipEntry: () => false,
     };
     vm.createContext(ctx);
     vm.runInContext(wiring, ctx);
     return { ctx, videos, editor };
   }
+
+  it('a page without a baked curve loads with no keyframes', () => {
+    expect(harness().editor.keyframes).toBeUndefined();
+  });
+
+  it('an exported page loads the curve baked into #race-config', () => {
+    const curve = [{ t: 1, s: 4 }, { t: 3, s: 0.25 }];
+    expect(harness({ raceConfig: { speedCurve: curve } }).editor.keyframes).toEqual(curve);
+  });
 
   it('never touches playbackRate during playback', () => {
     const { ctx, videos } = harness();
@@ -190,5 +213,50 @@ describe('speed curve without keyframes (no regression)', () => {
     const { ctx, videos } = harness({ hasPoints: true });
     ctx.applySpeedCurve(3);
     expect(videos.map(v => v.playbackRate)).toEqual([0.25, 0.25]);
+  });
+});
+
+// Export HTML / Export Zip clone the live page: the curve has to travel in
+// #race-config and be restored on load, while the cloned editor chrome
+// (open panel, lit toggle, disabled speed menu) is reset.
+describe('speed curve in the HTML export', () => {
+  const zip = fs.readFileSync(path.join(__dirname, '../cli/player-runtime/export-zip.js'), 'utf-8');
+
+  function bake({ active, keyframes = [{ t: 1, s: 4 }, { t: 3, s: 0.25 }], prior = {} }) {
+    const configScript = { textContent: JSON.stringify({ videoCount: 2, ...prior }) };
+    const ctx = {
+      JSON, String, Object, Array,
+      getAdjustedClipTimes: () => null, clipTimes: null, debugOffsets: [],
+      speedCurveActive: () => active,
+      speedCurveEditor: { keyframes },
+    };
+    vm.createContext(ctx);
+    vm.runInContext(zip.slice(zip.indexOf('function bakeRaceConfig('), zip.indexOf('// The segment picker')), ctx);
+    ctx.bakeRaceConfig({ querySelector: () => configScript }, {}, false);
+    return JSON.parse(configScript.textContent);
+  }
+
+  it('bakes the drawn keyframes into #race-config', () => {
+    expect(bake({ active: true }).speedCurve).toEqual([{ t: 1, s: 4 }, { t: 3, s: 0.25 }]);
+  });
+
+  it('leaves no curve behind when none is drawn, even on a re-export', () => {
+    expect(bake({ active: false, prior: { speedCurve: [{ t: 1, s: 2 }] } })).not.toHaveProperty('speedCurve');
+  });
+
+  it('resets the cloned editor chrome', () => {
+    const el = (attrs = {}) => ({ hidden: false, disabled: true, attrs: { ...attrs }, removed: [],
+      classList: { list: new Set(['active']), remove(c) { this.list.delete(c); } },
+      setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; } });
+    const nodes = { '#speedCurvePanel': el(), '#speedCurveToggle': el({ 'aria-expanded': 'true' }), '#speedSelect': el({ title: 'x' }) };
+    const ctx = {};
+    vm.createContext(ctx);
+    vm.runInContext(zip.slice(zip.indexOf('function resetSpeedCurveUi('), zip.indexOf('// Point <video> src')), ctx);
+    ctx.resetSpeedCurveUi({ querySelector: sel => nodes[sel] || null });
+    expect(nodes['#speedCurvePanel'].hidden).toBe(true);
+    expect(nodes['#speedCurveToggle'].classList.list.has('active')).toBe(false);
+    expect(nodes['#speedCurveToggle'].attrs['aria-expanded']).toBe('false');
+    expect(nodes['#speedSelect'].disabled).toBe(false);
+    expect(nodes['#speedSelect'].attrs).not.toHaveProperty('title');
   });
 });

@@ -68,6 +68,17 @@ function stepCurveSpeed(s, dir) {
   return [...SPEED_CURVE_GRID].reverse().find(g => g < s - EPS) ?? SPEED_CURVE_MIN;
 }
 
+// Keyframes read back from an exported page's #race-config: anything that
+// is not a finite, non-negative time with a finite speed is dropped, speeds
+// are held to the axis, and the result is sorted by time.
+function normalizeKeyframes(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter(k => k && Number.isFinite(k.t) && k.t >= 0 && Number.isFinite(k.s))
+    .map(k => ({ t: k.t, s: Math.max(SPEED_CURVE_MIN, Math.min(SPEED_CURVE_MAX, k.s)) }))
+    .sort((a, b) => a.t - b.t);
+}
+
 function curvePlotHeight(canvasHeight, stripCount) {
   if (stripCount <= 0) return canvasHeight;
   return canvasHeight - (stripCount * (CURVE_STRIP_HEIGHT + CURVE_STRIP_GAP) + CURVE_STRIP_PAD);
@@ -87,5 +98,6 @@ if (typeof module !== 'undefined' && module.exports) {
     snapCurveSpeed,
     stepCurveSpeed,
     curvePlotHeight,
+    normalizeKeyframes,
   };
 }
