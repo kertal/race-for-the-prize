@@ -174,7 +174,6 @@ ${rule}
   ${c.yellow}--height${c.reset}=${c.green}900${c.reset}           Viewport/recording height in pixels (480–4320, default 720)
   ${c.yellow}--ignore-https-errors${c.reset}  Accept invalid/self-signed TLS certificates
   ${c.yellow}--wall-clock${c.reset}           Burn a ticking wall clock into the recording (perturbs metrics)
-  ${c.yellow}--speed-curve${c.reset}          Add a speed curve editor to the results player (slow-mo finishes)
   ${c.yellow}--cue-markers${c.reset}          Flash visual cues at segment boundaries (calibration testing; perturbs metrics)
   ${c.yellow}--serve${c.reset}=${c.green}0${c.reset}              Don't start local results server (CI/headless; open index.html manually)
   ${c.yellow}--gemini${c.reset}               Gemini CLI sports reporter commentary after race

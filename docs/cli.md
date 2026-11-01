@@ -35,7 +35,6 @@ race-for-the-prize <dir> --pause                # Press Enter before each racer,
 race-for-the-prize <dir> --height=900           # Set viewport/recording height in pixels (480–4320, default 720)
 race-for-the-prize <dir> --ignore-https-errors  # Accept invalid/self-signed TLS certificates
 race-for-the-prize <dir> --wall-clock           # Burn a ticking wall clock into the recording
-race-for-the-prize <dir> --speed-curve         # Add a speed curve editor to the results player
 race-for-the-prize <dir> --skin=light           # Skin the results player (light, neon, or a path to a .css file)
 race-for-the-prize <dir> --cue-markers          # Flash coloured cues at segment boundaries (calibration testing; perturbs metrics)
 race-for-the-prize <dir> --gemini               # Post-race commentary from the Gemini CLI, if you have it installed
@@ -152,7 +151,6 @@ it has no default, and the entry below is an example.)
   "wallClock": false,
   "cueMarkers": false,
   "fps": false,
-  "speedCurve": false,
   "viewportHeight": 720,
   "skin": "light"
 }
@@ -178,7 +176,6 @@ it has no default, and the entry below is an example.)
 | `wallClock` | `--wall-clock` | `true` / `false` | `false` |
 | `cueMarkers` | `--cue-markers` | `true` / `false` — calibration-test cues; they perturb the metrics | `false` |
 | `fps` | `--fps` | `true` / `false` — adds frame timing to the profile, at the cost of a bigger trace | `false` |
-| `speedCurve` | `--speed-curve` | `true` / `false` — adds the speed curve editor to the HTML player; changes nothing about the race | `false` |
 | `gemini` | `--gemini` | `true` / `false` — post-race commentary, needs the `gemini` CLI on your PATH | not set (off) |
 | `viewportHeight` | `--height=<px>` | integer, 480–4320 (also accepted as `height` in settings.json) | `720` |
 | `skin` | `--skin=<name\|path>` | `light`, `neon`, or a path to a `.css` file — see [Skinning the player](skinning.md) | not set (built-in dark theme) |

@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import fs from 'node:fs';
+import vm from 'node:vm';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -105,7 +106,7 @@ describe('curvePlotHeight', () => {
 });
 
 describe('speed curve in the generated player', () => {
-  const build = (opts) => buildPlayerHtml({
+  const html = buildPlayerHtml({
     racers: ['lauda', 'hunt'],
     comparisons: [],
     overallWinner: null,
@@ -114,16 +115,7 @@ describe('speed curve in the generated player', () => {
     errors: [],
     wins: {},
     videos: {},
-  }, ['lauda/lauda.race.webm', 'hunt/hunt.race.webm'], null, null, opts);
-  const html = build({ speedCurve: true });
-
-  it('is opt-in: without --speed-curve the player has no toggle and no editor', () => {
-    const plain = build();
-    expect(plain).not.toContain('id="speedCurveToggle"');
-    expect(plain).not.toContain('id="speedCurveEditor"');
-    expect(plain).not.toContain('id="speedCurvePanel"');
-    expect(plain).not.toContain('{{speedCurve');
-  });
+  }, ['lauda/lauda.race.webm', 'hunt/hunt.race.webm']);
 
   it('ships the toggle, a collapsed panel, and the editor template', () => {
     expect(html).toContain('id="speedCurveToggle"');
@@ -151,5 +143,52 @@ describe('speed curve in the generated player', () => {
   it('builds the shadow DOM without innerHTML', () => {
     const src = fs.readFileSync(path.join(__dirname, '../cli/player-runtime/speed-curve.js'), 'utf-8');
     expect(src).not.toContain('innerHTML');
+  });
+});
+
+// The editor ships in every player, so until someone draws a curve it must
+// leave playback exactly as it was: the speed menu keeps sole control.
+describe('speed curve without keyframes (no regression)', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../cli/player-runtime/speed-curve.js'), 'utf-8');
+  const wiring = src.slice(src.indexOf('// --- Transport wiring'));
+
+  function harness({ hasPoints = false, panelHidden = true } = {}) {
+    const videos = [{ playbackRate: 2 }, { playbackRate: 2 }];
+    const editor = { hasPoints, speedAt: () => 0.25, update: vi.fn(), addEventListener() {} };
+    const panel = { hidden: panelHidden };
+    const toggle = { addEventListener() {}, setAttribute() {}, classList: { toggle() {} } };
+    const byId = { speedCurveEditor: editor, speedCurvePanel: panel, speedCurveToggle: toggle };
+    const ctx = {
+      document: { getElementById: id => byId[id] },
+      videos, raceVideos: videos, clipTimes: null, activeClip: null, hiddenRacers: new Set(),
+      racerColors: [], speedSelect: { value: '2' }, scrubber: { value: 0 },
+      clipDuration: () => 10, getAdjustedClipTimes: () => null, isValidClipEntry: () => false,
+    };
+    vm.createContext(ctx);
+    vm.runInContext(wiring, ctx);
+    return { ctx, videos, editor };
+  }
+
+  it('never touches playbackRate during playback', () => {
+    const { ctx, videos } = harness();
+    for (const t of [0, 1, 5, 10]) ctx.applySpeedCurve(t);
+    expect(videos.map(v => v.playbackRate)).toEqual([2, 2]);
+  });
+
+  it('is not considered active, so export keeps the speed menu rate', () => {
+    expect(harness().ctx.speedCurveActive()).toBe(false);
+  });
+
+  it('does no editor work while the panel is closed', () => {
+    const { ctx, editor } = harness();
+    ctx.syncSpeedCurveEditor(3);
+    ctx.applySpeedCurve(3);
+    expect(editor.update).not.toHaveBeenCalled();
+  });
+
+  it('takes over playbackRate only once a curve is drawn', () => {
+    const { ctx, videos } = harness({ hasPoints: true });
+    ctx.applySpeedCurve(3);
+    expect(videos.map(v => v.playbackRate)).toEqual([0.25, 0.25]);
   });
 });

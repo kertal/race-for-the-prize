@@ -60,7 +60,6 @@ const KEY_ORDER = [
   'cueMarkers',
   'fps',
   'wallClock',
-  'speedCurve',
   'skin',
   'gemini',
 ];

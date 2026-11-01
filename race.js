@@ -310,7 +310,6 @@ function writePlayerAndAssets({ runDir, summary, settings, videoFiles, playerExt
     ffmpegPathPrefix: raceOptions.ffmpegPathPrefix || './',
     skin: settings.skin,
     skinBaseDir: raceDir,
-    speedCurve: settings.speedCurve,
   };
   fs.writeFileSync(
     path.join(runDir, 'index.html'),
@@ -1461,7 +1460,6 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
       runSummaries: summaries,
       skin: settings.skin,
       skinBaseDir: ctx.raceDir,
-      speedCurve: settings.speedCurve,
     };
     fs.writeFileSync(
       path.join(resultsDir, 'index.html'),

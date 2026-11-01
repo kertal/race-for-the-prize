@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { MAX_RACERS, discoverRacers, resolveSharedRacerNames, parseArgs, applyOverrides, applyDefaults, discoverSetupTeardown, discoverRacerSetupTeardown, findValuelessKvFlags, findUnknownFlags, parseNetworkList, parseCpuList, buildRaceConditions, InvalidSettingError } from '../cli/config.js';
+import { MAX_RACERS, discoverRacers, resolveSharedRacerNames, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown, findValuelessKvFlags, findUnknownFlags, parseNetworkList, parseCpuList, buildRaceConditions, InvalidSettingError } from '../cli/config.js';
 
 let tmpDir;
 
@@ -365,13 +365,6 @@ describe('settings override', () => {
   it('CLI --recording enables recording', () => {
     const s = applyOverrides({ noRecording: true }, new Set(['recording']), {});
     expect(s.noRecording).toBe(false);
-  });
-
-  it('the speed curve editor is off unless asked for', () => {
-    expect(applyDefaults({}).speedCurve).toBe(false);
-    expect(applyOverrides({}, new Set(['speed-curve']), {}).speedCurve).toBe(true);
-    expect(applyOverrides({ speedCurve: true }, new Set(), { 'speed-curve': 'false' }).speedCurve).toBe(false);
-    expect(findUnknownFlags(new Set(['speed-curve']), {})).toEqual([]);
   });
 
   it('CLI --wall-clock enables the recorded wall clock', () => {
