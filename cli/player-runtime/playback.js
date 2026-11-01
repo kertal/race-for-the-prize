@@ -143,6 +143,7 @@ function updateTimeDisplay() {
   timeDisplay.textContent = fmt(Math.max(0, t)) + ' / ' + fmt(d);
   frameDisplay.textContent = getTime(Math.max(0, t));
   updateFinishDisplays();
+  updateTimelinePlayhead();
 }
 
 // --- Debug mode: per-racer clip start calibration ---
@@ -525,6 +526,8 @@ function watchClipEnd() {
     maxClipElapsed(ct);
     // Settling the transport is the expensive half, and it happens once.
     if (activeClip && allClipsFinished(ct)) onTimeUpdate();
+    // timeupdate alone would move the playhead four times a second.
+    updateTimelinePlayhead();
     clipWatchRaf = requestAnimationFrame(tick);
   };
   clipWatchRaf = requestAnimationFrame(tick);
@@ -644,6 +647,8 @@ function hideCalibration() {
 function resetSegmentState({ hide = false } = {}) {
   activeSegmentName = null;
   activeSegmentClipTimes = null;
+  updateTimelineActive(null);
+  setTimelineVisible(!hide);
   if (!segmentNav) return;
   segmentNav.value = '__all__';
   let segDisplay = 'none';

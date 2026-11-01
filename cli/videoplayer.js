@@ -66,6 +66,8 @@ const RUNTIME_FILES = [
   'calibration.cjs',   // pure clip-calibration math (Node-testable)
   'debug-panel.js',    // calibration/debug panel UI
   'segments.js',       // segment navigation + racer filter UI
+  'timeline.cjs',      // pure segment-timeline layout math (Node-testable)
+  'timeline.js',       // the clickable segment timeline under the videos
   'finish-results.cjs', // final per-section placements, independent of recording order
   'finish-display.js', // show each placement at that racer's own finish
   'main.js',           // startup: initial verified seek + metadata pass

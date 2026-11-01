@@ -107,6 +107,7 @@ h1 {
 .control-action-btn,
 .mode-btn,
 .racer-filter-btn,
+.timeline-label,
 .frame-btn,
 .play-btn,
 .file-links a,
@@ -880,6 +881,86 @@ video {
   padding: 0.4rem 0.8rem;
 }
 
+/* --- Segment timeline ----------------------------------------------------
+   One bar for the whole recording, the race clip marked on it and a block per
+   measurement. Blocks and labels are buttons carrying the --racer-color of
+   the racer that won the section; a dead heat carries none. */
+.race-timeline {
+  max-width: var(--content-max);
+  width: 100%;
+  padding: 0.4rem var(--gutter) 0;
+  user-select: none;
+}
+.timeline-bar {
+  position: relative;
+  width: 100%;
+  height: 28px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: pointer;
+}
+.timeline-region-clip {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: var(--surface-raised);
+  border-left: var(--border-width-thick) solid var(--accent);
+  border-right: var(--border-width-thick) solid var(--accent);
+  /* A click on the clip region is a click on the bar underneath it. */
+  pointer-events: none;
+}
+.timeline-segment {
+  position: absolute;
+  top: 4px;
+  height: calc(100% - 8px);
+  min-width: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--racer-color, var(--accent));
+  opacity: 0.7;
+  cursor: pointer;
+  transition: opacity var(--duration-fast);
+}
+.timeline-segment:hover,
+.timeline-segment.active { opacity: 1; }
+/* The bar clips overflow, so the ring sits inside the block. */
+.timeline-segment.active { box-shadow: inset 0 0 0 var(--border-width-thick) var(--text-bright); }
+.timeline-segment:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+}
+.timeline-playhead {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--border-width-thick);
+  height: 100%;
+  background: var(--text-bright);
+  pointer-events: none;
+}
+.timeline-labels {
+  display: flex;
+  gap: 0.3rem;
+  padding-top: 0.3rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+/* A chip per measurement, coloured like its block — the racer filter's look,
+   on the shared control chrome. */
+.timeline-label {
+  color: var(--racer-color, var(--text-dim));
+  border-color: currentcolor;
+  padding: 0.15rem 0.5rem;
+  font-size: var(--font-size-xs);
+  opacity: 0.6;
+}
+.timeline-label:hover,
+.timeline-label.active { opacity: 1; }
+.timeline-label:hover { background: var(--surface-raised); }
+.timeline-label:focus-visible { outline: var(--focus-ring); }
+
 /* --- Calibration panel ---------------------------------------------------
    Shape comes from .panel; this is only what marks it out as a tool. */
 .debug-panel {
@@ -1187,6 +1268,11 @@ video {
    fullscreen. Hide them with the racer labels. #fullscreenBtn stays: it is the
    way back out. */
 .fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) :is(.calibration-btn, .control-action-group, #settingsToggle) {
+  display: none;
+}
+/* The grid takes the whole screen, so the timeline would only add a scroll
+   below it; the scrubber in the overlaid controls carries fullscreen. */
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .race-timeline {
   display: none;
 }
 .fullscreen-wrapper.fs-controls-visible .controls {

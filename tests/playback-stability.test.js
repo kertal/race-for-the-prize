@@ -158,7 +158,7 @@ describe('duration probe', () => {
       timeDisplay: {}, frameDisplay: {}, activeSegmentName: null,
       calibrateClipTimes: () => ({ convertedAny: false, pending: false }),
       resolveAdjustedClip: () => null, revealCalibrationToggle() {}, buildSegmentNav() {},
-      updateDebugStats() {}, finalizeCalibration() {}, updateFinishDisplays() {},
+      updateDebugStats() {}, finalizeCalibration() {}, updateFinishDisplays() {}, updateTimelinePlayhead() {},
     };
     vm.createContext(ctx);
     vm.runInContext(block(playback, 'function fmt(', '\n// --- Debug mode'), ctx);

@@ -47,12 +47,15 @@ function selectFullRecording() {
 
 function onSegmentChange(val) {
   if (val === '__full__') {
+    updateTimelineActive(null);
     selectFullRecording();
   } else if (val === '__all__') {
     setActiveSegment(null, null);
+    updateTimelineActive(null);
     ensureRaceMode(seekToActiveClipStart);
   } else {
     setActiveSegment(val, getSegmentClipTimes(val));
+    updateTimelineActive(val);
     ensureRaceMode(seekToActiveClipStart);
   }
 }
@@ -90,6 +93,7 @@ function buildSegmentNav() {
   segmentNav.addEventListener('change', () => onSegmentChange(segmentNav.value));
 
   segmentNav.style.display = 'inline-block';
+  buildTimeline();
 }
 
 function buildRacerFilter() {
