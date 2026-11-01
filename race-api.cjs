@@ -174,6 +174,9 @@ function createRaceApi({ recordingStartTime = Date.now(), now = Date.now, hooks 
 
   /** Close any still-open segment and flush deferred stop effects. */
   const finalize = async () => {
+    // A start queued behind a slow stop must land first, or its segment stays
+    // open and its hooks fire after the results have been read.
+    if (startPromise) await startPromise;
     if (currentSegmentStart !== null) await stopRecording();
     if (stopPromise) await stopPromise;
   };

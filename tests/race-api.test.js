@@ -318,6 +318,34 @@ describe('page.race* API (race-api.cjs)', () => {
       expect(stops).toHaveLength(1);
     });
 
+    it('finalize closes a segment whose start was queued behind a slow stop', async () => {
+      // Un-awaited end, un-awaited start, script returns: the start only lands
+      // once the first stop's mark is done, and finalize used to wait for the
+      // stop alone — leaving the new segment open and its hooks still running.
+      let releaseMark = null;
+      let starts = 0;
+      const stops = [];
+      const { api, page } = createTestApi({
+        hooks: {
+          onRecordingStart: async () => { starts++; },
+          markRecordingEnd: () => (releaseMark ? Promise.resolve() : new Promise(resolve => { releaseMark = resolve; })),
+          onRecordingStop: async (info) => { stops.push(info); },
+        },
+      });
+
+      await page.raceRecordingStart();
+      page.raceRecordingEnd(); // not awaited
+      page.raceRecordingStart(); // not awaited, queued behind the stop above
+      const done = api.finalize();
+      releaseMark();
+      await done;
+
+      expect(api.currentSegmentStart).toBeNull();
+      expect(api.segments).toHaveLength(2);
+      expect(starts).toBe(2);
+      expect(stops).toHaveLength(2);
+    });
+
   });
 
   describe('auto-recording behavior', () => {
