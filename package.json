@@ -29,7 +29,8 @@
     "postinstall": "node scripts/postinstall.cjs",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.js",
-    "race": "node race.js"
+    "race": "node race.js",
+    "build:credits": "node scripts/build-credits.js"
   },
   "keywords": [
     "browser",

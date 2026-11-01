@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#1a1a1a">
+<title>{{title}} — RaceForThePrize</title>
+<meta name="description" content="The people and tools behind RaceForThePrize.">
+<meta property="og:title" content="RaceForThePrize — {{title}}">
+<meta property="og:description" content="No car reaches the grid on its own. The people, tools and song behind RaceForThePrize.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://kertal.github.io/race-for-the-prize/credits.html">
+<meta property="og:image" content="https://raw.githubusercontent.com/kertal/race-for-the-prize/main/assets/screenshot-player-fullscreen.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%8F%81%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+
+<header class="race-header">
+  <span class="strapline">🏁 Race for the Prize</span>
+  <a class="repo-link" href="https://github.com/kertal/race-for-the-prize">github ↗</a>
+</header>
+
+<main>
+
+  <section class="hero">
+    <h1>{{title}}</h1>
+{{tagline}}
+    <div class="actions">
+      <a class="btn primary" href="index.html">Back to the paddock</a>
+      <a class="btn" href="https://github.com/kertal/race-for-the-prize/blob/main/docs/credits.md">This page as Markdown</a>
+    </div>
+  </section>
+
+{{sections}}
+
+  <footer>
+    <p><a href="index.html">Back to the front page</a> · generated from <code>docs/credits.md</code> by <code>npm run build:credits</code>.</p>
+  </footer>
+
+</main>
+
+<div class="checkered-bar"></div>
+
+</body>
+</html>
+<!-- The fragments below are build-time only: scripts/build-credits.js fills
+     them from docs/credits.md and they never reach the published page. -->
+<template id="build-tagline">
+    <p class="tagline">{{text}}</p>
+</template>
+
+<!-- One per `##` heading in the Markdown: the heading, then its paragraphs. -->
+<template id="build-section">
+  <section>
+    <h2>{{heading}}</h2>
+{{body}}
+  </section>
+</template>
+
+<template id="build-paragraph">
+    <p>{{text}}</p>
+</template>
+
