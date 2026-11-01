@@ -79,9 +79,20 @@ function stagePackedCli(dir) {
   if (untar.status !== 0) throw new Error(`tar failed: ${untar.stderr || untar.error?.message}`);
 
   // npm unpacks the tarball's `package/` directory under the package name.
-  fs.renameSync(path.join(modules, 'package'), path.join(modules, CLI_NAME));
-  fs.symlinkSync(path.join('..', CLI_NAME, 'race.js'), path.join(modules, '.bin', CLI_NAME));
-  fs.chmodSync(path.join(modules, CLI_NAME, 'race.js'), 0o755);
+  const pkgDir = path.join(modules, CLI_NAME);
+  fs.renameSync(path.join(modules, 'package'), pkgDir);
+
+  // Shim what the packaged manifest declares, not a file name assumed here:
+  // npm links `bin` and nothing else, so a bin renamed, repointed or left out
+  // of the `files` allowlist has to fail this staging rather than slip past it.
+  const { bin } = JSON.parse(fs.readFileSync(path.join(pkgDir, 'package.json'), 'utf-8'));
+  const target = typeof bin === 'string' ? bin : bin?.[CLI_NAME];
+  if (!target) throw new Error(`package.json declares no "${CLI_NAME}" bin: ${JSON.stringify(bin)}`);
+  if (!fs.existsSync(path.join(pkgDir, target))) {
+    throw new Error(`the "${CLI_NAME}" bin points at ${target}, which the tarball does not carry`);
+  }
+  fs.symlinkSync(path.join('..', CLI_NAME, target), path.join(modules, '.bin', CLI_NAME));
+  fs.chmodSync(path.join(pkgDir, target), 0o755);
   return proj;
 }
 
