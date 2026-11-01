@@ -143,6 +143,7 @@ function updateTimeDisplay() {
   timeDisplay.textContent = fmt(Math.max(0, t)) + ' / ' + fmt(d);
   frameDisplay.textContent = getTime(Math.max(0, t));
   updateFinishDisplays();
+  syncSpeedCurveEditor(Math.max(0, t));
 }
 
 // --- Debug mode: per-racer clip start calibration ---
@@ -522,7 +523,7 @@ function watchClipEnd() {
     if (!playing) { clipWatchRaf = null; return; }
     const ct = getAdjustedClipTimes() || clipTimes;
     // Clamps each video to its own clip end as a side effect.
-    maxClipElapsed(ct);
+    applySpeedCurve(maxClipElapsed(ct));
     // Settling the transport is the expensive half, and it happens once.
     if (activeClip && allClipsFinished(ct)) onTimeUpdate();
     clipWatchRaf = requestAnimationFrame(tick);

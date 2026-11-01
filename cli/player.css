@@ -173,9 +173,14 @@ h1 {
   transition: border-color var(--duration), background-color var(--duration);
 }
 .segment-nav:hover,
-.speed-select:hover {
+.speed-select:hover:enabled {
   border-color: var(--accent);
   background-color: var(--surface-raised);
+}
+/* A drawn speed curve owns playback speed, so the menu stands aside. */
+.speed-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .segment-nav:focus-visible,
 .speed-select:focus-visible {
@@ -326,6 +331,18 @@ h1 {
   font-size: var(--font-size-base);
   line-height: var(--leading-loose);
   margin-bottom: 0.8rem;
+}
+
+/* --- Speed Curve panel --------------------------------------------------- */
+.speed-curve-panel {
+  max-width: var(--content-max);
+  width: 100%;
+  padding: 0 var(--gutter) 0.8rem;
+}
+/* Lit while a curve is drawn: it then owns the playback speed. */
+.frame-btn.speed-curve-btn.active {
+  background: var(--surface-raised);
+  border-color: var(--accent);
 }
 
 /* --- Settings panel ------------------------------------------------------ */

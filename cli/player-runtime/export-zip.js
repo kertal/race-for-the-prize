@@ -40,6 +40,8 @@ function bakeRaceConfig(doc, pathOverrides, hasOverrides) {
       };
     });
   }
+  if (speedCurveActive()) cfg.speedCurve = speedCurveEditor.keyframes;
+  else delete cfg.speedCurve;
   if (hasOverrides) {
     const mapPath = p => (p && pathOverrides[p]) ? pathOverrides[p] : p;
     if (Array.isArray(cfg.raceVideoPaths)) cfg.raceVideoPaths = cfg.raceVideoPaths.map(mapPath);
@@ -118,12 +120,25 @@ function stripSlimSections(doc) {
 
 // Clear dynamically-built UI so the script rebuilds it cleanly on load.
 function clearDynamicUi(doc, slim) {
+  resetSpeedCurveUi(doc);
   const racerFilter = doc.querySelector('#racerFilter');
   if (racerFilter) { racerFilter.replaceChildren(); racerFilter.style.display = 'none'; }
   if (!slim) {
     const segNav = doc.querySelector('#segmentNav');
     if (segNav) { segNav.replaceChildren(); segNav.style.display = 'none'; }
   }
+}
+
+// The live page's speed curve state (open panel, lit toggle, disabled speed
+// menu) is cloned with the DOM; the exported page rebuilds it from the
+// keyframes baked into #race-config, so it starts from the shipped markup.
+function resetSpeedCurveUi(doc) {
+  const panel = doc.querySelector('#speedCurvePanel');
+  if (panel) panel.hidden = true;
+  const toggle = doc.querySelector('#speedCurveToggle');
+  if (toggle) { toggle.classList.remove('active'); toggle.setAttribute('aria-expanded', 'false'); }
+  const select = doc.querySelector('#speedSelect');
+  if (select) { select.disabled = false; select.removeAttribute('title'); }
 }
 
 // Point <video> src attributes at embedded data URIs so playback needs no JS.
