@@ -55,6 +55,9 @@ describe('parseCredits', () => {
 
   it('insists on the shape it renders', () => {
     expect(() => parseCredits('No title here.\n')).toThrow(/title/);
+    expect(() => parseCredits('')).toThrow(/title/);
+    expect(() => parseCredits('Stray prose first.\n\n# Credits\n')).toThrow(/start with a "# " title, not: "Stray prose first."/);
+    expect(() => parseCredits('## A section first\n\n# Credits\n')).toThrow(/start with a "# " title, not: "## A section first"/);
     expect(() => parseCredits('# One\n\n# Two\n')).toThrow(/second title/);
     expect(() => parseCredits('# T\n\n## Section\nglued paragraph\n')).toThrow(/blank line/);
   });

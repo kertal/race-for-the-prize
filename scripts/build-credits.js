@@ -71,6 +71,10 @@ export function parseCredits(markdown) {
     }
 
     const heading = lines[0].match(HEADING_RE);
+    // The title opens the file: anything else first is a malformed edit.
+    if (!page.title && heading?.[1] !== '#') {
+      throw new Error(`credits.md has to start with a "# " title, not: "${lines[0]}"`);
+    }
     if (heading) {
       if (lines.length > 1) throw new Error(`credits.md heading needs a blank line after it: "${lines[0]}"`);
       const [, level, text] = heading;
