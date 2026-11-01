@@ -13,6 +13,7 @@ const {
   formatRaceMessage,
   createRaceMessageRegex,
   formatContextClosed,
+  signalExitCode,
 } = require('../runner-protocol.cjs');
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -85,6 +86,19 @@ describe('stderr line formats', () => {
 
   it('formatContextClosed produces the per-racer marker', () => {
     expect(formatContextClosed('lauda')).toBe('[lauda] Context closed');
+  });
+});
+
+describe('signalExitCode', () => {
+  it('maps the signals both processes exit on to 128 + signo', () => {
+    expect(signalExitCode('SIGINT')).toBe(130);
+    expect(signalExitCode('SIGTERM')).toBe(143);
+    expect(signalExitCode('SIGHUP')).toBe(129);
+  });
+
+  it('reports anything else as an interrupt', () => {
+    expect(signalExitCode('SIGUSR1')).toBe(130);
+    expect(signalExitCode(null)).toBe(130);
   });
 });
 

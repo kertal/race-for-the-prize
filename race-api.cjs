@@ -73,31 +73,40 @@ function createRaceApi({ recordingStartTime = Date.now(), now = Date.now, hooks 
   let hasExplicitRecording = false;
   let autoRecordingStarted = false;
   let stopPromise = null;
+  let startPromise = null;
 
   const elapsed = () => (now() - recordingStartTime) / 1000;
 
-  const startRecording = async () => {
-    if (currentSegmentStart !== null) return;
-    if (gateRecordingStart) {
-      const result = await gateRecordingStart();
-      if (result?.aborted) return;
-    }
-    currentSegmentStart = elapsed();
-    if (onRecordingStart) await onRecordingStart();
+  const startRecording = () => {
+    if (currentSegmentStart !== null) return Promise.resolve();
+    // Overlapping starts share one gate pass and one set of start hooks.
+    if (startPromise) return startPromise;
+    startPromise = (async () => {
+      // Wait for the previous stop's hooks: keeps the trace marks in order and
+      // stops the old segment's teardown from undoing this one's overlay.
+      if (stopPromise) await stopPromise;
+      if (gateRecordingStart) {
+        const result = await gateRecordingStart();
+        if (result?.aborted) return;
+      }
+      currentSegmentStart = elapsed();
+      if (onRecordingStart) await onRecordingStart();
+    })().finally(() => { startPromise = null; }); // a try/finally would clear the slot before it is set
+    return startPromise;
   };
 
   const stopRecording = async () => {
     if (currentSegmentStart === null) return stopPromise;
     const segmentStart = currentSegmentStart;
     const segmentEnd = elapsed();
-    segments.push({ start: segmentStart, end: segmentEnd });
-    if (markRecordingEnd) await markRecordingEnd();
+    // Close the segment before awaiting any hook, so an un-awaited
+    // raceRecordingEnd() followed by raceRecordingStart() finds the slot free.
     currentSegmentStart = null;
+    segments.push({ start: segmentStart, end: segmentEnd });
     stopPromise = (async () => {
-      // The finish is the last measurement that ended inside this segment. An
-      // earlier segment's measurement must not leak into a later one, and a
-      // segment with no measurement of its own finishes when it closed — not
-      // some later instant after the trace mark's round-trip.
+      if (markRecordingEnd) await markRecordingEnd();
+      // The finish is the last measurement that ended inside this segment;
+      // a segment without one finishes when it closed.
       const lastMeasurement = measurements[measurements.length - 1];
       const endTime = lastMeasurement && lastMeasurement.endTime >= segmentStart
         ? lastMeasurement.endTime
@@ -152,8 +161,12 @@ function createRaceApi({ recordingStartTime = Date.now(), now = Date.now, hooks 
       await startMeasure(name);
     };
     page.raceEnd = (name = 'default') => {
+      // An unmatched raceEnd is ignored as a measurement, so it must not end a
+      // section either: the hook would overwrite the finished section's CDP
+      // metrics with whatever ran since (see runner-metrics stopSectionMeasurement).
+      const matched = activeMeasurements[name] !== undefined;
       const duration = endMeasure(name);
-      if (onSectionEnd) onSectionEnd(name, Object.keys(activeMeasurements).length);
+      if (matched && onSectionEnd) onSectionEnd(name, Object.keys(activeMeasurements).length);
       return duration;
     };
     return page;
@@ -161,6 +174,9 @@ function createRaceApi({ recordingStartTime = Date.now(), now = Date.now, hooks 
 
   /** Close any still-open segment and flush deferred stop effects. */
   const finalize = async () => {
+    // A start queued behind a slow stop must land first, or its segment stays
+    // open and its hooks fire after the results have been read.
+    if (startPromise) await startPromise;
     if (currentSegmentStart !== null) await stopRecording();
     if (stopPromise) await stopPromise;
   };

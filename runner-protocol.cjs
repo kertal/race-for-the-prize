@@ -102,13 +102,6 @@ function isSafeRacerId(id) {
 }
 
 /**
- * Enforcement companion to isSafeRacerId: resolve `segments` against `baseDir`
- * and verify the result stays inside it. Every path the runner constructs from
- * protocol data (racer ids, recording filenames) goes through this before any
- * filesystem access, so a malformed config or filename can never escape the
- * recordings directory. Returns the resolved absolute path; throws on escape.
- */
-/**
  * True when `target` is `base` itself or sits below it.
  *
  * Uses path.relative rather than a `base + sep` prefix test: that prefix is
@@ -126,6 +119,13 @@ function isPathInside(base, target) {
   return !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
 }
 
+/**
+ * Enforcement companion to isSafeRacerId: resolve `segments` against `baseDir`
+ * and verify the result stays inside it. Every path the runner constructs from
+ * protocol data (racer ids, recording filenames) goes through this before any
+ * filesystem access, so a malformed config or filename can never escape the
+ * recordings directory. Returns the resolved absolute path; throws on escape.
+ */
 function confinePath(baseDir, ...segments) {
   const base = path.resolve(baseDir);
   const resolved = path.resolve(base, ...segments);
@@ -155,6 +155,19 @@ function formatContextClosed(id) {
   return `[${id}] ${CONTEXT_CLOSED_MARKER}`;
 }
 
+/**
+ * Map a POSIX signal name to its conventional exit code (128 + signo). Both
+ * processes exit with it on Ctrl+C, and the parent reads the runner's code
+ * back, so the mapping has to be the same on both sides. Unknown signals are
+ * reported as an interrupt.
+ */
+function signalExitCode(signal) {
+  if (signal === 'SIGINT') return 130;
+  if (signal === 'SIGTERM') return 143;
+  if (signal === 'SIGHUP') return 129;
+  return 130;
+}
+
 module.exports = {
   PROTOCOL_VERSION,
   MAX_RACERS,
@@ -165,4 +178,5 @@ module.exports = {
   formatRaceMessage,
   createRaceMessageRegex,
   formatContextClosed,
+  signalExitCode,
 };

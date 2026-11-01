@@ -31,6 +31,11 @@ preprocessor, and no need to keep a fork of the stylesheet in sync.
 Because both pages read the same tokens, one `--skin` themes the whole report
 set — the overview and every per-condition player it links to.
 
+Motion is the one thing a skin cannot switch back on. When the reader asks for
+reduced motion, `tokens.css` zeroes the duration tokens with a selector that
+outranks a skin's, so a skin's own `--duration` only applies to readers who
+allow motion.
+
 ## Using a skin
 
 ```bash
@@ -116,7 +121,7 @@ Type, shape, motion and layout:
 | Token | Role |
 |---|---|
 | `--font-ui`, `--font-display` | Body/monospace face and heading face |
-| `--font-size-xs` … `--font-size-3xl` | Eight-step type scale (plus `--font-size-marker` for disclosure triangles) |
+| `--font-size-xs` … `--font-size-2xl` | Seven-step type scale (plus `--font-size-marker` for disclosure triangles) |
 | `--tracking-tight` … `--tracking-widest` | Letter-spacing steps |
 | `--leading`, `--leading-loose` | Line heights |
 | `--radius-sm`, `--radius`, `--radius-md`, `--radius-lg` | Corner radii |

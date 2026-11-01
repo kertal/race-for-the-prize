@@ -183,7 +183,7 @@ export function createStaticHandler(dir) {
  * Detect whether the current environment is headless/CI, where auto-opening
  * a browser is likely to fail or be unwanted.
  */
-export function isHeadlessEnv() {
+function isHeadlessEnv() {
   if (process.env.CI) return true;
   if (!process.stderr.isTTY) return true;
   if (process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {

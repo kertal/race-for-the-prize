@@ -327,6 +327,7 @@ footer a:hover { color: var(--text); }
   .lineup td:first-child { white-space: normal; overflow-wrap: anywhere; }
 }
 
+/* Mirrors cli/tokens.css: every transition is timed with --duration. */
 @media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; }
+  :root { --duration: 0s; }
 }

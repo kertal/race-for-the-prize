@@ -232,6 +232,20 @@ describe('runScript execution', () => {
     );
   }, 15000);
 
+  it('reports a plain timeout when the script only exits because of the SIGTERM', async () => {
+    // Regression: the "still holding its output" message was picked by the
+    // exit code being non-null, which is also true of a script that handles
+    // the timeout's SIGTERM by exiting with a code. That script overran; it
+    // left nothing behind.
+    fs.writeFileSync(
+      path.join(tmpDir, 'tidy.js'),
+      "process.on('SIGTERM', () => process.exit(1));\nsetInterval(() => {}, 1000);\n"
+    );
+    const error = await run({ command: 'tidy.js', timeout: 300 }).catch(e => e);
+    expect(error.message).toBe('Setup script timed out after 300ms');
+    expect(error.message).not.toMatch(/still holding its output/);
+  }, 15000);
+
   it('resolves once the waitFor URL responds with 2xx', async () => {
     fs.writeFileSync(path.join(tmpDir, 'ok.js'), 'process.exit(0);');
     const server = http.createServer((req, res) => { res.writeHead(200); res.end('ok'); });

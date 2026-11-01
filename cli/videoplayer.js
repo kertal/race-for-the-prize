@@ -21,7 +21,6 @@ import { getPlacementOrder } from './summary.js';
 import { loadTemplates, escHtml, render, serializeJsonForScript } from './html-templates.js';
 import {
   RACER_CSS_COLORS,
-  setTemplates,
   buildRunNavHtml,
   buildRaceInfoHtml,
   buildRaceConfigHtml,
@@ -42,9 +41,9 @@ import { buildSpreadsheetModel, buildSpreadsheetPanelHtml, SPREADSHEET_CSS, SPRE
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Markup lives in player.html: the page shell plus one build-* template per
-// repeated fragment, split apart here and filled at build time.
-const { shell: TEMPLATE, templates: BUILD_TEMPLATES, fill } = loadTemplates(path.join(__dirname, 'player.html'));
-setTemplates(BUILD_TEMPLATES);
+// repeated fragment, split apart here and filled at build time. (The section
+// builders in player-sections.js load the same fragments for themselves.)
+const { shell: TEMPLATE, fill } = loadTemplates(path.join(__dirname, 'player.html'));
 
 // Shared design tokens first, then this page's component rules. Both reports
 // inline the same tokens.css so the player and the condition overview cannot
@@ -109,11 +108,6 @@ function buildSpreadsheetOnlyScript() {
   return '<script>\n(function() {\n' + SPREADSHEET_RUNTIME + '\n})();\n</script>';
 }
 
-// The race config, for the <script type="application/json"> block the runtime reads.
-function serializeRaceConfig(config) {
-  return serializeJsonForScript(config);
-}
-
 // Stable identity for one race run, stamped into #race-config. The browser
 // runtime keys its saved calibration offsets on it, so two races — or two runs
 // of the same race — can never overwrite each other's saved calibration. The
@@ -170,7 +164,8 @@ function buildVideoPlayer(summary, videoFiles, opts) {
     : '';
 
   const videoIds = placementOrder.map((_, i) => `v${i}`);
-  const raceConfigJson = serializeRaceConfig({
+  // The race config, for the <script type="application/json"> block the runtime reads.
+  const raceConfigJson = serializeJsonForScript({
     raceId: computeRaceId(summary, videoFiles),
     videoCount: videoIds.length,
     raceVideoPaths: placementOrder.map(i => videoFiles[i]),
@@ -235,7 +230,6 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     styles: buildStyles(layoutCss),
     skinStyles: buildSkinStyles(resolvedSkin),
     runNav: buildRunNavHtml(runNavigation, racers, runSummaries),
-    winnerBanner: '',
     raceInfo: buildRaceInfoHtml(summary),
     raceConfig: buildRaceConfigHtml(raceConfig),
     machineInfo: buildMachineInfoHtml(summary.machineInfo),

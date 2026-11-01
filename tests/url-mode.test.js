@@ -133,6 +133,14 @@ describe('applyDefaults', () => {
     expect(applyDefaults({ wallClock: 'false' }).wallClock).toBe(false);
   });
 
+  it('coerces a string gemini from settings.json, and defaults it off', () => {
+    // Regression: gemini was missing from the boolean keys, so "false" stayed
+    // the (truthy) string and ran the commentary anyway.
+    expect(applyDefaults({}).gemini).toBe(false);
+    expect(applyDefaults({ gemini: 'false' }).gemini).toBe(false);
+    expect(applyDefaults({ gemini: 'true' }).gemini).toBe(true);
+  });
+
   it('preserves explicitly set values', () => {
     const result = applyDefaults({ parallel: true, runs: 3, format: 'mov' });
     expect(result.parallel).toBe(true);

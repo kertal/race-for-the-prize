@@ -502,6 +502,32 @@ describe('frame metric formatting', () => {
   });
 });
 
+describe('determineProfileMetricOutcome with a shared best value', () => {
+  const metric = PROFILE_METRICS['measured.scriptDuration']; // 1ms floor, 3% threshold
+  const racers = ['a', 'b', 'c'];
+
+  it('crowns nobody when two racers share the best value', () => {
+    // Regression: the first-listed of the two used to take the win over an
+    // identical racer, because only the gap to the slowest was checked.
+    const outcome = determineProfileMetricOutcome(metric, racers, [5, 5, 7]);
+    expect(outcome.winner).toBeNull();
+    expect(outcome.rankings).toEqual(['a', 'b', 'c']);
+    // The spread is still reported, best to worst.
+    expect(outcome.diff).toBe(2);
+  });
+
+  it('needs the lead over the runner-up, not the spread, to clear the thresholds', () => {
+    // 0.1ms over the runner-up is under the 1ms floor, however far back c is.
+    expect(determineProfileMetricOutcome(metric, racers, [5, 5.1, 100]).winner).toBeNull();
+  });
+
+  it('still crowns a sole best value that clears them', () => {
+    expect(determineProfileMetricOutcome(metric, racers, [5, 50, 100]).winner).toBe('a');
+    expect(determineProfileMetricOutcome(metric, racers, [100, 5, 5]).winner).toBeNull();
+    expect(determineProfileMetricOutcome(metric, racers, [100, 5, 100]).winner).toBe('b');
+  });
+});
+
 describe('dropped frames noise floor', () => {
   it('does not call a small dropped-frame gap a win', () => {
     // Real numbers from a scripted scroll race: the 9-frame gap is the spec's

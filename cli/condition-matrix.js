@@ -26,7 +26,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { c, RACER_COLORS } from './colors.js';
 import { loadTemplates, escHtml, render } from './html-templates.js';
-import { sortComparisonsForDisplay, rankEntries, metricDeltaFormat, formatDuration, formatDeltaLabel, formatAdvantageLabel } from './report-model.js';
+import { sortComparisonsForDisplay, rankEntries, metricDeltaFormat, formatDuration, gapLabel, comparisonLeaders } from './report-model.js';
 import { PROFILE_METRICS, determineProfileMetricOutcome } from './profile-analysis.js';
 import { RACER_CSS_COLORS } from './player-sections.js';
 import { resolveSkin, DEFAULT_THEME_COLOR } from './skins.js';
@@ -155,6 +155,17 @@ function metricOutcome(entry, racers, metric, values) {
   return { winner, isTie: !winner && withData >= 2 };
 }
 
+/**
+ * The racers a condition's own race called level on total time — its tie
+ * epsilon, not exact equality — so the matrix prints no gap between them.
+ * Null for profile metrics, whose outcome already comes from metricOutcome.
+ */
+function totalTimeLeaders(entry, racers, metric) {
+  if (metric.key !== TOTAL_TIME_METRIC.key) return null;
+  const comp = overallComparison(entry.summary);
+  return comp ? comparisonLeaders(comp, entry.summary.racers ?? racers) : null;
+}
+
 /** One condition's series for one metric: the verdict plus every racer, best first. */
 function buildSeries(entry, racers, metric) {
   const values = metricValues(entry, racers, metric);
@@ -162,7 +173,8 @@ function buildSeries(entry, racers, metric) {
   const { entries: ranked, bestValue, maxValue } = rankEntries(
     racers,
     i => ({ val: values[i] }),
-    metricDeltaFormat(metric)
+    metricDeltaFormat(metric),
+    totalTimeLeaders(entry, racers, metric)
   );
 
   return {
@@ -205,8 +217,9 @@ function availableMetrics(entries, profileMetrics) {
  *   racers: string[], rowHeader: string, columns: string[],
  *   rows: Array<{header: string, cells: Array<object|null>}>, cells: object[],
  *   metrics: Array<{key: string, name: string, scope: string, format: Function}>,
- *   aggregates: Record<string, {wins: Record<string, number>, ties: number, max: number}>
- * }}
+ *   aggregates: Record<string, {wins: Record<string, number>, ties: number, max: number}>,
+ *   legend: string|null
+ * }} legend is the CPU-rate note, present whenever the layout shows a CPU axis.
  */
 export function buildConditionMatrix(entries, profileMetrics = PROFILE_METRICS) {
   const racers = collectRacers(entries);
@@ -426,10 +439,7 @@ function seriesHtml(series, max) {
       // One column, read from whichever side the row is on: a loser's gap to
       // the winner, or the winner's lead over the runner-up. It stays in the
       // markup even when empty so the values below it still line up.
-      delta: escHtml(
-        (racer.delta != null
-          ? formatDeltaLabel(racer.delta, racer.relative)
-          : formatAdvantageLabel(racer.advantage)) || ''),
+      delta: escHtml(gapLabel(racer) || ''),
     });
   }).join('');
   return fill('series', { ...verdictSlots(series), rows });
@@ -464,13 +474,15 @@ function pickerGroupsHtml(metrics) {
  * @param {Array<{label: string, title?: string, network?: string, cpu?: number,
  *                summary: object|null}>} entries
  * @param {object} [options]
+ * @param {object} [options.matrix] - a buildConditionMatrix(entries) result the
+ *   caller already has (race.js prints it first); built here when absent
  * @param {string} [options.skin] - skin name or .css path, as for the player
  * @param {string} [options.skinBaseDir] - directory a relative skin path resolves against
  * @returns {string} HTML document
  */
 export function buildConditionIndexHtml(raceTitle, entries, options = {}) {
   const skin = resolveSkin(options.skin, options.skinBaseDir);
-  const matrix = buildConditionMatrix(entries);
+  const matrix = options.matrix || buildConditionMatrix(entries);
 
   return render(SHELL, {
     title: escHtml(raceTitle),

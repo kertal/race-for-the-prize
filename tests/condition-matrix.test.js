@@ -157,6 +157,29 @@ describe('buildConditionMatrix', () => {
     expect(seriesOf(cell).racers.some(r => r.isWinner)).toBe(false);
   });
 
+  it('prints no gap between racers the race called level on total time', () => {
+    // The race's synthetic total treats times within its tie epsilon as a
+    // shared lead; the matrix must not undercut that verdict with "+0.005s".
+    const matrix = buildConditionMatrix([{
+      label: '4g', network: '4g', cpu: 1,
+      summary: {
+        racers: ['lauda', 'hunt', 'regazzoni'],
+        overallWinner: 'tie',
+        comparisons: [{
+          name: 'Race', isSyntheticTotal: true, winner: null, leaders: ['lauda', 'hunt'],
+          racers: [{ duration: 2.0 }, { duration: 2.005 }, { duration: 3.0 }],
+        }],
+      },
+    }]);
+    const series = seriesOf(matrix.cells[0]);
+
+    expect(series.isTie).toBe(true);
+    expect(series.racers[0]).toMatchObject({ name: 'lauda', delta: null, relative: null, advantage: null });
+    expect(series.racers[1]).toMatchObject({ name: 'hunt', delta: null, relative: null, advantage: null });
+    expect(series.racers[2]).toMatchObject({ name: 'regazzoni', delta: '1.000s', relative: '50%' });
+    expect(render(matrix)).not.toContain('+0.005s');
+  });
+
   it('sums nothing for a racer with no data in a condition', () => {
     const [cell] = buildConditionMatrix([
       { label: '4g', network: '4g', cpu: 1, summary: summaryOf({ lauda: 2, hunt: null }, 'lauda') },
@@ -658,6 +681,23 @@ describe('buildConditionIndexHtml matrix', () => {
       .split('\n')
       .filter(line => !line.includes('svg') && /#[0-9a-fA-F]{3,8}\b|\brgba?\(|var\(\s*--color-/.test(line));
     expect(offenders).toEqual([]);
+  });
+});
+
+describe('buildConditionIndexHtml matrix option', () => {
+  const entries = [{ label: '4g', network: '4g', cpu: 1, summary: summaryOf({ lauda: 2.5, hunt: 1.5 }, 'hunt') }];
+
+  it('renders a matrix the caller already built instead of building it again', () => {
+    // race.js prints the matrix first and hands the same one over; a different
+    // matrix than the entries would yield proves it is the one rendered.
+    const other = buildConditionMatrix([{ label: 'wifi', network: 'wifi', cpu: 2, summary: summaryOf({ lauda: 1.0, hunt: 4.0 }, 'lauda') }]);
+    const html = buildConditionIndexHtml('race', entries, { matrix: other });
+    expect(html).toContain('wifi');
+    expect(html).not.toContain('4g');
+  });
+
+  it('builds the matrix from the entries when none is supplied', () => {
+    expect(buildConditionIndexHtml('race', entries)).toBe(buildConditionIndexHtml('race', entries, { matrix: buildConditionMatrix(entries) }));
   });
 });
 

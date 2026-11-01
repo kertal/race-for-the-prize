@@ -91,7 +91,6 @@
   --font-size-lg: 0.95rem;
   --font-size-xl: 1rem;
   --font-size-2xl: 1.1rem;
-  --font-size-3xl: 1.2rem;
 
   --tracking-tight: 0.05em;
   --tracking: 0.08em;
@@ -158,5 +157,16 @@
   :root {
     --control-size: 40px;
     --control-size-sm: 36px;
+  }
+}
+
+/* Every transition is timed with these tokens, so zeroing them is all reduced
+   motion takes. The second selector outranks a skin's :root[data-theme="…"]. */
+@media (prefers-reduced-motion: reduce) {
+  :root,
+  html:root[data-theme] {
+    --duration-fast: 0s;
+    --duration: 0s;
+    --duration-slow: 0s;
   }
 }

@@ -74,6 +74,17 @@ describe('splitTemplates', () => {
     expect(templates.x).toBe('a');
   });
 
+  it('consumes only the comment directly above the template, never an earlier one', () => {
+    // Regression: the optional comment prefix could backtrack across "-->" and
+    // match from a shell comment up to the template's own, taking the markup
+    // between them out of the shell.
+    const { shell, templates } = splitTemplates(
+      '<body>\n<!-- a shell comment -->\n<div class="keep-me">shell</div>\n<!-- doc -->\n<template id="build-x">X</template>\n</body>'
+    );
+    expect(shell).toBe('<body>\n<!-- a shell comment -->\n<div class="keep-me">shell</div>\n</body>');
+    expect(templates).toEqual({ x: 'X' });
+  });
+
   it('leaves an unrelated <template> alone', () => {
     const { shell, templates } = splitTemplates('<template id="tmpl-runtime">x</template>');
     expect(shell).toBe('<template id="tmpl-runtime">x</template>');

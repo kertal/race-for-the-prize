@@ -64,7 +64,8 @@ describe('loadRaceDir happy paths', () => {
     fs.writeFileSync(path.join(tmpDir, 'alpha.spec.js'), '// alpha script');
     fs.writeFileSync(path.join(tmpDir, 'beta.spec.js'), '// beta script');
 
-    const { ctx, settings, racerNames } = load();
+    const { ctx, settings, racerNames, mode } = load();
+    expect(mode).toBe('directory');
     expect(racerNames).toEqual(['alpha', 'beta']);
     expect(ctx.racerFiles).toEqual(['alpha.spec.js', 'beta.spec.js']);
     expect(ctx.scripts).toEqual(['// alpha script', '// beta script']);
@@ -77,7 +78,10 @@ describe('loadRaceDir happy paths', () => {
     fs.writeFileSync(path.join(tmpDir, 'race.spec.js'), '// shared script');
     writeSettings({ racers: { fast: {}, slow: {} } });
 
-    const { ctx, racerNames } = load();
+    const { ctx, racerNames, mode } = load();
+    // The loader decided the mode; callers read it rather than re-deriving it
+    // from one race file and several racer names.
+    expect(mode).toBe('shared-spec');
     expect(racerNames).toEqual(['fast', 'slow']);
     // Physical files deduplicated, but one script payload per racer
     expect(ctx.racerFiles).toEqual(['race.spec.js']);

@@ -14,9 +14,12 @@
 import fs from 'node:fs';
 
 // A comment directly above a build template documents it, so it is consumed
-// with the template rather than left behind in the page shell.
+// with the template rather than left behind in the page shell. The comment's
+// body may not contain "-->": a plain `[\s\S]*?` there would, on backtracking,
+// run from an earlier shell comment through everything up to the template's
+// own, and swallow that stretch of the shell with it.
 const BUILD_TEMPLATE_RE =
-  /(?:<!--[\s\S]*?-->\s*)?<template id="build-([^"]+)">([\s\S]*?)<\/template>\s*/g;
+  /(?:<!--(?:(?!-->)[\s\S])*?-->\s*)?<template id="build-([^"]+)">([\s\S]*?)<\/template>\s*/g;
 
 /**
  * Replace `{{key}}` placeholders in a template string with data values.

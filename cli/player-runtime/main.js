@@ -90,17 +90,11 @@ function initialClipSeek() {
   updateTimeDisplay();
 }
 
-if (clipTimes) {
-  setPendingSeek(initialClipSeek);
-  if (raceVideos.every(v => !v || v.readyState >= 1)) {
-    // If metadata loaded before listeners attached, run one onMeta() pass
-    // explicitly so clip conversions/calibration are applied on first paint.
-    onMeta();
-  }
-}
+if (clipTimes) setPendingSeek(initialClipSeek);
 
 // Kick an initial metadata pass in case loadedmetadata fired before listeners
-// were attached (e.g. cache-fast loads). Wait until all race videos expose
+// were attached (e.g. cache-fast loads), so clip conversion/calibration and the
+// pending seek are applied on first paint. Wait until all race videos expose
 // metadata so conversion/calibration can actually run.
 {
   let attempts = 0;

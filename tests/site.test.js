@@ -18,11 +18,15 @@ const readme = read('ReadMe.md');
 /** Every page GitHub Pages serves from `docs/`, by filename. */
 const sitePages = { 'index.html': indexHtml, 'credits.html': creditsHtml };
 
-/** Every `--token: value;` declaration in a stylesheet, last one wins. */
+/**
+ * Every `--token: value;` declaration in a stylesheet, first one wins: that is
+ * the base value. Media-query overrides (coarse pointers, reduced motion) come
+ * later in the file and are not what the mirror has to match.
+ */
 function declaredTokens(css) {
   const tokens = {};
   for (const [, name, value] of css.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) {
-    tokens[name] = value.trim();
+    tokens[name] ??= value.trim();
   }
   return tokens;
 }
@@ -55,6 +59,14 @@ describe('landing page', () => {
     for (const name of shared) {
       expect(`${name}: ${site[name]}`).toBe(`${name}: ${tokens[name]}`);
     }
+  });
+
+  it('turns motion off the way the reports do: by zeroing the token, not with !important', () => {
+    expect(siteCss).not.toContain('!important');
+    const reduced = siteCss.slice(siteCss.indexOf('prefers-reduced-motion'));
+    expect(reduced).toMatch(/--duration:\s*0s;/);
+    const literal = [...siteCss.matchAll(/\btransition[^;{}]*;/g)].filter(([decl]) => /\d\s*m?s\b/.test(decl));
+    expect(literal).toEqual([]);
   });
 
   it('loads no third-party scripts or stylesheets', () => {

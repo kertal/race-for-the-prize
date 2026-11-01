@@ -21,25 +21,17 @@ function collectSegmentNames() {
 // Switch back to race-clip videos if currently in whole-recording (full) mode.
 function ensureRaceMode(callback) {
   if (fullVideoPaths && loadedSrcSet === 'full') {
-    loadVideoSet('race', () => { raceVideos.forEach((v, i) => { v.src = resolvedRacePaths[i]; }); }, callback);
+    loadVideoSet('race', () => applyVideoSources(resolvedRacePaths), callback);
   } else {
     callback();
   }
-}
-
-// Seek to the start of the active race clip after (re)entering race mode.
-function seekToActiveClipStart() {
-  recalcActiveClip();
-  seekAll(activeClip ? activeClip.start : 0);
-  scrubber.value = 0;
-  updateTimeDisplay();
 }
 
 function selectFullRecording() {
   setActiveSegment('__full__', null);
   const doSeek = seekToWholeRecordingStart;
   if (fullVideoPaths && loadedSrcSet !== 'full') {
-    loadVideoSet('full', () => { raceVideos.forEach((v, i) => { v.src = resolvedFullPaths[i]; }); }, doSeek);
+    loadVideoSet('full', () => applyVideoSources(resolvedFullPaths), doSeek);
   } else {
     doSeek();
   }
@@ -121,9 +113,6 @@ function buildRacerFilter() {
       btn.classList.remove('active');
       if (racerDivs[idx]) racerDivs[idx].style.display = 'none';
     }
-    recalcActiveClip();
-    seekAll(activeClip ? activeClip.start : 0);
-    scrubber.value = 0;
-    updateTimeDisplay();
+    seekToActiveClipStart();
   });
 }

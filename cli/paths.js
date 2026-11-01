@@ -51,6 +51,6 @@ export function isPathInside(root, target) {
   const resolvedTarget = path.resolve(target);
   if (resolvedTarget === resolvedRoot) return true;
   const rel = path.relative(resolvedRoot, resolvedTarget);
-  if (rel === '' || rel === '..') return false;
+  if (rel === '..') return false;
   return !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
 }

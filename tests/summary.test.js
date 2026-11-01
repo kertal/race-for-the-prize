@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { buildSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, getPlacementOrder, findMedianRunIndex, printSummary } from '../cli/summary.js';
+import { buildSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, getPlacementOrder, findMedianRunIndex, printSummary, buildRaceInfoRows, buildMachineInfoRows } from '../cli/summary.js';
 
 describe('buildSummary', () => {
   const names = ['lauda', 'hunt'];
@@ -234,6 +234,43 @@ describe('buildSummary', () => {
   });
 });
 
+describe('buildRaceInfoRows / buildMachineInfoRows', () => {
+  it('lists the date, the racers and only the settings that differ from the defaults', () => {
+    const rows = buildRaceInfoRows({
+      racers: ['lauda', 'hunt'],
+      timestamp: '2025-01-01T00:00:00.000Z',
+      settings: { parallel: false, network: 'fast-3g', cpuThrottle: 4, format: 'webm', headless: true, runs: 3 },
+    });
+    expect(rows).toEqual([
+      { label: 'Date', value: '2025-01-01T00:00:00.000Z' },
+      { label: 'Racer 1', value: 'lauda' },
+      { label: 'Racer 2', value: 'hunt' },
+      { label: 'Mode', value: 'sequential' },
+      { label: 'Network', value: 'fast-3g' },
+      { label: 'CPU Throttle', value: '4x slower' },
+      { label: 'Headless', value: 'yes' },
+      { label: 'Runs', value: '3' },
+    ]);
+  });
+
+  it('leaves out the date without a timestamp and the settings rows without settings', () => {
+    expect(buildRaceInfoRows({ racers: ['a'], settings: null })).toEqual([{ label: 'Racer 1', value: 'a' }]);
+    expect(buildRaceInfoRows({ racers: ['a'], settings: {} }).map(r => r.label)).toEqual(['Racer 1', 'Mode']);
+  });
+
+  it('describes the machine, skipping memory and Node.js when unknown', () => {
+    const machineInfo = { platform: 'linux', arch: 'x64', osRelease: '5.15.0', cpuModel: 'Intel i7', cpuCores: 12, totalMemoryMB: 32768, nodeVersion: 'v20.11.0' };
+    expect(buildMachineInfoRows(machineInfo)).toEqual([
+      { label: 'OS', value: 'Linux 5.15.0 (x64)' },
+      { label: 'CPU', value: 'Intel i7 (12 cores)' },
+      { label: 'Memory', value: '32.0 GB' },
+      { label: 'Node.js', value: 'v20.11.0' },
+    ]);
+    expect(buildMachineInfoRows({ ...machineInfo, totalMemoryMB: 0, nodeVersion: null }).map(r => r.label)).toEqual(['OS', 'CPU']);
+    expect(buildMachineInfoRows(null)).toEqual([]);
+  });
+});
+
 describe('buildMarkdownSummary', () => {
   function makeSummary(overrides = {}) {
     return {
@@ -398,6 +435,18 @@ describe('buildMarkdownSummary', () => {
     expect(md).toContain('4x slower');
   });
 
+  it('prints a shared lead without a trophy, and the trailing racer with its gap', () => {
+    const md = buildMarkdownSummary(makeSummary({
+      racers: ['a', 'b', 'c'],
+      comparisons: [{ name: 'Load', racers: [{ duration: 1.0 }, { duration: 1.0 }, { duration: 2.0 }], winner: null, diff: 1.0, diffPercent: 100 }],
+      overallWinner: null,
+      wins: { a: 0, b: 0, c: 0 },
+      videos: {},
+    }));
+    expect(md).toContain('| Load | 1.000s | 1.000s | 2.000s (+1.000s, +100%) |');
+    expect(md).not.toContain('\uD83C\uDFC6');
+  });
+
   it('includes machine info when provided', () => {
     const md = buildMarkdownSummary(makeSummary({
       machineInfo: {
@@ -410,7 +459,7 @@ describe('buildMarkdownSummary', () => {
         nodeVersion: 'v20.11.0',
       },
     }));
-    expect(md).toContain('| **Machine** | macOS 24.1.0 (arm64) |');
+    expect(md).toContain('| **OS** | macOS 24.1.0 (arm64) |');
     expect(md).toContain('| **CPU** | Apple M2 (8 cores) |');
     expect(md).toContain('| **Memory** | 16.0 GB |');
     expect(md).toContain('| **Node.js** | v20.11.0 |');
@@ -792,6 +841,93 @@ describe('buildSummary with 3+ racers', () => {
     // Each racer wins one measurement
     expect(summary.wins).toEqual({ alpha: 1, beta: 1, gamma: 1 });
     expect(summary.overallWinner).toBe('tie');
+  });
+
+  it('crowns nobody when two of three racers share the fastest time in a section', () => {
+    // Regression: the stable sort used to hand the section, the win count and
+    // the overall verdict to alpha, over a beta with the identical time.
+    const results = [
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 1, duration: 1.0 }], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [{ name: 'Load', startTime: 0, endTime: 2, duration: 2.0 }], videoPath: null, fullVideoPath: null, error: null },
+    ];
+    const summary = buildSummary(threeNames, results, {}, 'test-results');
+
+    expect(summary.comparisons[0].winner).toBeNull();
+    expect(summary.comparisons[0].rankings).toEqual(['alpha', 'beta', 'gamma']);
+    // The spread is still the real one, fastest to slowest.
+    expect(summary.comparisons[0].diff).toBeCloseTo(1.0);
+    expect(summary.wins).toEqual({ alpha: 0, beta: 0, gamma: 0 });
+    expect(summary.overallWinner).toBeNull();
+  });
+
+  it('gives the synthetic total no winner when two of three totals tie, matching the overall verdict', () => {
+    const run = (s1, s2) => ({ measurements: [
+      { name: 's1', startTime: 0, endTime: s1, duration: s1 },
+      { name: 's2', startTime: s1, endTime: s1 + s2, duration: s2 },
+    ], videoPath: null, fullVideoPath: null, error: null });
+    const summary = buildSummary(threeNames, [run(1.0, 1.0), run(1.0, 1.0), run(1.0, 2.0)], {}, 'test-results');
+
+    expect(summary.overallWinner).toBe('tie');
+    const total = summary.comparisons.find(c => c.isSyntheticTotal);
+    expect(total.winner).toBeNull();
+    expect(total.diff).toBeCloseTo(1.0);
+  });
+
+  it('applies the total tie epsilon per racer, not just fastest against slowest', () => {
+    // alpha and beta finish within the epsilon of each other; gamma is clearly
+    // behind. Before, only a fastest-vs-slowest gap inside the epsilon counted
+    // as a tie, so alpha took the total.
+    const run = (s1, s2) => ({ measurements: [
+      { name: 's1', startTime: 0, endTime: s1, duration: s1 },
+      { name: 's2', startTime: s1, endTime: s1 + s2, duration: s2 },
+    ], videoPath: null, fullVideoPath: null, error: null });
+    const summary = buildSummary(threeNames, [run(1.0, 1.0), run(1.0, 1.005), run(1.0, 2.0)], {}, 'test-results');
+
+    expect(summary.overallWinner).toBe('tie');
+    expect(summary.comparisons.find(c => c.isSyntheticTotal).winner).toBeNull();
+  });
+
+  it('names the shared leaders on the total so the reports print no gap between them', () => {
+    const run = (s1, s2) => ({ measurements: [
+      { name: 's1', startTime: 0, endTime: s1, duration: s1 },
+      { name: 's2', startTime: s1, endTime: s1 + s2, duration: s2 },
+    ], videoPath: null, fullVideoPath: null, error: null });
+    const summary = buildSummary(threeNames, [run(1.0, 1.0), run(1.0, 1.005), run(1.0, 2.0)], {}, 'test-results');
+
+    const total = summary.comparisons.find(c => c.isSyntheticTotal);
+    expect(total.leaders).toEqual(['alpha', 'beta']);
+    // Sections compare exactly: beta's 1.005s is a real gap there.
+    expect(summary.comparisons.find(c => c.name === 's2').leaders).toEqual(['alpha']);
+
+    const md = buildMarkdownSummary(summary);
+    expect(md).toContain('| Race | 2.000s | 2.005s | 3.000s (+1.000s, +50%) |');
+    expect(md).toContain('| s2 | 1.000s (\uD83C\uDFC6 0.5% ahead) | 1.005s (+0.005s, +0.5%) | 2.000s (+1.000s, +100%) |');
+
+    // The terminal bars follow the same rule: beta's total carries no gap,
+    // while its s2 section still shows the real 5ms.
+    let output = '';
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(chunk => { output += String(chunk); return true; });
+    try {
+      printSummary(summary);
+    } finally {
+      writeSpy.mockRestore();
+    }
+    expect(output).not.toMatch(/2\.005s[^\n]*\(/);
+    expect(output).toContain('1.005s');
+    expect(output).toContain('(+0.005s, +0.5%)');
+    expect(output).toContain('(+1.000s, +50%)');
+  });
+
+  it('still crowns a sole fastest racer in a three-way total', () => {
+    const run = (s1, s2) => ({ measurements: [
+      { name: 's1', startTime: 0, endTime: s1, duration: s1 },
+      { name: 's2', startTime: s1, endTime: s1 + s2, duration: s2 },
+    ], videoPath: null, fullVideoPath: null, error: null });
+    const summary = buildSummary(threeNames, [run(1.0, 1.0), run(1.0, 1.5), run(1.0, 2.0)], {}, 'test-results');
+
+    expect(summary.overallWinner).toBe('alpha');
+    expect(summary.comparisons.find(c => c.isSyntheticTotal).winner).toBe('alpha');
   });
 
   it('stores rankings in comparison', () => {

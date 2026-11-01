@@ -224,6 +224,128 @@ describe('page.race* API (race-api.cjs)', () => {
       expect(api.currentSegmentStart).toBeNull();
       expect(api.segments).toHaveLength(0);
     });
+
+    it('opens a second segment after an un-awaited recording end has finished marking', async () => {
+      // An un-awaited raceRecordingEnd() used to leave the slot occupied until
+      // its trace mark returned, so the next raceRecordingStart() was skipped.
+      let releaseMark = null;
+      const { api, page } = createTestApi({
+        // Only the first segment's mark is held back; the second ends freely.
+        hooks: { markRecordingEnd: () => (releaseMark ? Promise.resolve() : new Promise(resolve => { releaseMark = resolve; })) },
+      });
+
+      await page.raceRecordingStart();
+      const firstEnd = page.raceRecordingEnd(); // not awaited
+      const secondStart = page.raceRecordingStart();
+      await Promise.resolve();
+      expect(api.currentSegmentStart).toBeNull(); // waiting for the first stop
+
+      releaseMark();
+      await Promise.all([firstEnd, secondStart]);
+      expect(api.currentSegmentStart).not.toBeNull();
+      await page.raceRecordingEnd();
+      expect(api.segments).toHaveLength(2);
+    });
+
+    it('shares one start between overlapping un-awaited start calls', async () => {
+      // Without coalescing, both calls would run the start hooks and both
+      // would take a turn at the parallel-mode gate.
+      let releaseMark = null;
+      let gates = 0;
+      let starts = 0;
+      const { api, page } = createTestApi({
+        hooks: {
+          gateRecordingStart: async () => { gates++; },
+          onRecordingStart: async () => { starts++; },
+          markRecordingEnd: () => (releaseMark ? Promise.resolve() : new Promise(resolve => { releaseMark = resolve; })),
+        },
+      });
+
+      await page.raceRecordingStart();
+      const firstEnd = page.raceRecordingEnd(); // not awaited
+      const secondStart = page.raceRecordingStart();
+      const thirdStart = page.raceRecordingStart();
+      releaseMark();
+      await Promise.all([firstEnd, secondStart, thirdStart]);
+
+      expect(api.currentSegmentStart).not.toBeNull();
+      expect(gates).toBe(2); // one per segment, not one per call
+      expect(starts).toBe(2);
+    });
+
+    it('runs a new segment\'s start hooks only after the previous stop hooks', async () => {
+      // The trace marks must stay in segment order, and the old stop must not
+      // switch off the overlay the new segment just turned on.
+      const events = [];
+      let releaseMark = null;
+      const { page } = createTestApi({
+        hooks: {
+          onRecordingStart: async () => { events.push('start'); },
+          markRecordingEnd: () => {
+            events.push('mark');
+            return releaseMark ? Promise.resolve() : new Promise(resolve => { releaseMark = resolve; });
+          },
+          onRecordingStop: async () => { events.push('stop'); },
+        },
+      });
+
+      await page.raceRecordingStart();
+      const firstEnd = page.raceRecordingEnd(); // not awaited
+      const secondStart = page.raceRecordingStart();
+      releaseMark();
+      await Promise.all([firstEnd, secondStart]);
+
+      expect(events).toEqual(['start', 'mark', 'stop', 'start']);
+    });
+
+    it('finalize waits for an in-flight recording end instead of closing the segment twice', async () => {
+      let releaseMark;
+      const stops = [];
+      const { api, page } = createTestApi({
+        hooks: {
+          markRecordingEnd: () => new Promise(resolve => { releaseMark = resolve; }),
+          onRecordingStop: async (info) => { stops.push(info); },
+        },
+      });
+
+      await page.raceRecordingStart();
+      page.raceRecordingEnd(); // not awaited
+      const done = api.finalize();
+      releaseMark();
+      await done;
+
+      expect(api.segments).toHaveLength(1);
+      expect(stops).toHaveLength(1);
+    });
+
+    it('finalize closes a segment whose start was queued behind a slow stop', async () => {
+      // Un-awaited end, un-awaited start, script returns: the start only lands
+      // once the first stop's mark is done, and finalize used to wait for the
+      // stop alone — leaving the new segment open and its hooks still running.
+      let releaseMark = null;
+      let starts = 0;
+      const stops = [];
+      const { api, page } = createTestApi({
+        hooks: {
+          onRecordingStart: async () => { starts++; },
+          markRecordingEnd: () => (releaseMark ? Promise.resolve() : new Promise(resolve => { releaseMark = resolve; })),
+          onRecordingStop: async (info) => { stops.push(info); },
+        },
+      });
+
+      await page.raceRecordingStart();
+      page.raceRecordingEnd(); // not awaited
+      page.raceRecordingStart(); // not awaited, queued behind the stop above
+      const done = api.finalize();
+      releaseMark();
+      await done;
+
+      expect(api.currentSegmentStart).toBeNull();
+      expect(api.segments).toHaveLength(2);
+      expect(starts).toBe(2);
+      expect(stops).toHaveLength(2);
+    });
+
   });
 
   describe('auto-recording behavior', () => {
@@ -329,6 +451,28 @@ describe('page.race* API (race-api.cjs)', () => {
       page.raceEnd('outer');
 
       expect(ends).toEqual([['inner', 1], ['outer', 0]]);
+    });
+
+    it('does not end a section for an unmatched raceEnd', async () => {
+      // The runner's onSectionEnd overwrites the section's end metrics, so a
+      // stray second raceEnd('load') long after the first would make the
+      // finished 'load' row account for everything that ran since.
+      const ends = [];
+      const unmatched = [];
+      const { page } = createTestApi({
+        hooks: {
+          onSectionEnd: (name) => ends.push(name),
+          onUnmatchedMeasureEnd: (name) => unmatched.push(name),
+        },
+      });
+
+      await page.raceStart('load');
+      page.raceEnd('load');
+      page.raceEnd('load');
+      page.raceEnd('typo');
+
+      expect(ends).toEqual(['load']);
+      expect(unmatched).toEqual(['load', 'typo']);
     });
 
     it('passes both the last measurement end and the segment close to onRecordingStop', async () => {
