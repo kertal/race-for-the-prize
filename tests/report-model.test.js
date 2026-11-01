@@ -17,6 +17,7 @@ import {
   formatWinnerAdvantage,
   formatAdvantageLabel,
   gapLabel,
+  comparisonLeaders,
   PROFILE_SCOPES,
   profileScope,
 } from '../cli/report-model.js';
@@ -462,10 +463,41 @@ describe('rankEntries', () => {
     expect(entries.every(e => e.delta === null)).toBe(true);
   });
 
+  it('clears gap and advantage for every racer named as a shared leader', () => {
+    const vals = [2.0, 2.0001, 3.0];
+    const { entries } = rankEntries(['a', 'b', 'c'], i => ({ val: vals[i] }), formatDuration, ['a', 'b']);
+    expect(entries[0]).toMatchObject({ name: 'a', delta: null, relative: null, advantage: null });
+    expect(entries[1]).toMatchObject({ name: 'b', delta: null, relative: null, advantage: null });
+    expect(entries[2]).toMatchObject({ name: 'c', delta: '1.000s', relative: '50%' });
+  });
+
+  it('leaves a sole named leader its advantage', () => {
+    const vals = [1.0, 2.0];
+    const { entries } = rankEntries(['a', 'b'], i => ({ val: vals[i] }), formatDuration, ['a']);
+    expect(entries[0].advantage).toBe('50%');
+    expect(entries[1].delta).toBe('1.000s');
+  });
+
   it('carries extra entry fields through', () => {
     const { entries } = rankEntries(['a'], () => ({ val: 1, formatted: '1u', tag: 'x' }), fmt);
     expect(entries[0].formatted).toBe('1u');
     expect(entries[0].tag).toBe('x');
+  });
+});
+
+describe('comparisonLeaders', () => {
+  it('returns the leaders the comparison recorded, whatever the durations say', () => {
+    const comp = { leaders: ['a', 'b'], racers: [{ duration: 2.0 }, { duration: 2.005 }] };
+    expect(comparisonLeaders(comp, ['a', 'b'])).toEqual(['a', 'b']);
+  });
+
+  it('falls back to everyone exactly matching the fastest time', () => {
+    const comp = { racers: [{ duration: 1.0 }, null, { duration: 1.0 }, { duration: 2.0 }] };
+    expect(comparisonLeaders(comp, ['a', 'b', 'c', 'd'])).toEqual(['a', 'c']);
+  });
+
+  it('names nobody when fewer than two racers have a time', () => {
+    expect(comparisonLeaders({ racers: [{ duration: 1.0 }, null] }, ['a', 'b'])).toEqual([]);
   });
 });
 

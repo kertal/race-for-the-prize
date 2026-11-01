@@ -160,14 +160,19 @@ export function buildDurationCell(duration, bestDuration, isWinner, runnerUp = n
 }
 
 /**
- * The racers level with a comparison's fastest time. The summary records them
- * as `comp.leaders` — the synthetic total counts anything within its tie
- * epsilon as level, which equality would miss and print as "+0.000s" — and a
- * comparison built without that field falls back to exact equality.
+ * The racers level with a comparison's fastest time, by name. The summary
+ * records them as `comp.leaders` — the synthetic total counts anything within
+ * its tie epsilon as level, which equality would miss and print as "+0.000s" —
+ * and a comparison built without that field falls back to exact equality.
+ * `racers` must be the order `comp.racers` is indexed by.
  */
-function comparisonLeaders(comp, racers, durations, best) {
+export function comparisonLeaders(comp, racers) {
   if (Array.isArray(comp.leaders)) return comp.leaders;
-  return racers.filter((_, i) => durations[i] != null && durations[i] === best);
+  const durations = racers.map((_, i) => comp.racers[i]?.duration ?? null);
+  const present = durations.filter(d => d != null);
+  if (present.length < 2) return [];
+  const best = Math.min(...present);
+  return racers.filter((_, i) => durations[i] === best);
 }
 
 /** A racer sharing the lead trails nobody and is ahead of nobody. */
@@ -187,7 +192,7 @@ export function buildComparisonCells(comp, racers) {
   const present = durations.filter(d => d != null);
   const bestDur = present.length >= 2 ? Math.min(...present) : null;
   const runnerUp = secondLowest(durations);
-  const leaders = comparisonLeaders(comp, racers, durations, bestDur);
+  const leaders = comparisonLeaders(comp, racers);
   return racers.map((r, i) => {
     const cell = buildDurationCell(durations[i], bestDur, comp.winner === r, runnerUp);
     return leaders.length > 1 && leaders.includes(r) ? clearGap(cell) : cell;
@@ -240,10 +245,13 @@ function buildAverageDurationRow(values) {
  *   null whenever delta is null or the best is not > 0.
  * - advantage: on the best entry only, how far it sits ahead of the runner-up
  *   (formatWinnerAdvantage); null on every other entry and on a tied lead.
+ * `leaders` optionally names the racers the source called level with the best
+ * (see comparisonLeaders); when it names more than one, none of them gets a
+ * delta or an advantage, however small the real difference between them.
  * Returns { entries, bestValue, maxValue } where maxValue is the largest
  * non-null value (0 if none) — for bar scaling.
  */
-export function rankEntries(racers, getEntry, formatDelta) {
+export function rankEntries(racers, getEntry, formatDelta, leaders = null) {
   // `== null` deliberately covers undefined as well as null: a missing value
   // must sort last, not fall through to `undefined - x` (NaN) comparisons.
   const isMissing = (v) => v == null;
@@ -273,6 +281,7 @@ export function rankEntries(racers, getEntry, formatDelta) {
     entry.advantage = !isMissing(entry.val) && entry.val === bestValue
       ? formatWinnerAdvantage(bestValue, runnerUp)
       : null;
+    if (leaders?.length > 1 && leaders.includes(entry.name)) clearGap(entry);
   }
   return { entries, bestValue, maxValue };
 }
@@ -283,18 +292,10 @@ export function rankEntries(racers, getEntry, formatDelta) {
  * rule as buildComparisonCells.
  */
 export function rankComparisonDurations(comp, racers) {
-  const ranked = rankEntries(racers, i => {
+  return rankEntries(racers, i => {
     const r = comp.racers[i];
     return { val: r ? r.duration : null, formatted: r ? formatDuration(r.duration) : '-' };
-  }, formatDuration);
-  const durations = racers.map((_, i) => comp.racers[i]?.duration ?? null);
-  const leaders = comparisonLeaders(comp, racers, durations, ranked.bestValue);
-  if (leaders.length > 1) {
-    for (const entry of ranked.entries) {
-      if (leaders.includes(entry.name)) clearGap(entry);
-    }
-  }
-  return ranked;
+  }, formatDuration, comparisonLeaders(comp, racers));
 }
 
 // ---------------------------------------------------------------------------

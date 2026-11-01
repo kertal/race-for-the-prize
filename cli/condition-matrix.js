@@ -26,7 +26,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { c, RACER_COLORS } from './colors.js';
 import { loadTemplates, escHtml, render } from './html-templates.js';
-import { sortComparisonsForDisplay, rankEntries, metricDeltaFormat, formatDuration, gapLabel } from './report-model.js';
+import { sortComparisonsForDisplay, rankEntries, metricDeltaFormat, formatDuration, gapLabel, comparisonLeaders } from './report-model.js';
 import { PROFILE_METRICS, determineProfileMetricOutcome } from './profile-analysis.js';
 import { RACER_CSS_COLORS } from './player-sections.js';
 import { resolveSkin, DEFAULT_THEME_COLOR } from './skins.js';
@@ -155,6 +155,17 @@ function metricOutcome(entry, racers, metric, values) {
   return { winner, isTie: !winner && withData >= 2 };
 }
 
+/**
+ * The racers a condition's own race called level on total time — its tie
+ * epsilon, not exact equality — so the matrix prints no gap between them.
+ * Null for profile metrics, whose outcome already comes from metricOutcome.
+ */
+function totalTimeLeaders(entry, racers, metric) {
+  if (metric.key !== TOTAL_TIME_METRIC.key) return null;
+  const comp = overallComparison(entry.summary);
+  return comp ? comparisonLeaders(comp, entry.summary.racers ?? racers) : null;
+}
+
 /** One condition's series for one metric: the verdict plus every racer, best first. */
 function buildSeries(entry, racers, metric) {
   const values = metricValues(entry, racers, metric);
@@ -162,7 +173,8 @@ function buildSeries(entry, racers, metric) {
   const { entries: ranked, bestValue, maxValue } = rankEntries(
     racers,
     i => ({ val: values[i] }),
-    metricDeltaFormat(metric)
+    metricDeltaFormat(metric),
+    totalTimeLeaders(entry, racers, metric)
   );
 
   return {

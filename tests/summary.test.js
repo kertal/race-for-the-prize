@@ -903,6 +903,20 @@ describe('buildSummary with 3+ racers', () => {
     const md = buildMarkdownSummary(summary);
     expect(md).toContain('| Race | 2.000s | 2.005s | 3.000s (+1.000s, +50%) |');
     expect(md).toContain('| s2 | 1.000s (\uD83C\uDFC6 0.5% ahead) | 1.005s (+0.005s, +0.5%) | 2.000s (+1.000s, +100%) |');
+
+    // The terminal bars follow the same rule: beta's total carries no gap,
+    // while its s2 section still shows the real 5ms.
+    let output = '';
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(chunk => { output += String(chunk); return true; });
+    try {
+      printSummary(summary);
+    } finally {
+      writeSpy.mockRestore();
+    }
+    expect(output).not.toMatch(/2\.005s[^\n]*\(/);
+    expect(output).toContain('1.005s');
+    expect(output).toContain('(+0.005s, +0.5%)');
+    expect(output).toContain('(+1.000s, +50%)');
   });
 
   it('still crowns a sole fastest racer in a three-way total', () => {
