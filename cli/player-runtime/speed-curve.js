@@ -80,7 +80,8 @@ class SpeedCurveEditor extends HTMLElement {
 
   _tx(t, W) { return this._dur > 0 ? (t / this._dur) * W : 0; }
   _xt(x, W) { return this._dur > 0 ? Math.max(0, Math.min(this._dur, (x / W) * this._dur)) : 0; }
-  _sy(s, plotH) { return plotH - speedToFrac(s) * plotH; }
+  // The top is inset by a point radius so a 4x keyframe is drawn whole.
+  _sy(s, plotH) { return plotH - speedToFrac(s) * (plotH - CURVE_POINT_RADIUS); }
 
   _pointAt(x, y) {
     const { W, plotH } = this._geom();
@@ -94,8 +95,9 @@ class SpeedCurveEditor extends HTMLElement {
 
   _pointFromPointer(x, y) {
     const { W, plotH } = this._geom();
-    const frac = 1 - Math.max(0, Math.min(plotH, y)) / plotH;
-    return { t: this._xt(x, W), s: snapCurveSpeed(frac, plotH, CURVE_SNAP_PX) };
+    const span = plotH - CURVE_POINT_RADIUS;
+    const frac = (plotH - Math.max(CURVE_POINT_RADIUS, Math.min(plotH, y))) / span;
+    return { t: this._xt(x, W), s: snapCurveSpeed(frac, span, CURVE_SNAP_PX) };
   }
 
   _local(e) {

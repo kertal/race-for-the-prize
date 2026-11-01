@@ -105,7 +105,7 @@ describe('curvePlotHeight', () => {
 });
 
 describe('speed curve in the generated player', () => {
-  const html = buildPlayerHtml({
+  const build = (opts) => buildPlayerHtml({
     racers: ['lauda', 'hunt'],
     comparisons: [],
     overallWinner: null,
@@ -114,7 +114,16 @@ describe('speed curve in the generated player', () => {
     errors: [],
     wins: {},
     videos: {},
-  }, ['lauda/lauda.race.webm', 'hunt/hunt.race.webm']);
+  }, ['lauda/lauda.race.webm', 'hunt/hunt.race.webm'], null, null, opts);
+  const html = build({ speedCurve: true });
+
+  it('is opt-in: without --speed-curve the player has no toggle and no editor', () => {
+    const plain = build();
+    expect(plain).not.toContain('id="speedCurveToggle"');
+    expect(plain).not.toContain('id="speedCurveEditor"');
+    expect(plain).not.toContain('id="speedCurvePanel"');
+    expect(plain).not.toContain('{{speedCurve');
+  });
 
   it('ships the toggle, a collapsed panel, and the editor template', () => {
     expect(html).toContain('id="speedCurveToggle"');

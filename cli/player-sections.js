@@ -546,9 +546,11 @@ export function buildDebugPanelHtml(racers, placementOrder, clipTimes) {
   return render(T['debug-panel'], { debugRows, statsRows, frameRows, timingRows });
 }
 
-export function buildPlayerSectionHtml(videoElements, mergedVideoElement) {
+export function buildPlayerSectionHtml(videoElements, mergedVideoElement, { speedCurve = false } = {}) {
   return render(T['player-section'], {
     videoElements,
     mergedVideoElement: mergedVideoElement || '',
+    speedCurveToggle: speedCurve ? T['speed-curve-toggle'] : '',
+    speedCurvePanel: speedCurve ? T['speed-curve-panel'] : '',
   });
 }

@@ -173,9 +173,14 @@ h1 {
   transition: border-color var(--duration), background-color var(--duration);
 }
 .segment-nav:hover,
-.speed-select:hover {
+.speed-select:hover:enabled {
   border-color: var(--accent);
   background-color: var(--surface-raised);
+}
+/* A drawn speed curve owns playback speed, so the menu stands aside. */
+.speed-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .segment-nav:focus-visible,
 .speed-select:focus-visible {

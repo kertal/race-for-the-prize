@@ -151,7 +151,7 @@ function buildSpreadsheetSection(summary, runSummaries) {
 // Build the player section, debug panel, runtime script tag, and race-config
 // JSON for a race that has videos. Returns the render() slots it produces.
 function buildVideoPlayer(summary, videoFiles, opts) {
-  const { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, placementOrder, ffmpegDir } = opts;
+  const { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, placementOrder, ffmpegDir, speedCurve } = opts;
   const isTie = summary.overallWinner === 'tie';
   const videoElements = placementOrder.map((origIdx, displayIdx) => {
     const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
@@ -189,7 +189,7 @@ function buildVideoPlayer(summary, videoFiles, opts) {
   });
 
   return {
-    playerSection: buildPlayerSectionHtml(videoElements, mergedVideoElement),
+    playerSection: buildPlayerSectionHtml(videoElements, mergedVideoElement, { speedCurve }),
     debugPanelOut: hasClipTimes ? buildDebugPanelHtml(racers, placementOrder, clipTimes) : '',
     scriptTag: buildPlayerScript(),
     raceConfigJson,
@@ -201,7 +201,7 @@ function buildVideoPlayer(summary, videoFiles, opts) {
 // ---------------------------------------------------------------------------
 
 export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, options = {}) {
-  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, raceConfig, raceConfigFile, runNavigation, clipTimes, ffmpegPathPrefix, runSummaries, skin, skinBaseDir } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, raceConfig, raceConfigFile, runNavigation, clipTimes, ffmpegPathPrefix, runSummaries, skin, skinBaseDir, speedCurve = false } = options;
 
   const ffmpegDir = (ffmpegPathPrefix || './') + 'ffmpeg/';
   const racers = summary.racers;
@@ -221,7 +221,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
 
   const spreadsheet = buildSpreadsheetSection(summary, runSummaries || null);
   const { playerSection = '', scriptTag = spreadsheet ? buildSpreadsheetOnlyScript() : '', raceConfigJson = '', debugPanelOut = '' } = hasVideos
-    ? buildVideoPlayer(summary, videoFiles, { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, placementOrder, ffmpegDir })
+    ? buildVideoPlayer(summary, videoFiles, { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, placementOrder, ffmpegDir, speedCurve })
     : {};
 
   const modeToggle = hasMergedVideo ? fill('mode-toggle') : '';
