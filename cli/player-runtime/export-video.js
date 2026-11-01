@@ -262,6 +262,30 @@ function convertWithFFmpeg(blob, format, ui, opts = {}) {
   });
 }
 
+// Hold each exported racer at its own clip end on the frame clock. Playback's
+// rAF clamp (watchClipEnd) only runs while `playing`, which the export clears,
+// and the timeupdate backstop fires about four times a second — long enough
+// for a racer with a shorter clip to draw a quarter second of post-clip footage
+// into the file before being snapped back. perVideoEnd is parallel to
+// visibleIndices.
+function holdExportClips(visibleIndices, perVideoEnd) {
+  visibleIndices.forEach((i, j) => {
+    const v = raceVideos[i];
+    if (v) holdAtClipEnd(v, perVideoEnd[j]);
+  });
+}
+
+// The export clock: the furthest any racer has played into its own clip.
+// Counting from each clip's start (not raw video time) keeps the clock moving
+// while a held racer waits for the others. perVideoStart is parallel to
+// visibleIndices.
+function exportElapsed(visibleIndices, perVideoStart) {
+  return Math.max(0, ...visibleIndices.map((i, j) => {
+    const v = raceVideos[i];
+    return v ? v.currentTime - perVideoStart[j] : 0;
+  }));
+}
+
 async function startExport() {
   if (!HTMLCanvasElement.prototype.captureStream || !window.MediaRecorder) {
     alert('Export requires a browser that supports Canvas.captureStream and MediaRecorder (Chrome, Firefox, or Edge).');
@@ -300,23 +324,25 @@ async function startExport() {
   const ct = adj || clipTimes;
   // Drive seek/play/progress/completion from the visible racers only, so a
   // hidden racer can't skew the clock, extend the export, or block completion.
-  // perVideoEnd is indexed by visible position j (parallel to visibleIndices).
+  // perVideoStart/perVideoEnd are indexed by visible position j (parallel to
+  // visibleIndices): where each racer's clip begins and ends in its own video.
+  const perVideoStart = visibleIndices.map((i) => {
+    const v = raceVideos[i];
+    if (!v || !activeClip || !ct?.[i]) return startTime;
+    const target = ct[i].start + (startTime - activeClip.start);
+    return Math.max(ct[i].start, Math.min(ct[i].end, target));
+  });
   const perVideoEnd = visibleIndices.map((i) => {
     const v = raceVideos[i];
     if (!v) return endTime;
     return (activeClip && ct?.[i]) ? ct[i].end : endTime;
   });
 
-  const seekPromises = visibleIndices.map((i) => {
+  const seekPromises = visibleIndices.map((i, j) => {
     const v = raceVideos[i];
     if (!v) return Promise.resolve();
     return new Promise((resolve) => {
-      let target = startTime;
-      if (activeClip && ct?.[i]) {
-        const elapsed = startTime - activeClip.start;
-        target = ct[i].start + elapsed;
-        target = Math.max(ct[i].start, Math.min(ct[i].end, target));
-      }
+      const target = perVideoStart[j];
       const targetTime = Math.min(target, v.duration || target);
       // Chrome fires no 'seeked' event when currentTime is assigned the value
       // it already holds — common when exporting from the start of a clip.
@@ -388,12 +414,10 @@ async function startExport() {
   visibleIndices.forEach(i => { const v = raceVideos[i]; if (v) { v.playbackRate = exportRate; v.play(); } });
   const speedLabel = exportRate !== 1 ? ' (' + exportRate + 'x)' : '';
 
-  let exportTimeOffset = null;
   function tick() {
     if (cancelled) return;
-    const cur = Math.max(...visibleIndices.map(i => raceVideos[i]?.currentTime || 0));
-    if (exportTimeOffset === null) exportTimeOffset = cur;
-    const elapsed = cur - exportTimeOffset;
+    holdExportClips(visibleIndices, perVideoEnd);
+    const elapsed = exportElapsed(visibleIndices, perVideoStart);
     drawExportFrame(ctx, layout, elapsed, visibleIndices);
     const progress = totalDur > 0 ? Math.min(1, elapsed / totalDur) : 0;
     setExportProgress(progressFill, progress * 100);

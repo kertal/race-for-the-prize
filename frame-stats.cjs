@@ -106,8 +106,9 @@ function estimateDisplayPeriodMs(allIntervals) {
     .sort((a, b) => a - b);
   if (plausible.length === 0) return null;
   const fastEnd = percentile(plausible, DISPLAY_PERIOD_PERCENTILE);
+  // fastEnd itself is always in the cluster, so it is never empty.
   const cluster = plausible.filter(ms => ms <= fastEnd * DISPLAY_CLUSTER_TOLERANCE);
-  return percentile(cluster, 0.5) ?? fastEnd;
+  return percentile(cluster, 0.5);
 }
 
 /**

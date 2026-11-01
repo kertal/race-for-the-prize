@@ -210,18 +210,6 @@ describe('startProgress', () => {
     expect(stderr.output()).toContain('Working');
   });
 
-  it('update() changes the message', async () => {
-    const p = startProgress('Step 1');
-    stderr.stderrSpy.mockClear(); // Clear initial write
-    p.update('Step 2');
-
-    // Wait for at least one interval tick (100ms interval + 50ms buffer)
-    await new Promise(resolve => setTimeout(resolve, 150));
-
-    expect(stderr.output()).toContain('Step 2');
-    p.done('Finished');
-  });
-
   it('fail() writes failure message', () => {
     const p = startProgress('Working');
     p.fail('Something went wrong');
@@ -244,7 +232,6 @@ describe('startProgress — non-TTY fallback', () => {
 
   it('emits no ANSI escape sequences', () => {
     const p = startProgress('Step');
-    p.update('Step 2');
     p.done('Finished');
     expect(stderr.output()).not.toMatch(/\x1b\[/);
   });

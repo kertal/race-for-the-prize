@@ -228,6 +228,54 @@ describe('design tokens', () => {
     }
   );
 
+  it.each([['tokens.css', () => rootBlock], ...componentLayers])(
+    'keeps !important out of %s',
+    (_name, get) => {
+      // A rule that needs !important to win is a rule in the wrong place: a
+      // skin or a later layer can then no longer override it.
+      expect(get()).not.toContain('!important');
+    }
+  );
+
+  it.each(componentLayers)(
+    'times every transition in %s with a duration token',
+    (_name, get) => {
+      // Reduced motion works by zeroing the duration tokens, so a literal
+      // duration would keep moving for a reader who asked it not to.
+      const literal = [...get().matchAll(/\b(?:transition|animation)[^;{}]*;/g)]
+        .map(([decl]) => decl)
+        .filter(decl => /\d\s*m?s\b/.test(decl));
+      expect(literal).toEqual([]);
+    }
+  );
+
+  it('zeroes the duration tokens when the reader asks for reduced motion', () => {
+    const reduced = rootBlock.slice(rootBlock.indexOf('prefers-reduced-motion'));
+    for (const token of ['--duration-fast', '--duration', '--duration-slow']) {
+      expect(reduced).toMatch(new RegExp(`${token}:\\s*0s;`));
+    }
+  });
+
+  it('outranks a skin that sets its own durations under reduced motion', () => {
+    // Skins scope their tokens to :root[data-theme="<name>"], and a skin is
+    // inlined after the base stylesheet. A skin with a nonzero --duration must
+    // still lose to the reader's preference, so the reduced-motion rule needs
+    // a selector of strictly higher specificity than the documented one.
+    const specificity = (selector) => [
+      (selector.match(/#[\w-]+/g) || []).length,
+      (selector.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length,
+      (selector.match(/(?:^|[\s>+~])[a-z][\w-]*/g) || []).length,
+    ];
+    const outranks = (a, b) => {
+      for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
+      return false;
+    };
+    const reduced = rootBlock.slice(rootBlock.indexOf('prefers-reduced-motion')).replace(/\/\*[\s\S]*?\*\//g, '');
+    const selectors = reduced.match(/\{\s*([^{}]+?)\s*\{/)[1].split(',').map(s => s.trim());
+    const skinSelector = ':root[data-theme="team"]';
+    expect(selectors.some(s => outranks(specificity(s), specificity(skinSelector)))).toBe(true);
+  });
+
   it.each(componentLayers)(
     'keeps raw palette tokens out of %s',
     (_name, get) => {

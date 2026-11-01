@@ -101,7 +101,7 @@ function makeWcToPts(ct, wcStart, wcEnd) {
   };
 }
 
-function measurementPts(meas, ct, traceTs, wallTime, toPts) {
+function measurementPts(ct, traceTs, wallTime, toPts) {
   if (Number.isFinite(traceTs)) return traceTsToClipPts(ct, traceTs);
   return wallTime != null ? toPts(wallTime) : null;
 }
@@ -115,11 +115,11 @@ function buildTimingEvents(ct, v, wcStart, wcEnd, toPts) {
   const measurements = ct.measurements || [];
   for (const meas of measurements) {
     if (meas.startTime != null || Number.isFinite(meas.startTraceTs)) {
-      const startPts = measurementPts(meas, ct, meas.startTraceTs, meas.startTime, toPts);
+      const startPts = measurementPts(ct, meas.startTraceTs, meas.startTime, toPts);
       events.push({ label: 'raceStart("' + (meas.name || '') + '")', wc: meas.startTime, ptsVal: startPts });
     }
     if (meas.endTime != null || Number.isFinite(meas.endTraceTs)) {
-      const endPts = measurementPts(meas, ct, meas.endTraceTs, meas.endTime, toPts);
+      const endPts = measurementPts(ct, meas.endTraceTs, meas.endTime, toPts);
       events.push({ label: 'raceEnd("' + (meas.name || '') + '")', wc: meas.endTime, ptsVal: endPts });
     }
   }
@@ -370,7 +370,6 @@ if (debugPanel) {
         return {
           _wcStart: ct._wcStart != null ? ct._wcStart : null,
           _wcEnd: ct._wcEnd != null ? ct._wcEnd : null,
-          _ptsScale: ct._ptsScale || null,
           calibratedStart: ct.calibratedStart != null ? ct.calibratedStart : null,
           calibratedEnd: ct.calibratedEnd != null ? ct.calibratedEnd : null,
           recordingOffset: ct.recordingOffset || 0,

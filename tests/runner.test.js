@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
@@ -334,6 +334,25 @@ describe('settleRacers', () => {
     finish({ id: 'a' });
 
     expect(await settled).toEqual([{ status: 'fulfilled', value: { id: 'a' } }]);
+  });
+
+  it('stops polling once everyone has settled', async () => {
+    // A failed race whose racers all unwound in time has nobody to give up
+    // on; the poll used to keep running and log "giving up" on an empty list.
+    const sharedState = { hasError: true, errorMessage: 'script failed' };
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await settleRacers(
+        [Promise.resolve({ id: 'a' }), Promise.reject(new Error('boom'))],
+        ['a', 'b'],
+        sharedState,
+        { graceMs: 20, pollMs: 5 },
+      );
+      await new Promise(r => setTimeout(r, 60));
+      expect(log).not.toHaveBeenCalledWith(expect.stringContaining('Giving up'));
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it('returns as soon as everyone is done, without waiting out a poll', async () => {

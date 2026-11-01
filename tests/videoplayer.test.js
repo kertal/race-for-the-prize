@@ -1276,7 +1276,6 @@ describe('buildPlayerHtml timing events', () => {
   it('saves _wcStart and _wcEnd in onMeta before trace conversion', () => {
     expect(timingHtml).toContain('_wcStart = ');
     expect(timingHtml).toContain('_wcEnd = ');
-    expect(timingHtml).not.toContain('_ptsScale = scale');
   });
 
   it('script contains timing event labels and column headers', () => {
@@ -1301,7 +1300,6 @@ describe('buildPlayerHtml timing events', () => {
     expect(timingHtml).toContain('timingData');
     expect(timingHtml).toContain('videoDuration');
     expect(timingHtml).toContain('_wcStart');
-    expect(timingHtml).toContain('_ptsScale');
   });
 
   it('handles clipTimes without measurements gracefully', () => {
@@ -1341,9 +1339,9 @@ describe('buildPlayerHtml export', () => {
     expect(defaultHtml).toContain('rawH % 2');
   });
 
-  it('export timer starts from 0 using exportTimeOffset', () => {
-    expect(defaultHtml).toContain('exportTimeOffset');
-    expect(defaultHtml).toContain('cur - exportTimeOffset');
+  it('export timer counts each racer from its own clip start', () => {
+    expect(defaultHtml).toContain('exportElapsed(visibleIndices, perVideoStart)');
+    expect(defaultHtml).not.toContain('exportTimeOffset');
   });
 
   it('export modal canvas has max-height to keep buttons visible', () => {
@@ -1461,9 +1459,12 @@ describe('buildPlayerHtml clip alignment', () => {
     expect(fnMatch[1]).not.toContain('primary.currentTime');
   });
 
-  it('timeupdate clip-end handler sets scrubber to 1000 and returns', () => {
+  it('timeupdate clip-end handler sets scrubber to its max and returns', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
-    expect(html).toContain('scrubber.value = 1000');
+    expect(html).toContain('scrubber.value = SCRUBBER_MAX');
+    // The constant is the one source of the range; no handler hardcodes it.
+    expect(html).not.toMatch(/scrubber\.value\s*\/\s*1000\b/);
+    expect(html).not.toContain('scrubber.value = 1000');
   });
 
   it('stepFrame derives position from scrubber for elapsed-time consistency', () => {
@@ -1491,9 +1492,9 @@ describe('buildPlayerHtml clip alignment', () => {
 
   it('export seek code uses elapsed-based alignment', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
-    const exportSection = html.slice(html.indexOf('seekPromises'));
-    expect(exportSection).toContain('const elapsed = startTime - activeClip.start');
-    expect(exportSection).toContain('target = ct[i].start + elapsed');
+    const exportSection = html.slice(html.indexOf('const perVideoStart'));
+    expect(exportSection).toContain('ct[i].start + (startTime - activeClip.start)');
+    expect(exportSection).toContain('const target = perVideoStart[j]');
   });
 });
 

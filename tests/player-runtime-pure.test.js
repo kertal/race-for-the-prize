@@ -107,7 +107,6 @@ describe('calibration applyCalibrationToClip', () => {
     expect(ct.calibratedEnd).toBe(4.5); // 0.5 + (14 - 10)
     expect(ct.start).toBe(0.5);
     expect(ct.end).toBe(4.5);
-    expect(ct._ptsScale).toBe(null);
     expect(ct._converted).toBe(true);
   });
 

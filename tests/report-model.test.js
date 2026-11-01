@@ -16,6 +16,10 @@ import {
   formatDeltaLabel,
   formatWinnerAdvantage,
   formatAdvantageLabel,
+  gapLabel,
+  comparisonLeaders,
+  PROFILE_SCOPES,
+  profileScope,
 } from '../cli/report-model.js';
 import { PROFILE_METRICS } from '../cli/profile-analysis.js';
 
@@ -183,10 +187,13 @@ describe('buildValueCell / buildDurationCell', () => {
     expect(buildDurationCell(1.05, 1.0, false).relative).toBe('5.0%');
   });
 
-  it('produces a +0.000s-style delta for exact ties against the winner', () => {
+  it('gives a value equal to the best no delta: a shared lead is not a gap', () => {
+    // Two racers at the same best time are both at the front, so neither is
+    // "+0.000s" behind the other — same as the terminal's ranking shows them.
     const cell = buildDurationCell(2.0, 2.0, false);
-    expect(cell.delta).toBe('0.000s');
-    expect(cell.relative).toBe('0.0%');
+    expect(cell.isWinner).toBe(false);
+    expect(cell.delta).toBeNull();
+    expect(cell.relative).toBeNull();
   });
 
   it('omits the delta when there is no best value', () => {
@@ -244,12 +251,38 @@ describe('buildComparisonCells', () => {
     expect(cells[2].relative).toBe('100%');
   });
 
-  it('shows plain values when there is no winner', () => {
-    const comp = { name: 'Load', winner: null, racers: [{ duration: 1.0 }, { duration: 2.0 }, null] };
+  it('still measures each gap to the fastest time when no winner was declared', () => {
+    // A three-way field with a shared lead: nobody wears the trophy, the two
+    // leaders show no gap, and the third still trails by a second.
+    const comp = { name: 'Load', winner: null, racers: [{ duration: 1.0 }, { duration: 1.0 }, { duration: 2.0 }] };
     const cells = buildComparisonCells(comp, racers);
     expect(cells.every(c => !c.isWinner)).toBe(true);
     expect(cells[0].delta).toBeNull();
     expect(cells[1].delta).toBeNull();
+    expect(cells[2]).toMatchObject({ delta: '1.000s', relative: '100%', advantage: null });
+  });
+
+  it('gives the leaders the comparison names no gap, even when they are not exactly equal', () => {
+    // The synthetic total calls anything within its epsilon a shared lead;
+    // without `leaders` the second racer would read "2.000s (+0.000s, +0.0%)".
+    const comp = { name: 'Race', winner: null, leaders: ['a', 'b'], racers: [{ duration: 2.0 }, { duration: 2.0001 }, { duration: 3.0 }] };
+    const cells = buildComparisonCells(comp, racers);
+    expect(cells[0]).toMatchObject({ delta: null, relative: null, advantage: null });
+    expect(cells[1]).toMatchObject({ delta: null, relative: null, advantage: null });
+    expect(cells[2]).toMatchObject({ delta: '1.000s', relative: '50%', advantage: null });
+  });
+
+  it('keeps the sole leader\'s advantage when the comparison lists only one', () => {
+    const comp = { name: 'Race', winner: 'a', leaders: ['a'], racers: [{ duration: 1.0 }, { duration: 2.0 }] };
+    const cells = buildComparisonCells(comp, ['a', 'b']);
+    expect(cells[0].advantage).toBe('50%');
+    expect(cells[1].delta).toBe('1.000s');
+  });
+
+  it('has no best value, and so no deltas, with a single measured racer', () => {
+    const comp = { name: 'Load', winner: null, racers: [{ duration: 1.0 }, null, null] };
+    const cells = buildComparisonCells(comp, racers);
+    expect(cells[0]).toMatchObject({ formatted: '1.000s', isWinner: false, delta: null });
   });
 });
 
@@ -287,11 +320,19 @@ describe('buildBestOfCells', () => {
     expect(cells[1].value).toBeNull();
   });
 
-  it('picks the first racer on an exact tie for best when a third differs', () => {
+  it('crowns nobody on an exact tie for best, while the slower racer still trails', () => {
+    // Regression: the first-listed of two tied racers used to take the win.
     const cells = buildBestOfCells([100, 100, 200], fmt);
+    expect(cells.map(c => c.isWinner)).toEqual([false, false, false]);
+    expect(cells[0].delta).toBeNull();
+    expect(cells[1].delta).toBeNull();
+    expect(cells[2].delta).toBe('100ms');
+  });
+
+  it('crowns the sole holder of the best value when the tie is behind it', () => {
+    const cells = buildBestOfCells([100, 200, 200], fmt);
     expect(cells.map(c => c.isWinner)).toEqual([true, false, false]);
-    // The tying racer still gets a zero delta, the slower one a real delta
-    expect(cells[1].delta).toBe('0ms');
+    expect(cells[1].delta).toBe('100ms');
     expect(cells[2].delta).toBe('100ms');
   });
 
@@ -299,6 +340,31 @@ describe('buildBestOfCells', () => {
     const cells = buildBestOfCells([null, null], fmt);
     expect(cells).toHaveLength(2);
     expect(cells.every(c => c.value === null && !c.isWinner)).toBe(true);
+  });
+});
+
+describe('gapLabel', () => {
+  it('labels a loser with its gap, absolute and relative', () => {
+    expect(gapLabel({ delta: '1.500s', relative: '150%', advantage: null })).toBe('+1.500s, +150%');
+    expect(gapLabel({ delta: '3 req', relative: null, advantage: null })).toBe('+3 req');
+  });
+
+  it('labels the leader with its lead over the runner-up', () => {
+    expect(gapLabel({ delta: null, relative: null, advantage: '60%' })).toBe('60% ahead');
+  });
+
+  it('labels a shared lead, or a missing value, with nothing', () => {
+    expect(gapLabel({ delta: null, relative: null, advantage: null })).toBeNull();
+  });
+});
+
+describe('PROFILE_SCOPES', () => {
+  it('lists the measured scope before the total, each with a heading and a short title', () => {
+    expect(PROFILE_SCOPES.map(s => s.scope)).toEqual(['measured', 'total']);
+    expect(profileScope('measured').title).toBe('Race');
+    expect(profileScope('total').title).toBe('Total Recording (Including Pre and Post race)');
+    expect(profileScope('total').shortTitle).toBe('Total Recording');
+    expect(profileScope('nope')).toBeUndefined();
   });
 });
 
@@ -397,10 +463,41 @@ describe('rankEntries', () => {
     expect(entries.every(e => e.delta === null)).toBe(true);
   });
 
+  it('clears gap and advantage for every racer named as a shared leader', () => {
+    const vals = [2.0, 2.0001, 3.0];
+    const { entries } = rankEntries(['a', 'b', 'c'], i => ({ val: vals[i] }), formatDuration, ['a', 'b']);
+    expect(entries[0]).toMatchObject({ name: 'a', delta: null, relative: null, advantage: null });
+    expect(entries[1]).toMatchObject({ name: 'b', delta: null, relative: null, advantage: null });
+    expect(entries[2]).toMatchObject({ name: 'c', delta: '1.000s', relative: '50%' });
+  });
+
+  it('leaves a sole named leader its advantage', () => {
+    const vals = [1.0, 2.0];
+    const { entries } = rankEntries(['a', 'b'], i => ({ val: vals[i] }), formatDuration, ['a']);
+    expect(entries[0].advantage).toBe('50%');
+    expect(entries[1].delta).toBe('1.000s');
+  });
+
   it('carries extra entry fields through', () => {
     const { entries } = rankEntries(['a'], () => ({ val: 1, formatted: '1u', tag: 'x' }), fmt);
     expect(entries[0].formatted).toBe('1u');
     expect(entries[0].tag).toBe('x');
+  });
+});
+
+describe('comparisonLeaders', () => {
+  it('returns the leaders the comparison recorded, whatever the durations say', () => {
+    const comp = { leaders: ['a', 'b'], racers: [{ duration: 2.0 }, { duration: 2.005 }] };
+    expect(comparisonLeaders(comp, ['a', 'b'])).toEqual(['a', 'b']);
+  });
+
+  it('falls back to everyone exactly matching the fastest time', () => {
+    const comp = { racers: [{ duration: 1.0 }, null, { duration: 1.0 }, { duration: 2.0 }] };
+    expect(comparisonLeaders(comp, ['a', 'b', 'c', 'd'])).toEqual(['a', 'c']);
+  });
+
+  it('names nobody when fewer than two racers have a time', () => {
+    expect(comparisonLeaders({ racers: [{ duration: 1.0 }, null] }, ['a', 'b'])).toEqual([]);
   });
 });
 
@@ -411,6 +508,22 @@ describe('rankComparisonDurations', () => {
     expect(entries.map(e => e.name)).toEqual(['c', 'a', 'b']);
     expect(entries.map(e => e.formatted)).toEqual(['1.000s', '2.000s', '-']);
     expect(entries.map(e => e.delta)).toEqual([null, '1.000s', null]);
+  });
+
+  it('gives the comparison\'s shared leaders neither a gap nor an advantage', () => {
+    const comp = { winner: null, leaders: ['a', 'b'], racers: [{ duration: 2.0 }, { duration: 2.0001 }, { duration: 3.0 }] };
+    const { entries } = rankComparisonDurations(comp, ['a', 'b', 'c']);
+    expect(entries.map(e => e.name)).toEqual(['a', 'b', 'c']);
+    expect(entries[0]).toMatchObject({ delta: null, relative: null, advantage: null });
+    expect(entries[1]).toMatchObject({ delta: null, relative: null, advantage: null });
+    expect(entries[2]).toMatchObject({ delta: '1.000s', relative: '50%' });
+  });
+
+  it('falls back to exact equality when the comparison carries no leaders', () => {
+    const comp = { winner: null, racers: [{ duration: 1.0 }, { duration: 1.0 }, { duration: 2.0 }] };
+    const { entries } = rankComparisonDurations(comp, ['a', 'b', 'c']);
+    expect(entries.map(e => e.delta)).toEqual([null, null, '1.000s']);
+    expect(entries.map(e => e.advantage)).toEqual([null, null, null]);
   });
 });
 
@@ -573,6 +686,8 @@ describe('buildRunComparisonModel', () => {
     expect(model.profileScopes.map(s => s.scope)).toEqual(['measured', 'total']);
     expect(model.profileScopes[0].title).toBe('Race');
     expect(model.profileScopes[1].title).toBe('Total Recording (Including Pre and Post race)');
+    // The short titles ride along for the spreadsheet export's group labels.
+    expect(model.profileScopes.map(s => s.shortTitle)).toEqual(['Race', 'Total Recording']);
 
     const script = model.profileScopes[0].metrics[0];
     expect(script.name).toBe('Script Execution');

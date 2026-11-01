@@ -2,23 +2,28 @@
  * player-sections.js — Build-time HTML section builders for the race player.
  *
  * Each function returns an HTML string (or '' if nothing to show).
- * HTML structures are defined as <template id="build-*"> elements in player.html;
- * videoplayer.js extracts them at load time and passes them via setTemplates().
+ * HTML structures are defined as <template id="build-*"> elements in player.html,
+ * loaded here through html-templates.js and filled by name.
  */
 
-import { escHtml, render } from './html-templates.js';
-import { PROFILE_METRICS, categoryDescriptions, determineProfileMetricOutcome } from './profile-analysis.js';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { loadTemplates, escHtml } from './html-templates.js';
+import { PROFILE_METRICS, categoryDescriptions, categoryTitle, determineProfileMetricOutcome } from './profile-analysis.js';
 import { formatSettingValue, sortSettingKeys, sourceLabel, SOURCE_DEFAULT } from './race-config.js';
-import { formatPlatform } from './summary.js';
+import { buildRaceInfoRows, buildMachineInfoRows } from './summary.js';
 import spreadsheet from './player-runtime/spreadsheet.cjs';
 import {
   buildResultsModel,
   buildRunComparisonModel,
   rankEntries,
   metricDeltaFormat,
-  formatDeltaLabel,
-  formatAdvantageLabel,
+  gapLabel,
+  PROFILE_SCOPES,
+  profileScope,
 } from './report-model.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f'];
 /**
@@ -29,32 +34,27 @@ export const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f'];
 export const RACER_EMOJI = ['\u{1F534}', '\u{1F535}', '\u{1F7E2}', '\u{1F7E1}'];
 const NON_PREFIX_SECTION_NAMES = new Set(['Race', 'Race (All Sections)']);
 
-let T = {};
-
-/** Store build-time templates extracted from player.html. */
-export function setTemplates(templates) { T = templates; }
-
-/** Render one build-* fragment from player.html by name. */
-function fill(id, data = {}) {
-  if (!(id in T)) throw new Error(`No <template id="build-${id}"> in player.html`);
-  return render(T[id], data);
-}
-
-// Both live in html-templates.js now; re-exported for the modules and tests
-// that have always imported them from here.
-export { escHtml, render };
+// The build-* fragments of player.html; fill() renders one by name and throws
+// for an unknown id, so a renamed template fails at build time.
+const { fill } = loadTemplates(path.join(__dirname, 'player.html'));
 
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
 function infoItem(label, value) {
-  return render(T['info-item'], { label, value });
+  return fill('info-item', { label, value });
+}
+
+/** An info grid of { label, value } rows, with every value escaped; '' when there are none. */
+function infoGrid(cls, rows) {
+  if (rows.length === 0) return '';
+  return fill('info-grid', { cls, items: rows.map(({ label, value }) => infoItem(label, escHtml(value))).join('') });
 }
 
 function racerName(racers, origIdx) {
   const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
-  return render(T['racer-name'], { color, name: escHtml(racers[origIdx]) });
+  return fill('racer-name', { color, name: escHtml(racers[origIdx]) });
 }
 
 function formatSectionTitle(name) {
@@ -71,9 +71,7 @@ function buildMetricRowsHtml(ranking, winner) {
   for (const entry of entries) {
     const color = RACER_CSS_COLORS[entry.index % RACER_CSS_COLORS.length];
     const barPct = entry.val !== null && maxValue > 0 ? Math.round((entry.val / maxValue) * 100) : 0;
-    const gap = entry.delta != null
-      ? formatDeltaLabel(entry.delta, entry.relative)
-      : formatAdvantageLabel(entry.advantage);
+    const gap = gapLabel(entry);
     const delta = gap ? fill('profile-delta', { delta: escHtml(gap) }) : '';
     html += fill('profile-row', {
       color,
@@ -182,23 +180,7 @@ export function buildRunNavHtml(runNav, racers, runSummaries) {
 }
 
 export function buildRaceInfoHtml(summary) {
-  const { racers, settings, timestamp } = summary;
-  const items = [];
-  if (timestamp) {
-    items.push(infoItem('Timestamp', escHtml(new Date(timestamp).toISOString())));
-  }
-  racers.forEach((r, i) => items.push(infoItem(`Racer ${i + 1}`, escHtml(r))));
-  if (settings) {
-    const mode = settings.parallel === false ? 'sequential' : 'parallel';
-    items.push(infoItem('Mode', mode));
-    if (settings.network && settings.network !== 'none') items.push(infoItem('Network', escHtml(settings.network)));
-    if (settings.cpuThrottle && settings.cpuThrottle > 1) items.push(infoItem('CPU Throttle', `${settings.cpuThrottle}x slower`));
-    if (settings.format && settings.format !== 'webm') items.push(infoItem('Format', escHtml(settings.format)));
-    if (settings.headless) items.push(infoItem('Headless', 'yes'));
-    if (settings.runs && settings.runs > 1) items.push(infoItem('Runs', settings.runs));
-  }
-  if (items.length === 0) return '';
-  return fill('info-grid', { cls: 'race-info', items: items.join('') });
+  return infoGrid('race-info', buildRaceInfoRows(summary));
 }
 
 /**
@@ -244,17 +226,7 @@ export function buildRaceConfigHtml(raceConfig) {
 }
 
 export function buildMachineInfoHtml(machineInfo) {
-  if (!machineInfo) return '';
-  const items = [];
-  items.push(infoItem('OS', `${escHtml(formatPlatform(machineInfo.platform))} ${escHtml(machineInfo.osRelease)} (${escHtml(machineInfo.arch)})`));
-  items.push(infoItem('CPU', `${escHtml(machineInfo.cpuModel)} (${machineInfo.cpuCores} cores)`));
-  if (machineInfo.totalMemoryMB) {
-    items.push(infoItem('Memory', `${(machineInfo.totalMemoryMB / 1024).toFixed(1)} GB`));
-  }
-  if (machineInfo.nodeVersion) {
-    items.push(infoItem('Node.js', escHtml(machineInfo.nodeVersion)));
-  }
-  return fill('info-grid', { cls: 'machine-info', items: items.join('') });
+  return infoGrid('machine-info', buildMachineInfoRows(machineInfo));
 }
 
 export function buildErrorsHtml(errors) {
@@ -270,7 +242,7 @@ export function buildResultsHtml(comparisons, racers) {
   for (const row of resultRows) {
     const rows = buildMetricRowsHtml(row.ranking, row.winner);
     if (row.isTotal) {
-      html += render(T['profile-metric'], {
+      html += fill('profile-metric', {
         metricClass: 'profile-metric-total',
         titleAttr: '',
         name: escHtml(formatSectionTitle(row.name)),
@@ -310,10 +282,10 @@ export function buildProfileSummaryHtml(profileComparison, racers) {
   let body = '';
 
   if (measuredRows) {
-    body += fill('profile-metric', { metricClass: 'profile-metric-total', titleAttr: '', name: 'Race', desc: '', rows: measuredRows });
+    body += fill('profile-metric', { metricClass: 'profile-metric-total', titleAttr: '', name: profileScope('measured').title, desc: '', rows: measuredRows });
   }
   if (totalRows) {
-    body += fill('profile-metric', { metricClass: '', titleAttr: '', name: 'Total Recording (Including Pre and Post race)', desc: '', rows: totalRows });
+    body += fill('profile-metric', { metricClass: '', titleAttr: '', name: profileScope('total').title, desc: '', rows: totalRows });
   }
 
   return fill('section', { openAttr: ' open', title: 'Performance Results', body: body + '\n  ' });
@@ -328,10 +300,10 @@ export function buildProfileHtml(profileComparison, racers) {
 
   let body = '\n  ' + fill('profile-note');
 
-  const scopes = [
-    { title: 'Race', desc: 'Metrics captured only between raceStart() and raceEnd() calls \u2014 isolates the code being tested.', section: measured, collapsed: false },
-    { title: 'Total Recording (Including Pre and Post race)', desc: 'Metrics for the entire recording window including pre-race setup and post-race teardown.', section: total, collapsed: true },
-  ];
+  // The Race scope is the headline and stays open; the total recording folds away.
+  const sections = { measured, total };
+  const scopes = PROFILE_SCOPES.map(({ scope, title, description }) =>
+    ({ title, desc: description, section: sections[scope], collapsed: scope === 'total' }));
   for (const scope of scopes) {
     const showMeasuredSectionMetrics = scope.section === measured && sectionMeasuredComparisons.length > 1;
     if (scope.section.comparisons.length === 0 && !showMeasuredSectionMetrics) continue;
@@ -341,7 +313,7 @@ export function buildProfileHtml(profileComparison, racers) {
       : fill('profile-heading', { title: escHtml(scope.title) });
     body += fill('profile-scope-desc', { desc: escHtml(scope.desc) });
     for (const [category, comps] of Object.entries(scope.section.byCategory)) {
-      const catLabel = category[0].toUpperCase() + category.slice(1);
+      const catLabel = categoryTitle(category);
       const catDesc = categoryDescriptions[category] || '';
       body += fill('profile-subheading', {
         titleAttr: catDesc ? ` title="${escHtml(catDesc)}"` : '',
@@ -402,16 +374,14 @@ export function buildProfileHtml(profileComparison, racers) {
 function renderHtmlCell(cell, bold) {
   const template = bold ? 'comparison-cell-bold' : 'comparison-cell';
   if (cell.value == null) return fill(template, { content: '-' });
+  const gap = gapLabel(cell);
   let content;
   if (cell.isWinner) {
-    const lead = formatAdvantageLabel(cell.advantage);
-    content = lead
-      ? `${escHtml(cell.formatted)} (\uD83C\uDFC6 ${escHtml(lead)})`
+    content = gap
+      ? `${escHtml(cell.formatted)} (\uD83C\uDFC6 ${escHtml(gap)})`
       : `${escHtml(cell.formatted)} (\uD83C\uDFC6)`;
-  } else if (cell.delta != null) {
-    content = escHtml(cell.formatted) + fill('run-delta', { delta: escHtml(formatDeltaLabel(cell.delta, cell.relative)) });
   } else {
-    content = escHtml(cell.formatted);
+    content = escHtml(cell.formatted) + (gap ? fill('run-delta', { delta: escHtml(gap) }) : '');
   }
   return fill(template, { content });
 }
@@ -490,41 +460,41 @@ export function buildFilesHtml(racers, videoFiles, options) {
   const order = displayOrder || racers.map((_, i) => i);
 
   order.forEach(i => {
-    if (videoFiles[i]) links.push(render(T['file-link'], { href: escHtml(videoFiles[i]), attrs: '', text: `${escHtml(racers[i])} (race)` }));
+    if (videoFiles[i]) links.push(fill('file-link', { href: escHtml(videoFiles[i]), attrs: '', text: `${escHtml(racers[i])} (race)` }));
   });
   if (fullVideoFiles) {
     order.forEach(i => {
-      if (fullVideoFiles[i]) links.push(render(T['file-link'], { href: escHtml(fullVideoFiles[i]), attrs: '', text: `${escHtml(racers[i])} (full)` }));
+      if (fullVideoFiles[i]) links.push(fill('file-link', { href: escHtml(fullVideoFiles[i]), attrs: '', text: `${escHtml(racers[i])} (full)` }));
     });
   }
   if (mergedVideoFile) {
-    links.push(render(T['file-link'], { href: escHtml(mergedVideoFile), attrs: '', text: 'side-by-side' }));
+    links.push(fill('file-link', { href: escHtml(mergedVideoFile), attrs: '', text: 'side-by-side' }));
   }
   if (altFormat && altFiles) {
     order.forEach(i => {
-      if (altFiles[i]) links.push(render(T['file-link'], { href: escHtml(altFiles[i]), attrs: 'download', text: `${escHtml(racers[i])} (.${escHtml(altFormat)})` }));
+      if (altFiles[i]) links.push(fill('file-link', { href: escHtml(altFiles[i]), attrs: 'download', text: `${escHtml(racers[i])} (.${escHtml(altFormat)})` }));
     });
   }
   if (traceFiles) {
     order.forEach(i => {
-      if (traceFiles[i]) links.push(render(T['file-link'], { href: escHtml(traceFiles[i]), attrs: 'title="Open in chrome://tracing or ui.perfetto.dev"', text: `${escHtml(racers[i])} (profile)` }));
+      if (traceFiles[i]) links.push(fill('file-link', { href: escHtml(traceFiles[i]), attrs: 'title="Open in chrome://tracing or ui.perfetto.dev"', text: `${escHtml(racers[i])} (profile)` }));
     });
   }
   if (harFiles) {
     order.forEach(i => {
-      if (harFiles[i]) links.push(render(T['file-link'], { href: escHtml(harFiles[i]), attrs: 'download title="HTTP Archive — open in browser DevTools or har.tech"', text: `${escHtml(racers[i])} (HAR)` }));
+      if (harFiles[i]) links.push(fill('file-link', { href: escHtml(harFiles[i]), attrs: 'download title="HTTP Archive — open in browser DevTools or har.tech"', text: `${escHtml(racers[i])} (HAR)` }));
     });
   }
   if (raceScriptFiles && raceScriptFiles.length > 0) {
     for (const f of raceScriptFiles) {
-      links.push(render(T['file-link'], { href: escHtml(f), attrs: 'title="Race script \u2014 rerun with: race-for-the-prize &lt;dir&gt;"', text: `${escHtml(f)} (script)` }));
+      links.push(fill('file-link', { href: escHtml(f), attrs: 'title="Race script \u2014 rerun with: race-for-the-prize &lt;dir&gt;"', text: `${escHtml(f)} (script)` }));
     }
   }
   if (settingsFileCopied) {
-    links.push(render(T['file-link'], { href: 'settings.json', attrs: '', text: 'settings.json' }));
+    links.push(fill('file-link', { href: 'settings.json', attrs: '', text: 'settings.json' }));
   }
   if (raceConfigFile) {
-    links.push(render(T['file-link'], {
+    links.push(fill('file-link', {
       href: escHtml(raceConfigFile),
       attrs: 'download title="The command and the settings this race actually ran with"',
       text: escHtml(raceConfigFile),
@@ -546,26 +516,26 @@ export function buildDebugPanelHtml(racers, displayOrder, clipTimes) {
   const debugRows = displayOrder.map((origIdx, displayIdx) => {
     const clip = orderedClipTimes[displayIdx];
     const startVal = clip && Number.isFinite(clip.start) ? clip.start.toFixed(3) : '0.000';
-    return render(T['debug-row'], { displayIdx, racerNameSpan: racerName(racers, origIdx), startVal });
+    return fill('debug-row', { displayIdx, racerNameSpan: racerName(racers, origIdx), startVal });
   }).join('');
 
   const statsRows = displayOrder.map((origIdx, displayIdx) =>
-    render(T['debug-stats-row'], { displayIdx, racerNameSpan: racerName(racers, origIdx) })
+    fill('debug-stats-row', { displayIdx, racerNameSpan: racerName(racers, origIdx) })
   ).join('\n');
 
   const frameRows = displayOrder.map((origIdx, displayIdx) =>
-    render(T['debug-frame-row'], { displayIdx, racerNameSpan: racerName(racers, origIdx) })
+    fill('debug-frame-row', { displayIdx, racerNameSpan: racerName(racers, origIdx) })
   ).join('\n');
 
   const timingRows = displayOrder.map((origIdx, displayIdx) =>
-    render(T['debug-timing-racer'], { displayIdx, racerNameSpan: racerName(racers, origIdx) })
+    fill('debug-timing-racer', { displayIdx, racerNameSpan: racerName(racers, origIdx) })
   ).join('\n');
 
-  return render(T['debug-panel'], { debugRows, statsRows, frameRows, timingRows });
+  return fill('debug-panel', { debugRows, statsRows, frameRows, timingRows });
 }
 
 export function buildPlayerSectionHtml(videoElements, mergedVideoElement) {
-  return render(T['player-section'], {
+  return fill('player-section', {
     videoElements,
     mergedVideoElement: mergedVideoElement || '',
   });

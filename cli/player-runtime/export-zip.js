@@ -17,8 +17,12 @@ function bakeRaceConfig(doc, pathOverrides, hasOverrides) {
   try { cfg = JSON.parse(configScript.textContent); } catch { cfg = null; }
   if (!cfg) return;
 
-  const adj = getAdjustedClipTimes();
-  if (adj && clipTimes) {
+  // Always bake the whole race clip, never the segment picked in the dropdown:
+  // _wcStart/_wcEnd and the measurements below describe the whole race, so a
+  // segment window here would make the exported "Race Recording" play just that
+  // section and land the finish badge in the wrong place.
+  const adj = adjustClipTimes(clipTimes);
+  if (adj) {
     // The exported clip times below already include the frame offsets, so the
     // exported page must not apply its saved offsets on top of them.
     cfg.calibrationBaked = true;

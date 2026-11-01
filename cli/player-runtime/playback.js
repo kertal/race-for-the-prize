@@ -75,6 +75,20 @@ function seekToWholeRecordingStart() {
   updateTimeDisplay();
 }
 
+// Seek to the start of the active race clip, recomputed from the current
+// calibration, offsets and racer filter.
+function seekToActiveClipStart() {
+  recalcActiveClip();
+  seekAll(activeClip ? activeClip.start : 0);
+  scrubber.value = 0;
+  updateTimeDisplay();
+}
+
+// Point every racer <video> at one source set (race clips or full recordings).
+function applyVideoSources(paths) {
+  raceVideos.forEach((v, i) => { v.src = paths[i]; });
+}
+
 let playing = false;
 let duration = 0;
 let activeClip = null;
@@ -104,15 +118,16 @@ function isHiddenRacer(i) {
 }
 
 // The transport steps by exactly one frame — FRAME_STEP, the same unit the
-// calibration buttons nudge by and the frame badges count in. It is declared in
-// calibration.cjs, concatenated after this file, so it is only ever read from
-// inside a handler that runs once the whole runtime has been evaluated.
+// calibration buttons nudge by and the frame badges count in. It and
+// SCRUBBER_MAX (the scrubber input's range) are declared in calibration.cjs,
+// concatenated after this file, so they are only ever read from inside a
+// handler that runs once the whole runtime has been evaluated.
 //
 // stepFrame reads its position back off the scrubber (racers can be offset from
 // each other, so no single video holds the shared elapsed time). The scrubber
-// therefore carries `step="any"`: over its 1000 units one unit is 40ms once the
-// window passes 40s — coarser than a frame — and integer rounding would make
-// single-frame steps stall or jump two.
+// therefore carries `step="any"`: over its SCRUBBER_MAX units one unit is 40ms
+// once the window passes 40s — coarser than a frame — and integer rounding
+// would make single-frame steps stall or jump two.
 
 // --- Formatting helpers ---
 
@@ -139,7 +154,7 @@ function clipDuration() {
 
 function updateTimeDisplay() {
   const d = clipDuration();
-  const t = d > 0 ? (scrubber.value / 1000) * d : 0;
+  const t = d > 0 ? (scrubber.value / SCRUBBER_MAX) * d : 0;
   const readout = fmt(Math.max(0, t)) + ' / ' + fmt(d);
   timeDisplay.textContent = readout;
   frameDisplay.textContent = getTime(Math.max(0, t));
@@ -198,8 +213,8 @@ function saveDebugOffsets() {
   } catch (e) { /* storage unavailable */ }
 }
 
-function getAdjustedClipTimes() {
-  const base = activeSegmentClipTimes || clipTimes;
+// The given clip entries with each racer's calibration offset applied.
+function adjustClipTimes(base) {
   if (!base) return null;
   return base.map((ct, i) => {
     if (!ct) return null;
@@ -207,12 +222,13 @@ function getAdjustedClipTimes() {
   });
 }
 
-function getSegmentClipTimes(name) {
-  return computeSegmentClipTimes(clipTimes, name);
+// The window the transport is playing — the picked segment, else the race clip.
+function getAdjustedClipTimes() {
+  return adjustClipTimes(activeSegmentClipTimes || clipTimes);
 }
 
-function resolveClip() {
-  return resolveClipWindow(clipTimes, hiddenRacers);
+function getSegmentClipTimes(name) {
+  return computeSegmentClipTimes(clipTimes, name);
 }
 
 function resolveAdjustedClip() {
@@ -220,9 +236,7 @@ function resolveAdjustedClip() {
   // (after a racer-filter click, a calibration nudge, or a late metadata pass)
   // would silently snap the player back to the race clip.
   if (activeSegmentName === '__full__') return null;
-  const adj = getAdjustedClipTimes();
-  if (!adj) return resolveClip();
-  return resolveClipWindow(adj, hiddenRacers);
+  return resolveClipWindow(getAdjustedClipTimes(), hiddenRacers);
 }
 
 // Where video i belongs when the shared clock reads t: its own clip start plus
@@ -256,7 +270,7 @@ function alignForPlay() {
   if (!activeClip) return;
   const d = clipDuration();
   if (!(d > 0)) return;
-  const t = activeClip.start + (scrubber.value / 1000) * d;
+  const t = activeClip.start + (scrubber.value / SCRUBBER_MAX) * d;
   const ct = getAdjustedClipTimes() || clipTimes;
   videos.forEach((v, i) => {
     if (!v) return;
@@ -454,12 +468,17 @@ function onMeta() {
 
 // --- Playback event handlers ---
 
-// Clamp one video to its clip end and return its elapsed time within the clip.
-function videoClipElapsed(v, vidClip) {
-  if (vidClip && v.currentTime > vidClip.end) {
-    v.currentTime = vidClip.end;
+// Hold a video at its clip end once it has run past it.
+function holdAtClipEnd(v, end) {
+  if (v.currentTime > end) {
+    v.currentTime = end;
     v.pause();
   }
+}
+
+// Clamp one video to its clip end and return its elapsed time within the clip.
+function videoClipElapsed(v, vidClip) {
+  if (vidClip) holdAtClipEnd(v, vidClip.end);
   const clamped = vidClip ? Math.min(v.currentTime, vidClip.end) : v.currentTime;
   return vidClip ? (clamped - vidClip.start) : (clamped - clipOffset());
 }
@@ -497,13 +516,13 @@ function onTimeUpdate() {
     videos.forEach(v => v?.pause());
     playing = false;
     setPlayState(false);
-    scrubber.value = 1000;
+    scrubber.value = SCRUBBER_MAX;
     updateTimeDisplay();
     return;
   }
   if (duration > 0) {
     const d = clipDuration();
-    scrubber.value = d > 0 ? (Math.max(0, elapsed) / d) * 1000 : 0;
+    scrubber.value = d > 0 ? (Math.max(0, elapsed) / d) * SCRUBBER_MAX : 0;
     updateTimeDisplay();
     updateFramePositions();
   }
@@ -658,19 +677,14 @@ function resetSegmentState({ hide = false } = {}) {
 
 function switchToRace() {
   switchMode('race', raceVideos, modeRace, {
-    loadSrc() { raceVideos.forEach((v, i) => { v.src = resolvedRacePaths[i]; }); },
+    loadSrc() { applyVideoSources(resolvedRacePaths); },
     onActivate() {
       playerContainer.style.display = 'flex';
       if (mergedContainer) mergedContainer.style.display = 'none';
       hideCalibration();
       resetSegmentState({ hide: false });
     },
-    doSeek() {
-      recalcActiveClip();
-      seekAll(activeClip ? activeClip.start : 0);
-      scrubber.value = 0;
-      updateTimeDisplay();
-    }
+    doSeek: seekToActiveClipStart,
   });
 }
 
@@ -678,7 +692,7 @@ function switchToFull() {
   if (!fullVideoPaths && !clipTimes) return;
   const needsSrcSwitch = fullVideoPaths && loadedSrcSet !== 'full';
   switchMode(needsSrcSwitch ? 'full' : loadedSrcSet, raceVideos, modeFull, {
-    loadSrc: needsSrcSwitch ? () => { raceVideos.forEach((v, i) => { v.src = resolvedFullPaths[i]; }); } : null,
+    loadSrc: needsSrcSwitch ? () => applyVideoSources(resolvedFullPaths) : null,
     onActivate() {
       playerContainer.style.display = 'flex';
       if (mergedContainer) mergedContainer.style.display = 'none';
@@ -760,7 +774,7 @@ playBtn.addEventListener('click', () => {
 
 scrubber.addEventListener('input', () => {
   const d = clipDuration();
-  const t = (scrubber.value / 1000) * d + clipOffset();
+  const t = (scrubber.value / SCRUBBER_MAX) * d + clipOffset();
   seekAll(t);
   updateTimeDisplay();
 });
@@ -788,11 +802,11 @@ function stepFrame(delta) {
   const minT = clipOffset();
   const maxT = activeClip ? activeClip.end : duration;
   const d = clipDuration();
-  const cur = d > 0 ? minT + (scrubber.value / 1000) * d : (primary.currentTime || 0);
+  const cur = d > 0 ? minT + (scrubber.value / SCRUBBER_MAX) * d : (primary.currentTime || 0);
   const t = stepFrameTime(cur, delta, minT, maxT);
   seekAll(t);
   const newElapsed = t - minT;
-  scrubber.value = d > 0 ? (newElapsed / d) * 1000 : 0;
+  scrubber.value = d > 0 ? (newElapsed / d) * SCRUBBER_MAX : 0;
   updateTimeDisplay();
 }
 
@@ -809,7 +823,7 @@ function goToStart() {
 function goToEnd() {
   pausePlayback();
   seekAll(activeClip ? activeClip.end : duration);
-  scrubber.value = 1000;
+  scrubber.value = SCRUBBER_MAX;
   updateTimeDisplay();
 }
 

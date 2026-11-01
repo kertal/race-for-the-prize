@@ -13,7 +13,7 @@
 
 import { c, RACER_COLORS } from './colors.js';
 import { determineOverallWinner } from './race-utils.js';
-import { rankEntries, formatDeltaLabel, formatAdvantageLabel, metricDeltaFormat } from './report-model.js';
+import { rankEntries, gapLabel, metricDeltaFormat, profileScope } from './report-model.js';
 
 /**
  * Performance metric definitions.
@@ -124,13 +124,18 @@ export function determineProfileMetricOutcome(metric, racerNames, values) {
     ? (outcome.diff / bestVal * 100)
     : null;
 
-  // A win needs a difference that clears both the category's percentage
-  // threshold and the metric's absolute noise floor. The floor is what keeps a
-  // best value of 0 (where the percentage is undefined) or a pair of tiny
-  // values (0.2ms vs 0.6ms is "200% worse") from counting as a win.
+  // A win is over the runner-up, not the back of the field: the best racer has
+  // to lead the next one by a difference that clears both the category's
+  // percentage threshold and the metric's absolute noise floor. The floor is
+  // what keeps a best value of 0 (where the percentage is undefined) or a pair
+  // of tiny values (0.2ms vs 0.6ms is "200% worse") from counting as a win,
+  // and measuring the lead rather than the spread is what keeps a shared best
+  // value (5, 5, 7) from crowning whichever tied racer was listed first.
+  const lead = racersWithData[1].value - bestVal;
+  const leadPercent = bestVal > 0 ? (lead / bestVal * 100) : null;
   const thresholdPercent = getProfileCategoryThresholdPercent(metric.category);
-  const clearsFloor = outcome.diff >= (metric.noiseFloor ?? 0);
-  const clearsPercent = outcome.diffPercent == null || outcome.diffPercent >= thresholdPercent;
+  const clearsFloor = lead > 0 && lead >= (metric.noiseFloor ?? 0);
+  const clearsPercent = leadPercent == null || leadPercent >= thresholdPercent;
   if (clearsFloor && clearsPercent) {
     outcome.winner = racerNames[racersWithData[0].index];
   }
@@ -275,6 +280,11 @@ export const categoryLabels = {
   smoothness: '🎞️ Smoothness'
 };
 
+/** A category key as a heading: 'network' reads "Network". */
+export function categoryTitle(category) {
+  return category[0].toUpperCase() + category.slice(1);
+}
+
 export const categoryDescriptions = {
   network: 'Network activity: data transferred and requests made. Fewer bytes and requests mean faster page loads.',
   loading: 'Page loading milestones measured from navigation start. Indicates how quickly the page becomes usable.',
@@ -288,7 +298,7 @@ export const categoryDescriptions = {
  * Print a section of profile metrics.
  */
 function printProfileSection(title, section, racers, w, write) {
-  const { comparisons, wins, overallWinner, byCategory } = section;
+  const { comparisons, overallWinner, byCategory } = section;
   const labelWidth = Math.max(12, ...racers.map(r => r.length));
 
   if (comparisons.length === 0) return;
@@ -323,9 +333,7 @@ function printProfileSection(title, section, racers, w, write) {
 
         // Show the gap to the best — absolute and relative — for non-best
         // racers, and how far the best one sits ahead of the runner-up.
-        const gap = entry.delta != null
-          ? formatDeltaLabel(entry.delta, entry.relative)
-          : formatAdvantageLabel(entry.advantage);
+        const gap = gapLabel(entry);
         const delta = gap ? ` ${c.dim}(${gap})${c.reset}` : '';
 
         write(`    ${color}${c.bold}${entry.name.padEnd(labelWidth)}${c.reset} ${color}${bar}${c.reset}  ${entry.formatted}${delta}${medal}\n`);
@@ -364,7 +372,7 @@ export function printProfileAnalysis(profileComparison, racers) {
   write(`\n  ${c.bold}📊 Performance Profile Analysis${c.reset}\n`);
 
   if (measured.comparisons.length > 0) {
-    printProfileSection('⏱️  Race', measured, racers, w, write);
+    printProfileSection(`⏱️  ${profileScope('measured').title}`, measured, racers, w, write);
   }
 }
 
@@ -385,10 +393,7 @@ function buildMarkdownMetricCells(comp, racers) {
   const byIndex = new Map(entries.map(entry => [entry.index, entry]));
   return racers.map((_, i) => {
     if (comp.values[i] == null) return '-';
-    const entry = byIndex.get(i);
-    const label = entry.delta != null
-      ? formatDeltaLabel(entry.delta, entry.relative)
-      : formatAdvantageLabel(entry.advantage);
+    const label = gapLabel(byIndex.get(i));
     return label ? `${comp.formatted[i]} (${label})` : comp.formatted[i];
   });
 }
@@ -397,7 +402,7 @@ function buildMarkdownMetricCells(comp, racers) {
  * Build markdown section for a profile scope.
  */
 function buildScopeMarkdown(title, section, racers) {
-  const { comparisons, wins, overallWinner, byCategory } = section;
+  const { comparisons, overallWinner, byCategory } = section;
   const lines = [];
 
   if (comparisons.length === 0) return '';
@@ -406,7 +411,7 @@ function buildScopeMarkdown(title, section, racers) {
   lines.push('');
 
   for (const [category, comps] of Object.entries(byCategory)) {
-    lines.push(`**${category[0].toUpperCase() + category.slice(1)}**`);
+    lines.push(`**${categoryTitle(category)}**`);
     lines.push('');
     const headerCols = ['Metric', ...racers, 'Winner'];
     lines.push(`| ${headerCols.join(' | ')} |`);
@@ -447,7 +452,7 @@ export function buildProfileMarkdown(profileComparison, racers) {
   lines.push('');
 
   if (measured.comparisons.length > 0) {
-    lines.push(buildScopeMarkdown('Race', measured, racers));
+    lines.push(buildScopeMarkdown(profileScope('measured').title, measured, racers));
   }
 
   return lines.join('\n');

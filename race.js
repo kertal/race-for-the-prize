@@ -67,7 +67,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  * and runner cannot drift out of sync.
  */
 const runnerProtocol = createRequire(import.meta.url)('./runner-protocol.cjs');
-export const { RESULT_SENTINEL: RUNNER_RESULT_SENTINEL } = runnerProtocol;
+export const { RESULT_SENTINEL: RUNNER_RESULT_SENTINEL, signalExitCode } = runnerProtocol;
 const {
   PROTOCOL_VERSION: RUNNER_PROTOCOL_VERSION,
   createRaceMessageRegex,
@@ -96,14 +96,6 @@ export class AbortError extends Error {
     this.name = 'AbortError';
     this.exitCode = exitCode;
   }
-}
-
-/** Map a POSIX signal name to its conventional exit code (128 + signo). */
-export function signalExitCode(signal) {
-  if (signal === 'SIGINT') return 130;
-  if (signal === 'SIGTERM') return 143;
-  if (signal === 'SIGHUP') return 129;
-  return 130;
 }
 
 // Restore cursor on any exit so we don't leave the user's terminal with a
@@ -455,10 +447,16 @@ export function spawnRunner(ctx) {
   });
 }
 
-/** Run one race, collect results into runDir, return summary. */
+/**
+ * Run one race: spawn the runner, move every racer's recordings into runDir
+ * and build the run's outputs. Returns { summary, sideBySidePath,
+ * sideBySideName, clipTimes }.
+ *
+ * @param {object} raceOptions - { skipCopyFFmpeg, ffmpegPathPrefix, onSummary,
+ *   spawn } — `spawn` replaces spawnRunner (injected by tests)
+ */
 export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptions = {}) {
-  const { racerNames, settings } = ctx;
-  const { format, ffmpeg, noRecording } = settings;
+  const { racerNames } = ctx;
   const racerRunDirs = racerNames.map(name => path.join(runDir, name));
   racerRunDirs.forEach(d => fs.mkdirSync(d, { recursive: true }));
 
@@ -469,124 +467,119 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
   // The finally block guarantees the temp recordings dir is removed even when
   // the runner crashes or the race is aborted mid-run.
   try {
-    const result = await spawnRunner(raceCtx);
-
-    let results, summary, sideBySidePath = null, sideBySideName = null, clipTimes = null;
-    const { raceScriptFiles, settingsFileCopied, raceConfigFile } = storeRaceAssets(ctx, runDir);
-    const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
-
-    // Lets the caller add to the summary (Gemini commentary) before it is
-    // written and before the player is built from it.
-    const finishSummary = (s) => { if (raceOptions.onSummary) raceOptions.onSummary(s); return s; };
-
-    if (noRecording) {
-      // No-recording mode: just save measurements, skip all video processing
-      results = racerNames.map((name, i) => {
-        const b = result.browsers?.[i] || {};
-        let tracePath = null;
-        if (b.tracePath) {
-          const sourceTrace = path.join(recordingsDir, b.tracePath);
-          const targetTraceName = traceFile(name);
-          const targetTrace = path.join(racerRunDirs[i], targetTraceName);
-          try {
-            if (fs.existsSync(sourceTrace)) {
-              fs.copyFileSync(sourceTrace, targetTrace);
-              tracePath = racerRelative(name, targetTraceName);
-            } else {
-              console.error(`${c.dim}Warning: Trace file missing for ${name}: ${sourceTrace}${c.reset}`);
-            }
-          } catch (e) {
-            console.error(`${c.dim}Warning: Could not copy trace for ${name}: ${e.message}${c.reset}`);
-          }
-        }
-        const data = {
-          videoPath: null, fullVideoPath: null, tracePath,
-          measurements: b.measurements || [],
-          profileMetrics: b.profileMetrics || null, error: b.error || null,
-        };
-        fs.writeFileSync(path.join(racerRunDirs[i], 'measurements.json'), JSON.stringify(data.measurements, null, 2));
-        if (data.profileMetrics) fs.writeFileSync(path.join(racerRunDirs[i], 'profile-metrics.json'), JSON.stringify(data.profileMetrics, null, 2));
-        return data;
-      });
-      summary = finishSummary(buildSummary(racerNames, results, settings, runDir));
-      fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
-    } else {
-      const progress = startProgress('Processing recordings…');
-      results = racerNames.map((name, i) =>
-        moveResults(recordingsDir, name, racerRunDirs[i], result.browsers?.[i] || {})
-      );
-
-      summary = finishSummary(buildSummary(racerNames, results, settings, runDir));
-      fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
-      progress.done('Recordings processed');
-
-      sideBySideName = `${racerNames.join('-vs-')}${ext}`;
-
-      if (ffmpeg) {
-        // Side-by-side follows the racer order, so the merged video matches
-        // the player's grid and the racer list in the report.
-        const videoPaths = results.map(r => r.videoPath).filter(Boolean);
-        sideBySidePath = createSideBySide(videoPaths, path.join(runDir, sideBySideName), format, settings.slowmo);
-
-        if (format !== 'webm') {
-          const convertProgress = startProgress(`Converting videos to ${format}…`);
-          convertVideos(results, format);
-          convertProgress.done(`Videos converted to ${format}`);
-        }
-      }
-
-      // With --ffmpeg, videos are trimmed and separate full recordings exist.
-      // Without --ffmpeg, the single video IS the full recording — the player handles
-      // virtual trimming via clip times from recordingSegments.
-      let videoFiles, fullVideoFiles, altFiles;
-      if (ffmpeg) {
-        videoFiles = racerNames.map(name => racerRelative(name, raceVideoFile(name)));
-        fullVideoFiles = racerNames.map(name => racerRelative(name, fullVideoFile(name)));
-        altFiles = format !== 'webm' ? racerNames.map(name => racerRelative(name, raceVideoFile(name, ext))) : null;
-      } else {
-        // Only the full (untrimmed) video exists — use it for both race and full views
-        videoFiles = racerNames.map(name => racerRelative(name, raceVideoFile(name)));
-        fullVideoFiles = null; // same file, no separate full video
-        altFiles = null;       // no format conversion without ffmpeg
-      }
-
-      const traceFiles = racerNames.map(name => racerRelative(name, traceFile(name)));
-      const harFiles = racerNames.map((name, i) => {
-        return results[i]?.harPath ? racerRelative(name, harFile(name)) : null;
-      });
-
-      clipTimes = buildClipTimes(racerNames, (i) => result.browsers?.[i], ffmpeg);
-
-      writePlayerAndAssets({
-        runDir, summary, settings, videoFiles,
-        playerExtras: {
-          fullVideoFiles,
-          mergedVideoFile: sideBySidePath ? sideBySideName : null,
-          traceFiles,
-          harFiles,
-          raceScriptFiles,
-          settingsFileCopied,
-          raceConfig: ctx.raceConfig,
-          raceConfigFile,
-          runNavigation,
-          clipTimes,
-          altFiles,
-        },
-        raceOptions,
-        raceDir: ctx.raceDir,
-      });
-    }
-
-    return { summary, sideBySidePath, sideBySideName, clipTimes };
+    const result = await (raceOptions.spawn || spawnRunner)(raceCtx);
+    // moveResults keeps whatever the runner left for a racer — videos, trace,
+    // HAR — so a --recording=false race loses nothing it did record.
+    const results = racerNames.map((name, i) =>
+      moveResults(recordingsDir, name, racerRunDirs[i], result.browsers?.[i] || {})
+    );
+    return buildRaceOutput(ctx, runDir, results, i => result.browsers?.[i], runNavigation, raceOptions);
   } finally {
     fs.rmSync(recordingsDir, { recursive: true, force: true });
   }
 }
 
 /**
+ * Turn one run's moved recordings into its outputs: summary.json, the race
+ * assets, and — unless recording is off — the side-by-side video and format
+ * conversion (--ffmpeg) and the HTML player. Shared by runSingleRace (all
+ * racers raced together) and split mode (each racer raced alone), so both
+ * produce the same files.
+ *
+ * @param {object} ctx
+ * @param {string} runDir
+ * @param {Array} results - moveResults() output, one per racer
+ * @param {(racerIndex: number) => object|undefined} getBrowserData - the runner's result for a racer
+ * @param {object|null} runNavigation
+ * @param {object} raceOptions - { skipCopyFFmpeg, ffmpegPathPrefix, onSummary }
+ * @returns {{summary: object, sideBySidePath: string|null, sideBySideName: string|null, clipTimes: Array|null}}
+ */
+export function buildRaceOutput(ctx, runDir, results, getBrowserData, runNavigation = null, raceOptions = {}) {
+  const { racerNames, settings } = ctx;
+  const { format, ffmpeg, noRecording } = settings;
+
+  const progress = startProgress('Processing recordings…');
+  const summary = buildSummary(racerNames, results, settings, runDir);
+  // Lets the caller add to the summary (Gemini commentary) before it is
+  // written and before the player is built from it.
+  if (raceOptions.onSummary) raceOptions.onSummary(summary);
+  fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
+  const { raceScriptFiles, settingsFileCopied, raceConfigFile } = storeRaceAssets(ctx, runDir);
+  progress.done('Recordings processed');
+
+  // No recording means no video player (and no ffmpeg.wasm to ship with it):
+  // the measurements, traces and summary are the whole output.
+  if (noRecording) return { summary, sideBySidePath: null, sideBySideName: null, clipTimes: null };
+
+  const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
+  const sideBySideName = `${racerNames.join('-vs-')}${ext}`;
+  let sideBySidePath = null;
+
+  if (ffmpeg) {
+    // Side-by-side follows the racer order, so the merged video matches
+    // the player's grid and the racer list in the report.
+    const videoPaths = results.map(r => r.videoPath).filter(Boolean);
+    sideBySidePath = createSideBySide(videoPaths, path.join(runDir, sideBySideName), format, settings.slowmo);
+
+    if (format !== 'webm') {
+      const convertProgress = startProgress(`Converting videos to ${format}…`);
+      convertVideos(results, format);
+      convertProgress.done(`Videos converted to ${format}`);
+    }
+  }
+
+  // With --ffmpeg, videos are trimmed and separate full recordings exist.
+  // Without --ffmpeg, the single video IS the full recording — the player handles
+  // virtual trimming via clip times from recordingSegments.
+  const videoFiles = racerNames.map(name => racerRelative(name, raceVideoFile(name)));
+  const fullVideoFiles = ffmpeg ? racerNames.map(name => racerRelative(name, fullVideoFile(name))) : null;
+  const altFiles = ffmpeg && format !== 'webm' ? racerNames.map(name => racerRelative(name, raceVideoFile(name, ext))) : null;
+  const traceFiles = racerNames.map(name => racerRelative(name, traceFile(name)));
+  const harFiles = racerNames.map((name, i) => (results[i]?.harPath ? racerRelative(name, harFile(name)) : null));
+  const clipTimes = buildClipTimes(racerNames, getBrowserData, ffmpeg);
+
+  writePlayerAndAssets({
+    runDir, summary, settings, videoFiles,
+    playerExtras: {
+      fullVideoFiles,
+      mergedVideoFile: sideBySidePath ? sideBySideName : null,
+      traceFiles,
+      harFiles,
+      raceScriptFiles,
+      settingsFileCopied,
+      raceConfig: ctx.raceConfig,
+      raceConfigFile,
+      runNavigation,
+      clipTimes,
+      altFiles,
+    },
+    raceOptions,
+    raceDir: ctx.raceDir,
+  });
+
+  return { summary, sideBySidePath, sideBySideName, clipTimes };
+}
+
+/**
  * Build a race context from resolved settings and racer info.
  * This is the config object passed to spawnRunner/runSingleRace.
  */
+/**
+ * The context for split mode, which ignores --parallel: sequential execution,
+ * `parallel: false` in the settings, and a race record rebuilt from them, so
+ * the viewport, config.json and the Mode row all match what ran.
+ */
+export function sequentialContext(ctx, raceConfigFor) {
+  const settings = { ...ctx.settings, parallel: false };
+  return {
+    ...ctx,
+    settings,
+    executionMode: 'sequential',
+    runnerConfig: { ...ctx.runnerConfig, executionMode: 'sequential' },
+    raceConfig: raceConfigFor(settings),
+  };
+}
+
 export function buildRaceContext({ racerNames, scripts, settings, rootDir = __dirname, raceDir = null, racerFiles = null }) {
   const executionMode = settings.parallel ? 'parallel' : 'sequential';
   const throttle = { network: settings.network, cpu: settings.cpuThrottle };
@@ -746,7 +739,9 @@ if (boolFlags.has('init')) {
 
   fs.mkdirSync(targetDir, { recursive: true });
 
-  const defaultRacerA = `// Racer A — edit this script to test your first URL
+  // The starter race: two specs that differ only in their label and URL, and
+  // a settings file. Written as-is, or as the fallback for a Gemini scaffold.
+  const starterSpec = (label, ordinal, url) => `// Racer ${label} — edit this script to test your ${ordinal} URL
 // Available race helpers injected into page:
 //   await page.raceRecordingStart()   — start video segment (optional)
 //   await page.raceStart('name')      — start a measurement
@@ -756,31 +751,22 @@ if (boolFlags.has('init')) {
 //   race.name                         — this racer's name (from filename)
 //   race.vars                         — per-racer vars from settings.json
 
-await page.goto('https://example.com');
+await page.goto(${JSON.stringify(url)});
 await page.raceRecordingStart();
 await page.raceStart('Load');
 await page.waitForLoadState('networkidle');
 page.raceEnd('Load');
 await page.raceRecordingEnd();
 `;
-
-  const defaultRacerB = `// Racer B — edit this script to test your second URL
-// Available race helpers injected into page:
-//   await page.raceRecordingStart()   — start video segment (optional)
-//   await page.raceStart('name')      — start a measurement
-//   page.raceEnd('name')              — end a measurement (sync)
-//   page.raceMessage('text')          — send a message to the CLI
-//   await page.raceRecordingEnd()     — end video segment (optional)
-//   race.name                         — this racer's name (from filename)
-//   race.vars                         — per-racer vars from settings.json
-
-await page.goto('https://example.org');
-await page.raceRecordingStart();
-await page.raceStart('Load');
-await page.waitForLoadState('networkidle');
-page.raceEnd('Load');
-await page.raceRecordingEnd();
-`;
+  const starterSpecs = [
+    { file: 'racer-a.spec.js', content: starterSpec('A', 'first', 'https://example.com') },
+    { file: 'racer-b.spec.js', content: starterSpec('B', 'second', 'https://example.org') },
+  ];
+  const starterSettings = JSON.stringify({ parallel: false, headless: false, runs: 3 }, null, 2) + '\n';
+  const writeStarter = (specs) => {
+    for (const { file, content } of specs) fs.writeFileSync(path.join(targetDir, file), content);
+    fs.writeFileSync(path.join(targetDir, 'settings.json'), starterSettings);
+  };
 
   // --gemini-spec="<prompt>": use Gemini + Playwright HTML research to generate specs
   if (kvFlags['gemini-spec'] !== undefined) {
@@ -796,19 +782,10 @@ await page.raceRecordingEnd();
         written.push(filename);
       }
 
-      const expectedSpecs = [
-        { file: 'racer-a.spec.js', default: defaultRacerA },
-        { file: 'racer-b.spec.js', default: defaultRacerB },
-      ];
-      for (const { file, default: fallback } of expectedSpecs) {
-        if (!specFiles[file]) {
-          fs.writeFileSync(path.join(targetDir, file), fallback);
-          written.push(`${file} (default — Gemini did not generate this file)`);
-        }
-      }
-
-      const settings = JSON.stringify({ parallel: false, headless: false, runs: 3 }, null, 2) + '\n';
-      fs.writeFileSync(path.join(targetDir, 'settings.json'), settings);
+      // Whatever Gemini did not write falls back to the starter spec.
+      const missing = starterSpecs.filter(({ file }) => !specFiles[file]);
+      writeStarter(missing);
+      for (const { file } of missing) written.push(`${file} (default — Gemini did not generate this file)`);
 
       console.error(`
 ${c.green}${c.bold}✓ Race scaffolded with Gemini:${c.reset} ${c.cyan}${path.relative(process.cwd(), targetDir)}/${c.reset}
@@ -822,20 +799,13 @@ ${c.bold}Run it:${c.reset}
     } catch (e) {
       console.error(`${c.red}Gemini spec generation failed: ${e.message}${c.reset}`);
       console.error(`${c.dim}Falling back to default scaffold…${c.reset}`);
-      // Write default scaffold files and exit
-      fs.writeFileSync(path.join(targetDir, 'racer-a.spec.js'), defaultRacerA);
-      fs.writeFileSync(path.join(targetDir, 'racer-b.spec.js'), defaultRacerB);
-      fs.writeFileSync(path.join(targetDir, 'settings.json'), JSON.stringify({ parallel: false, headless: false, runs: 3 }, null, 2) + '\n');
+      writeStarter(starterSpecs);
     }
 
     process.exit(0);
   }
 
-  const settings = JSON.stringify({ parallel: false, headless: false, runs: 3 }, null, 2) + '\n';
-
-  fs.writeFileSync(path.join(targetDir, 'racer-a.spec.js'), defaultRacerA);
-  fs.writeFileSync(path.join(targetDir, 'racer-b.spec.js'), defaultRacerB);
-  fs.writeFileSync(path.join(targetDir, 'settings.json'), settings);
+  writeStarter(starterSpecs);
 
   console.error(`
 ${c.green}${c.bold}✓ Race scaffolded:${c.reset} ${c.cyan}${path.relative(process.cwd(), targetDir)}/${c.reset}
@@ -936,6 +906,9 @@ let ctx, settings, racerNames;
 // Raw settings.json contents, so the race record can tell a value that came
 // from the file apart from a default (URL mode has no file).
 let fileSettings = {};
+// How the race was defined — the loader knows whether one race.spec.js is
+// raced under several names (shared-spec) or every racer has its own file.
+let raceMode = 'url';
 
 if (urlMode) {
   if (boolFlags.has('results')) {
@@ -997,7 +970,7 @@ if (urlMode) {
     process.exit(0);
   }
 
-  ({ ctx, settings, racerNames, fileSettings } = loadRace(raceDir));
+  ({ ctx, settings, racerNames, fileSettings, mode: raceMode } = loadRace(raceDir));
 }
 
 
@@ -1016,10 +989,6 @@ const toolVersion = (() => {
 // The spec files stay the same for the whole invocation, unlike ctx, which is
 // rebuilt per throttling condition.
 const raceFiles = ctx.racerFiles;
-// Shared-spec mode races one race.spec.js under several names.
-const raceMode = urlMode
-  ? 'url'
-  : (raceFiles?.length === 1 && racerNames.length > 1 ? 'shared-spec' : 'directory');
 
 /** Snapshot the configuration a race is about to run with. */
 function raceConfigFor(activeSettings) {
@@ -1098,10 +1067,15 @@ async function runRacerAlone(browserIdx, racerRunDir) {
   fs.mkdirSync(recordingsDir, { recursive: true });
   fs.mkdirSync(racerRunDir, { recursive: true });
 
+  // ctx is already sequential here (see sequentialContext in main()).
   const singleCtx = {
     ...ctx,
     racerNames: [racerNames[browserIdx]],
-    runnerConfig: { ...ctx.runnerConfig, browsers: [ctx.runnerConfig.browsers[browserIdx]], recordingsDir },
+    runnerConfig: {
+      ...ctx.runnerConfig,
+      browsers: [ctx.runnerConfig.browsers[browserIdx]],
+      recordingsDir,
+    },
   };
 
   try {
@@ -1159,46 +1133,6 @@ function updateRunNavColors(summaries) {
     html = html.replace(oldNavMatch[0], newNav);
     fs.writeFileSync(htmlPath, html);
   }
-}
-
-/**
- * Build the per-run output (summary.json + index.html) after all racers' recordings
- * for run `i` are already moved into their run directories.
- */
-function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts = {}) {
-  const { ffmpeg } = settings;
-  const isFinalOutput = !runNav || runNav.totalRuns === 1;
-
-  const progress = startProgress('Processing recordings…');
-  const summary = buildSummary(racerNames, runMovedResults, settings, runDir);
-  if (isFinalOutput) generateGeminiCommentary(summary, runDir);
-  fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
-
-  const { raceScriptFiles, settingsFileCopied, raceConfigFile } = storeRaceAssets(ctx, runDir);
-
-  progress.done('Recordings processed');
-
-  // No recording means no video player (and no ffmpeg.wasm to ship with it) —
-  // the same as runSingleRace's no-recording path, which only saves measurements.
-  if (settings.noRecording) return { summary, clipTimes: null };
-
-  const clipTimes = buildClipTimes(racerNames, (ri) => runRawResults[ri].browsers?.[0], ffmpeg);
-
-  const videoFiles = racerNames.map(name => racerRelative(name, raceVideoFile(name)));
-  const traceFiles = racerNames.map(name => racerRelative(name, traceFile(name)));
-
-  writePlayerAndAssets({
-    runDir, summary, settings, videoFiles,
-    playerExtras: {
-      traceFiles, raceScriptFiles, settingsFileCopied,
-      raceConfig: ctx.raceConfig, raceConfigFile,
-      runNavigation: runNav, clipTimes,
-    },
-    raceOptions: raceOpts,
-    raceDir: ctx.raceDir,
-  });
-
-  return { summary, clipTimes };
 }
 
 /**
@@ -1286,28 +1220,37 @@ async function runSplitModeSeries() {
     await runRacerRuns(ri, multiRun, rawResults[ri], movedResults[ri]);
   }
 
-  const summaries = [], allClipTimes = [];
+  // Every racer's recordings for run `i` are in place; build that run's
+  // outputs exactly as a race where they ran together would.
+  const summaries = [], sideBySideNames = [], allClipTimes = [];
   for (let i = 0; i < totalRuns; i++) {
     const runDir = multiRun ? path.join(resultsDir, String(i + 1)) : resultsDir;
     const runNav = multiRun ? { currentRun: i + 1, totalRuns, pathPrefix: '../' } : null;
-    const { summary, clipTimes } = buildRunOutput(
+    const { summary, sideBySidePath, sideBySideName, clipTimes } = buildRaceOutput(
+      ctx,
       runDir,
-      racerNames.map((_, ri) => rawResults[ri][i]),
       racerNames.map((_, ri) => movedResults[ri][i]),
+      (ri) => rawResults[ri][i].browsers?.[0],
       runNav,
-      { skipCopyFFmpeg: multiRun, ffmpegPathPrefix: multiRun ? '../' : './' }
+      {
+        skipCopyFFmpeg: multiRun,
+        ffmpegPathPrefix: multiRun ? '../' : './',
+        // A single run is the final output: commentary goes into its player.
+        onSummary: multiRun ? null : (s) => generateGeminiCommentary(s, runDir),
+      }
     );
     printSummary(summary);
     summaries.push(summary);
+    sideBySideNames.push(sideBySidePath ? sideBySideName : null);
     allClipTimes.push(clipTimes);
   }
 
   if (!multiRun) {
-    fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summaries[0], null));
+    fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summaries[0], sideBySideNames[0]));
     return summaries[0];
   }
   updateRunNavColors(summaries);
-  return buildMedianOutput(summaries, summaries.map(() => null), allClipTimes);
+  return buildMedianOutput(summaries, sideBySideNames, allClipTimes);
 }
 
 async function main() {
@@ -1325,12 +1268,13 @@ async function main() {
 
     setupCompleted = true;
 
-    // Split mode runs each racer alone and sequentially, which is fundamentally
-    // incompatible with --parallel. Warn once (not per network condition)
-    // instead of silently ignoring the flag.
+    // Split mode runs each racer alone, so --parallel cannot apply. Warn once
+    // (not per network condition) and switch the context to sequential.
     if (settings.parallel && (settings.pauseBetweenRuns || racerScripts.some(r => r.setup))) {
       const reason = racerScripts.some(r => r.setup) ? 'per-racer setup scripts are present' : '--pause is set';
       console.error(`  ${c.yellow}Note: --parallel is ignored because ${reason}; racers will run one at a time.${c.reset}`);
+      ctx = sequentialContext(ctx, raceConfigFor);
+      settings = ctx.settings;
     }
 
     // Race each throttling condition separately. With a single condition this
@@ -1365,11 +1309,13 @@ async function main() {
       // Overview across every condition raced: how the field holds up as the
       // network and CPU get harder, not just who won each individual race.
       // The terminal shows total time; the HTML index can switch metrics.
-      printConditionMatrix(buildConditionMatrix(conditionSummaries));
+      const matrix = buildConditionMatrix(conditionSummaries);
+      printConditionMatrix(matrix);
       if (!settings.noRecording) {
         fs.writeFileSync(
           path.join(baseResultsDir, 'index.html'),
           buildConditionIndexHtml(racerNames.join(' vs '), conditionSummaries, {
+            matrix,
             skin: settings.skin,
             skinBaseDir: ctx.raceDir,
           })
@@ -1440,12 +1386,6 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
     const medianClipTimes = allClipTimes.some(ct => ct != null)
       ? racerNames.map((_, i) => allClipTimes[perRacerRunIdx[i]]?.[i] ?? null)
       : null;
-    // Label showing which runs were selected (e.g. "Run 2" or "Runs 1, 2, 3")
-    const uniqueRunNums = [...new Set(perRacerRunIdx.map(idx => idx + 1))].sort((a, b) => a - b);
-    const medianRunLabel = uniqueRunNums.length === 1
-      ? `Run ${uniqueRunNums[0]}`
-      : `Runs ${uniqueRunNums.join(', ')}`;
-
     const medianNav = { currentRun: 'median', totalRuns, pathPrefix: '' };
     const medianPlayerOptions = {
       fullVideoFiles: medianFullVideoFiles,
@@ -1455,7 +1395,6 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
       raceConfig: ctx.raceConfig,
       raceConfigFile,
       runNavigation: medianNav,
-      medianRunLabel,
       clipTimes: medianClipTimes,
       runSummaries: summaries,
       skin: settings.skin,

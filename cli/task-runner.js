@@ -145,6 +145,9 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
     const stderr = createStderrBuffer();
     let timedOut = false;
     let exited = false;
+    // Set when the timeout finds the script already gone: then it was not the
+    // script that overran, but something it left behind holding its pipes.
+    let exitedBeforeTimeout = false;
     let settled = false;
     let sigkillTimeoutId = null;
     let drainTimeoutId = null;
@@ -167,6 +170,7 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
       if (exited) {
         // The script is long gone: only something it left behind, still
         // holding its output pipes, is keeping us here. Nothing to kill.
+        exitedBeforeTimeout = true;
         onExit(child.exitCode, child.signalCode);
         return;
       }
@@ -213,8 +217,10 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
 
       if (timedOut) {
         progress.done(`${label} timed out after ${timeout}ms`);
-        if (code !== null) {
-          // Exited on its own (with `code`) but its output never closed.
+        if (exitedBeforeTimeout) {
+          // Exited on its own but its output never closed. A script that only
+          // exited because the timeout's SIGTERM told it to also has a `code`,
+          // so the code alone cannot tell the two apart.
           reject(new Error(
             `${label} script exited with code ${code} but something it started is still holding its output ` +
             `${timeout}ms later. For a background service, add "waitFor" to the ${label.toLowerCase()} config ` +
@@ -256,42 +262,40 @@ export async function runScript(script, label, vars, { raceDir, verbose = false 
             return;
           }
           const { url, timeout: waitTimeout = 30000, interval = 1000 } = waitFor;
-          if (url) {
-            const waitProgress = startProgress(`Waiting for ${url}…`);
-            const startTime = Date.now();
-            let waitSettled = false;
+          const waitProgress = startProgress(`Waiting for ${url}…`);
+          const startTime = Date.now();
+          let waitSettled = false;
 
-            const poll = async () => {
+          const poll = async () => {
+            if (waitSettled) return;
+            const remaining = waitTimeout - (Date.now() - startTime);
+            if (remaining <= 0) {
               if (waitSettled) return;
-              const remaining = waitTimeout - (Date.now() - startTime);
-              if (remaining <= 0) {
+              waitSettled = true;
+              waitProgress.done(`Timeout waiting for ${url}`);
+              reject(new Error(`Timeout waiting for ${url} after ${waitTimeout}ms`));
+              return;
+            }
+
+            try {
+              const res = await fetch(url, {
+                signal: AbortSignal.timeout(Math.min(remaining, interval * 2)),
+              });
+              if (res.ok) {
                 if (waitSettled) return;
                 waitSettled = true;
-                waitProgress.done(`Timeout waiting for ${url}`);
-                reject(new Error(`Timeout waiting for ${url} after ${waitTimeout}ms`));
+                waitProgress.done(`Service ready at ${url}`);
+                resolve();
                 return;
               }
+            } catch {
+              // Connection failed or timed out, will retry
+            }
 
-              try {
-                const res = await fetch(url, {
-                  signal: AbortSignal.timeout(Math.min(remaining, interval * 2)),
-                });
-                if (res.ok) {
-                  if (waitSettled) return;
-                  waitSettled = true;
-                  waitProgress.done(`Service ready at ${url}`);
-                  resolve();
-                  return;
-                }
-              } catch {
-                // Connection failed or timed out, will retry
-              }
-
-              if (!waitSettled) setTimeout(poll, interval);
-            };
-            poll();
-            return;
-          }
+            if (!waitSettled) setTimeout(poll, interval);
+          };
+          poll();
+          return;
         }
 
         resolve();
