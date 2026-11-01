@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { discoverRacers, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown } from '../cli/config.js';
+import { MAX_RACERS, discoverRacers, resolveSharedRacerNames, parseArgs, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown, findValuelessKvFlags, findUnknownFlags, parseNetworkList, parseCpuList, buildRaceConditions, InvalidSettingError } from '../cli/config.js';
 
 let tmpDir;
 
@@ -66,29 +66,16 @@ describe('racer file discovery', () => {
     expect(racerNames).toEqual(['a', 'b', 'c', 'd']);
   });
 
-  it('allows 5 racers when 5 spec files found', () => {
-    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'c.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'd.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'e.spec.js'), '');
+  it(`limits to the first ${MAX_RACERS} files when more are found`, () => {
+    for (const name of ['a', 'b', 'c', 'd', 'e', 'f']) {
+      fs.writeFileSync(path.join(tmpDir, `${name}.spec.js`), '');
+    }
 
-    const { racerFiles, racerNames } = discoverRacers(tmpDir);
-    expect(racerFiles).toEqual(['a.spec.js', 'b.spec.js', 'c.spec.js', 'd.spec.js', 'e.spec.js']);
-    expect(racerNames).toEqual(['a', 'b', 'c', 'd', 'e']);
-  });
-
-  it('limits to first 5 files when more than 5 found', () => {
-    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'c.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'd.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'e.spec.js'), '');
-    fs.writeFileSync(path.join(tmpDir, 'f.spec.js'), '');
-
-    const { racerFiles, racerNames } = discoverRacers(tmpDir);
-    expect(racerFiles).toEqual(['a.spec.js', 'b.spec.js', 'c.spec.js', 'd.spec.js', 'e.spec.js']);
-    expect(racerNames).toEqual(['a', 'b', 'c', 'd', 'e']);
+    const { racerFiles, racerNames, totalFound, dropped } = discoverRacers(tmpDir);
+    expect(racerFiles).toEqual(['a.spec.js', 'b.spec.js', 'c.spec.js', 'd.spec.js']);
+    expect(racerNames).toEqual(['a', 'b', 'c', 'd']);
+    expect(totalFound).toBe(6);
+    expect(dropped).toEqual(['e.spec.js', 'f.spec.js']);
   });
 
   it('sorts files alphabetically', () => {
@@ -142,6 +129,78 @@ describe('racer file discovery', () => {
   });
 });
 
+describe('shared-spec racer resolution', () => {
+  it('uses settings.racers declaration order', () => {
+    const names = resolveSharedRacerNames({
+      racers: {
+        bravo: {},
+        alpha: {},
+      },
+    });
+    expect(names).toEqual(['bravo', 'alpha']);
+  });
+
+  it('throws when fewer than 2 racers are declared', () => {
+    expect(() => resolveSharedRacerNames({ racers: { alpha: {} } }))
+      .toThrow(InvalidSettingError);
+  });
+
+  it(`throws when more than ${MAX_RACERS} racers are declared`, () => {
+    expect(() => resolveSharedRacerNames({
+      racers: {
+        a: {}, b: {}, c: {}, d: {}, e: {},
+      },
+    })).toThrow(/supports up to 4 racers/i);
+  });
+
+  it(`accepts exactly ${MAX_RACERS} racers`, () => {
+    expect(resolveSharedRacerNames({ racers: { a: {}, b: {}, c: {}, d: {} } }))
+      .toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('throws when settings.racers is not an object', () => {
+    expect(() => resolveSharedRacerNames({ racers: null })).toThrow(/requires settings\.racers to be an object/i);
+    expect(() => resolveSharedRacerNames({ racers: 'abc' })).toThrow(/requires settings\.racers to be an object/i);
+    expect(() => resolveSharedRacerNames({ racers: [] })).toThrow(/requires settings\.racers to be an object/i);
+  });
+
+  it('throws when racer names include path separators', () => {
+    expect(() => resolveSharedRacerNames({
+      racers: { 'a/b': {}, bravo: {} },
+    })).toThrow(/must not contain path separators/i);
+
+    expect(() => resolveSharedRacerNames({
+      racers: { 'a\\b': {}, bravo: {} },
+    })).toThrow(/must not contain path separators/i);
+  });
+
+  it('throws when racer names are dot segments', () => {
+    expect(() => resolveSharedRacerNames({
+      racers: { '..': {}, bravo: {} },
+    })).toThrow(/is not allowed/i);
+  });
+
+  it('throws when racer names are integer-like', () => {
+    expect(() => resolveSharedRacerNames({
+      racers: { '0': {}, bravo: {} },
+    })).toThrow(/must not be integer-like/i);
+  });
+
+  it('throws on filesystem-unsafe racer names', () => {
+    expect(() => resolveSharedRacerNames({
+      racers: { 'a:b': {}, bravo: {} },
+    })).toThrow(/filesystem-unsafe/i);
+
+    expect(() => resolveSharedRacerNames({
+      racers: { 'alpha.': {}, bravo: {} },
+    })).toThrow(/filesystem-unsafe/i);
+
+    expect(() => resolveSharedRacerNames({
+      racers: { con: {}, bravo: {} },
+    })).toThrow(/reserved on windows/i);
+  });
+});
+
 describe('argument parsing', () => {
   it('separates positional args from flags', () => {
     const { positional, boolFlags, kvFlags } = parseArgs(['./races/test', '--parallel', '--network=slow-3g']);
@@ -157,9 +216,9 @@ describe('argument parsing', () => {
     expect(boolFlags.has('results')).toBe(true);
   });
 
-  it('parses --no-overlay flag', () => {
-    const { boolFlags } = parseArgs(['dir', '--no-overlay']);
-    expect(boolFlags.has('no-overlay')).toBe(true);
+  it('parses --overlay flag', () => {
+    const { boolFlags } = parseArgs(['dir', '--overlay']);
+    expect(boolFlags.has('overlay')).toBe(true);
   });
 
   it('handles key=value flags', () => {
@@ -200,6 +259,18 @@ describe('argument parsing', () => {
     expect(boolFlags.has('unknown')).toBe(true);
     expect(positional).toEqual(['somevalue']);
   });
+
+  it('flags value-requiring kv flags passed without a value', () => {
+    // Bare `--runs` at end of argv, or immediately before another flag, lands
+    // in boolFlags and must be reported rather than silently ignored.
+    expect(findValuelessKvFlags(parseArgs(['dir', '--runs']).boolFlags)).toEqual(['runs']);
+    expect(findValuelessKvFlags(parseArgs(['dir', '--runs', '--parallel']).boolFlags)).toEqual(['runs']);
+    // A properly-valued kv flag is not reported.
+    expect(findValuelessKvFlags(parseArgs(['dir', '--runs', '3']).boolFlags)).toEqual([]);
+    expect(findValuelessKvFlags(parseArgs(['dir', '--runs=3']).boolFlags)).toEqual([]);
+    // Boolean flags without values are legitimate, not reported.
+    expect(findValuelessKvFlags(parseArgs(['dir', '--parallel']).boolFlags)).toEqual([]);
+  });
 });
 
 describe('settings override', () => {
@@ -213,9 +284,41 @@ describe('settings override', () => {
     expect(s.headless).toBe(true);
   });
 
+  it('CLI --headless sets headless true', () => {
+    const s = applyOverrides({ headless: false }, new Set(['headless']), {});
+    expect(s.headless).toBe(true);
+  });
+
   it('CLI --network overrides settings.json network', () => {
     const s = applyOverrides({ network: 'none' }, new Set(), { network: 'slow-3g' });
     expect(s.network).toBe('slow-3g');
+  });
+
+  it('CLI --network with comma-separated list produces an array', () => {
+    const s = applyOverrides({}, new Set(), { network: 'slow-3g,4g' });
+    expect(s.network).toEqual(['slow-3g', '4g']);
+  });
+
+  it('CLI --network trims whitespace around list entries', () => {
+    const s = applyOverrides({}, new Set(), { network: ' slow-3g , fast-3g ' });
+    expect(s.network).toEqual(['slow-3g', 'fast-3g']);
+  });
+
+  it('CLI --network list with a single entry stays a string', () => {
+    const s = applyOverrides({}, new Set(), { network: 'fast-3g,' });
+    expect(s.network).toBe('fast-3g');
+  });
+
+  it('throws on unknown preset inside --network list', () => {
+    const attempt = () => applyOverrides({}, new Set(), { network: 'slow-3g,fiber' });
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/Unknown network preset.*fiber/);
+  });
+
+  it('throws on duplicate presets in --network list', () => {
+    const attempt = () => applyOverrides({}, new Set(), { network: '4g,slow-3g,4g' });
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/Duplicate network preset.*4g/);
   });
 
   it('CLI --cpu overrides settings.json cpuThrottle', () => {
@@ -223,9 +326,20 @@ describe('settings override', () => {
     expect(s.cpuThrottle).toBe(4);
   });
 
-  it('CLI --no-overlay sets noOverlay', () => {
-    const s = applyOverrides({}, new Set(['no-overlay']), {});
-    expect(s.noOverlay).toBe(true);
+  it('CLI --cpu list produces an array, replacing any settings.json value', () => {
+    expect(applyOverrides({ cpuThrottle: 1 }, new Set(), { cpu: '1,4' }).cpuThrottle).toEqual([1, 4]);
+    expect(applyOverrides({ cpuThrottle: [2, 6] }, new Set(), { cpu: '1,4' }).cpuThrottle).toEqual([1, 4]);
+  });
+
+  it('throws on duplicate rates in --cpu list', () => {
+    const attempt = () => applyOverrides({}, new Set(), { cpu: '4,4' });
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/Duplicate CPU throttle rate.*4/);
+  });
+
+  it('CLI --overlay enables overlay', () => {
+    const s = applyOverrides({ noOverlay: true }, new Set(['overlay']), {});
+    expect(s.noOverlay).toBe(false);
   });
 
   it('CLI --slowmo sets slowmo factor', () => {
@@ -238,24 +352,36 @@ describe('settings override', () => {
     expect(s.pauseBetweenRuns).toBe(true);
   });
 
-  it('CLI --no-serve sets noServe', () => {
-    const s = applyOverrides({}, new Set(['no-serve']), {});
-    expect(s.noServe).toBe(true);
-  });
-
-  it('legacy --serve=false sets noServe for backward compatibility', () => {
-    const s = applyOverrides({}, new Set(), { serve: 'false' });
-    expect(s.noServe).toBe(true);
-  });
-
-  it('legacy --serve=true explicitly enables serving', () => {
-    const s = applyOverrides({ noServe: true }, new Set(), { serve: 'true' });
+  it('CLI --serve enables serving', () => {
+    const s = applyOverrides({ noServe: true }, new Set(['serve']), {});
     expect(s.noServe).toBe(false);
   });
 
-  it('CLI --no-recording sets noRecording', () => {
-    const s = applyOverrides({}, new Set(['no-recording']), {});
-    expect(s.noRecording).toBe(true);
+  it('kv boolean --serve=false disables serving', () => {
+    const s = applyOverrides({ noServe: false }, new Set(), { serve: 'false' });
+    expect(s.noServe).toBe(true);
+  });
+
+  it('CLI --recording enables recording', () => {
+    const s = applyOverrides({ noRecording: true }, new Set(['recording']), {});
+    expect(s.noRecording).toBe(false);
+  });
+
+  it('CLI --wall-clock enables the recorded wall clock', () => {
+    const s = applyOverrides({}, new Set(['wall-clock']), {});
+    expect(s.wallClock).toBe(true);
+  });
+
+  it('kv boolean --wall-clock=false disables the recorded wall clock', () => {
+    const s = applyOverrides({ wallClock: true }, new Set(), { 'wall-clock': 'false' });
+    expect(s.wallClock).toBe(false);
+  });
+
+  it('parseArgs recognises --wall-clock as a boolean-valued flag', () => {
+    expect(parseArgs(['dir', '--wall-clock']).boolFlags.has('wall-clock')).toBe(true);
+    expect(parseArgs(['dir', '--wall-clock', 'false']).kvFlags['wall-clock']).toBe('false');
+    expect(parseArgs(['dir', '--wall-clock=0']).kvFlags['wall-clock']).toBe('0');
+    expect(findUnknownFlags(new Set(['wall-clock']), {})).toEqual([]);
   });
 
   it('preserves settings when no overrides', () => {
@@ -295,6 +421,44 @@ describe('settings override', () => {
     expect(s.viewportHeight).toBe(720);
   });
 
+  it('settings.json "height" sets viewportHeight', () => {
+    const s = applyOverrides({ height: 1080 }, new Set(), {});
+    expect(s.viewportHeight).toBe(1080);
+    expect(s.height).toBeUndefined();
+  });
+
+  it('settings.json "height" is clamped and rounded like --height', () => {
+    expect(applyOverrides({ height: 100 }, new Set(), {}).viewportHeight).toBe(480);
+    expect(applyOverrides({ height: 9999 }, new Set(), {}).viewportHeight).toBe(4320);
+    expect(applyOverrides({ height: 999.7 }, new Set(), {}).viewportHeight).toBe(1000);
+    expect(applyOverrides({ height: 'abc' }, new Set(), {}).viewportHeight).toBe(720);
+  });
+
+  it('settings.json "height": null means unset, not 0 clamped to the minimum', () => {
+    const s = applyOverrides({ height: null }, new Set(), {});
+    expect(s.viewportHeight).toBeUndefined();
+    expect(s.height).toBeUndefined();
+  });
+
+  it('settings.json "height" that is neither string nor number falls back to 720 like --height', () => {
+    expect(applyOverrides({ height: true }, new Set(), {}).viewportHeight).toBe(720);
+    expect(applyOverrides({ height: false }, new Set(), {}).viewportHeight).toBe(720);
+    expect(applyOverrides({ height: [900] }, new Set(), {}).viewportHeight).toBe(720);
+    expect(applyOverrides({ height: { px: 900 } }, new Set(), {}).viewportHeight).toBe(720);
+  });
+
+  it('settings.json "viewportHeight" is validated like the alias', () => {
+    expect(applyOverrides({ viewportHeight: 100 }, new Set(), {}).viewportHeight).toBe(480);
+    expect(applyOverrides({ viewportHeight: '900' }, new Set(), {}).viewportHeight).toBe(900);
+    expect(applyOverrides({ viewportHeight: true }, new Set(), {}).viewportHeight).toBe(720);
+    expect(applyOverrides({ viewportHeight: null }, new Set(), {}).viewportHeight).toBeNull();
+  });
+
+  it('CLI --height overrides settings.json "height"', () => {
+    const s = applyOverrides({ height: 1080 }, new Set(), { height: '900' });
+    expect(s.viewportHeight).toBe(900);
+  });
+
   it('parseArgs handles --height=1080 format', () => {
     const { kvFlags } = parseArgs(['dir', '--height=1080']);
     expect(kvFlags.height).toBe('1080');
@@ -313,6 +477,190 @@ describe('settings override', () => {
   it('CLI --gemini absent leaves gemini unset', () => {
     const s = applyOverrides({}, new Set(), {});
     expect(s.gemini).toBeUndefined();
+  });
+
+  it('kv boolean --parallel=false overrides settings.json true', () => {
+    const s = applyOverrides({ parallel: true }, new Set(), { parallel: 'false' });
+    expect(s.parallel).toBe(false);
+  });
+
+  it('kv boolean --ffmpeg=false overrides settings.json true', () => {
+    const s = applyOverrides({ ffmpeg: true }, new Set(), { ffmpeg: 'false' });
+    expect(s.ffmpeg).toBe(false);
+  });
+
+  it('kv boolean --overlay=false overrides bool flag --overlay', () => {
+    const s = applyOverrides({}, new Set(['overlay']), { overlay: 'false' });
+    expect(s.noOverlay).toBe(true);
+  });
+
+  it('kv boolean --headless=false overrides bool flag --headless', () => {
+    const s = applyOverrides({}, new Set(['headless']), { headless: 'false' });
+    expect(s.headless).toBe(false);
+  });
+
+  it('kv boolean --serve=false overrides bool flag --serve', () => {
+    const s = applyOverrides({}, new Set(['serve']), { serve: 'false' });
+    expect(s.noServe).toBe(true);
+  });
+
+  it('kv boolean --overlay=0 and --recording=1 support short values', () => {
+    const s = applyOverrides({}, new Set(), { overlay: '0', recording: '1' });
+    expect(s.noOverlay).toBe(true);
+    expect(s.noRecording).toBe(false);
+  });
+
+  it('parseArgs supports boolean value form with spaces', () => {
+    const { kvFlags, positional } = parseArgs(['--headless', 'false', './races/test']);
+    expect(kvFlags.headless).toBe('false');
+    expect(positional).toEqual(['./races/test']);
+  });
+
+  it('parseArgs supports short boolean value form with spaces', () => {
+    const { kvFlags, positional } = parseArgs(['--overlay', '0', './races/test']);
+    expect(kvFlags.overlay).toBe('0');
+    expect(positional).toEqual(['./races/test']);
+  });
+
+  it('parseArgs supports --parallel=false equals form', () => {
+    const { kvFlags, boolFlags, positional } = parseArgs(['--parallel=false', './races/test']);
+    expect(kvFlags.parallel).toBe('false');
+    expect(boolFlags.has('parallel')).toBe(false);
+    expect(positional).toEqual(['./races/test']);
+  });
+
+  it('parseArgs supports --ffmpeg=true equals form', () => {
+    const { kvFlags, boolFlags, positional } = parseArgs(['--ffmpeg=true', './races/test']);
+    expect(kvFlags.ffmpeg).toBe('true');
+    expect(boolFlags.has('ffmpeg')).toBe(false);
+    expect(positional).toEqual(['./races/test']);
+  });
+
+  it('kv boolean --serve=0 and --wasm=1 support short values', () => {
+    const s = applyOverrides({}, new Set(), { serve: '0', wasm: '1' });
+    expect(s.noServe).toBe(true);
+    expect(s.noWasm).toBe(false);
+  });
+
+  it('kv boolean --gemini=false overrides bool flag --gemini', () => {
+    const s = applyOverrides({}, new Set(['gemini']), { gemini: 'false' });
+    expect(s.gemini).toBe(false);
+  });
+});
+
+describe('applyOverrides — invalid input throws InvalidSettingError', () => {
+  it('throws on unknown --network preset', () => {
+    const attempt = () => applyOverrides({}, new Set(), { network: 'fiber' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/Unknown network preset.*fiber/);
+  });
+
+  describe('settings.json values get the same validation as the flags', () => {
+    // Regression: only kvFlags were checked, so "runs": "three" ran zero runs
+    // and died on the median, and "format": "avi" silently produced .webm.
+    const fromSettings = (settings) => applyOverrides(settings, new Set(), {});
+
+    it('rejects a non-numeric or sub-1 runs', () => {
+      expect(() => fromSettings({ runs: 'three' })).toThrow(/"runs" in settings.json must be a positive integer/);
+      expect(() => fromSettings({ runs: 0 })).toThrow(InvalidSettingError);
+      expect(() => fromSettings({ runs: true })).toThrow(InvalidSettingError);
+    });
+
+    it('rejects a run count that rounds down to zero', () => {
+      expect(() => fromSettings({ runs: 0.1 })).toThrow(InvalidSettingError);
+      expect(() => applyOverrides({}, new Set(), { runs: '0.4' })).toThrow(/--runs must be a positive integer/);
+      expect(fromSettings({ runs: 0.6 }).runs).toBe(1);
+    });
+
+    it('lets a valid flag override an invalid settings.json value', () => {
+      // Only the effective value has to be valid.
+      expect(applyOverrides({ format: 'avi' }, new Set(), { format: 'webm' }).format).toBe('webm');
+      expect(applyOverrides({ runs: 'three' }, new Set(), { runs: '2' }).runs).toBe(2);
+      expect(applyOverrides({ slowmo: 'x' }, new Set(), { slowmo: '2' }).slowmo).toBe(2);
+    });
+
+    it('rounds and clamps runs like --runs', () => {
+      expect(fromSettings({ runs: 2.5 }).runs).toBe(3);
+      expect(fromSettings({ runs: '4' }).runs).toBe(4);
+      expect(fromSettings({ runs: 1000 }).runs).toBe(100);
+    });
+
+    it('rejects an unknown format', () => {
+      expect(() => fromSettings({ format: 'avi' })).toThrow(/Unknown format "avi"/);
+      expect(fromSettings({ format: 'mov' }).format).toBe('mov');
+    });
+
+    it('rejects a bad slowmo and clamps a large one', () => {
+      expect(() => fromSettings({ slowmo: 'x' })).toThrow(/"slowmo" in settings.json must be a non-negative number/);
+      expect(() => fromSettings({ slowmo: -1 })).toThrow(InvalidSettingError);
+      expect(fromSettings({ slowmo: 25 }).slowmo).toBe(20);
+      expect(fromSettings({ slowmo: '2' }).slowmo).toBe(2);
+    });
+
+    it('still lets the flag win over settings.json', () => {
+      expect(applyOverrides({ runs: 3 }, new Set(), { runs: '5' }).runs).toBe(5);
+    });
+  });
+
+  it('throws on unknown --format value', () => {
+    const attempt = () => applyOverrides({}, new Set(), { format: 'mp4' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/Unknown format.*mp4/);
+  });
+
+  it('throws on non-numeric --cpu', () => {
+    const attempt = () => applyOverrides({}, new Set(), { cpu: 'fast' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/--cpu must be a number/);
+  });
+
+  it('throws on --cpu below 1', () => {
+    const attempt = () => applyOverrides({}, new Set(), { cpu: '0' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+  });
+
+  it('throws on non-numeric --runs', () => {
+    const attempt = () => applyOverrides({}, new Set(), { runs: 'many' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/--runs must be a positive integer/);
+  });
+
+  it('throws on --runs < 1', () => {
+    const attempt = () => applyOverrides({}, new Set(), { runs: '0' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+  });
+
+  it('throws on negative --slowmo', () => {
+    const attempt = () => applyOverrides({}, new Set(), { slowmo: '-1' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/--slowmo must be a non-negative number/);
+  });
+
+  it('throws on non-numeric --slowmo', () => {
+    const attempt = () => applyOverrides({}, new Set(), { slowmo: 'fast' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+  });
+
+  it('throws on invalid boolean value for bool flags', () => {
+    const attempt = () => applyOverrides({}, new Set(), { parallel: 'maybe' });
+
+    expect(attempt).toThrow(InvalidSettingError);
+    expect(attempt).toThrow(/--parallel must be a boolean/i);
+  });
+});
+
+describe('applyOverrides — serve boolean flag', () => {
+  it('bool --serve enables serving', () => {
+    const s = applyOverrides({ noServe: true }, new Set(['serve']), {});
+    expect(s.noServe).toBe(false);
   });
 });
 
@@ -557,5 +905,107 @@ describe('per-racer setup/teardown discovery', () => {
     const { setup, teardown } = discoverRacerSetupTeardown(tmpDir, 'lauda');
     expect(setup).toBe(null);
     expect(teardown).toBe(null);
+  });
+});
+
+describe('parseNetworkList', () => {
+  it('parses a single preset string', () => {
+    expect(parseNetworkList('slow-3g')).toEqual(['slow-3g']);
+  });
+
+  it('parses a comma-separated string', () => {
+    expect(parseNetworkList('none,slow-3g,4g')).toEqual(['none', 'slow-3g', '4g']);
+  });
+
+  it('parses an array (settings.json form)', () => {
+    expect(parseNetworkList(['fast-3g', '4g'])).toEqual(['fast-3g', '4g']);
+  });
+
+  it('trims whitespace in array entries', () => {
+    expect(parseNetworkList([' fast-3g ', '4g'])).toEqual(['fast-3g', '4g']);
+  });
+
+  it('throws when no presets remain after filtering empties', () => {
+    expect(() => parseNetworkList('')).toThrow(InvalidSettingError);
+    expect(() => parseNetworkList(' , ')).toThrow(/at least one network preset/);
+    expect(() => parseNetworkList([])).toThrow(InvalidSettingError);
+  });
+
+  it('throws on unknown presets', () => {
+    expect(() => parseNetworkList('5g')).toThrow(/Unknown network preset "5g"/);
+    expect(() => parseNetworkList(['slow-3g', '5g'])).toThrow(/Unknown network preset "5g"/);
+  });
+
+  it('throws on duplicates and names the source', () => {
+    expect(() => parseNetworkList('4g,4g', 'network')).toThrow(/Duplicate network preset\(s\) in network: 4g/);
+  });
+});
+
+describe('parseCpuList', () => {
+  it('parses a single number', () => {
+    expect(parseCpuList(4)).toEqual([4]);
+    expect(parseCpuList('4')).toEqual([4]);
+  });
+
+  it('parses a comma-separated string', () => {
+    expect(parseCpuList('1,4,6')).toEqual([1, 4, 6]);
+  });
+
+  it('parses an array (settings.json form)', () => {
+    expect(parseCpuList([1, 4])).toEqual([1, 4]);
+  });
+
+  it('trims whitespace around entries', () => {
+    expect(parseCpuList(' 1 , 4 ')).toEqual([1, 4]);
+  });
+
+  it('accepts fractional rates above 1', () => {
+    expect(parseCpuList('1,2.5')).toEqual([1, 2.5]);
+  });
+
+  it('throws when no rates remain after filtering empties', () => {
+    expect(() => parseCpuList('')).toThrow(InvalidSettingError);
+    expect(() => parseCpuList(' , ')).toThrow(/at least one CPU throttle rate/);
+    expect(() => parseCpuList([])).toThrow(InvalidSettingError);
+  });
+
+  it('throws on non-numeric or out-of-range rates', () => {
+    expect(() => parseCpuList('fast')).toThrow(/--cpu must be a number >= 1, got "fast"/);
+    expect(() => parseCpuList('1,0')).toThrow(/--cpu must be a number >= 1, got "0"/);
+    expect(() => parseCpuList([4, 'x'])).toThrow(InvalidSettingError);
+  });
+
+  it('throws on duplicates and names the source', () => {
+    expect(() => parseCpuList('4,4', 'cpuThrottle')).toThrow(/Duplicate CPU throttle rate\(s\) in cpuThrottle: 4/);
+  });
+
+  it('names the source in the out-of-range error', () => {
+    expect(() => parseCpuList('0', 'cpuThrottle')).toThrow(/cpuThrottle must be a number >= 1/);
+    expect(() => parseCpuList('', 'cpuThrottle')).toThrow(/cpuThrottle requires at least one CPU throttle rate/);
+  });
+});
+
+describe('buildRaceConditions', () => {
+  it('returns a single unlabelled-dimension condition for one network and one cpu', () => {
+    expect(buildRaceConditions(['slow-3g'], [1])).toEqual([
+      { network: 'slow-3g', cpu: 1, label: 'slow-3g', title: 'Network: slow-3g' },
+    ]);
+  });
+
+  it('labels network-only variation by preset name', () => {
+    expect(buildRaceConditions(['slow-3g', '4g'], [4]).map(c => c.label)).toEqual(['slow-3g', '4g']);
+  });
+
+  it('labels cpu-only variation by rate, leaving the network out', () => {
+    const conditions = buildRaceConditions(['slow-3g'], [1, 4]);
+    expect(conditions.map(c => c.label)).toEqual(['cpu1x', 'cpu4x']);
+    expect(conditions.map(c => c.title)).toEqual(['CPU: 1x', 'CPU: 4x']);
+    expect(conditions.every(c => c.network === 'slow-3g')).toBe(true);
+  });
+
+  it('expands both dimensions into a full matrix', () => {
+    const conditions = buildRaceConditions(['none', '4g'], [1, 4]);
+    expect(conditions.map(c => c.label)).toEqual(['none-cpu1x', 'none-cpu4x', '4g-cpu1x', '4g-cpu4x']);
+    expect(conditions[3]).toEqual({ network: '4g', cpu: 4, label: '4g-cpu4x', title: 'Network: 4g · CPU: 4x' });
   });
 });

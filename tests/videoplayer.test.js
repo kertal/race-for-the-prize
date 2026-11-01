@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { buildPlayerHtml } from '../cli/videoplayer.js';
+import { buildRunNavHtml, buildResultsHtml, buildProfileHtml, RACER_CSS_COLORS } from '../cli/player-sections.js';
 import { buildProfileComparison } from '../cli/profile-analysis.js';
 import { copyFFmpegFiles } from '../cli/results.js';
 import { fileURLToPath } from 'node:url';
@@ -38,6 +39,41 @@ const withOptions = (opts, summary) => buildPlayerHtml(summary || makeSummary(),
 const defaultHtml = withSummary();
 const noVideosHtml = buildPlayerHtml(makeSummary(), []);
 
+// Extract and parse the embedded #race-config JSON block from generated HTML.
+const getRaceConfig = (html) => {
+  const m = html.match(/<script id="race-config" type="application\/json">([\s\S]*?)<\/script>/);
+  return m && m[1] ? JSON.parse(m[1]) : null;
+};
+const loadRenderComparisons = [
+  { name: 'Load', racers: [{ duration: 1.1 }, { duration: 1.4 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
+  { name: 'Render', racers: [{ duration: 0.9 }, { duration: 1.2 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
+];
+
+function getProfileSection(html) {
+  const profileStart = html.indexOf('Performance Profile');
+  expect(profileStart).toBeGreaterThan(-1);
+  return html.slice(profileStart);
+}
+
+function buildPerSectionMetricFixtures({ includeRender = true, includeMeasuredTotals = true } = {}) {
+  const measuredA = includeMeasuredTotals ? { networkTransferSize: 2000, scriptDuration: 40 } : {};
+  const measuredB = includeMeasuredTotals ? { networkTransferSize: 2500, scriptDuration: 55 } : {};
+  const measuredSectionsA = {
+    Load: { networkTransferSize: 1200, networkRequestCount: 4, scriptDuration: 25, layoutDuration: 5, recalcStyleDuration: 2, taskDuration: 35 },
+  };
+  const measuredSectionsB = {
+    Load: { networkTransferSize: 1400, networkRequestCount: 5, scriptDuration: 30, layoutDuration: 6, recalcStyleDuration: 3, taskDuration: 40 },
+  };
+  if (includeRender) {
+    measuredSectionsA.Render = { networkTransferSize: 800, networkRequestCount: 2, scriptDuration: 10, layoutDuration: 3, recalcStyleDuration: 1, taskDuration: 15 };
+    measuredSectionsB.Render = { networkTransferSize: 900, networkRequestCount: 3, scriptDuration: 12, layoutDuration: 4, recalcStyleDuration: 2, taskDuration: 18 };
+  }
+  return [
+    { total: {}, measured: measuredA, measuredSections: measuredSectionsA },
+    { total: {}, measured: measuredB, measuredSections: measuredSectionsB },
+  ];
+}
+
 function withTmpDir(fn) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'race-test-'));
   try { fn(tmpDir); } finally { fs.rmSync(tmpDir, { recursive: true, force: true }); }
@@ -60,6 +96,37 @@ describe('buildPlayerHtml', () => {
     expect(defaultHtml).toContain('max-width: 680px');
   });
 
+  it('heads the title band with the product and the race', () => {
+    // The overview links here, and both pages title themselves the same way.
+    expect(defaultHtml).toContain('\u{1F3C1} Race for the Prize: lauda vs hunt</h1>');
+    // Long titles are cut short with an ellipsis, so the full one stays
+    // reachable on hover.
+    expect(defaultHtml).toContain('<h1 title="Race for the Prize: lauda vs hunt">');
+    // Racer names reach it escaped, like every other name on the page.
+    const nasty = buildPlayerHtml(makeSummary({ racers: ['<script>', 'b & c'] }), videoFiles);
+    expect(nasty).toContain('Race for the Prize: &lt;script&gt; vs b &amp; c');
+  });
+
+  it('keeps the racer name on screen in fullscreen', () => {
+    // Fullscreen gives each grid row the viewport, so the label rides on top of
+    // its video rather than taking a line of its own — but it stays visible:
+    // with the page chrome gone, it is the only thing naming each racer.
+    const rule = defaultHtml.match(
+      /:is\(:fullscreen, :-webkit-full-screen\) \.racer-label \{[^}]*\}/
+    );
+    expect(rule).not.toBeNull();
+    expect(rule[0]).toContain('position: absolute');
+    expect(rule[0]).not.toContain('display: none');
+  });
+
+  it('announces each finish badge as a native live region', () => {
+    // <output> is a live region on its own, so assistive tech announces the
+    // placement without an explicit status role — which is not honoured
+    // everywhere the player is opened.
+    expect(defaultHtml).toContain('<output id="finishResult0" class="finish-result"');
+    expect(defaultHtml).not.toContain('role="status"');
+  });
+
   it('embeds racer names and video sources', () => {
     expect(defaultHtml).toContain('lauda');
     expect(defaultHtml).toContain('hunt');
@@ -68,10 +135,97 @@ describe('buildPlayerHtml', () => {
   });
 
   it('includes results with measurement data and deltas', () => {
+    expect(defaultHtml).toContain('Race Section Load');
     expect(defaultHtml).toContain('1.000s');
     expect(defaultHtml).toContain('2.000s');
-    expect(defaultHtml).toContain('(+1.000s)');
+    // Beside the absolute gap, how much slower that is as a share of the winner's time
+    expect(defaultHtml).toContain('(+1.000s, +100%)');
     expect(defaultHtml).toContain('profile-bar-fill');
+  });
+
+  it('lists each race section exactly once, under Race Results', () => {
+    // Performance Results used to re-render the same per-section durations,
+    // so every section appeared twice on the page, byte for byte.
+    expect(defaultHtml.match(/Race Section Load/g)).toHaveLength(1);
+    const results = defaultHtml.indexOf('Race Results');
+    expect(defaultHtml.indexOf('Race Section Load')).toBeGreaterThan(results);
+    // With no profile metrics to summarise, that section has nothing to say.
+    expect(defaultHtml).not.toContain('Performance Results');
+  });
+
+  it('orders Performance Results as Race, then Total Recording', () => {
+    const metrics1 = { total: { networkTransferSize: 1000, scriptDuration: 100 }, measured: { networkTransferSize: 500 } };
+    const metrics2 = { total: { networkTransferSize: 2000, scriptDuration: 200 }, measured: { networkTransferSize: 800 } };
+    const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
+    const html = withSummary({ profileComparison });
+    const summaryStart = html.indexOf('Performance Results');
+    const profileSummary = summaryStart >= 0 ? html.slice(summaryStart) : html;
+    const raceIdx = profileSummary.indexOf('>Race<');
+    const totalRecordingIdx = profileSummary.indexOf('Total Recording (Including Pre and Post race)');
+    expect(raceIdx).toBeGreaterThan(-1);
+    expect(totalRecordingIdx).toBeGreaterThan(-1);
+    expect(raceIdx).toBeLessThan(totalRecordingIdx);
+    // The per-section durations live in Race Results, and only there.
+    expect(html.match(/Race Section Load/g)).toHaveLength(1);
+  });
+
+  it('renders Race before section metrics when present', () => {
+    const html = withSummary({
+      comparisons: [
+        { name: 'Load', racers: [{ duration: 1 }, { duration: 2 }], winner: 'lauda', diff: 1, diffPercent: 100, rankings: ['lauda', 'hunt'] },
+        { name: 'Race', racers: [{ duration: 3 }, { duration: 4 }], winner: 'lauda', diff: 1, diffPercent: 33.3, rankings: ['lauda', 'hunt'], isSyntheticTotal: true },
+      ],
+    });
+    expect(html).toContain('profile-metric-total');
+    expect(html).toContain('section-metric');
+    const raceIdx = html.indexOf('>Race<');
+    const sectionIdx = html.indexOf('Race Section Load');
+    expect(raceIdx).toBeGreaterThan(-1);
+    expect(sectionIdx).toBeGreaterThan(-1);
+    expect(raceIdx).toBeLessThan(sectionIdx);
+  });
+
+  it('keeps a real Race section separate from the synthetic fallback total in HTML', () => {
+    const html = buildResultsHtml([
+      { name: 'Race', racers: [{ duration: 1 }, { duration: 2 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
+      { name: 'Load', racers: [{ duration: 2 }, { duration: 3 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
+      { name: 'Race (All Sections)', racers: [{ duration: 3 }, { duration: 5 }], winner: 'lauda', rankings: ['lauda', 'hunt'], isSyntheticTotal: true },
+    ], ['lauda', 'hunt']);
+
+    expect(html.match(/profile-metric-total/g) ?? []).toHaveLength(1);
+    expect(html).toContain('<summary><span class="profile-metric-name">Race</span></summary>');
+    expect(html.indexOf('Race (All Sections)')).toBeLessThan(html.indexOf('<summary><span class="profile-metric-name">Race</span></summary>'));
+  });
+
+  it('prefixes section names that start with Race but are not totals', () => {
+    const html = withSummary({
+      comparisons: [
+        { name: 'Race Setup', racers: [{ duration: 1 }, { duration: 2 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
+      ],
+    });
+
+    expect(html).toContain('Race Section Race Setup');
+  });
+
+  it('expands single section rows by default', () => {
+    const html = withSummary({
+      comparisons: [
+        { name: 'Load', racers: [{ duration: 1 }, { duration: 2 }], winner: 'lauda', diff: 1, diffPercent: 100, rankings: ['lauda', 'hunt'] },
+      ],
+    });
+    expect(html).toContain('<details class="profile-metric section-metric" open>');
+    expect(html).toContain('<summary><span class="profile-metric-name">Race Section Load</span></summary>');
+  });
+
+  it('keeps multi-section rows collapsed by default', () => {
+    const html = withSummary({
+      comparisons: [
+        { name: 'Load', racers: [{ duration: 1 }, { duration: 2 }], winner: 'lauda', diff: 1, diffPercent: 100, rankings: ['lauda', 'hunt'] },
+        { name: 'Render', racers: [{ duration: 1.5 }, { duration: 2.5 }], winner: 'lauda', diff: 1, diffPercent: 66.6, rankings: ['lauda', 'hunt'] },
+      ],
+    });
+    expect(html).toContain('<details class="profile-metric section-metric">\n  <summary><span class="profile-metric-name">Race Section Load</span></summary>');
+    expect(html).toContain('<details class="profile-metric section-metric">\n  <summary><span class="profile-metric-name">Race Section Render</span></summary>');
   });
 
   it('shows winner trophy on racer label', () => {
@@ -132,7 +286,7 @@ describe('buildPlayerHtml', () => {
       expect(html).toContain(`src="${name}/${name}.race.webm"`);
       expect(html).toContain(`>${name}<`);
     }
-    expect(html).toContain('const raceVideos = [v0, v1, v2]');
+    expect(getRaceConfig(html).videoCount).toBe(3);
   });
 
   it('supports 4 racers', () => {
@@ -140,26 +294,26 @@ describe('buildPlayerHtml', () => {
     const videos = ['a/a.race.webm', 'b/b.race.webm', 'c/c.race.webm', 'd/d.race.webm'];
     const html = buildPlayerHtml(summary, videos);
     for (let i = 0; i < 4; i++) expect(html).toContain(`id="v${i}"`);
-    expect(html).toContain('const raceVideos = [v0, v1, v2, v3]');
+    expect(getRaceConfig(html).videoCount).toBe(4);
   });
 
-  it('supports 5 racers with download links', () => {
-    const summary = makeSummary({ racers: ['r1', 'r2', 'r3', 'r4', 'r5'], comparisons: [], overallWinner: 'r1' });
-    const videos = ['r1/r1.webm', 'r2/r2.webm', 'r3/r3.webm', 'r4/r4.webm', 'r5/r5.webm'];
-    const altFiles = ['r1/r1.gif', 'r2/r2.gif', 'r3/r3.gif', 'r4/r4.gif', 'r5/r5.gif'];
+  it('offers a download link per racer on a full grid', () => {
+    const summary = makeSummary({ racers: ['r1', 'r2', 'r3', 'r4'], comparisons: [], overallWinner: 'r1' });
+    const videos = ['r1/r1.webm', 'r2/r2.webm', 'r3/r3.webm', 'r4/r4.webm'];
+    const altFiles = ['r1/r1.gif', 'r2/r2.gif', 'r3/r3.gif', 'r4/r4.gif'];
     const html = buildPlayerHtml(summary, videos, 'gif', altFiles);
-    expect(html).toContain('id="v4"');
+    expect(html).toContain('id="v3"');
     expect(html).toContain('r1 (.gif)');
-    expect(html).toContain('r5 (.gif)');
-    expect(html).toContain('const raceVideos = [v0, v1, v2, v3, v4]');
+    expect(html).toContain('r4 (.gif)');
+    expect(getRaceConfig(html).videoCount).toBe(4);
   });
 
-  it('assigns correct colors to racer labels', () => {
+  it('assigns correct colors to racer labels via the --racer-color token', () => {
     const summary = makeSummary({ racers: ['red', 'blue', 'green'], comparisons: [], overallWinner: null });
     const html = buildPlayerHtml(summary, ['r/r.webm', 'b/b.webm', 'g/g.webm']);
-    expect(html).toContain('style="color: #e74c3c"');
-    expect(html).toContain('style="color: #3498db"');
-    expect(html).toContain('style="color: #27ae60"');
+    expect(html).toContain('style="--racer-color: #e74c3c"');
+    expect(html).toContain('style="--racer-color: #3498db"');
+    expect(html).toContain('style="--racer-color: #27ae60"');
   });
 
   it('displays time and step counters', () => {
@@ -211,9 +365,9 @@ describe('buildPlayerHtml', () => {
     const html = withSummary({ profileComparison });
     expect(html).toContain('Performance Profile');
     expect(html).toContain('Lower values are better');
-    expect(html).toContain('During Measurement');
+    expect(html).toContain('Race');
     expect(html).toContain('<details');
-    expect(html).toContain('Total Session');
+    expect(html).toContain('Total Recording (Including Pre and Post race)');
   });
 
   it('shows profile racers sorted by value with deltas', () => {
@@ -221,9 +375,96 @@ describe('buildPlayerHtml', () => {
     const metrics2 = { total: {}, measured: { networkTransferSize: 1000 } };
     const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
     const html = withSummary({ profileComparison });
-    const profileSection = html.slice(html.indexOf('During Measurement'));
+    const profileSection = getProfileSection(html);
     expect(profileSection.indexOf('>hunt<')).toBeLessThan(profileSection.indexOf('>lauda<'));
-    expect(profileSection).toContain('(+');
+    // 2000 bytes against 1000: +1000 B, and twice the winner's transfer
+    expect(profileSection).toContain('(+1000.0 B, +100%)');
+  });
+
+  it('does not render section timing metrics inside Race profile scope', () => {
+    const metrics1 = { total: {}, measured: { networkTransferSize: 2000 } };
+    const metrics2 = { total: {}, measured: { networkTransferSize: 1000 } };
+    const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
+    const html = withSummary({
+      comparisons: loadRenderComparisons,
+      profileComparison,
+    });
+    const profileSection = getProfileSection(html);
+    expect(profileSection).not.toContain('Section Timings');
+  });
+
+  it('hides per-section measured profile metrics when only one section exists', () => {
+    const [metrics1, metrics2] = buildPerSectionMetricFixtures({ includeRender: false, includeMeasuredTotals: true });
+    const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
+    const html = withSummary({
+      comparisons: [
+        { name: 'Load', racers: [{ duration: 1.1 }, { duration: 1.4 }], winner: 'lauda', rankings: ['lauda', 'hunt'] },
+      ],
+      profileComparison,
+      profileMetrics: [metrics1, metrics2],
+    });
+    const profileSection = getProfileSection(html);
+    expect(profileSection).not.toContain('Per-Section Profile Metrics');
+  });
+
+  it('shows per-section measured profile metrics when multiple sections exist', () => {
+    const [metrics1, metrics2] = buildPerSectionMetricFixtures({ includeRender: true, includeMeasuredTotals: true });
+    const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
+    const html = withSummary({
+      comparisons: loadRenderComparisons,
+      profileComparison,
+      profileMetrics: [metrics1, metrics2],
+    });
+    const profileSection = getProfileSection(html);
+    expect(profileSection).toContain('Per-Section Profile Metrics');
+    expect(profileSection).toContain('Race Section Load');
+    expect(profileSection).toContain('Race Section Render');
+    expect(profileSection.indexOf('Per-Section Profile Metrics')).toBeGreaterThan(profileSection.indexOf('Computation'));
+  });
+
+  it('renders profile when only per-section measured metrics are available', () => {
+    const [metrics1, metrics2] = buildPerSectionMetricFixtures({ includeRender: true, includeMeasuredTotals: false });
+    const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
+    const html = withSummary({
+      comparisons: loadRenderComparisons,
+      profileComparison,
+      profileMetrics: [metrics1, metrics2],
+    });
+    expect(html).toContain('Performance Profile');
+    const profileSection = getProfileSection(html);
+    expect(profileSection).toContain('Per-Section Profile Metrics');
+    expect(profileSection).toContain('Race Section Load');
+    expect(profileSection).toContain('Race Section Render');
+  });
+
+  it('applies profile significance thresholds to per-section metric winners', () => {
+    const metrics1 = {
+      total: {},
+      measured: {},
+      measuredSections: {
+        Load: { scriptDuration: 100 },
+        Render: { scriptDuration: 80 },
+      },
+    };
+    const metrics2 = {
+      total: {},
+      measured: {},
+      measuredSections: {
+        Load: { scriptDuration: 102 },
+        Render: { scriptDuration: 120 },
+      },
+    };
+    const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
+    const html = buildProfileHtml({
+      ...profileComparison,
+      rawProfileMetrics: [metrics1, metrics2],
+    }, ['lauda', 'hunt']);
+
+    const loadSection = html.slice(
+      html.indexOf('Race Section Load'),
+      html.indexOf('Race Section Render')
+    );
+    expect(loadSection).not.toContain('profile-medal');
   });
 
   it('shows profile with 3+ racers', () => {
@@ -246,16 +487,34 @@ describe('buildPlayerHtml', () => {
 
   it('shows winner video first with original colors preserved', () => {
     const html = buildPlayerHtml(huntWinsSummary(), videoFiles);
-    const huntLabelMatch = html.match(/color: (#[0-9a-f]+)">hunt/);
-    expect(huntLabelMatch[1]).toBe('#3498db');
+    const huntCard = html.match(/--racer-color: (#[0-9a-f]+)">\s*<div class="racer-label">(?:(?!<\/div>).)*hunt/s);
+    expect(huntCard[1]).toBe('#3498db');
   });
 
-  it('omits script tag when no videos provided', () => {
+  it('omits the player runtime when no videos provided', () => {
     const html = buildPlayerHtml(makeSummary(), [], null, null, {
       runNavigation: { currentRun: 'median', totalRuns: 3, pathPrefix: '' },
     });
-    expect(html).not.toContain('<script>');
+    // Only the spreadsheet panel's own script remains; nothing of the player's.
+    expect(html).not.toContain('seekAllWithVerify');
     expect(html).toContain('Results');
+  });
+
+  it('inline runtime script contains no premature </script> that would truncate it', () => {
+    // A literal </script> anywhere in the runtime source (even in a comment)
+    // ends the inline <script> early, breaking the whole player.
+    const html = withOptions({
+      clipTimes: [
+        { start: 1, end: 3, measurements: [{ name: 'Load', startTime: 1, endTime: 2 }] },
+        { start: 1, end: 3, measurements: [] },
+      ],
+    });
+    const open = html.indexOf('<script>\n(function() {');
+    const close = html.indexOf('})();\n</script>', open);
+    expect(open).toBeGreaterThan(-1);
+    expect(close).toBeGreaterThan(open);
+    const body = html.slice(open + '<script>'.length, close);
+    expect(body).not.toContain('</script');
   });
 
   it('shows median page with videos', () => {
@@ -291,11 +550,82 @@ describe('buildPlayerHtml race info', () => {
     const html = buildPlayerHtml(abSummary({ settings: { parallel: false, network: 'slow-3g', cpuThrottle: 4 } }), abVideoFiles);
     expect(html).toContain('sequential');
     expect(html).toContain('slow-3g');
-    expect(html).toContain('4x');
+    expect(html).toContain('4x slower');
   });
 
   it('defaults mode to parallel', () => {
     expect(buildPlayerHtml(abSummary(), abVideoFiles)).toContain('parallel');
+  });
+});
+
+// --- Command & Configuration section ---
+
+describe('buildPlayerHtml command and configuration', () => {
+  const raceConfig = {
+    command: "node race.js ./races/duel --runs=2 --network 'slow-3g'",
+    version: '9.9.9',
+    mode: 'directory',
+    raceDir: 'races/duel',
+    racers: [{ name: 'a', script: 'a.spec.js' }, { name: 'b', script: 'b.spec.js' }],
+    settings: { runs: 2, headless: true, network: 'slow-3g' },
+    sources: { runs: 'cli', headless: 'settings.json', network: 'cli' },
+  };
+  const configHtml = (overrides = {}) =>
+    buildPlayerHtml(abSummary(), abVideoFiles, null, null, { raceConfig: { ...raceConfig, ...overrides } });
+
+  it('shows the command that ran the race', () => {
+    const html = configHtml();
+    expect(html).toContain('Command &amp; Configuration');
+    expect(html).toContain('node race.js ./races/duel --runs=2 --network &#39;slow-3g&#39;');
+  });
+
+  it('names the race directory, mode, version and each racer script', () => {
+    const html = configHtml();
+    expect(html).toContain('races/duel');
+    expect(html).toContain('directory');
+    expect(html).toContain('9.9.9');
+    expect(html).toContain('a.spec.js');
+    expect(html).toContain('b.spec.js');
+  });
+
+  it('lists every setting with its value and where it came from', () => {
+    const html = configHtml();
+    const section = html.slice(html.indexOf('Command &amp; Configuration'));
+    expect(section).toContain('<td class="config-key">runs</td><td class="config-value">2</td>');
+    expect(section).toContain('config-source-cli">CLI flag');
+    expect(section).toContain('config-source-settingsjson">settings.json');
+  });
+
+  it('falls back to "default" for a setting with no recorded source', () => {
+    const html = configHtml({ settings: { format: 'webm' }, sources: {} });
+    expect(html).toContain('config-source-default">default');
+  });
+
+  it('orders the settings a racer reads first before the rest', () => {
+    const html = configHtml({
+      settings: { format: 'mov', runs: 2, headless: true },
+      sources: {},
+    });
+    const section = html.slice(html.indexOf('Command &amp; Configuration'));
+    expect(section.indexOf('>runs<')).toBeLessThan(section.indexOf('>headless<'));
+    expect(section.indexOf('>headless<')).toBeLessThan(section.indexOf('>format<'));
+  });
+
+  it('escapes a value that came in from settings.json', () => {
+    const html = configHtml({ settings: { skin: '<script>x</script>' }, sources: {} });
+    expect(html).toContain('&lt;script&gt;x&lt;/script&gt;');
+  });
+
+  it('links the stored record from the files section', () => {
+    const html = buildPlayerHtml(abSummary(), abVideoFiles, null, null, { raceConfig, raceConfigFile: 'config.json' });
+    expect(html).toContain('href="config.json"');
+  });
+
+  it('omits the section entirely for a report built without a record', () => {
+    const html = buildPlayerHtml(abSummary(), abVideoFiles);
+    expect(html).not.toContain('Command &amp; Configuration');
+    // The stylesheet still carries the section's rules; the markup must not.
+    expect(html).not.toContain('<table class="config-table">');
   });
 });
 
@@ -369,6 +699,43 @@ describe('buildPlayerHtml gemini commentary', () => {
 });
 
 
+// --- Run nav winner colors ---
+
+describe('buildRunNavHtml winner colors', () => {
+  const racers = ['lauda', 'hunt'];
+  const makeRunSummaries = (winners) => winners.map(w => ({ overallWinner: w }));
+
+  it('tints run buttons with the winner colour token', () => {
+    const nav = { currentRun: 'median', totalRuns: 2, pathPrefix: '' };
+    const html = buildRunNavHtml(nav, racers, makeRunSummaries(['lauda', 'hunt']));
+    expect(html).toContain(`--racer-color:${RACER_CSS_COLORS[0]}`);
+    expect(html).toContain(`--racer-color:${RACER_CSS_COLORS[1]}`);
+    // .has-winner is what tells the stylesheet to use the token
+    expect(html.match(/has-winner/g)).toHaveLength(2);
+  });
+
+  it('marks the active run button so the stylesheet can invert it', () => {
+    const nav = { currentRun: 1, totalRuns: 2, pathPrefix: '../' };
+    const html = buildRunNavHtml(nav, racers, makeRunSummaries(['lauda', 'hunt']));
+    expect(html).toMatch(/class="run-nav-btn active has-winner"[^>]*>Run 1</);
+    expect(html).toMatch(/class="run-nav-btn has-winner"[^>]*>Run 2</);
+  });
+
+  it('does not add style for ties', () => {
+    const nav = { currentRun: 'median', totalRuns: 2, pathPrefix: '' };
+    const html = buildRunNavHtml(nav, racers, makeRunSummaries(['tie', 'lauda']));
+    expect(html).toMatch(/<a(?![^>]*style)[^>]*>Run 1<\/a>/);  // no style attr on tie
+    expect(html).toContain(`--racer-color:${RACER_CSS_COLORS[0]}`);  // lauda wins run 2
+  });
+
+  it('works without runSummaries', () => {
+    const nav = { currentRun: 1, totalRuns: 2, pathPrefix: '../' };
+    const html = buildRunNavHtml(nav, racers, null);
+    expect(html).toContain('Run 1');
+    expect(html).not.toContain('border-color');
+  });
+});
+
 // --- Clip times (default mode, without --ffmpeg) ---
 
 describe('buildPlayerHtml clipTimes', () => {
@@ -384,21 +751,22 @@ describe('buildPlayerHtml clipTimes', () => {
     expect(html).not.toContain('id="modeFull"');
   });
 
-  it('embeds clipTimes data in player script', () => {
+  it('embeds clipTimes data in race config', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
-    expect(html).toContain('const clipTimes =');
-    expect(html).toContain('"start":');
-    expect(html).toContain('"end":');
+    const cfg = getRaceConfig(html);
+    expect(cfg.clipTimes).toBeTruthy();
+    expect(cfg.clipTimes[0]).toHaveProperty('start');
+    expect(cfg.clipTimes[0]).toHaveProperty('end');
   });
 
   it('sets clipTimes to null when not provided', () => {
-    expect(defaultHtml).toContain('const clipTimes = null');
+    expect(getRaceConfig(defaultHtml).clipTimes).toBe(null);
   });
 
   it('handles clipTimes with null entries', () => {
     const html = withClips([{ start: 1, end: 2 }, null]);
     expect(html).not.toContain('id="modeFull"');
-    expect(html).toContain('const clipTimes =');
+    expect(getRaceConfig(html).clipTimes).toBeTruthy();
   });
 
   it('hides Full button when all clipTimes entries are null', () => {
@@ -415,9 +783,8 @@ describe('buildPlayerHtml clipTimes', () => {
 
   it('orders clipTimes by placement (winner first)', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 0.5, end: 2.5 }], { summary: huntWinsSummary() });
-    const clipMatch = html.match(/const clipTimes = (\[.*?\]);/);
-    expect(clipMatch).toBeTruthy();
-    const parsed = JSON.parse(clipMatch[1]);
+    const parsed = getRaceConfig(html).clipTimes;
+    expect(parsed).toBeTruthy();
     expect(parsed[0].start).toBe(0.5); // hunt's clip first (winner)
     expect(parsed[1].start).toBe(1); // lauda's clip second
   });
@@ -432,11 +799,8 @@ describe('buildPlayerHtml clipTimes', () => {
       { start: 1.2, end: 2.8, recordingOffset: 0.15, wallClockDuration: 4.8 },
     ];
     const html = withClips(clips);
-    expect(html).toContain('"recordingOffset"');
-    expect(html).toContain('"wallClockDuration"');
-    const clipMatch = html.match(/const clipTimes = (\[.*?\]);/);
-    expect(clipMatch).toBeTruthy();
-    const parsed = JSON.parse(clipMatch[1]);
+    const parsed = getRaceConfig(html).clipTimes;
+    expect(parsed).toBeTruthy();
     expect(parsed[0].recordingOffset).toBe(0.12);
     expect(parsed[0].wallClockDuration).toBe(5.0);
     expect(parsed[1].recordingOffset).toBe(0.15);
@@ -568,6 +932,20 @@ describe('buildPlayerHtml debug mode', () => {
     expect(debugHtml).toContain('>Calibration<');
   });
 
+  it('hides the panel toggles in fullscreen', () => {
+    // The calibration and settings panels are rendered outside
+    // #fullscreenWrapper and the export overlay is appended to <body>, so none
+    // of these toggles can open anything the viewer would see. #fullscreenBtn
+    // is deliberately left out — it is the way back out.
+    expect(debugHtml).toContain('class="frame-btn calibration-btn" id="modeDebug"');
+    const rule = debugHtml.match(/:-webkit-full-screen\) :is\([^)]*\) \{[^}]*\}/)[0];
+    expect(rule).toContain('.calibration-btn');
+    expect(rule).toContain('.control-action-group');
+    expect(rule).toContain('#settingsToggle');
+    expect(rule).not.toContain('#fullscreenBtn');
+    expect(rule).toContain('display: none;');
+  });
+
   it('calibration button is always in template, hidden by default', () => {
     // Button is in the player template with display:none; runtime shows it when clip times exist
     expect(defaultHtml).toContain('id="modeDebug"');
@@ -625,14 +1003,232 @@ describe('buildPlayerHtml debug mode', () => {
     expect(debugHtml).toContain('id="debugFrameRow1"');
   });
 
+  it('reveals the Calibration button without depending on segment names', () => {
+    // Regression: the toggle used to be un-hidden inside buildSegmentNav(),
+    // which bails out for races whose specs never call raceStart()/raceEnd() —
+    // manual calibration was unreachable for them.
+    expect(debugHtml).toContain('revealCalibrationToggle');
+    const segmentNavBody = debugHtml.slice(
+      debugHtml.indexOf('function buildSegmentNav'),
+      debugHtml.indexOf('function buildRacerFilter')
+    );
+    expect(segmentNavBody).not.toContain('modeDebug');
+  });
+
+  it('clamps frame offsets against the active window, segment included', () => {
+    expect(debugHtml).toContain('function offsetWindows');
+    expect(debugHtml).toContain('activeSegmentClipTimes || clipTimes');
+  });
+
+  it('nudges a racer relative to the others so no direction is dead', () => {
+    // Regression: adjustDebugOffset() moved only the clicked racer and gave up
+    // when it had no room, so "-" did nothing on any racer whose clip starts at
+    // its first recorded frame — which is nearly all of them.
+    expect(debugHtml).toContain('function planOffsetNudge');
+    const nudge = debugHtml.slice(
+      debugHtml.indexOf('function adjustDebugOffset'),
+      debugHtml.indexOf('// Start following presented frames')
+    );
+    expect(nudge).toContain('planOffsetNudge(offsetWindows(), debugOffsets, idx, frameDelta)');
+    expect(nudge).not.toContain('newStart >= base.end');
+  });
+
+  it('renders a frame badge over every racer video', () => {
+    expect(debugHtml).toContain('id="frameBadge0"');
+    expect(debugHtml).toContain('id="frameBadge1"');
+    expect(debugHtml).toContain('class="frame-badge"');
+  });
+
+  it('centres the frame badge at the top of the video, clear of the racer label', () => {
+    const rule = debugHtml.slice(
+      debugHtml.indexOf('.player-container.show-frame-badges .frame-badge'),
+      debugHtml.indexOf('.frame-badge-num')
+    );
+    // Anchored to .racer, whose top edge is the racer name — the badge has to
+    // clear that label's height or it lands on the name instead of the video.
+    expect(rule).toContain('top: calc(var(--racer-label-height) + 0.6rem)');
+    expect(rule).toContain('left: 50%');
+    expect(rule).toContain('transform: translateX(-50%)');
+    expect(rule).toContain('align-items: center');
+    expect(rule).not.toContain('bottom:');
+    // The label's padding and the height calc must stay in step.
+    expect(debugHtml).toContain('--racer-label-pad: 0.5rem');
+    expect(debugHtml).toContain('padding: var(--racer-label-pad) 0');
+  });
+
+  it('keeps the frame badge small enough to read the recording behind it', () => {
+    const badgeCss = debugHtml.slice(
+      debugHtml.indexOf('.player-container.show-frame-badges .frame-badge'),
+      debugHtml.indexOf('.merged-container')
+    );
+    // The badge overlays the racer's own page, so it stays at the small end of
+    // the type scale — well under the racer label (--font-size-2xl) above it.
+    expect(badgeCss).toContain('font-size: var(--font-size-sm)');
+    expect(badgeCss).toContain('font-size: var(--font-size-marker)');
+    expect(badgeCss).not.toContain('font-size: var(--font-size-lg)');
+    expect(badgeCss).toContain('padding: 0.1rem 0.3rem');
+    expect(badgeCss).toContain('border-radius: var(--radius-sm)');
+  });
+
+  it('shows frame badges only while calibration is open', () => {
+    expect(debugHtml).toContain('.frame-badge { display: none; }');
+    expect(debugHtml).toContain('.player-container.show-frame-badges .frame-badge');
+    expect(debugHtml).toContain("classList.toggle('show-frame-badges', on)");
+  });
+
+  it('script updates frame badges from the presented frame', () => {
+    expect(debugHtml).toContain('updateFrameBadges');
+    expect(debugHtml).toContain('requestVideoFrameCallback');
+    expect(debugHtml).toContain('presentedTimes');
+  });
+
   it('script includes frame position update showing clip, full, and range', () => {
     expect(debugHtml).toContain('updateFramePositions');
     expect(debugHtml).toContain('clipFrame');
-    expect(debugHtml).toContain('clipStartFrame');
-    expect(debugHtml).toContain('clipEndFrame');
+    expect(debugHtml).toContain('clipStart');
+    expect(debugHtml).toContain('clipEnd');
     expect(debugHtml).toContain("'clip: '");
     expect(debugHtml).toContain("'full: '");
     expect(debugHtml).toContain("'range: '");
+  });
+});
+
+// --- Keyboard shortcuts ---
+
+describe('buildPlayerHtml keyboard shortcuts', () => {
+  const html = withOptions({ clipTimes: [{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }] });
+
+  it('binds the shortcuts on document so they reach fullscreen', () => {
+    // The fullscreen element is #fullscreenWrapper; a listener on document
+    // still sees keys bubbling from inside it.
+    expect(html).toContain("document.addEventListener('keydown'");
+    expect(html).toContain("if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-FRAME_STEP); }");
+    expect(html).toContain("else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(FRAME_STEP); }");
+  });
+
+  it('steps by exactly one frame, not a fixed 0.1s', () => {
+    expect(html).toContain('stepFrame(-FRAME_STEP)');
+    expect(html).toContain('stepFrame(FRAME_STEP)');
+    expect(html).not.toMatch(/const STEP = /);
+    // The « / » buttons move the same single frame as the arrow keys.
+    expect(html).toContain("document.getElementById('prevFrame').addEventListener('click', () => stepFrame(-FRAME_STEP));");
+    expect(html).toContain("document.getElementById('nextFrame').addEventListener('click', () => stepFrame(FRAME_STEP));");
+    expect(html).toContain('title="Previous frame (&larr;)"');
+    expect(html).toContain('title="Next frame (&rarr;)"');
+  });
+
+  it('keeps the scrubber unquantized so single-frame steps do not round away', () => {
+    // stepFrame reads its position back off the scrubber; over 1000 integer
+    // units one unit is coarser than a frame once the window passes 40s.
+    expect(html).toContain('id="scrubber" min="0" max="1000" step="any"');
+  });
+
+  it('releases the speed select after a pointer pick so arrows keep stepping', () => {
+    // A focused <select> is deliberately skipped by the keydown handler, so a
+    // speed pick used to leave frame stepping dead — invisible in fullscreen,
+    // where the controls fade out.
+    expect(html).toContain("speedSelect.addEventListener('pointerdown'");
+    expect(html).toContain('if (speedPickedByPointer) speedSelect.blur();');
+  });
+
+  it('leaves focus alone when the speed is changed from the keyboard', () => {
+    // Arrow keys belong to the select while a keyboard user walks its options.
+    expect(html).toContain("speedSelect.addEventListener('keydown', () => { speedPickedByPointer = false; });");
+  });
+});
+
+// --- Calibration persistence ---
+
+describe('buildPlayerHtml calibration persistence', () => {
+  const clipTimes = [{ start: 1.52, end: 3 }, { start: 1.2, end: 2.8 }];
+  const idOf = (summary, files = videoFiles) =>
+    getRaceConfig(buildPlayerHtml(summary, files, null, null, { clipTimes })).raceId;
+
+  it('stamps a race id into the race config', () => {
+    expect(idOf(makeSummary())).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it('gives the same race the same id across builds', () => {
+    expect(idOf(makeSummary())).toBe(idOf(makeSummary()));
+  });
+
+  it('gives a different id to a different run of the same race', () => {
+    // Two runs share racers and video filenames; the results dir and timestamp
+    // are what keep their saved calibration apart.
+    const a = idOf(makeSummary({ resultsDir: 'results-1', timestamp: '2025-01-15T12:00:00.000Z' }));
+    const b = idOf(makeSummary({ resultsDir: 'results-2', timestamp: '2025-01-15T12:05:00.000Z' }));
+    expect(a).not.toBe(b);
+  });
+
+  it('gives a different id to a different set of racers', () => {
+    expect(idOf(makeSummary())).not.toBe(idOf(makeSummary({ racers: ['senna', 'prost'] })));
+  });
+
+  it('gives a different id when the recordings differ', () => {
+    expect(idOf(makeSummary())).not.toBe(idOf(makeSummary(), abVideoFiles));
+  });
+
+  it('keys stored offsets on the race id, and stores nothing without one', () => {
+    const html = withOptions({ clipTimes });
+    expect(html).toContain("'race-calibration:'");
+    expect(html).toContain('function calibrationStorageKey');
+    expect(html).toContain('if (!raceId || calibrationBaked) return null;');
+  });
+
+  it('holds the play position when calibration offsets change', () => {
+    const html = withOptions({ clipTimes });
+    // Regression: both offset paths seeked every racer back to its clip start
+    // and zeroed the scrubber, so the frame being compared was lost on each nudge.
+    const nudge = html.slice(html.indexOf('function adjustDebugOffset'), html.indexOf('function adjustDebugOffset') + 700);
+    expect(nudge).toContain('const was = transportPosition();');
+    expect(nudge).toContain('restoreTransport(was);');
+    expect(nudge).not.toContain('scrubber.value = 0;');
+    const reset = html.slice(html.indexOf("e.target.id === 'debugResetAll'"));
+    expect(reset.slice(0, 400)).toContain('const was = transportPosition();');
+    expect(reset.slice(0, 400)).toContain('restoreTransport(was);');
+    expect(reset.slice(0, 400)).not.toContain('scrubber.value = 0;');
+    // The position is captured before the offsets move the clip window.
+    expect(html).toContain('function transportPosition');
+    expect(html).toContain('holdTransportPosition(was.scrubber, was.duration, clipDuration())');
+  });
+
+  it('restores offsets on load and saves them on every change', () => {
+    const html = withOptions({ clipTimes });
+    expect(html).toContain('const debugOffsets = loadDebugOffsets();');
+    expect(html).toContain('function saveDebugOffsets');
+    // Both mutation paths persist: nudging a racer and Reset All.
+    const nudge = html.slice(html.indexOf('function adjustDebugOffset'), html.indexOf('function adjustDebugOffset') + 700);
+    expect(nudge).toContain('saveDebugOffsets();');
+    const reset = html.slice(html.indexOf("e.target.id === 'debugResetAll'"));
+    expect(reset.slice(0, 400)).toContain('saveDebugOffsets();');
+  });
+
+  it('ignores a stored value that does not fit this page', () => {
+    const html = withOptions({ clipTimes });
+    expect(html).toContain('stored.length === raceVideos.length');
+    expect(html).toContain('stored.every(Number.isFinite)');
+  });
+
+  it('flags exported clip times as baked so offsets are not applied twice', () => {
+    const html = withOptions({ clipTimes });
+    expect(html).toContain('cfg.calibrationBaked = true;');
+    // A baked page shares the source page's race id; it must not read (or
+    // write) that key, or the same offsets would land twice.
+    expect(html).toContain('if (!raceId || calibrationBaked) return null;');
+  });
+
+  it('re-arms the clip seek before embedded videos become blob URLs', () => {
+    // Assigning src resets currentTime, so an exported page with embedded
+    // videos would otherwise open at 0 instead of its calibrated start. The
+    // seek is armed before the swap: loadedmetadata can fire during the
+    // merged-video await, and a seek armed after it would never run.
+    const html = withOptions({ clipTimes });
+    const fn = html.slice(html.indexOf('async function resolveEmbeddedVideos'), html.indexOf('resolveEmbeddedVideos();'));
+    const arm = fn.indexOf('setPendingSeek(initialClipSeek)');
+    const swap = fn.indexOf('v.src = resolved');
+    expect(arm).toBeGreaterThan(-1);
+    expect(swap).toBeGreaterThan(-1);
+    expect(arm).toBeLessThan(swap);
   });
 });
 
@@ -659,9 +1255,8 @@ describe('buildPlayerHtml timing events', () => {
   });
 
   it('embeds measurements in clipTimes JSON', () => {
-    const clipMatch = timingHtml.match(/const clipTimes = (\[.*?\]);/);
-    expect(clipMatch).toBeTruthy();
-    const parsed = JSON.parse(clipMatch[1]);
+    const parsed = getRaceConfig(timingHtml).clipTimes;
+    expect(parsed).toBeTruthy();
     // clipTimes are reordered by placement; winner (lauda) is first
     expect(parsed[0].measurements).toBeDefined();
     expect(parsed[0].measurements.length).toBeGreaterThan(0);
@@ -689,7 +1284,7 @@ describe('buildPlayerHtml timing events', () => {
 
   it('script includes frame number computation', () => {
     expect(timingHtml).toContain('toFrame');
-    expect(timingHtml).toContain('Math.round(pts / 0.04)');
+    expect(timingHtml).toContain('timeToFrame(pts)');
   });
 
   it('includes timingData in Copy JSON handler', () => {
@@ -721,10 +1316,14 @@ describe('buildPlayerHtml export', () => {
     }
   });
 
-  it('renders Export button in header for all pages', () => {
-    // Export buttons are always in the header; runtime hides them when < 2 racers
-    expect(noVideosHtml).toContain('id="exportBtn"');
+  it('renders the export buttons alongside the transport controls', () => {
+    // They moved out of the page header and into the controls bar, next to the
+    // calibration toggle. A report with no videos gets neither the controls nor
+    // the runtime script that drives them, so it carries no export button — it
+    // used to render one that nothing was listening to.
     expect(defaultHtml).toContain('id="exportBtn"');
+    expect(noVideosHtml).not.toContain('id="exportBtn"');
+    expect(noVideosHtml).not.toContain('class="controls"');
   });
 
   it('getExportLayout ensures even canvasH for libx264 compatibility', () => {
@@ -749,11 +1348,12 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
     expect(defaultHtml).toContain('convertWithFFmpeg');
   });
 
-  it('includes loadFFmpeg function with local paths', () => {
+  it('includes loadFFmpeg function using the configured ffmpeg dir', () => {
     expect(defaultHtml).toContain('loadFFmpeg');
-    expect(defaultHtml).toContain("import('./ffmpeg/index.js')");
-    expect(defaultHtml).toContain('./ffmpeg/ffmpeg-core.js');
-    expect(defaultHtml).toContain('./ffmpeg/ffmpeg-core.wasm');
+    expect(defaultHtml).toContain("import(ffmpegDir + 'index.js')");
+    expect(defaultHtml).toContain("ffmpegDir + 'ffmpeg-core.js'");
+    expect(defaultHtml).toContain("ffmpegDir + 'ffmpeg-core.wasm'");
+    expect(getRaceConfig(defaultHtml).ffmpegDir).toBe('./ffmpeg/');
   });
 
   it('includes file:// protocol check with helpful error message', () => {
@@ -866,6 +1466,19 @@ describe('buildPlayerHtml clip alignment', () => {
     expect(stepFn).toContain('scrubber.value');
   });
 
+  it('quantizes a frame step onto the frame grid instead of adding to the scrubber', () => {
+    // Regression: the scrubber returns 0.079999 for 0.080, so `cur + delta`
+    // seeked a microsecond before the frame boundary and showed the previous
+    // frame — leaving racers whose clip starts on a boundary one frame behind
+    // racers whose clip starts mid-frame.
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    expect(html).toContain('function stepFrameTime');
+    const stepStart = html.indexOf('function stepFrame(');
+    const stepFn = html.slice(stepStart, stepStart + 500);
+    expect(stepFn).toContain('stepFrameTime(cur, delta, minT, maxT)');
+    expect(stepFn).not.toContain('cur + delta');
+  });
+
   it('export seek code uses elapsed-based alignment', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
     const exportSection = html.slice(html.indexOf('seekPromises'));
@@ -927,13 +1540,12 @@ describe('buildPlayerHtml seekAllWithVerify', () => {
     expect(fn).toContain('ZERO_START_THRESHOLD');
   });
 
-  it('initSeek uses seekAllWithVerify not plain seekAll', () => {
+  it('initialClipSeek uses seekAllWithVerify not plain seekAll', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
-    const initSeekStart = html.indexOf('const initSeek = ()');
-    const initSeekEnd = html.indexOf('};', initSeekStart) + 2;
-    const initSeekFn = html.slice(initSeekStart, initSeekEnd);
-    expect(initSeekFn).toContain('seekAllWithVerify(');
-    expect(initSeekFn).not.toMatch(/(^|\W)seekAll\(/); // no plain seekAll call (only seekAllWithVerify)
+    const start = html.indexOf('function initialClipSeek()');
+    const fn = html.slice(start, html.indexOf('\n}', start) + 2);
+    expect(fn).toContain('seekAllWithVerify(');
+    expect(fn).not.toMatch(/(^|\W)seekAll\(/); // no plain seekAll call (only seekAllWithVerify)
   });
 
   it('onMeta recomputes activeSegmentClipTimes after calibration', () => {
@@ -945,12 +1557,12 @@ describe('buildPlayerHtml seekAllWithVerify', () => {
     expect(onMetaFn).toContain('activeSegmentClipTimes = getSegmentClipTimes(activeSegmentName)');
   });
 
-  it('onMeta convertedAny branch uses seekAllWithVerify', () => {
+  it('finalizeCalibration convertedAny branch uses seekAllWithVerify', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
-    const onMetaStart = html.indexOf('function onMeta(');
-    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
-    const onMetaFn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
-    expect(onMetaFn).toContain('seekAllWithVerify(');
+    const fnStart = html.indexOf('function finalizeCalibration(');
+    const fnEnd = html.indexOf('\nfunction ', fnStart + 1);
+    const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 1500);
+    expect(fn).toContain('seekAllWithVerify(');
   });
 
   it('attaches canplay fallback listener in seekAllWithVerify', () => {
@@ -962,20 +1574,30 @@ describe('buildPlayerHtml seekAllWithVerify', () => {
     expect(fn).toContain('{ once: true }');
   });
 
-  it('canplay fallback resets retries and re-seeks when currentTime is off', () => {
+  it('canplay fallback re-attempts within a single hard-capped retry budget', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.2, end: 2.8 }]);
     const fnStart = html.indexOf('function seekAllWithVerify(');
     const fnEnd = html.indexOf('\nif (clipTimes)', fnStart);
     const fn = html.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 800);
-    // Must check position is still wrong before re-seeking (uses named constant)
+    // Position check still uses the named tolerance constant.
     expect(fn).toContain('SEEK_SNAP_TOLERANCE');
-    // Must reset retries so the seeked retry loop gets fresh attempts
-    expect(fn).toContain('retries = 0');
+    // Total seeks are capped so MAX_SEEK_RETRIES is a genuine hard ceiling…
+    expect(fn).toContain('MAX_SEEK_RETRIES');
+    // …and canplay reuses the same retry routine rather than resetting a
+    // counter shared by two concurrently-live seeked chains.
+    expect(fn).toContain("addEventListener('canplay', reseek");
+    expect(fn).not.toContain('retries = 0');
   });
 });
 
 describe('buildPlayerHtml onMeta _durationForced (Chrome WebM Infinity duration)', () => {
   const withClips = (clips) => withOptions({ clipTimes: clips });
+  const sliceFn = (html, signature) => {
+    const start = html.indexOf(signature);
+    expect(start).toBeGreaterThan(-1);
+    const end = html.indexOf('\nfunction ', start + 1);
+    return html.slice(start, end > start ? end : start + 1500);
+  };
 
   it('declares _durationForced WeakMap', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
@@ -983,39 +1605,35 @@ describe('buildPlayerHtml onMeta _durationForced (Chrome WebM Infinity duration)
     expect(html).toContain('WeakMap');
   });
 
-  it('onMeta triggers 1e10 seek when duration is non-finite', () => {
+  it('forceDurationScan issues the 1e10 seek and listens for durationchange', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
-    const onMetaStart = html.indexOf('function onMeta(');
-    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
-    const fn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
+    const fn = sliceFn(html, 'function forceDurationScan(');
     expect(fn).toContain('1e10');
     expect(fn).toContain('durationchange');
   });
 
-  it('onMeta always returns early while any video has non-finite duration', () => {
+  it('ensureFiniteDurations never reports ready while any video has non-finite duration', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
-    const onMetaStart = html.indexOf('function onMeta(');
-    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
-    const fn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
-    // The return; must be unconditional — i.e. it appears after the closing brace
-    // of the if (!_durationForced.has(v)) { ... } block, not inside it.
-    // Search for the actual assignment (not a comment mention) to find the right position.
-    const seek1e10Idx = fn.indexOf('currentTime = 1e10');
-    expect(seek1e10Idx).toBeGreaterThan(-1);
-    // Find the closing brace of the has-guard block (after the 1e10 assignment)
-    const closingBraceIdx = fn.indexOf('}', seek1e10Idx);
-    const returnIdx = fn.indexOf('return;', closingBraceIdx);
-    expect(returnIdx).toBeGreaterThan(closingBraceIdx);
-    // Only whitespace/comments between the closing brace and return;
-    const between = fn.slice(closingBraceIdx + 1, returnIdx).replace(/\/\/[^\n]*/g, '').trim();
+    const fn = sliceFn(html, 'function ensureFiniteDurations(');
+    // Starting a scan must set the waiting flag unconditionally — right after
+    // the scan call, not inside a branch — so a video mid-scan can never fall
+    // through to calibration. The loop keeps going so every unresolved video
+    // gets its scan started in the same pass.
+    const scanIdx = fn.indexOf('forceDurationScan(v)');
+    expect(scanIdx).toBeGreaterThan(-1);
+    const flagIdx = fn.indexOf('waiting = true', scanIdx);
+    expect(flagIdx).toBeGreaterThan(scanIdx);
+    const between = fn.slice(scanIdx + 'forceDurationScan(v)'.length, flagIdx)
+      .replace(/\/\/[^\n]*/g, '').replace(/[;\s]/g, '');
     expect(between).toBe('');
+    // The only way out is the negated flag: no early `return true`.
+    expect(fn.slice(scanIdx)).not.toContain('return true');
+    expect(fn).toContain('return !waiting');
   });
 
-  it('onMeta only triggers 1e10 seek once per src (WeakMap guard)', () => {
+  it('forceDurationScan only seeks once per src (WeakMap guard)', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
-    const onMetaStart = html.indexOf('function onMeta(');
-    const onMetaEnd = html.indexOf('\nfunction ', onMetaStart + 1);
-    const fn = html.slice(onMetaStart, onMetaEnd > onMetaStart ? onMetaEnd : onMetaStart + 1500);
+    const fn = sliceFn(html, 'function forceDurationScan(');
     // WeakMap API: set() inside the guard, get() !== srcKey as the condition
     expect(fn).toContain('_durationForced.set(v');
     const getGuardIdx = fn.indexOf('_durationForced.get(v)');
@@ -1024,6 +1642,43 @@ describe('buildPlayerHtml onMeta _durationForced (Chrome WebM Infinity duration)
     expect(getGuardIdx).toBeGreaterThan(-1);
     expect(setIdx).toBeGreaterThan(getGuardIdx);
     expect(seek1e10Idx).toBeGreaterThan(getGuardIdx);
+  });
+
+  it('waits for a duration long enough to hold the clip before calibrating', () => {
+    // A WebM duration Chrome has not finished resolving reports short (0 at
+    // first). Calibrating against it clamps the clip to an end before its own
+    // start, which isValidClipEntry rejects for good — so conversion waits.
+    const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
+    const convert = sliceFn(html, 'function convertClipEntry(');
+    const settledIdx = convert.indexOf('durationSettled(clipEntry, tracePtsStart, video)');
+    const applyIdx = convert.indexOf('applyCalibrationToClip(');
+    expect(settledIdx).toBeGreaterThan(-1);
+    expect(applyIdx).toBeGreaterThan(settledIdx); // gate comes first
+    const settled = sliceFn(html, 'function durationSettled(');
+    expect(settled).toContain('durationHoldsClip(');
+    expect(settled).toContain('forceDurationScan(video)');
+    // The wait is capped, so a genuinely truncated recording still calibrates.
+    expect(settled).toContain('DURATION_SETTLE_MS');
+  });
+
+  it('holds off resolving the clip window and the pending seek while a clip waits on its duration', () => {
+    // Regression: a clip still waiting on its duration has raw coordinates
+    // while the others are calibrated. onMeta used to resolve activeClip and
+    // let finalizeCalibration consume pendingSeek anyway, seeking that racer
+    // to the wrong frame until the retry converted it.
+    const html = withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }]);
+    const convert = sliceFn(html, 'function convertClipEntry(');
+    expect(convert).toContain("return 'pending'");
+    const calibrate = sliceFn(html, 'function calibrateClipTimes(');
+    expect(calibrate).toContain("status === 'pending'");
+    expect(calibrate).toContain('return { convertedAny, pending }');
+    const onMeta = sliceFn(html, 'function onMeta(');
+    const pendingIdx = onMeta.indexOf('if (pending) return;');
+    const clipIdx = onMeta.indexOf('activeClip = resolveAdjustedClip()');
+    const finalizeIdx = onMeta.indexOf('finalizeCalibration(');
+    expect(pendingIdx).toBeGreaterThan(-1);
+    expect(clipIdx).toBeGreaterThan(pendingIdx);
+    expect(finalizeIdx).toBeGreaterThan(pendingIdx);
   });
 });
 
@@ -1111,15 +1766,18 @@ describe('buildPlayerHtml run-by-run comparison', () => {
   it('renders run-by-run comparison section with color-coded racer headers', () => {
     const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
     expect(html).toContain('Run-by-Run Comparison');
-    // Racer headers have color styling
-    expect(html).toContain('style="color:#e74c3c">lauda');
-    expect(html).toContain('style="color:#3498db">hunt');
+    // Racer headers carry the racer colour as a token the stylesheet reads
+    expect(html).toContain('style="--racer-color:#e74c3c">lauda');
+    expect(html).toContain('style="--racer-color:#3498db">hunt');
   });
 
-  it('colors winner names in the comparison table', () => {
+  it('shows trophy for winner and delta for loser in comparison table', () => {
     const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
-    // Winner cells use colored spans
-    expect(html).toMatch(/style="color:#e74c3c"[^>]*>lauda<\/span>/);
+    // Winner gets trophy, no separate Winner column
+    expect(html).toContain('1.000s (\uD83C\uDFC6 67% ahead)');
+    expect(html).not.toMatch(/<th>Winner<\/th>/);
+    // Loser gets delta (3.0 - 1.0 = 2.0), and how much slower that is (200%)
+    expect(html).toContain('(+2.000s, +200%)');
   });
 
   it('includes measurement rows and median row', () => {
@@ -1133,7 +1791,7 @@ describe('buildPlayerHtml run-by-run comparison', () => {
 
   it('includes performance metrics comparison tables', () => {
     const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
-    expect(html).toContain('Performance: During Measurement');
+    expect(html).toContain('Performance: Race');
     expect(html).toContain('Script Execution');
   });
 
@@ -1146,5 +1804,106 @@ describe('buildPlayerHtml run-by-run comparison', () => {
     const html = buildPlayerHtml(medianSummary, videoFiles);
     expect(html).not.toContain('Run-by-Run Comparison');
   });
+
+  it('carries export buttons of its own, naming the panel groups they act on', () => {
+    const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
+    const section = html.slice(html.indexOf('<h2>Run-by-Run Comparison</h2>'), html.indexOf('<h2>Performance Results</h2>'));
+    // The toolbar names every table of the section, as a JSON list the runtime parses back.
+    const all = '&quot;runs:section:Load&quot;,&quot;runs:profile:measured.scriptDuration&quot;';
+    expect(section).toContain(`data-spreadsheet-groups="[${all}]" data-spreadsheet-action="copy-tsv"`);
+    expect(section).toContain(`data-spreadsheet-groups="[${all}]" data-spreadsheet-action="copy-markdown"`);
+    expect(section).toContain(`data-spreadsheet-groups="[${all}]" data-spreadsheet-action="download-csv"`);
+    expect(section).toContain(`data-spreadsheet-groups="[${all}]" data-spreadsheet-action="pick"`);
+    // Each table gets a copy pair of its own, right under its heading.
+    expect(section).toMatch(/<h3>Race Section Load<\/h3>\s*<div class="run-table-export">\s*<button[^>]*data-spreadsheet-groups="\[&quot;runs:section:Load&quot;\]" data-spreadsheet-action="copy-tsv"/);
+    expect(section).toMatch(/<h4>Script Execution<\/h4>\s*<div class="run-table-export">\s*<button[^>]*data-spreadsheet-groups="\[&quot;runs:profile:measured.scriptDuration&quot;\]" data-spreadsheet-action="copy-tsv"/);
+    // The ids the buttons name are the ids the panel's checkboxes carry.
+    for (const id of ['runs:section:Load', 'runs:profile:measured.scriptDuration']) {
+      expect(html).toContain(`<input type="checkbox" value="${id}" checked>`);
+    }
+    // Each table names its group and title, so the Markdown copy can read it as shown.
+    expect(section).toContain('<table class="run-comparison-table" data-group="runs:section:Load" data-title="Race Section Load">');
+    expect(section).toContain('<table class="run-comparison-table" data-group="runs:profile:measured.scriptDuration" data-title="Script Execution (Performance: Race)">');
+    // A single-run page has no section, and so none of this.
+    expect(buildPlayerHtml(medianSummary, videoFiles)).not.toContain('class="run-export"');
+  });
+
+  it('exports the run-by-run numbers to the spreadsheet panel too', () => {
+    const html = buildPlayerHtml(medianSummary, videoFiles, null, null, { runSummaries });
+    expect(html).toContain('<input type="checkbox" value="results" checked> Race Results (median of 2 runs)');
+    expect(html).toContain('<input type="checkbox" value="runs:section:Load" checked> Run-by-Run: Load');
+    expect(html).toContain('<input type="checkbox" value="runs:profile:measured.scriptDuration" checked> Run-by-Run: Script Execution (Race)');
+    expect(html).toContain('<tr data-group="runs:section:Load"><td class="spreadsheet-pick"><input type="checkbox" data-row="row:runs:section:Load#1" checked aria-label="Include Run-by-Run: Load: Run 2"></td><td>Run-by-Run: Load</td><td>Run 2</td><td>s</td><td class="spreadsheet-num" data-value="2">2</td><td class="spreadsheet-num" data-value="4">4</td><td>🔴 lauda</td><td class="spreadsheet-num" data-value="2">2</td><td class="spreadsheet-num" data-value="50">50</td></tr>');
+    expect(html).toContain('<td>Median</td><td>s</td><td class="spreadsheet-num" data-value="1.5">1.5</td>');
+  });
 });
 
+// --- Spreadsheet export ---
+
+describe('buildPlayerHtml spreadsheet export', () => {
+  it('adds a Spreadsheet Export section between the profile and the files', () => {
+    expect(defaultHtml).toContain('<h2>Spreadsheet Export</h2>');
+    expect(defaultHtml).toContain('id="spreadsheetPanel"');
+    const section = defaultHtml.indexOf('<h2>Spreadsheet Export</h2>');
+    expect(section).toBeGreaterThan(defaultHtml.indexOf('<h2>Race Results</h2>'));
+    expect(section).toBeLessThan(defaultHtml.indexOf('<h2>Files</h2>'));
+    // Collapsed by default, like the other secondary sections.
+    expect(defaultHtml).toMatch(/<details class="section">\s*<summary><h2>Spreadsheet Export<\/h2>/);
+  });
+
+  it('previews the numbers as plain values with the unit in its own column', () => {
+    expect(defaultHtml).toContain('<th scope="col">Section</th><th scope="col">Measurement</th><th scope="col">Unit</th>');
+    expect(defaultHtml).toContain('<th scope="col" style="--racer-color:#e74c3c">🔴 lauda</th>');
+    expect(defaultHtml).toContain('<tr data-group="results"><td class="spreadsheet-pick"><input type="checkbox" data-row="row:results#0" checked aria-label="Include Race Results: Load"></td><td>Race Results</td><td>Load</td><td>s</td><td class="spreadsheet-num" data-value="1">1</td><td class="spreadsheet-num" data-value="2">2</td><td>🔴 lauda</td><td class="spreadsheet-num" data-value="1">1</td><td class="spreadsheet-num" data-value="50">50</td></tr>');
+  });
+
+  it('carries the export model as JSON and the runtime that reads it', () => {
+    const m = defaultHtml.match(/<script id="spreadsheet-data" type="application\/json">([\s\S]*?)<\/script>/);
+    expect(m).not.toBeNull();
+    const model = JSON.parse(m[1]);
+    expect(model.racers).toEqual(['lauda', 'hunt']);
+    expect(model.groups.map(g => g.id)).toEqual(['results']);
+    for (const fn of ['function spreadsheetTable', 'function spreadsheetTsv', 'function spreadsheetCsv', 'function spreadsheetMarkdown', 'initSpreadsheetPanel', 'navigator.clipboard']) {
+      expect(defaultHtml).toContain(fn);
+    }
+    expect(defaultHtml).toContain('id="spreadsheetCopy"');
+    expect(defaultHtml).toContain('id="spreadsheetMarkdown"');
+    expect(defaultHtml).toContain('id="spreadsheetCsv"');
+    expect(defaultHtml).toContain('id="spreadsheetDecimalComma"');
+  });
+
+  it('includes the profile metrics as raw values', () => {
+    const metrics1 = { total: { networkTransferSize: 1000 }, measured: { scriptDuration: 12.5 } };
+    const metrics2 = { total: { networkTransferSize: 2000 }, measured: { scriptDuration: 20 } };
+    const html = withSummary({ profileMetrics: [metrics1, metrics2] });
+    expect(html).toContain('<input type="checkbox" value="profile.measured" checked> Performance: Race');
+    expect(html).toContain('<input type="checkbox" value="profile.total" checked> Performance: Total Recording');
+    expect(html).toContain('<td>Script Execution</td><td>ms</td><td class="spreadsheet-num" data-value="12.5">12.5</td>');
+    expect(html).toContain('<td>Network Transfer</td><td>bytes</td><td class="spreadsheet-num" data-value="1000">1000</td>');
+  });
+
+  it('gives a report without videos the panel runtime, but not the player runtime', () => {
+    // No videos means no player script — but the copy and download buttons
+    // still need their own, or they would render and do nothing.
+    expect(noVideosHtml).toContain('<h2>Spreadsheet Export</h2>');
+    expect(noVideosHtml).toContain('<tr data-group="results">');
+    expect(noVideosHtml.match(/<script>/g)).toHaveLength(1);
+    expect(noVideosHtml).toContain('initSpreadsheetPanel');
+    expect(noVideosHtml).toContain('function spreadsheetTsv');
+    expect(noVideosHtml).not.toContain('seekAllWithVerify');
+    expect(noVideosHtml).not.toContain('startHtmlExport');
+    // With nothing to export there is no panel, and so no script at all.
+    expect(buildPlayerHtml(makeSummary({ comparisons: [] }), [])).not.toContain('<script>');
+  });
+
+  it('leaves the section out when the race measured nothing', () => {
+    const html = withSummary({ comparisons: [] });
+    expect(html).not.toContain('<h2>Spreadsheet Export</h2>');
+    expect(html).not.toContain('id="spreadsheetPanel"');
+  });
+
+  it('inlines the panel stylesheet after the player rules', () => {
+    expect(defaultHtml).toContain('.spreadsheet-table thead th');
+    expect(defaultHtml.indexOf('.spreadsheet-table')).toBeGreaterThan(defaultHtml.indexOf('.checkered-bar'));
+  });
+});

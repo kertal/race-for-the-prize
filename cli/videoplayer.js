@@ -1,25 +1,30 @@
 /**
  * Generates a self-contained HTML file with a retro Grand Prix styled
- * video player for race results. Supports 2-5 racers.
+ * video player for race results. Supports 2-4 racers.
  *
  * The HTML structure lives in player.html (a real HTML template).
- * The CSS lives in player.css (inlined into the exported HTML at build time).
+ * The CSS lives in player.css (inlined into the exported HTML at build time),
+ *   written as design tokens + component rules so it can be re-skinned.
+ * Skins live in cli/skins/ and are resolved by skins.js; the chosen one is
+ *   inlined after player.css and its name stamped onto <html data-theme>.
  * Section builders live in player-sections.js.
- * The browser-side player runtime lives in player-runtime.js.
+ * The browser-side player runtime lives in player-runtime/ as concern-scoped
+ * source files, concatenated below in dependency order into one IIFE scope.
  * This module wires everything together via {{placeholder}} replacement.
  */
 
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import fs from 'node:fs';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { getPlacementOrder } from './summary.js';
+import { loadTemplates, escHtml, render, serializeJsonForScript } from './html-templates.js';
 import {
   RACER_CSS_COLORS,
-  escHtml,
-  render,
   setTemplates,
   buildRunNavHtml,
   buildRaceInfoHtml,
+  buildRaceConfigHtml,
   buildMachineInfoHtml,
   buildErrorsHtml,
   buildResultsHtml,
@@ -30,25 +35,54 @@ import {
   buildDebugPanelHtml,
   buildPlayerSectionHtml,
 } from './player-sections.js';
+import calibration from './player-runtime/calibration.cjs';
+import { resolveSkin, DEFAULT_THEME_COLOR } from './skins.js';
+import { buildSpreadsheetModel, buildSpreadsheetPanelHtml, SPREADSHEET_CSS, SPREADSHEET_RUNTIME } from './spreadsheet-export.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const RAW_HTML = fs.readFileSync(path.join(__dirname, 'player.html'), 'utf-8');
-const RUNTIME = fs.readFileSync(path.join(__dirname, 'player-runtime.js'), 'utf-8');
-const CSS = fs.readFileSync(path.join(__dirname, 'player.css'), 'utf-8');
-
-// Extract build-time templates (build-*) from HTML and strip them from the main template
-function extractBuildTemplates(html) {
-  const templates = {};
-  const cleaned = html.replace(/<template id="build-([^"]+)">([\s\S]*?)<\/template>\s*/g, (_, id, content) => {
-    templates[id] = content.trim();
-    return '';
-  });
-  return { mainTemplate: cleaned, templates };
-}
-
-const { mainTemplate: TEMPLATE, templates: BUILD_TEMPLATES } = extractBuildTemplates(RAW_HTML);
+// Markup lives in player.html: the page shell plus one build-* template per
+// repeated fragment, split apart here and filled at build time.
+const { shell: TEMPLATE, templates: BUILD_TEMPLATES, fill } = loadTemplates(path.join(__dirname, 'player.html'));
 setTemplates(BUILD_TEMPLATES);
+
+// Shared design tokens first, then this page's component rules. Both reports
+// inline the same tokens.css so the player and the condition overview cannot
+// drift apart, and one skin themes both.
+// The spreadsheet panel's rules come last: the panel is shared with the
+// condition overview, which inlines the same file after its own component CSS.
+const CSS = fs.readFileSync(path.join(__dirname, 'tokens.css'), 'utf-8') + '\n'
+  + fs.readFileSync(path.join(__dirname, 'player.css'), 'utf-8') + '\n'
+  + SPREADSHEET_CSS;
+
+// Browser-side player runtime, split into concern-scoped files that are
+// concatenated in dependency order into the single IIFE scope emitted by
+// buildPlayerScript (runtime semantics identical to the former single file).
+// The .cjs files hold pure logic with a guarded module.exports, so Node can
+// require() them for unit tests while the browser concatenation ignores it.
+const RUNTIME_FILES = [
+  'config.js',         // build-time config injection + DOM bootstrap
+  'playback.js',       // shared state, seeking, metadata, modes, controls
+  'calibration.cjs',   // pure clip-calibration math (Node-testable)
+  'debug-panel.js',    // calibration/debug panel UI
+  'segments.js',       // segment navigation + racer filter UI
+  'timeline.cjs',      // pure segment-timeline layout math (Node-testable)
+  'timeline.js',       // the clickable segment timeline under the videos
+  'finish-results.cjs', // final per-section placements, independent of recording order
+  'finish-display.js', // show each placement at that racer's own finish
+  'main.js',           // startup: initial verified seek + metadata pass
+  'export-layout.cjs', // pure side-by-side export layout math (Node-testable)
+  'export-progress.cjs', // pure export-conversion progress math (Node-testable)
+  'export-video.js',   // canvas side-by-side export + ffmpeg.wasm conversion
+  'fullscreen.js',     // fullscreen mode
+  'zip.cjs',           // pure CRC32/ZIP builder (Node-testable)
+  'export-zip.js',     // self-contained HTML/ZIP export flows
+  'spreadsheet.cjs',   // pure TSV/CSV serialization of the export model (Node-testable)
+  'spreadsheet-panel.js', // the Spreadsheet Export section: selection, copy, download
+];
+const RUNTIME = RUNTIME_FILES
+  .map(f => fs.readFileSync(path.join(__dirname, 'player-runtime', f), 'utf-8'))
+  .join('\n');
 
 // ---------------------------------------------------------------------------
 // Style & Script Builders — read from external files and inline at export
@@ -58,10 +92,108 @@ function buildStyles(layoutCss) {
   return '<style>\n' + CSS + '  ' + layoutCss + '\n</style>';
 }
 
-function buildPlayerScript(config) {
-  return '<script>\n(function() {\n' +
-    render(RUNTIME, config) +
-    '\n})();\n</script>';
+/**
+ * Inline a resolved skin after the base stylesheet so its token overrides win.
+ * Returns '' when no skin was requested.
+ */
+function buildSkinStyles(skin) {
+  return skin ? `<style id="rftp-skin">\n${skin.css}\n</style>` : '';
+}
+
+function buildPlayerScript() {
+  return '<script>\n(function() {\n' + RUNTIME + '\n})();\n</script>';
+}
+
+// A report with no videos gets no player runtime (there is nothing to play),
+// but its spreadsheet panel still needs its own: without this the copy and
+// download buttons would render and do nothing.
+function buildSpreadsheetOnlyScript() {
+  return '<script>\n(function() {\n' + SPREADSHEET_RUNTIME + '\n})();\n</script>';
+}
+
+// The race config, for the <script type="application/json"> block the runtime reads.
+function serializeRaceConfig(config) {
+  return serializeJsonForScript(config);
+}
+
+// Stable identity for one race run, stamped into #race-config. The browser
+// runtime keys its saved calibration offsets on it, so two races — or two runs
+// of the same race — can never overwrite each other's saved calibration. The
+// seed is what makes a run unique: who raced, where the results landed, when,
+// and which recordings the page plays.
+function computeRaceId(summary, videoFiles) {
+  const seed = JSON.stringify([summary.racers, summary.resultsDir || '', summary.timestamp || '', videoFiles || []]);
+  return createHash('sha1').update(seed).digest('hex').slice(0, 16);
+}
+
+function playerMaxWidth(count) {
+  if (count <= 2) return 680;
+  return count === 3 ? 450 : 340;
+}
+
+function playerContainerMaxWidth(count) {
+  return count <= 3 ? 1400 : 1440;
+}
+
+function trophyHtml(isWinner, isTie) {
+  if (!isWinner) return '';
+  return fill('trophy', { medal: isTie ? '&#129309;' : '&#127942;' });
+}
+
+// The numbers behind every table on the page, as one panel the reader can
+// copy into a spreadsheet. Empty when the race measured nothing.
+function buildSpreadsheetSection(summary, runSummaries) {
+  const panel = buildSpreadsheetPanelHtml(buildSpreadsheetModel(summary, { runSummaries }));
+  if (!panel) return '';
+  return fill('section', { openAttr: '', title: 'Spreadsheet Export', body: '\n' + panel + '\n  ' });
+}
+
+// Build the player section, debug panel, runtime script tag, and race-config
+// JSON for a race that has videos. Returns the render() slots it produces.
+function buildVideoPlayer(summary, videoFiles, opts) {
+  const { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, placementOrder, ffmpegDir } = opts;
+  const isTie = summary.overallWinner === 'tie';
+  const videoElements = placementOrder.map((origIdx, displayIdx) => {
+    const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
+    const racer = racers[origIdx];
+    const isWinner = isTie || (summary.overallWinner && summary.overallWinner.toLowerCase() === racer.toLowerCase());
+    // A data: URI is swapped in by the runtime, so the attribute starts empty.
+    return fill('racer-card', {
+      color,
+      idx: displayIdx,
+      name: escHtml(racer),
+      trophy: trophyHtml(isWinner, isTie),
+      src: videoFiles[origIdx].startsWith('data:') ? '' : ` src="${escHtml(videoFiles[origIdx])}"`,
+    });
+  }).join('\n');
+
+  const mergedVideoElement = mergedVideoFile
+    ? fill('merged-container', { src: escHtml(mergedVideoFile) })
+    : '';
+
+  const videoIds = placementOrder.map((_, i) => `v${i}`);
+  const raceConfigJson = serializeRaceConfig({
+    raceId: computeRaceId(summary, videoFiles),
+    videoCount: videoIds.length,
+    raceVideoPaths: placementOrder.map(i => videoFiles[i]),
+    fullVideoPaths: fullVideoFiles ? placementOrder.map(i => fullVideoFiles[i]) : null,
+    clipTimes: clipTimes ? placementOrder.map(i => clipTimes[i] || null) : null,
+    racerNames: placementOrder.map(i => racers[i]),
+    finishResults: (summary.comparisons || []).map(c => ({
+      name: c.name,
+      isSyntheticTotal: !!c.isSyntheticTotal,
+      durations: placementOrder.map(i => c.racers?.[i]?.duration ?? null),
+    })),
+    racerColors: placementOrder.map(i => RACER_CSS_COLORS[i % RACER_CSS_COLORS.length]),
+    ffmpegDir,
+  });
+
+  return {
+    playerSection: buildPlayerSectionHtml(videoElements, mergedVideoElement),
+    debugPanelOut: hasClipTimes ? buildDebugPanelHtml(racers, placementOrder, clipTimes) : '',
+    scriptTag: buildPlayerScript(),
+    raceConfigJson,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -69,96 +201,45 @@ function buildPlayerScript(config) {
 // ---------------------------------------------------------------------------
 
 export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, options = {}) {
-  let { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, runNavigation, clipTimes, ffmpegPathPrefix, runSummaries } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, raceConfig, raceConfigFile, runNavigation, clipTimes, ffmpegPathPrefix, runSummaries, skin, skinBaseDir } = options;
 
   const ffmpegDir = (ffmpegPathPrefix || './') + 'ffmpeg/';
   const racers = summary.racers;
   const count = racers.length;
 
-  const maxWidth = count <= 2 ? 680 : count === 3 ? 450 : 340;
-  const containerMaxWidth = count <= 2 ? 1400 : count === 3 ? 1400 : 1440;
-
-  const title = count === 2
-    ? `Race: ${escHtml(racers[0])} vs ${escHtml(racers[1])}`
-    : `Race: ${racers.map(escHtml).join(' vs ')}`;
-
-  const winnerBanner = '';
+  // Both reports head their title band with "Race for the Prize: <name>", so
+  // the name is derived once here. (The two-racer case used to be spelled out
+  // separately; it produced the same string as the join.)
+  const raceName = racers.map(escHtml).join(' vs ');
+  const title = `Race: ${raceName}`;
 
   const hasVideos = videoFiles && videoFiles.length > 0;
   const placementOrder = getPlacementOrder(summary);
-
-  const hasFullVideos = fullVideoFiles?.length > 0;
-  const isValidClip = (c) => c != null && Number.isFinite(c.start) && Number.isFinite(c.end) && c.start <= c.end;
-  const hasClipTimes = clipTimes && clipTimes.some(isValidClip);
+  // Same predicate the browser runtime uses (calibration.cjs isValidClipEntry).
+  const hasClipTimes = clipTimes?.some(calibration.isValidClipEntry);
   const hasMergedVideo = !!mergedVideoFile;
 
-  let playerSection = '';
-  let scriptTag = '';
-  let debugPanelOut = '';
+  const spreadsheet = buildSpreadsheetSection(summary, runSummaries || null);
+  const { playerSection = '', scriptTag = spreadsheet ? buildSpreadsheetOnlyScript() : '', raceConfigJson = '', debugPanelOut = '' } = hasVideos
+    ? buildVideoPlayer(summary, videoFiles, { racers, fullVideoFiles, mergedVideoFile, clipTimes, hasClipTimes, placementOrder, ffmpegDir })
+    : {};
 
-  if (hasVideos) {
-    const isTie = summary.overallWinner === 'tie';
-    const videoElements = placementOrder.map((origIdx, displayIdx) => {
-      const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
-      const racer = racers[origIdx];
-      const isWinner = isTie
-        ? true
-        : summary.overallWinner && summary.overallWinner.toLowerCase() === racer.toLowerCase();
-      const trophyHtml = isWinner
-        ? `<span class="trophy">${isTie ? '&#129309;' : '&#127942;'}</span> `
-        : '';
-      const vSrc = videoFiles[origIdx].startsWith('data:') ? '' : ` src="${escHtml(videoFiles[origIdx])}"`;
-      return `  <div class="racer">
-    <div class="racer-label" style="color: ${color}">${trophyHtml}${escHtml(racer)}</div>
-    <video id="v${displayIdx}"${vSrc} preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Race recording for ${escHtml(racer)}" data-racer-name="${escHtml(racer)}"></video>
-  </div>`;
-    }).join('\n');
+  const modeToggle = hasMergedVideo ? fill('mode-toggle') : '';
 
-    const mergedVideoElement = mergedVideoFile ? `
-<div class="merged-container" id="mergedContainer" style="display: none;">
-  <video id="mergedVideo" src="${escHtml(mergedVideoFile)}" preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Side-by-side merged video"></video>
-</div>` : '';
-
-    debugPanelOut = hasClipTimes ? buildDebugPanelHtml(racers, placementOrder, clipTimes) : '';
-    playerSection = buildPlayerSectionHtml(videoElements, mergedVideoElement);
-
-    const videoIds = placementOrder.map((_, i) => `v${i}`);
-    const orderedVideoFiles = placementOrder.map(i => videoFiles[i]);
-    const orderedFullVideoFiles = fullVideoFiles ? placementOrder.map(i => fullVideoFiles[i]) : null;
-    const orderedClipTimes = clipTimes ? placementOrder.map(i => clipTimes[i] || null) : null;
-    const orderedRacerNames = placementOrder.map(i => racers[i]);
-    const orderedRacerColors = placementOrder.map(i => RACER_CSS_COLORS[i % RACER_CSS_COLORS.length]);
-
-    scriptTag = buildPlayerScript({
-      videoVars: videoIds.map(id => `const ${id} = document.getElementById('${id}');`).join('\n  '),
-      videoArray: `[${videoIds.join(', ')}]`,
-      raceVideoPaths: JSON.stringify(orderedVideoFiles),
-      fullVideoPaths: orderedFullVideoFiles
-        ? JSON.stringify(orderedFullVideoFiles)
-        : 'null',
-      clipTimesJson: orderedClipTimes
-        ? JSON.stringify(orderedClipTimes)
-        : 'null',
-      racerNamesJson: JSON.stringify(orderedRacerNames),
-      racerColorsJson: JSON.stringify(orderedRacerColors),
-      ffmpegDir,
-    });
-  }
-
-  const mergedBtn = hasMergedVideo ? '<button class="mode-btn" id="modeMerged" title="Side-by-side merged video">Merged</button>' : '';
-  const modeToggle = hasMergedVideo ? `
-  <div class="mode-toggle">
-    ${mergedBtn}
-  </div>` : '';
-
-  const layoutCss = `.player-container { max-width: ${containerMaxWidth}px; }\n  .racer { max-width: ${maxWidth}px; }`;
+  const profileComparison = summary.profileComparison || {};
+  const layoutCss = `.player-container { max-width: ${playerContainerMaxWidth(count)}px; }\n  .racer { max-width: ${playerMaxWidth(count)}px; }`;
+  const resolvedSkin = resolveSkin(skin, skinBaseDir);
   return render(TEMPLATE, {
     title,
+    raceName,
+    themeAttr: resolvedSkin ? ` data-theme="${escHtml(resolvedSkin.name)}"` : '',
+    themeColor: resolvedSkin ? escHtml(resolvedSkin.themeColor) : DEFAULT_THEME_COLOR,
     styles: buildStyles(layoutCss),
-    runNav: buildRunNavHtml(runNavigation),
-    winnerBanner,
-    videoSourceNote: '',
+    skinStyles: buildSkinStyles(resolvedSkin),
+    runNav: buildRunNavHtml(runNavigation, racers, runSummaries),
+    winnerBanner: '',
     raceInfo: buildRaceInfoHtml(summary),
+    raceConfig: buildRaceConfigHtml(raceConfig),
     machineInfo: buildMachineInfoHtml(summary.machineInfo),
     errors: buildErrorsHtml(summary.errors),
     modeToggle,
@@ -166,15 +247,21 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     debugPanel: debugPanelOut,
     results: buildResultsHtml(summary.comparisons || [], racers),
     runComparison: buildRunComparisonHtml(runSummaries || null, summary, racers),
-    profileSummary: buildProfileSummaryHtml(summary.profileComparison || null, racers),
-    profile: buildProfileHtml(summary.profileComparison || null, racers),
+    profileSummary: buildProfileSummaryHtml(profileComparison, racers),
+    profile: buildProfileHtml({
+      ...profileComparison,
+      rawProfileMetrics: summary.profileMetrics || [],
+    }, racers),
+    spreadsheet,
     files: buildFilesHtml(racers, videoFiles, {
-      fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, altFormat, altFiles, placementOrder,
+      fullVideoFiles, mergedVideoFile, traceFiles, harFiles, raceScriptFiles, settingsFileCopied, raceConfigFile,
+      altFormat, altFiles, placementOrder,
     }),
     notesContent: summary.geminiCommentary
       ? `🤖 Gemini Race Commentary\n${'─'.repeat(40)}\n${escHtml(summary.geminiCommentary)}`
       : '',
     notesOpen: summary.geminiCommentary ? 'open' : '',
     scriptTag,
+    raceConfigJson,
   });
 }

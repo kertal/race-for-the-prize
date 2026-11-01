@@ -6,54 +6,144 @@
  * All metrics follow "less is better" - lower values win.
  *
  * Two scopes are tracked:
- * - "measured": metrics captured only during the raceStart/raceEnd measurement period
+ * - "measured": metrics captured only inside the raceStart/raceEnd windows (summed
+ *   across sections, so the gaps between them are excluded)
  * - "total": metrics for the entire browser session
  */
 
 import { c, RACER_COLORS } from './colors.js';
 import { determineOverallWinner } from './race-utils.js';
+import { rankEntries, formatDeltaLabel, formatAdvantageLabel, metricDeltaFormat } from './report-model.js';
 
 /**
  * Performance metric definitions.
  * Keys use "scope.metric" format; scope/category are derived from the key structure.
+ * `unit` names the raw value's unit — what the spreadsheet export writes beside
+ * the unformatted number, since "1.2 KB" is a label and 1228.8 is a value.
  */
 const metricDefs = {
-  networkTransferSize: { name: 'Network Transfer', format: formatBytes, category: 'network', description: 'Total bytes transferred over the network (compressed). Less data means faster loads on slow connections.' },
-  networkRequestCount: { name: 'Network Requests', format: (v) => `${v} req`, category: 'network', description: 'Number of HTTP requests made. Fewer requests reduce connection overhead and latency.' },
-  scriptDuration:      { name: 'Script Execution', format: formatMs, category: 'computation', description: 'Time spent executing JavaScript. High values indicate CPU-heavy scripts that may block the main thread.' },
-  taskDuration:        { name: 'Task Duration', format: formatMs, category: 'computation', description: 'Total time spent on all browser tasks including script, layout, and rendering. Reflects overall main-thread busyness.' },
-  layoutDuration:      { name: 'Layout Time', format: formatMs, category: 'rendering', description: 'Time spent computing element positions and sizes. Frequent layout recalculations ("layout thrashing") hurt performance.' },
-  recalcStyleDuration: { name: 'Style Recalculation', format: formatMs, category: 'rendering', description: 'Time spent recalculating CSS styles. Complex selectors or frequent DOM changes increase this cost.' },
-  ttfb:                { name: 'Time to First Byte (TTFB)', format: formatMs, category: 'loading', description: 'Time from the request until the first byte of the response arrives. Reflects server speed, DNS, and connection latency. Good: under 800ms.' },
-  fcp:                 { name: 'First Contentful Paint (FCP)', format: formatMs, category: 'loading', description: 'Time until the first text, image, or canvas is painted on screen. A fast FCP reassures users that the page is loading. Good: under 1.8s.' },
-  lcp:                 { name: 'Largest Contentful Paint (LCP)', format: formatMs, category: 'loading', description: 'Time until the largest visible element (hero image, heading, etc.) finishes rendering. LCP is a Core Web Vital used by Google as a search ranking signal. Good: under 2.5s.' },
-  cls:                 { name: 'Cumulative Layout Shift (CLS)', format: formatCLS, category: 'loading', description: 'Measures unexpected layout movement — elements shifting after being rendered. CLS is a Core Web Vital; high values frustrate users who click the wrong target. Good: under 0.1.' },
-  domContentLoaded:    { name: 'DOM Content Loaded', format: formatMs, category: 'loading', description: 'Time until the HTML document is fully parsed and all deferred scripts have executed (DOMContentLoaded event).' },
-  domComplete:         { name: 'DOM Complete', format: formatMs, category: 'loading', description: 'Time until the page and all sub-resources (images, stylesheets, etc.) have finished loading.' },
-  jsHeapUsedSize:      { name: 'JS Heap Used', format: formatBytes, category: 'memory', description: 'JavaScript memory currently in use. High usage can trigger garbage collection pauses and indicates memory-heavy code.' },
+  networkTransferSize: { name: 'Network Transfer', format: formatBytes, unit: 'bytes', category: 'network', description: 'Total bytes transferred over the network (compressed). Less data means faster loads on slow connections.' },
+  networkRequestCount: { name: 'Network Requests', format: (v) => `${v} req`, unit: 'requests', category: 'network', description: 'Number of HTTP requests made. Fewer requests reduce connection overhead and latency.' },
+  scriptDuration:      { name: 'Script Execution', format: formatMs, unit: 'ms', category: 'computation', description: 'Time spent executing JavaScript. High values indicate CPU-heavy scripts that may block the main thread.' },
+  taskDuration:        { name: 'Task Duration', format: formatMs, unit: 'ms', category: 'computation', description: 'Total time spent on all browser tasks including script, layout, and rendering. Reflects overall main-thread busyness.' },
+  layoutDuration:      { name: 'Layout Time', format: formatMs, unit: 'ms', category: 'rendering', description: 'Time spent computing element positions and sizes. Frequent layout recalculations ("layout thrashing") hurt performance.' },
+  recalcStyleDuration: { name: 'Style Recalculation', format: formatMs, unit: 'ms', category: 'rendering', description: 'Time spent recalculating CSS styles. Complex selectors or frequent DOM changes increase this cost.' },
+  ttfb:                { name: 'Time to First Byte (TTFB)', format: formatMs, unit: 'ms', category: 'loading', description: 'Time from the request until the first byte of the response arrives. Reflects server speed, DNS, and connection latency. Good: under 800ms.' },
+  fcp:                 { name: 'First Contentful Paint (FCP)', format: formatMs, unit: 'ms', category: 'loading', description: 'Time until the first text, image, or canvas is painted on screen. A fast FCP reassures users that the page is loading. Good: under 1.8s.' },
+  lcp:                 { name: 'Largest Contentful Paint (LCP)', format: formatMs, unit: 'ms', category: 'loading', description: 'Time until the largest visible element (hero image, heading, etc.) finishes rendering. LCP is a Core Web Vital used by Google as a search ranking signal. Good: under 2.5s.' },
+  cls:                 { name: 'Cumulative Layout Shift (CLS)', format: formatCLS, unit: 'score', category: 'loading', description: 'Measures unexpected layout movement — elements shifting after being rendered. CLS is a Core Web Vital; high values frustrate users who click the wrong target. Good: under 0.1.' },
+  domContentLoaded:    { name: 'DOM Content Loaded', format: formatMs, unit: 'ms', category: 'loading', description: 'Time until the HTML document is fully parsed and all deferred scripts have executed (DOMContentLoaded event).' },
+  domComplete:         { name: 'DOM Complete', format: formatMs, unit: 'ms', category: 'loading', description: 'Time until the page and all sub-resources (images, stylesheets, etc.) have finished loading.' },
+  jsHeapUsedSize:      { name: 'JS Heap Used', format: formatBytes, unit: 'bytes', category: 'memory', description: 'JavaScript memory currently in use. High usage can trigger garbage collection pauses and indicates memory-heavy code.' },
+  medianFrameMs:       { name: 'Median Frame Time', format: formatFrameMs, formatDelta: formatMs, unit: 'ms', category: 'smoothness', description: 'The typical time between frames the browser actually drew, and the frame rate that amounts to. Derived from the trace, so measuring it costs the page nothing. Needs --fps.' },
+  p95FrameMs:          { name: '95th % Frame Time', format: formatFrameMs, formatDelta: formatMs, unit: 'ms', category: 'smoothness', description: 'The frame time only 5% of frames exceed — the hitches users notice. A good median with a bad 95th percentile means occasional stutter rather than steady slowness. Needs --fps.' },
+  worstFrameMs:        { name: 'Worst Frame Time', format: formatFrameMs, formatDelta: formatMs, unit: 'ms', category: 'smoothness', description: 'The longest single gap between drawn frames: the worst visible stall. Needs --fps.' },
+  droppedFrames:       { name: 'Dropped Frames', format: (v) => `${v} frames`, unit: 'frames', category: 'smoothness', description: 'Frames that took more than 1.5x the display refresh period, measured against the refresh rate observed during the race rather than an assumed 60Hz. Comparable between racers running the same spec. Needs --fps.' },
 };
 
 // Measured metrics (between raceStart/raceEnd)
-const MEASURED_METRICS = ['networkTransferSize', 'networkRequestCount', 'scriptDuration', 'taskDuration', 'layoutDuration', 'recalcStyleDuration'];
+const MEASURED_METRICS = ['networkTransferSize', 'networkRequestCount', 'scriptDuration', 'taskDuration', 'layoutDuration', 'recalcStyleDuration', 'medianFrameMs', 'p95FrameMs', 'worstFrameMs', 'droppedFrames'];
 // Total metrics (entire session) — includes loading/memory which are total-only
-const TOTAL_METRICS = ['networkTransferSize', 'networkRequestCount', 'ttfb', 'fcp', 'lcp', 'cls', 'domContentLoaded', 'domComplete', 'jsHeapUsedSize', 'scriptDuration', 'taskDuration', 'layoutDuration', 'recalcStyleDuration'];
+const TOTAL_METRICS = ['networkTransferSize', 'networkRequestCount', 'ttfb', 'fcp', 'lcp', 'cls', 'domContentLoaded', 'domComplete', 'jsHeapUsedSize', 'scriptDuration', 'taskDuration', 'layoutDuration', 'recalcStyleDuration', 'medianFrameMs', 'p95FrameMs', 'worstFrameMs', 'droppedFrames'];
+
+// Absolute noise floors, in each metric's own unit. A percentage threshold
+// says nothing when the values are tiny or the best one is 0, so a difference
+// below the floor is never a win however large it is in relative terms.
+const PROFILE_NOISE_FLOOR = {
+  networkTransferSize: 100,       // bytes: header-sized jitter
+  networkRequestCount: 1,         // requests: any whole request counts
+  scriptDuration: 1,              // ms
+  taskDuration: 1,
+  layoutDuration: 1,
+  recalcStyleDuration: 1,
+  ttfb: 5,
+  fcp: 5,
+  lcp: 5,
+  domContentLoaded: 5,
+  domComplete: 5,
+  cls: 0.01,                      // layout-shift score
+  jsHeapUsedSize: 64 * 1024,      // bytes
+  // Frame times: a fraction of a frame is jitter, not a smoothness difference.
+  medianFrameMs: 1,
+  p95FrameMs: 2,
+  worstFrameMs: 4,
+  // Dropped frames need a gap you could actually see — roughly a tenth of a
+  // second of stutter. The count also tracks how hard the spec drove the page:
+  // a scripted scroll that steps 30 times a second draws 30 times a second, so
+  // small differences here are pacing, not smoothness.
+  droppedFrames: 10,
+};
 
 // Build the full PROFILE_METRICS map with scope-prefixed keys
 export const PROFILE_METRICS = {};
 for (const metric of MEASURED_METRICS) {
   const def = metricDefs[metric];
-  PROFILE_METRICS[`measured.${metric}`] = { ...def, scope: 'measured' };
+  PROFILE_METRICS[`measured.${metric}`] = { ...def, scope: 'measured', noiseFloor: PROFILE_NOISE_FLOOR[metric] ?? 0 };
 }
 for (const metric of TOTAL_METRICS) {
   const def = metricDefs[metric];
-  PROFILE_METRICS[`total.${metric}`] = { ...def, scope: 'total' };
+  PROFILE_METRICS[`total.${metric}`] = { ...def, scope: 'total', noiseFloor: PROFILE_NOISE_FLOOR[metric] ?? 0 };
+}
+
+// Metric significance thresholds (all below or equal to 4%).
+// Small deltas below these values are treated as noise and don't count as metric wins.
+const PROFILE_CATEGORY_TIE_THRESHOLD_PERCENT = {
+  loading: 2.5,
+  computation: 3,
+  rendering: 3,
+  network: 4,
+  memory: 4,
+  smoothness: 4,
+};
+
+function getProfileCategoryThresholdPercent(category) {
+  return PROFILE_CATEGORY_TIE_THRESHOLD_PERCENT[category] ?? 3;
+}
+
+export function determineProfileMetricOutcome(metric, racerNames, values) {
+  const racersWithData = values
+    .map((value, index) => value !== null ? { index, value } : null)
+    .filter(Boolean)
+    .sort((a, b) => a.value - b.value);
+
+  const outcome = {
+    winner: null,
+    diff: null,
+    diffPercent: null,
+    rankings: racersWithData.map(r => racerNames[r.index]),
+  };
+
+  if (racersWithData.length < 2) return outcome;
+
+  const bestVal = racersWithData[0].value;
+  const worstVal = racersWithData[racersWithData.length - 1].value;
+  if (bestVal === worstVal) return outcome;
+
+  outcome.diff = worstVal - bestVal;
+  outcome.diffPercent = bestVal > 0
+    ? (outcome.diff / bestVal * 100)
+    : null;
+
+  // A win needs a difference that clears both the category's percentage
+  // threshold and the metric's absolute noise floor. The floor is what keeps a
+  // best value of 0 (where the percentage is undefined) or a pair of tiny
+  // values (0.2ms vs 0.6ms is "200% worse") from counting as a win.
+  const thresholdPercent = getProfileCategoryThresholdPercent(metric.category);
+  const clearsFloor = outcome.diff >= (metric.noiseFloor ?? 0);
+  const clearsPercent = outcome.diffPercent == null || outcome.diffPercent >= thresholdPercent;
+  if (clearsFloor && clearsPercent) {
+    outcome.winner = racerNames[racersWithData[0].index];
+  }
+
+  return outcome;
 }
 
 function formatBytes(bytes) {
   if (bytes <= 0) return '0 B';
   const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  // Clamp to the largest unit so a value past it reads "1234.0 TB", not "1.2 undefined".
+  const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
 }
 
@@ -61,6 +151,16 @@ function formatMs(ms) {
   if (ms < 1) return `${(ms * 1000).toFixed(0)}μs`;
   if (ms < 1000) return `${ms.toFixed(1)}ms`;
   return `${(ms / 1000).toFixed(2)}s`;
+}
+
+/**
+ * Frame time, with the frame rate it amounts to. The ranked number is the
+ * duration (less is better, like every other metric here); the fps in brackets
+ * is what people actually think in.
+ */
+function formatFrameMs(ms) {
+  if (!(ms > 0)) return '0ms';
+  return `${ms.toFixed(1)}ms (${Math.round(1000 / ms)}fps)`;
 }
 
 function formatCLS(score) {
@@ -80,7 +180,7 @@ function getMetricValue(profileData, key) {
 
 /**
  * Build profile comparison from captured metrics.
- * @param {string[]} racerNames - Names of the racers (supports 2-5)
+ * @param {string[]} racerNames - Names of the racers (supports 2-4)
  * @param {Object[]} profileData - Array of profile data for each racer (with total/measured sections)
  * @returns {Object} Profile comparison results with measured and total sections
  */
@@ -101,7 +201,6 @@ export function buildProfileComparison(racerNames, profileData) {
       name: metric.name,
       category: metric.category,
       scope: metric.scope,
-      unit: metric.unit,
       values: vals,
       formatted: vals.map(v => v !== null ? metric.format(v) : '-'),
       winner: null,
@@ -110,32 +209,17 @@ export function buildProfileComparison(racerNames, profileData) {
       rankings: []
     };
 
-    // Determine winner (lower is better for all metrics)
-    // Rank all racers that have data, sorted by value ascending
-    const racersWithData = vals
-      .map((v, i) => v !== null ? { index: i, value: v } : null)
-      .filter(Boolean)
-      .sort((a, b) => a.value - b.value);
+    const outcome = determineProfileMetricOutcome(metric, racerNames, vals);
+    comp.winner = outcome.winner;
+    comp.diff = outcome.diff;
+    comp.diffPercent = outcome.diffPercent;
+    comp.rankings = outcome.rankings;
 
-    if (racersWithData.length >= 2) {
-      const bestVal = racersWithData[0].value;
-      const worstVal = racersWithData[racersWithData.length - 1].value;
-      comp.rankings = racersWithData.map(r => racerNames[r.index]);
-
-      // Only declare a winner if best and worst differ
-      if (bestVal !== worstVal) {
-        const winIdx = racersWithData[0].index;
-        comp.winner = racerNames[winIdx];
-        comp.diff = worstVal - bestVal;
-        comp.diffPercent = bestVal > 0
-          ? (comp.diff / bestVal * 100)
-          : null;
-
-        if (metric.scope === 'measured') {
-          measuredWins[racerNames[winIdx]]++;
-        } else {
-          totalWins[racerNames[winIdx]]++;
-        }
+    if (comp.winner) {
+      if (metric.scope === 'measured') {
+        measuredWins[comp.winner]++;
+      } else {
+        totalWins[comp.winner]++;
       }
     }
 
@@ -146,7 +230,8 @@ export function buildProfileComparison(racerNames, profileData) {
     }
   }
 
-  // Determine overall winners
+  // Determine overall winners. Per-metric significance thresholds are already
+  // applied above, so this is a straight win-count tally.
   const measuredOverallWinner = determineOverallWinner(measuredWins, racerNames, measuredComparisons);
   const totalOverallWinner = determineOverallWinner(totalWins, racerNames, totalComparisons);
 
@@ -181,12 +266,13 @@ function groupByCategory(comparisons) {
   return groups;
 }
 
-const categoryLabels = {
+export const categoryLabels = {
   network: '🌐 Network',
   loading: '⏱️ Loading',
   memory: '🧠 Memory',
   computation: '⚡ Computation',
-  rendering: '🎨 Rendering'
+  rendering: '🎨 Rendering',
+  smoothness: '🎞️ Smoothness'
 };
 
 export const categoryDescriptions = {
@@ -195,6 +281,7 @@ export const categoryDescriptions = {
   memory: 'JavaScript memory usage. Lower memory consumption reduces garbage collection pauses and improves stability.',
   computation: 'CPU time spent on JavaScript execution and browser tasks. Less computation means a more responsive page.',
   rendering: 'Time spent on visual layout and style calculations. Less rendering work means smoother interactions.',
+  smoothness: 'How evenly frames reached the screen, derived from the trace. Steady, short frame times are what scrolling and animation feel like when they are smooth.',
 };
 
 /**
@@ -213,18 +300,14 @@ function printProfileSection(title, section, racers, w, write) {
     write(`  ${c.bold}${categoryLabels[category] || category}${c.reset}\n`);
 
     for (const comp of comps) {
-      const maxVal = Math.max(...comp.values.filter(v => v !== null));
       const metricDef = PROFILE_METRICS[comp.key];
 
-      // Sort racers by value ascending (best first), nulls last
-      const sorted = racers
-        .map((name, i) => ({ name, index: i, val: comp.values[i], formatted: comp.formatted[i] }))
-        .sort((a, b) => {
-          if (a.val === null) return 1;
-          if (b.val === null) return -1;
-          return a.val - b.val;
-        });
-      const bestVal = sorted[0].val;
+      // Rank racers by value ascending (best first), nulls last
+      const { entries: sorted, maxValue } = rankEntries(
+        racers,
+        i => ({ val: comp.values[i], formatted: comp.formatted[i] }),
+        metricDeltaFormat(metricDef)
+      );
 
       write(`  ${c.dim}${comp.name}${c.reset}\n`);
       for (const entry of sorted) {
@@ -233,17 +316,17 @@ function printProfileSection(title, section, racers, w, write) {
         const medal = isWinner ? ' 🏆' : '';
 
         const barWidth = 20;
-        const filled = entry.val !== null && maxVal > 0
-          ? Math.round((entry.val / maxVal) * barWidth)
+        const filled = entry.val !== null && maxValue > 0
+          ? Math.round((entry.val / maxValue) * barWidth)
           : 0;
         const bar = '▓'.repeat(filled) + '░'.repeat(barWidth - filled);
 
-        // Show delta from best for non-best racers
-        let delta = '';
-        if (entry.val !== null && bestVal !== null && entry.val !== bestVal) {
-          const deltaVal = entry.val - bestVal;
-          delta = ` ${c.dim}(+${metricDef.format(deltaVal)})${c.reset}`;
-        }
+        // Show the gap to the best — absolute and relative — for non-best
+        // racers, and how far the best one sits ahead of the runner-up.
+        const gap = entry.delta != null
+          ? formatDeltaLabel(entry.delta, entry.relative)
+          : formatAdvantageLabel(entry.advantage);
+        const delta = gap ? ` ${c.dim}(${gap})${c.reset}` : '';
 
         write(`    ${color}${c.bold}${entry.name.padEnd(labelWidth)}${c.reset} ${color}${bar}${c.reset}  ${entry.formatted}${delta}${medal}\n`);
       }
@@ -281,8 +364,33 @@ export function printProfileAnalysis(profileComparison, racers) {
   write(`\n  ${c.bold}📊 Performance Profile Analysis${c.reset}\n`);
 
   if (measured.comparisons.length > 0) {
-    printProfileSection('⏱️  During Measurement (raceStart → raceEnd)', measured, racers, w, write);
+    printProfileSection('⏱️  Race', measured, racers, w, write);
   }
+}
+
+/**
+ * One metric row's cells, in racer order, labelled the way the terminal and the
+ * player label them: a loser's gap to the best value, or the best value's lead
+ * over the runner-up. The ranking is what carries those numbers, so the row is
+ * built from it and then put back into racer order.
+ *
+ * The labels hang off the best VALUE, not off comp.winner: a difference below
+ * the category's significance threshold leaves the metric without a winner, and
+ * the gap is still worth naming. This is what the other two emitters do.
+ */
+function buildMarkdownMetricCells(comp, racers) {
+  const metricDef = PROFILE_METRICS[comp.key];
+  const format = metricDef.format;
+  const { entries } = rankEntries(racers, i => ({ val: comp.values[i] }), metricDeltaFormat(metricDef));
+  const byIndex = new Map(entries.map(entry => [entry.index, entry]));
+  return racers.map((_, i) => {
+    if (comp.values[i] == null) return '-';
+    const entry = byIndex.get(i);
+    const label = entry.delta != null
+      ? formatDeltaLabel(entry.delta, entry.relative)
+      : formatAdvantageLabel(entry.advantage);
+    return label ? `${comp.formatted[i]} (${label})` : comp.formatted[i];
+  });
 }
 
 /**
@@ -300,22 +408,21 @@ function buildScopeMarkdown(title, section, racers) {
   for (const [category, comps] of Object.entries(byCategory)) {
     lines.push(`**${category[0].toUpperCase() + category.slice(1)}**`);
     lines.push('');
-    const headerCols = ['Metric', ...racers, 'Winner', 'Diff'];
+    const headerCols = ['Metric', ...racers, 'Winner'];
     lines.push(`| ${headerCols.join(' | ')} |`);
     lines.push(`|${headerCols.map(() => '---').join('|')}|`);
 
     for (const comp of comps) {
       const winner = comp.winner || '-';
-      const diff = comp.diffPercent !== null ? `${comp.diffPercent.toFixed(1)}%` : '-';
-      lines.push(`| ${comp.name} | ${comp.formatted.join(' | ')} | ${winner} | ${diff} |`);
+      lines.push(`| ${comp.name} | ${buildMarkdownMetricCells(comp, racers).join(' | ')} | ${winner} |`);
     }
     lines.push('');
   }
 
-  if (overallWinner && overallWinner !== 'tie') {
-    lines.push(`**Winner:** ${overallWinner}`);
-  } else if (overallWinner === 'tie') {
+  if (overallWinner === 'tie') {
     lines.push('**Result:** Tie');
+  } else if (overallWinner) {
+    lines.push(`**Winner:** ${overallWinner}`);
   }
   lines.push('');
 
@@ -340,7 +447,7 @@ export function buildProfileMarkdown(profileComparison, racers) {
   lines.push('');
 
   if (measured.comparisons.length > 0) {
-    lines.push(buildScopeMarkdown('During Measurement (raceStart → raceEnd)', measured, racers));
+    lines.push(buildScopeMarkdown('Race', measured, racers));
   }
 
   return lines.join('\n');

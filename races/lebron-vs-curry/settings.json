@@ -1,1 +1,4 @@
-{}
+{
+    "headless": false,
+    "height": 1700
+}

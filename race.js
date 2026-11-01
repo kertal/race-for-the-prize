@@ -1,34 +1,57 @@
 #!/usr/bin/env node
 
 /**
- * race.js — CLI entry point for RaceForThePrize 🏆
+ * race.js — CLI entry point for RaceForThePrize 🏁
  *
  * Orchestrates browser races: parses args, discovers racer scripts,
  * spawns the Playwright runner, collects results, and prints a report.
  *
- * Usage:
- *   node race.js https://a.com https://b.com  Race page load times (URL mode)
- *   node race.js ./races/my-race              Run a scripted race
- *   node race.js ./races/my-race --results    View recent results
- *   node race.js ./races/my-race --parallel   Run both browsers simultaneously
- *   node race.js ./races/my-race --headless   Run headless
- *   node race.js ./races/my-race --network=fast-3g --cpu=4
- *   node race.js ./races/my-race --har --no-wasm --no-serve
+ * Usage (published as the `race-for-the-prize` bin; from a checkout it is
+ * `node race.js` — cli/help.js picks the spelling the help screen shows):
+ *   race-for-the-prize https://a.com https://b.com  Race page load times (URL mode)
+ *   race-for-the-prize demo:lauda-vs-hunt           Race a demo shipped with the CLI
+ *   race-for-the-prize --init my-race               Scaffold a race directory
+ *   race-for-the-prize ./my-race                    Run a scripted race
+ *   race-for-the-prize ./my-race --results          View recent results
+ *   race-for-the-prize ./my-race --parallel         Run all browsers simultaneously
+ *   race-for-the-prize ./my-race --headless         Run headless
+ *   race-for-the-prize ./my-race --network=fast-3g --cpu=4
+ *   race-for-the-prize ./my-race --network=slow-3g,4g --cpu=1,4
+ *   race-for-the-prize ./my-race --har --wasm=0 --serve=0
+ *   race-for-the-prize --help | --version
  */
 
 import fs from 'fs';
-import http from 'http';
+import os from 'os';
 import path from 'path';
-import { spawn, spawnSync, execSync } from 'child_process';
+import crypto from 'crypto';
+import { spawn, spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 import { RaceAnimation, startProgress } from './cli/animation.js';
-import { c, FORMAT_EXTENSIONS } from './cli/colors.js';
-import { parseArgs, discoverRacers, applyOverrides, applyDefaults, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown } from './cli/config.js';
+import { c } from './cli/colors.js';
+import { FORMAT_EXTENSIONS } from './cli/media-config.js';
+import { raceVideoFile, fullVideoFile, traceFile, harFile, racerRelative } from './cli/paths.js';
+import { parseArgs, isUrl, deriveRacerName, buildDefaultRaceScript, discoverSetupTeardown, discoverRacerSetupTeardown, findUnknownFlags, findValuelessKvFlags, parseNetworkList, parseCpuList, buildRaceConditions, InvalidSettingError, MAX_RACERS } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex, findMedianRunIndexPerRacer } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
 import { buildPlayerHtml } from './cli/videoplayer.js';
+import { buildRunNavHtml } from './cli/player-sections.js';
+import { buildHelp, resolveInvocation, CLI_NAME, packageVersion } from './cli/help.js';
 import { runGeminiSummary, runGeminiSpec } from './cli/gemini-summary.js';
+import { parseDemoArg, planDemo, copyDemo, formatDemoList, UnknownDemoError } from './cli/demos.js';
+import { buildResultsPaths, createStaticHandler, serveResults } from './cli/serve.js';
+import { loadRaceDir, applySettingsOrExit } from './cli/race-loader.js';
+import { buildRaceConfig, writeRaceConfig } from './cli/race-config.js';
+import { runScript as runTaskScript } from './cli/task-runner.js';
+import { buildConditionMatrix, printConditionMatrix, buildConditionIndexHtml } from './cli/condition-matrix.js';
+
+// Re-exports for backwards compatibility — tests (and any external consumers)
+// import these from race.js even though the implementations moved to
+// cli/serve.js and cli/condition-matrix.js.
+export { buildResultsPaths, createStaticHandler, serveResults, buildConditionIndexHtml };
+export { CLI_NAME, packageVersion };
 
 /** Format a Date as YYYY-MM-DD_HH-MM-SS for directory naming. */
 export function formatTimestamp(date) {
@@ -36,23 +59,73 @@ export function formatTimestamp(date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
 }
 
-/**
- * Build the paths for results output display.
- * Returns { relResults, relHtml } relative to cwd.
- */
-export function buildResultsPaths(resultsDir, cwd = process.cwd()) {
-  const relResults = path.relative(cwd, resultsDir);
-  const relHtml = path.relative(cwd, path.join(resultsDir, 'index.html'));
-  return { relResults, relHtml };
-}
-
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Wait for the user to press Enter, displaying a prompt message. Resolves immediately in non-TTY environments. */
+/**
+ * Runner ↔ parent contract (result sentinel, protocol version, stderr line
+ * formats). Imported from the shared runner-protocol module so the parent
+ * and runner cannot drift out of sync.
+ */
+const runnerProtocol = createRequire(import.meta.url)('./runner-protocol.cjs');
+export const { RESULT_SENTINEL: RUNNER_RESULT_SENTINEL } = runnerProtocol;
+const {
+  PROTOCOL_VERSION: RUNNER_PROTOCOL_VERSION,
+  createRaceMessageRegex,
+  formatContextClosed,
+} = runnerProtocol;
+
+/**
+ * Module-level abort state. Set on SIGINT so in-flight work can bail out
+ * (spawnRunner, waitForEnter, waitFor loops) and tear-down paths can avoid
+ * treating the signal as a successful no-op.
+ */
+export const abortState = { aborted: false, reason: null };
+
+/**
+ * Accumulates racer error messages reported by the runner subprocess across all
+ * runs. A non-empty list means at least one browser failed, so the CLI exits
+ * non-zero even though partial results were still written — a broken benchmark
+ * must never look green to a CI gate.
+ */
+export const runnerFailures = [];
+
+/** Thrown when the user aborts (SIGINT/SIGTERM) or the operation is otherwise cancelled. */
+export class AbortError extends Error {
+  constructor(message = 'Aborted by user', exitCode = 130) {
+    super(message);
+    this.name = 'AbortError';
+    this.exitCode = exitCode;
+  }
+}
+
+/** Map a POSIX signal name to its conventional exit code (128 + signo). */
+export function signalExitCode(signal) {
+  if (signal === 'SIGINT') return 130;
+  if (signal === 'SIGTERM') return 143;
+  if (signal === 'SIGHUP') return 129;
+  return 130;
+}
+
+// Restore cursor on any exit so we don't leave the user's terminal with a
+// hidden cursor after an unexpected crash or Ctrl+C during the animation.
+process.on('exit', () => {
+  if (process.stderr.isTTY) process.stderr.write(c.showCursor);
+});
+
+/**
+ * Wait for the user to press Enter, displaying a prompt message.
+ * - Resolves immediately in non-TTY environments.
+ * - Throws AbortError if SIGINT/SIGTERM arrives (or already aborted) so callers
+ *   can bail out of their loops and exit with a conventional signal code.
+ */
 export async function waitForEnter(message) {
   if (!process.stdin.isTTY) {
     process.stderr.write(message + ' (skipped — non-interactive)\n');
     return;
+  }
+  if (abortState.aborted) {
+    const sig = abortState.reason || 'SIGINT';
+    throw new AbortError(`Aborted (${sig})`, signalExitCode(sig));
   }
 
   process.stderr.write(message);
@@ -62,30 +135,97 @@ export async function waitForEnter(message) {
   process.stdin.resume();
   await new Promise(r => setTimeout(r, 50));
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const cleanup = () => {
       process.stdin.removeListener('data', onData);
       process.stdin.removeListener('end', onDone);
       process.stdin.removeListener('error', onDone);
+      process.removeListener('SIGINT', onSigint);
+      process.removeListener('SIGTERM', onSigterm);
       process.stdin.pause();
     };
 
     const onData = () => { cleanup(); resolve(); };
     const onDone = () => { cleanup(); resolve(); };
+    const abort = (sig) => {
+      abortState.aborted = true;
+      abortState.reason = sig;
+      cleanup();
+      reject(new AbortError(`Aborted by user (${sig})`, signalExitCode(sig)));
+    };
+    const onSigint = () => abort('SIGINT');
+    const onSigterm = () => abort('SIGTERM');
 
     process.stdin.once('data', onData);
     process.stdin.once('end', onDone);
     process.stdin.once('error', onDone);
+    process.once('SIGINT', onSigint);
+    process.once('SIGTERM', onSigterm);
+  });
+}
+
+/**
+ * Ask a yes/no question and resolve to the answer.
+ * - Bare Enter takes `defaultYes`; anything starting with y/n decides it.
+ * - Resolves to `null` in non-TTY environments — there is nobody to ask, so
+ *   the caller decides whether that is fatal or fine.
+ * - Throws AbortError if SIGINT/SIGTERM arrives (or already aborted).
+ */
+export async function confirm(message, { defaultYes = true, input = process.stdin, output = process.stderr } = {}) {
+  if (!input.isTTY) return null;
+  if (abortState.aborted) {
+    const sig = abortState.reason || 'SIGINT';
+    throw new AbortError(`Aborted (${sig})`, signalExitCode(sig));
+  }
+
+  output.write(message);
+  input.resume();
+
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      input.removeListener('data', onData);
+      input.removeListener('end', onDone);
+      input.removeListener('error', onDone);
+      process.removeListener('SIGINT', onSigint);
+      process.removeListener('SIGTERM', onSigterm);
+      input.pause();
+    };
+
+    const onData = (chunk) => {
+      cleanup();
+      const answer = String(chunk).trim().toLowerCase();
+      if (answer === '') return resolve(defaultYes);
+      resolve(answer.startsWith('y'));
+    };
+    // Closed stdin (EOF) is not a yes.
+    const onDone = () => { cleanup(); resolve(false); };
+    const abort = (sig) => {
+      abortState.aborted = true;
+      abortState.reason = sig;
+      cleanup();
+      reject(new AbortError(`Aborted by user (${sig})`, signalExitCode(sig)));
+    };
+    const onSigint = () => abort('SIGINT');
+    const onSigterm = () => abort('SIGTERM');
+
+    input.once('data', onData);
+    input.once('end', onDone);
+    input.once('error', onDone);
+    process.once('SIGINT', onSigint);
+    process.once('SIGTERM', onSigterm);
   });
 }
 
 // --- Race execution (module-scope functions with explicit context) ---
 
 /**
- * Copy race scripts and settings.json from the race directory into runDir.
- * Returns { raceScriptFiles, settingsFileCopied }.
+ * Copy race scripts and settings.json from the race directory into runDir, and
+ * store the race record (config.json) beside them so the results carry the
+ * command and the merged configuration they were produced with.
+ * Returns { raceScriptFiles, settingsFileCopied, raceConfigFile }.
  */
-function copyRaceAssets(raceDir, racerFiles, runDir) {
+export function storeRaceAssets(ctx, runDir) {
+  const { raceDir, racerFiles, raceConfig } = ctx;
   const raceScriptFiles = [];
   let settingsFileCopied = false;
   if (raceDir && racerFiles) {
@@ -107,7 +247,17 @@ function copyRaceAssets(raceDir, racerFiles, runDir) {
       }
     }
   }
-  return { raceScriptFiles, settingsFileCopied };
+  return { raceScriptFiles, settingsFileCopied, raceConfigFile: writeRaceConfig(runDir, raceConfig) };
+}
+
+/**
+ * Build a unique temporary recordings directory for a race run.
+ * Uses process-local entropy so concurrent races in the same raceDir do not
+ * stomp each other's files.
+ */
+function buildRecordingsDir(baseDir, prefix = 'tmp') {
+  const nonce = `${Date.now()}-${process.pid}-${crypto.randomBytes(3).toString('hex')}`;
+  return path.join(baseDir, `${prefix}-${nonce}`);
 }
 
 /**
@@ -147,9 +297,10 @@ function buildClipTimes(racerNames, getBrowserData, ffmpeg) {
  * @param {object} options.settings
  * @param {string[]} options.videoFiles
  * @param {object} options.playerExtras - additional fields merged into playerOptions (may include altFiles)
- * @param {object} options.raceOptions - { skipCopyFFmpeg, ffmpegPathPrefix }
+ * @param {object} options.raceOptions - { skipCopyFFmpeg, ffmpegPathPrefix, onSummary }
+ * @param {string|null} options.raceDir - race directory, used to resolve a relative --skin path
  */
-function writePlayerAndAssets({ runDir, summary, settings, videoFiles, playerExtras, raceOptions }) {
+function writePlayerAndAssets({ runDir, summary, settings, videoFiles, playerExtras, raceOptions, raceDir = null }) {
   const { format, ffmpeg, noWasm } = settings;
   const altFormat = ffmpeg && format !== 'webm' ? format : null;
   // altFiles is passed as a separate arg to buildPlayerHtml, not via playerOptions
@@ -157,6 +308,8 @@ function writePlayerAndAssets({ runDir, summary, settings, videoFiles, playerExt
   const playerOptions = {
     ...restExtras,
     ffmpegPathPrefix: raceOptions.ffmpegPathPrefix || './',
+    skin: settings.skin,
+    skinBaseDir: raceDir,
   };
   fs.writeFileSync(
     path.join(runDir, 'index.html'),
@@ -179,31 +332,43 @@ export function spawnRunner(ctx) {
   if (settings.noRecording) flags.push('no-recording');
   if (settings.ffmpeg) flags.push('ffmpeg');
 
+  // Pass the config via a temp file rather than argv. The config embeds every
+  // racer's full .spec.js source, which can blow past the OS argv size limit
+  // (E2BIG on Linux, ~32KB on Windows) for large specs. The runner consumes and
+  // deletes the file; we also clean it up if the spawn itself fails. Write it
+  // BEFORE starting the animation so a write failure can't leave the spinner
+  // interval running with no cleanup registered (0o600 + 'wx': owner-only,
+  // fail if the randomly-named path somehow already exists).
+  const tmpConfigPath = path.join(os.tmpdir(), `rftp-config-${process.pid}-${crypto.randomBytes(6).toString('hex')}.json`);
+  fs.writeFileSync(tmpConfigPath, JSON.stringify(runnerConfig), { mode: 0o600, flag: 'wx' });
+  const removeTmpConfig = () => { try { fs.unlinkSync(tmpConfigPath); } catch {} };
+
   const animation = new RaceAnimation(racerNames, flags.join(' · '));
   animation.start();
 
   // Pre-compile message regexes to avoid recreating them on every stderr event
-  const messageRegexes = racerNames.map(name => {
-    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp(`\\[${escaped}\\] __raceMessage__\\[([\\d.]+)\\]:(.*)`, 'g');
-  });
+  const messageRegexes = racerNames.map(name => createRaceMessageRegex(name));
+  const contextClosedMarkers = racerNames.map(name => formatContextClosed(name));
 
   const runnerPath = path.join(rootDir, 'runner.cjs');
 
   return new Promise((resolve, reject) => {
-    // NOSONAR — spawns runner.cjs subprocess with race config; this is the core
-    // execution mechanism equivalent to running `node runner.cjs <config>`
-    const child = spawn('node', [runnerPath, JSON.stringify(runnerConfig)], {
+    // Launch the runner subprocess: `node runner.cjs --config-file <path>`.
+    const child = spawn('node', [runnerPath, '--config-file', tmpConfigPath], { // NOSONAR — node resolved via PATH is intentional; args are an array (no shell)
       cwd: rootDir,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    let stdout = '';
-    child.stdout.on('data', d => { stdout += d; });
+    // Collect raw Buffers and concat once, so a multi-byte UTF-8 sequence split
+    // across chunk boundaries (e.g. an emoji in a measurement name) is decoded
+    // whole rather than corrupted into replacement chars that break JSON.parse.
+    const stdoutChunks = [];
+    let killTimer = null;
+    child.stdout.on('data', d => { stdoutChunks.push(d); });
     child.stderr.on('data', d => {
       const text = d.toString();
       racerNames.forEach((name, i) => {
-        if (text.includes(`[${name}] Context closed`)) animation.racerFinished(i);
+        if (text.includes(contextClosedMarkers[i])) animation.racerFinished(i);
         const re = messageRegexes[i];
         re.lastIndex = 0;
         let m;
@@ -214,11 +379,28 @@ export function spawnRunner(ctx) {
       if (animation.finished.every(Boolean) && animation.interval) animation.stop();
     });
 
-    const sigHandler = () => child.kill('SIGTERM');
-    process.on('SIGINT', sigHandler);
+    const makeSigHandler = (sig) => () => {
+      abortState.aborted = true;
+      abortState.reason = sig;
+      child.kill('SIGTERM');
+      // Escalate to SIGKILL if the child doesn't exit promptly. Headed Chromium
+      // routinely wedges in browser.close(), and without this the parent would
+      // wait forever on 'close' and the user's Ctrl+C would appear to hang.
+      if (!killTimer) {
+        killTimer = setTimeout(() => { try { child.kill('SIGKILL'); } catch {} }, 5000);
+        killTimer.unref();
+      }
+    };
+    const onSigint = makeSigHandler('SIGINT');
+    const onSigterm = makeSigHandler('SIGTERM');
+    process.on('SIGINT', onSigint);
+    process.on('SIGTERM', onSigterm);
 
     function cleanup() {
-      process.removeListener('SIGINT', sigHandler);
+      process.removeListener('SIGINT', onSigint);
+      process.removeListener('SIGTERM', onSigterm);
+      if (killTimer) { clearTimeout(killTimer); killTimer = null; }
+      removeTmpConfig();
       if (animation.interval) animation.stop();
     }
 
@@ -227,19 +409,48 @@ export function spawnRunner(ctx) {
       reject(new Error(`Runner process failed to start: ${err.message}`));
     });
 
-    child.on('close', () => {
+    child.on('close', (code, signal) => {
       cleanup();
 
-      // Parse the last valid JSON line from runner stdout
-      const lines = stdout.trim().split('\n');
+      if (abortState.aborted || signal === 'SIGTERM' || signal === 'SIGINT' || code === 130 || code === 143) {
+        const sig = abortState.reason || signal || 'SIGINT';
+        reject(new AbortError(`Race aborted (${sig})`, signalExitCode(sig)));
+        return;
+      }
+
+      // Parse only the line starting with the sentinel. This guards against
+      // arbitrary stdout noise (Playwright logs, subprocess output) and
+      // ensures a signal-cleanup stub from a previous killed run can never
+      // be mistaken for a real result.
+      const stdout = Buffer.concat(stdoutChunks).toString('utf8');
+      const lines = stdout.split('\n');
       for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i];
+        if (!line.startsWith(RUNNER_RESULT_SENTINEL)) continue;
         try {
-          return resolve(JSON.parse(lines[i]));
+          const parsed = JSON.parse(line.slice(RUNNER_RESULT_SENTINEL.length));
+          if (parsed.protocolVersion !== RUNNER_PROTOCOL_VERSION) {
+            return reject(new Error(
+              `Runner protocol mismatch: race.js expects v${RUNNER_PROTOCOL_VERSION} but runner.cjs ` +
+              `sent v${parsed.protocolVersion ?? 'unversioned'}. race.js and runner.cjs must come from the same install.`
+            ));
+          }
+          // A runner that exited non-zero reported at least one racer error.
+          // Record it so the CLI can surface a non-zero exit code instead of
+          // silently reporting a broken benchmark as success, while still
+          // resolving with whatever partial results we did get.
+          if (code !== 0 || (parsed.errors && parsed.errors.length > 0)) {
+            const msgs = parsed.errors && parsed.errors.length > 0
+              ? parsed.errors
+              : [`runner exited with code ${code}`];
+            runnerFailures.push(...msgs);
+          }
+          return resolve(parsed);
         } catch (e) {
-          if (i === 0) console.error(`Warning: Could not parse runner output`);
+          console.error(`Warning: Malformed runner result line: ${e.message}`);
         }
       }
-      reject(new Error('Could not parse runner output'));
+      reject(new Error(`Runner exited with code ${code} and produced no parseable result`));
     });
   });
 }
@@ -251,115 +462,125 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
   const racerRunDirs = racerNames.map(name => path.join(runDir, name));
   racerRunDirs.forEach(d => fs.mkdirSync(d, { recursive: true }));
 
-  const recordingsDir = path.join(ctx.raceDir || path.dirname(runDir), 'tmp');
+  const recordingsDir = buildRecordingsDir(ctx.raceDir || path.dirname(runDir));
   fs.mkdirSync(recordingsDir, { recursive: true });
   const raceCtx = { ...ctx, runnerConfig: { ...ctx.runnerConfig, recordingsDir } };
 
-  const result = await spawnRunner(raceCtx);
+  // The finally block guarantees the temp recordings dir is removed even when
+  // the runner crashes or the race is aborted mid-run.
+  try {
+    const result = await spawnRunner(raceCtx);
 
-  let results, summary, sideBySidePath = null, sideBySideName = null, clipTimes = null;
-  const { raceScriptFiles, settingsFileCopied } = copyRaceAssets(ctx.raceDir, ctx.racerFiles, runDir);
-  const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
+    let results, summary, sideBySidePath = null, sideBySideName = null, clipTimes = null;
+    const { raceScriptFiles, settingsFileCopied, raceConfigFile } = storeRaceAssets(ctx, runDir);
+    const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
 
-  if (noRecording) {
-    // No-recording mode: just save measurements, skip all video processing
-    results = racerNames.map((name, i) => {
-      const b = result.browsers?.[i] || {};
-      let tracePath = null;
-      if (b.tracePath) {
-        const sourceTrace = path.join(recordingsDir, b.tracePath);
-        const targetTraceName = `${name}.trace.json`;
-        const targetTrace = path.join(racerRunDirs[i], targetTraceName);
-        try {
-          if (fs.existsSync(sourceTrace)) {
-            fs.copyFileSync(sourceTrace, targetTrace);
-            tracePath = path.join(name, targetTraceName);
-          } else {
-            console.error(`${c.dim}Warning: Trace file missing for ${name}: ${sourceTrace}${c.reset}`);
+    // Lets the caller add to the summary (Gemini commentary) before it is
+    // written and before the player is built from it.
+    const finishSummary = (s) => { if (raceOptions.onSummary) raceOptions.onSummary(s); return s; };
+
+    if (noRecording) {
+      // No-recording mode: just save measurements, skip all video processing
+      results = racerNames.map((name, i) => {
+        const b = result.browsers?.[i] || {};
+        let tracePath = null;
+        if (b.tracePath) {
+          const sourceTrace = path.join(recordingsDir, b.tracePath);
+          const targetTraceName = traceFile(name);
+          const targetTrace = path.join(racerRunDirs[i], targetTraceName);
+          try {
+            if (fs.existsSync(sourceTrace)) {
+              fs.copyFileSync(sourceTrace, targetTrace);
+              tracePath = racerRelative(name, targetTraceName);
+            } else {
+              console.error(`${c.dim}Warning: Trace file missing for ${name}: ${sourceTrace}${c.reset}`);
+            }
+          } catch (e) {
+            console.error(`${c.dim}Warning: Could not copy trace for ${name}: ${e.message}${c.reset}`);
           }
-        } catch (e) {
-          console.error(`${c.dim}Warning: Could not copy trace for ${name}: ${e.message}${c.reset}`);
+        }
+        const data = {
+          videoPath: null, fullVideoPath: null, tracePath,
+          measurements: b.measurements || [],
+          profileMetrics: b.profileMetrics || null, error: b.error || null,
+        };
+        fs.writeFileSync(path.join(racerRunDirs[i], 'measurements.json'), JSON.stringify(data.measurements, null, 2));
+        if (data.profileMetrics) fs.writeFileSync(path.join(racerRunDirs[i], 'profile-metrics.json'), JSON.stringify(data.profileMetrics, null, 2));
+        return data;
+      });
+      summary = finishSummary(buildSummary(racerNames, results, settings, runDir));
+      fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
+    } else {
+      const progress = startProgress('Processing recordings…');
+      results = racerNames.map((name, i) =>
+        moveResults(recordingsDir, name, racerRunDirs[i], result.browsers?.[i] || {})
+      );
+
+      summary = finishSummary(buildSummary(racerNames, results, settings, runDir));
+      fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
+      progress.done('Recordings processed');
+
+      sideBySideName = `${racerNames.join('-vs-')}${ext}`;
+
+      if (ffmpeg) {
+        // Order videos by placement (winner first) for side-by-side
+        const placementOrder = getPlacementOrder(summary);
+        const videoPaths = placementOrder.map(i => results[i].videoPath).filter(Boolean);
+        sideBySidePath = createSideBySide(videoPaths, path.join(runDir, sideBySideName), format, settings.slowmo);
+
+        if (format !== 'webm') {
+          const convertProgress = startProgress(`Converting videos to ${format}…`);
+          convertVideos(results, format);
+          convertProgress.done(`Videos converted to ${format}`);
         }
       }
-      const data = {
-        videoPath: null, fullVideoPath: null, tracePath,
-        measurements: b.measurements || [],
-        profileMetrics: b.profileMetrics || null, error: b.error || null,
-      };
-      fs.writeFileSync(path.join(racerRunDirs[i], 'measurements.json'), JSON.stringify(data.measurements, null, 2));
-      if (data.profileMetrics) fs.writeFileSync(path.join(racerRunDirs[i], 'profile-metrics.json'), JSON.stringify(data.profileMetrics, null, 2));
-      return data;
-    });
-    fs.rmSync(recordingsDir, { recursive: true, force: true });
-    summary = buildSummary(racerNames, results, settings, runDir);
-    fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
-  } else {
-    const progress = startProgress('Processing recordings…');
-    results = racerNames.map((name, i) =>
-      moveResults(recordingsDir, name, racerRunDirs[i], result.browsers?.[i] || {})
-    );
 
-    fs.rmSync(recordingsDir, { recursive: true, force: true });
-
-    summary = buildSummary(racerNames, results, settings, runDir);
-    fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
-    progress.done('Recordings processed');
-
-    sideBySideName = `${racerNames.join('-vs-')}${ext}`;
-
-    if (ffmpeg) {
-      // Order videos by placement (winner first) for side-by-side
-      const placementOrder = getPlacementOrder(summary);
-      const videoPaths = placementOrder.map(i => results[i].videoPath).filter(Boolean);
-      sideBySidePath = createSideBySide(videoPaths, path.join(runDir, sideBySideName), format, settings.slowmo);
-
-      if (format !== 'webm') {
-        const convertProgress = startProgress(`Converting videos to ${format}…`);
-        convertVideos(results, format);
-        convertProgress.done(`Videos converted to ${format}`);
+      // With --ffmpeg, videos are trimmed and separate full recordings exist.
+      // Without --ffmpeg, the single video IS the full recording — the player handles
+      // virtual trimming via clip times from recordingSegments.
+      let videoFiles, fullVideoFiles, altFiles;
+      if (ffmpeg) {
+        videoFiles = racerNames.map(name => racerRelative(name, raceVideoFile(name)));
+        fullVideoFiles = racerNames.map(name => racerRelative(name, fullVideoFile(name)));
+        altFiles = format !== 'webm' ? racerNames.map(name => racerRelative(name, raceVideoFile(name, ext))) : null;
+      } else {
+        // Only the full (untrimmed) video exists — use it for both race and full views
+        videoFiles = racerNames.map(name => racerRelative(name, raceVideoFile(name)));
+        fullVideoFiles = null; // same file, no separate full video
+        altFiles = null;       // no format conversion without ffmpeg
       }
+
+      const traceFiles = racerNames.map(name => racerRelative(name, traceFile(name)));
+      const harFiles = racerNames.map((name, i) => {
+        return results[i]?.harPath ? racerRelative(name, harFile(name)) : null;
+      });
+
+      clipTimes = buildClipTimes(racerNames, (i) => result.browsers?.[i], ffmpeg);
+
+      writePlayerAndAssets({
+        runDir, summary, settings, videoFiles,
+        playerExtras: {
+          fullVideoFiles,
+          mergedVideoFile: sideBySidePath ? sideBySideName : null,
+          traceFiles,
+          harFiles,
+          raceScriptFiles,
+          settingsFileCopied,
+          raceConfig: ctx.raceConfig,
+          raceConfigFile,
+          runNavigation,
+          clipTimes,
+          altFiles,
+        },
+        raceOptions,
+        raceDir: ctx.raceDir,
+      });
     }
 
-    // With --ffmpeg, videos are trimmed and separate full recordings exist.
-    // Without --ffmpeg, the single video IS the full recording — the player handles
-    // virtual trimming via clip times from recordingSegments.
-    let videoFiles, fullVideoFiles, altFiles;
-    if (ffmpeg) {
-      videoFiles = racerNames.map(name => `${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
-      fullVideoFiles = racerNames.map(name => `${name}/${name}.full${FORMAT_EXTENSIONS.webm}`);
-      altFiles = format !== 'webm' ? racerNames.map(name => `${name}/${name}.race${ext}`) : null;
-    } else {
-      // Only the full (untrimmed) video exists — use it for both race and full views
-      videoFiles = racerNames.map(name => `${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
-      fullVideoFiles = null; // same file, no separate full video
-      altFiles = null;       // no format conversion without ffmpeg
-    }
-
-    const traceFiles = racerNames.map(name => `${name}/${name}.trace.json`);
-    const harFiles = racerNames.map((name, i) => {
-      return results[i]?.harPath ? `${name}/${name}.har` : null;
-    });
-
-    clipTimes = buildClipTimes(racerNames, (i) => result.browsers?.[i], ffmpeg);
-
-    writePlayerAndAssets({
-      runDir, summary, settings, videoFiles,
-      playerExtras: {
-        fullVideoFiles,
-        mergedVideoFile: sideBySidePath ? sideBySideName : null,
-        traceFiles,
-        harFiles,
-        raceScriptFiles,
-        settingsFileCopied,
-        runNavigation,
-        clipTimes,
-        altFiles,
-      },
-      raceOptions,
-    });
+    return { summary, sideBySidePath, sideBySideName, clipTimes };
+  } finally {
+    fs.rmSync(recordingsDir, { recursive: true, force: true });
   }
-
-  return { summary, sideBySidePath, sideBySideName, clipTimes };
 }
 
 /**
@@ -371,6 +592,7 @@ export function buildRaceContext({ racerNames, scripts, settings, rootDir = __di
   const throttle = { network: settings.network, cpu: settings.cpuThrottle };
 
   const runnerConfig = {
+    protocolVersion: RUNNER_PROTOCOL_VERSION,
     browsers: racerNames.map((name, i) => ({
       id: name,
       script: scripts[i],
@@ -384,6 +606,9 @@ export function buildRaceContext({ racerNames, scripts, settings, rootDir = __di
     noRecording: settings.noRecording,
     ffmpeg: settings.ffmpeg,
     har: settings.har,
+    cueMarkers: settings.cueMarkers,
+    fps: settings.fps,
+    wallClock: settings.wallClock,
     ignoreHTTPSErrors: settings.ignoreHTTPSErrors,
     viewportHeight: settings.viewportHeight,
   };
@@ -391,122 +616,75 @@ export function buildRaceContext({ racerNames, scripts, settings, rootDir = __di
   return { racerNames, settings, executionMode, throttle, runnerConfig, rootDir, raceDir, racerFiles };
 }
 
-// --- Local server ---
-
-const MIME_TYPES = {
-  '.html': 'text/html',
-  '.js': 'application/javascript',
-  '.css': 'text/css',
-  '.webm': 'video/webm',
-  '.mp4': 'video/mp4',
-  '.gif': 'image/gif',
-  '.mov': 'video/quicktime',
-  '.wasm': 'application/wasm',
-  '.json': 'application/json',
-};
-
 /**
- * Create an HTTP request handler that serves static files from `dir`.
+ * Check that the Chromium build Playwright launches is actually on disk.
  *
- * Security: rejects any path that resolves outside `dir` (path traversal).
- * Range requests: advertises `Accept-Ranges: bytes` and responds with
- * `206 Partial Content` so browsers can seek within media files (WebM, MP4).
- * COOP/COEP headers are required for `SharedArrayBuffer` isolation used by
- * FFmpeg.wasm in the browser player.
+ * The postinstall hook downloads it, and package managers increasingly gate
+ * install scripts behind an approval step (npm's allowScripts, pnpm's
+ * onlyBuiltDependencies). When the hook has not run, the failure surfaces at
+ * launch instead — once per racer, from inside the runner, whose stderr this
+ * process consumes for race messages rather than forwarding. So the browser is
+ * checked here, before the setup script runs or a results directory exists,
+ * and the answer is one actionable line naming the lighter chromium-only
+ * download rather than Playwright's full-suite suggestion.
  *
- * Exported for testing.
+ * Dependencies are injected so this is unit-testable without a real install.
+ *
+ * @param {object} [deps]
+ * @param {() => Promise<object>} [deps.importPlaywright]
+ * @param {(path: string) => boolean} [deps.exists]
+ * @returns {Promise<string|null>} error message, or null when the browser is present
  */
-export function createStaticHandler(dir) {
-  return (req, res) => {
-    let urlPath;
-    try {
-      urlPath = decodeURIComponent(req.url === '/' ? '/index.html' : req.url.split('?')[0]);
-    } catch {
-      res.writeHead(400);
-      res.end('Bad request');
-      return;
-    }
-    const filePath = path.resolve(path.join(dir, urlPath));
-    // Reject paths that escape the served directory. `filePath !== dir` allows
-    // the root directory itself to resolve (though in practice req.url='/' is
-    // rewritten to index.html above).
-    if (!filePath.startsWith(dir + path.sep) && filePath !== dir) {
-      res.writeHead(403);
-      res.end('Forbidden');
-      return;
-    }
-    const ext = path.extname(filePath).toLowerCase();
-    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-    const baseHeaders = {
-      'Content-Type': contentType,
-      'Accept-Ranges': 'bytes',
-      // Required for SharedArrayBuffer isolation (FFmpeg.wasm uses COOP/COEP).
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-    };
-    fs.stat(filePath, (statErr, stat) => {
-      if (statErr || !stat.isFile()) {
-        res.writeHead(404);
-        res.end('Not found');
-        return;
-      }
-      const total = stat.size;
-      const rangeHeader = req.headers['range'];
-
-      const pipeStream = (stream) => {
-        stream.on('error', () => { if (!res.writableEnded) res.end(); });
-        stream.pipe(res);
-      };
-
-      if (rangeHeader) {
-        const m = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
-        if (!m) { res.writeHead(416); res.end(); return; }
-        let start, end;
-        if (!m[1] && !m[2]) {
-          // bytes=- with no numbers is invalid
-          res.writeHead(416); res.end(); return;
-        } else if (!m[1]) {
-          // Suffix range: bytes=-N → last N bytes
-          start = Math.max(0, total - parseInt(m[2], 10));
-          end = total - 1;
-        } else {
-          start = parseInt(m[1], 10);
-          end = m[2] ? Math.min(parseInt(m[2], 10), total - 1) : total - 1;
-        }
-        if (start > end || start >= total) { res.writeHead(416); res.end(); return; }
-        res.writeHead(206, { ...baseHeaders, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${total}` });
-        pipeStream(fs.createReadStream(filePath, { start, end }));
-      } else {
-        res.writeHead(200, { ...baseHeaders, 'Content-Length': total });
-        pipeStream(fs.createReadStream(filePath));
-      }
-    });
-  };
-}
-
-/**
- * Serve `dir` over HTTP on a random free port, open `index.html` in the
- * browser, and keep running until the process is killed.
- */
-export function serveResults(dir) {
-  // NOSONAR — local-only server for viewing race results; binds to 127.0.0.1
-  // with path traversal protection in createStaticHandler
-  const server = http.createServer(createStaticHandler(dir));
-
-  server.listen(0, '127.0.0.1', () => {
-    const { port } = server.address();
-    const url = `http://localhost:${port}/`;
-    console.error(`  ${c.dim}🌐 Serving at ${c.reset}${c.cyan}${c.bold}${url}${c.reset}`);
-    const opener = process.platform === 'win32' ? ['cmd', ['/c', 'start', url]]
-      : process.platform === 'darwin' ? ['open', [url]]
-      : ['xdg-open', [url]];
-    const child = spawn(opener[0], opener[1], { stdio: 'ignore', detached: true });
-    child.on('error', () => {}); // ignore ENOENT on headless/CI environments
-    child.unref();
-  });
+export async function findMissingBrowser({
+  importPlaywright = () => import('playwright'),
+  exists = fs.existsSync,
+} = {}) {
+  let chromium;
+  try {
+    ({ chromium } = await importPlaywright());
+  } catch {
+    return 'Playwright is not installed. Run "npm install" to install dependencies.';
+  }
+  let executable;
+  try {
+    executable = chromium.executablePath();
+  } catch {
+    // Playwright declined to name a path (custom channel, unusual install
+    // layout). Nothing reliable to check — let the runner try and report.
+    return null;
+  }
+  if (!executable || exists(executable)) return null;
+  return 'Chromium is not downloaded. Run "npx playwright install chromium" to fetch it.\n' +
+    "  Your package manager may have skipped this package's postinstall hook, " +
+    'which normally does it for you.';
 }
 
 // --- CLI entry point ---
+
+/**
+ * Write one of the CLI's parting screens to a standard stream, then exit.
+ *
+ * `process.exit()` drops whatever is still buffered, and writes to a pipe
+ * (`race-for-the-prize --help | less`) are buffered, so these go out through a
+ * synchronous write rather than console.log/error. EPIPE means the reader
+ * already walked away — there is nothing left to flush.
+ *
+ * @param {NodeJS.WriteStream|{fd: number}} stream - process.stdout or process.stderr
+ */
+export function printAndExit(stream, text, code) {
+  const buf = Buffer.from(`${text}\n`);
+  let written = 0;
+  while (written < buf.length) {
+    try {
+      written += fs.writeSync(stream.fd, buf, written);
+    } catch (e) {
+      if (e.code === 'EAGAIN') continue;  // pipe full — the reader will catch up
+      if (e.code === 'EPIPE') break;      // reader hung up (e.g. `| head -5`)
+      throw e;
+    }
+  }
+  process.exit(code);
+}
 
 // Check if running as main module (not imported)
 const isMainModule = process.argv[1] && (() => {
@@ -520,6 +698,39 @@ if (isMainModule) {
 // --- Argument parsing ---
 
 const { positional, boolFlags, kvFlags } = parseArgs(process.argv.slice(2));
+
+// How this process was started ("race-for-the-prize", "npx race-for-the-prize"
+// or "node race.js") — every example in the help and every hint below is
+// printed with it, so copy-paste works wherever the tool came from.
+const invocation = resolveInvocation();
+
+// Reject unknown flags early — typos in CLI invocations have silently degraded benchmarks.
+const unknownFlags = findUnknownFlags(boolFlags, kvFlags);
+if (unknownFlags.length > 0) {
+  const labels = unknownFlags.map(n => `--${n}`).join(', ');
+  console.error(`${c.red}Error: Unknown flag(s): ${labels}${c.reset}`);
+  console.error(`${c.dim}  Run ${invocation} --help to see the list of supported flags.${c.reset}`);
+  process.exit(2);
+}
+
+// Reject value-requiring flags passed without a value (e.g. a bare `--runs`),
+// which would otherwise be silently dropped and run with the default.
+const valuelessFlags = findValuelessKvFlags(boolFlags);
+if (valuelessFlags.length > 0) {
+  const labels = valuelessFlags.map(n => `--${n}`).join(', ');
+  console.error(`${c.red}Error: Flag(s) require a value: ${labels}${c.reset}`);
+  console.error(`${c.dim}  Example: --runs=3 (or --runs 3)${c.reset}`);
+  process.exit(2);
+}
+
+if (boolFlags.has('help')) {
+  printAndExit(process.stdout, buildHelp(invocation), 0);
+}
+
+if (boolFlags.has('version')) {
+  printAndExit(process.stdout, `${CLI_NAME} v${packageVersion()}`, 0);
+}
+
 const verbose = boolFlags.has('verbose');
 
 // --- --init: scaffold a starter race directory ---
@@ -606,7 +817,7 @@ ${c.green}${c.bold}✓ Race scaffolded with Gemini:${c.reset} ${c.cyan}${path.re
   ${c.dim}settings.json${c.reset}
 
 ${c.bold}Run it:${c.reset}
-  ${c.cyan}npx race-for-the-prize ${path.relative(process.cwd(), targetDir)}${c.reset}
+  ${c.cyan}${invocation} ${path.relative(process.cwd(), targetDir)}${c.reset}
 `);
     } catch (e) {
       console.error(`${c.red}Gemini spec generation failed: ${e.message}${c.reset}`);
@@ -634,153 +845,97 @@ ${c.green}${c.bold}✓ Race scaffolded:${c.reset} ${c.cyan}${path.relative(proce
   ${c.dim}settings.json${c.reset}    — tune parallel, headless, runs, network, cpu
 
 ${c.bold}Run it:${c.reset}
-  ${c.cyan}npx race-for-the-prize ${path.relative(process.cwd(), targetDir)}${c.reset}
+  ${c.cyan}${invocation} ${path.relative(process.cwd(), targetDir)}${c.reset}
 `);
   process.exit(0);
 }
 
-// Helper: load race config for a given directory (discovers racers, loads settings, builds ctx)
-function loadRaceDir(raceDir) {
-  if (!fs.existsSync(raceDir)) {
-    console.error(`${c.red}Error: Race directory not found: ${raceDir}${c.reset}`);
-    process.exit(1);
-  }
-
-  const { racerFiles, racerNames } = discoverRacers(raceDir);
-  if (racerFiles.length < 2) {
-    console.error(`${c.red}Error: Need at least 2 .spec.js (or .js) script files in ${raceDir}, found ${racerFiles.length}${c.reset}`);
-    process.exit(1);
-  }
-  if (racerFiles.length > 5) {
-    console.error(`${c.yellow}Warning: Found ${racerFiles.length} script files, using first five: ${racerFiles.slice(0, 5).join(', ')}${c.reset}`);
-  }
-
-  let settings = {};
-  const settingsPath = path.join(raceDir, 'settings.json');
-  if (fs.existsSync(settingsPath)) {
-    try {
-      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-    } catch (e) {
-      console.error(`${c.yellow}Warning: Could not parse settings.json: ${e.message}${c.reset}`);
-    }
-  }
-  settings = applyDefaults(applyOverrides(settings, boolFlags, kvFlags));
-
-  // Compute effective racer files (may be overridden by settings.racers[name].script)
-  const effectiveRacerFiles = racerFiles.map((f, i) => {
-    const name = racerNames[i];
-    const racerScript = settings.racers?.[name]?.script;
-    return racerScript || f;
-  });
-
-  const scripts = effectiveRacerFiles.map(f =>
-    fs.readFileSync(path.join(raceDir, f), 'utf-8')
-  );
-
-  const ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir, racerFiles: effectiveRacerFiles });
-  return { ctx, settings, racerNames };
-}
+// applySettingsOrExit and loadRaceDir live in cli/race-loader.js; bind the
+// CLI flags and context builder here so call sites below stay unchanged.
+const applySettings = (base, raceDir) => applySettingsOrExit(base, boolFlags, kvFlags, raceDir);
+const loadRace = (dir) => loadRaceDir(dir, { boolFlags, kvFlags, rootDir: __dirname, buildContext: buildRaceContext });
 
 if (positional.length === 0) {
-  console.error(`
-${c.yellow}    ____                   ____              _   _            ____       _          ${c.reset}
-${c.yellow}   / __ \\____ _________   / __/___  _____   / |_/ /_  ___   / __ \\_____(_)_______   ${c.reset}
-${c.yellow}  / /_/ / __ \`/ ___/ _ \\ / /_/ __ \\/ ___/  / __/ __ \\/ _ \\ / /_/ / ___/ / ___/ _ \\  ${c.reset}
-${c.yellow} / _, _/ /_/ / /__/  __// __/ /_/ / /     / /_/ / / /  __// ____/ /  / / /__/  __/  ${c.reset}
-${c.yellow}/_/ |_|\\__,_/\\___/\\___//_/  \\____/_/      \\__/_/ /_/\\___//_/   /_/  /_/\\___/\\___/   ${c.reset}
+  // No arguments: same screen as --help, but on stderr with a non-zero exit
+  // so a script that forgot its arguments still fails.
+  printAndExit(process.stderr, buildHelp(invocation), 1);
+}
 
-${c.dim}  Race two browsers. Measure everything. Crown a winner.  🏎️ 💨${c.reset}
+// --- demo:<name>: run a race bundled with the package ---
+// `npx race-for-the-prize demo:lauda-vs-hunt` works from an empty directory —
+// the demo is copied into ./races/<name>/ and raced from there.
 
-${c.bold}  Quick Start:${c.reset}
-${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
-  ${c.bold}1.${c.reset} Create a race folder with two Playwright spec scripts:
+let demoDir = null;
+const demoArg = parseDemoArg(positional[0]);
+if (demoArg) {
+  if (!demoArg.name) {
+    console.log(formatDemoList(c, invocation));
+    process.exit(0);
+  }
 
-     ${c.cyan}races/my-race/${c.reset}
-       ${c.green}contender-a.spec.js${c.reset}  ${c.dim}# Racer 1 (name = filename without .spec.js)${c.reset}
-       ${c.blue}contender-b.spec.js${c.reset}  ${c.dim}# Racer 2${c.reset}
-       ${c.dim}settings.json${c.reset}        ${c.dim}# Optional: { parallel, network, cpuThrottle, setup, teardown }${c.reset}
-       ${c.dim}setup.sh${c.reset}             ${c.dim}# Optional: global setup before race${c.reset}
-       ${c.dim}teardown.sh${c.reset}          ${c.dim}# Optional: global teardown after race${c.reset}
-       ${c.dim}contender-a.setup.sh${c.reset} ${c.dim}# Optional: per-racer setup (runs before this racer)${c.reset}
-       ${c.dim}contender-a.teardown.sh${c.reset} ${c.dim}# Optional: per-racer teardown${c.reset}
+  let plan;
+  try {
+    plan = planDemo(demoArg.name, { rootDir: __dirname });
+  } catch (e) {
+    if (e instanceof UnknownDemoError) {
+      console.error(`${c.red}Error: Unknown demo race: ${e.demoName}${c.reset}`);
+      console.error(formatDemoList(c, invocation));
+      process.exit(1);
+    }
+    console.error(`${c.red}Error: ${e.message}${c.reset}`);
+    process.exit(1);
+  }
 
-  ${c.bold}2.${c.reset} Each script gets a Playwright ${c.cyan}page${c.reset} with race helpers:
+  // Writing into the user's directory is their call — show the exact files
+  // first and copy nothing unless they say yes.
+  if (plan.files.length > 0) {
+    const where = path.relative(process.cwd(), plan.dir) || '.';
+    console.error(`\n${c.bold}Demo race ${c.cyan}${plan.demo.name}${c.reset}${c.bold} needs these files in ${c.cyan}${where}/${c.reset}`);
+    for (const file of plan.files) console.error(`  ${c.dim}${file}${c.reset}`);
 
-     ${c.dim}await${c.reset} page.goto(${c.green}'https://...'${c.reset});
-     ${c.dim}await${c.reset} page.raceRecordingStart();       ${c.dim}// optional: start video segment${c.reset}
-     ${c.dim}await${c.reset} page.raceStart(${c.green}'Load Time'${c.reset});     ${c.dim}// start measurement${c.reset}
-     ${c.dim}await${c.reset} page.click(${c.green}'.button'${c.reset});
-     ${c.dim}await${c.reset} page.waitForSelector(${c.green}'.result'${c.reset});
-     page.raceEnd(${c.green}'Load Time'${c.reset});              ${c.dim}// end measurement (sync)${c.reset}
-     page.raceMessage(${c.green}'I win!'${c.reset});              ${c.dim}// send message to CLI${c.reset}
-     ${c.dim}await${c.reset} page.raceRecordingEnd();          ${c.dim}// optional: end video segment${c.reset}
-     race.name                              ${c.dim}// this racer's name${c.reset}
-     race.vars                              ${c.dim}// per-racer vars from settings.json${c.reset}
+    const answer = boolFlags.has('yes')
+      ? true
+      : await confirm(`${c.bold}Copy them there and start the race? ${c.reset}${c.dim}[Y/n]${c.reset} `);
 
-     ${c.dim}If raceRecordingStart/End are omitted, recording wraps raceStart to raceEnd.${c.reset}
-
-  ${c.bold}3.${c.reset} Run it!
-
-     ${c.bold}$${c.reset} ${c.cyan}node race.js ./races/lauda-vs-hunt${c.reset}
-
-${c.bold}  Quick Race (URL mode):${c.reset}
-${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
-  Pass 2+ URLs directly to measure page load times head-to-head:
-
-     ${c.bold}$${c.reset} ${c.cyan}node race.js https://react.dev https://angular.dev${c.reset}
-
-${c.bold}  Commands:${c.reset}
-${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
-  node race.js ${c.cyan}<url> <url> [url...]${c.reset}      Race page load times (2-5 URLs)
-  node race.js ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset}               Scaffold a starter race (default: my-race/)
-  node race.js ${c.cyan}<dir>${c.reset}                       Run a scripted race
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--results${c.reset}            View recent results
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--parallel${c.reset}           Run both browsers simultaneously
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--headless${c.reset}           Hide browsers
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--network${c.reset}=${c.green}slow-3g${c.reset}   Network: none, slow-3g, fast-3g, 4g
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}4${c.reset}              CPU throttle multiplier (1=none)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--format${c.reset}=${c.green}mov${c.reset}          Output format: webm (default), mov, gif
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--runs${c.reset}=${c.green}3${c.reset}            Run multiple times, report median
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--pause${c.reset}              Pause between runs (press Enter to continue)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--slowmo${c.reset}=${c.green}2${c.reset}           Slow-motion side-by-side replay (2x, 3x, etc.)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-overlay${c.reset}         Record videos without overlays
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-recording${c.reset}      Skip video recording, just measure
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ffmpeg${c.reset}             Enable FFmpeg processing (trim, merge, convert)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--har${c.reset}                Record network HAR files alongside videos
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-wasm${c.reset}            Skip copying ffmpeg.wasm files (~25 MB) to results
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--height${c.reset}=${c.green}900${c.reset}          Viewport/recording height in pixels (480–4320, default 720)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ignore-https-errors${c.reset}  Accept invalid/self-signed TLS certificates
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-serve${c.reset}           Don't start local results server (CI/headless; open index.html manually)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--gemini${c.reset}             Gemini CLI sports reporter commentary after race
-  node race.js ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset} ${c.yellow}--gemini-spec${c.reset}=${c.green}"prompt"${c.reset}  Generate specs via Gemini + Playwright HTML research
-
-${c.dim}  All flags except --results work with both URL mode and directory mode.${c.reset}
-${c.dim}  Try the example:  node race.js ./races/lauda-vs-hunt${c.reset}
-`);
-  process.exit(1);
+    if (answer === null) {
+      console.error(`${c.red}Error: Cannot ask for confirmation — stdin is not a terminal.${c.reset}`);
+      console.error(`${c.dim}  Re-run with --yes to copy the demo race without being asked.${c.reset}`);
+      process.exit(1);
+    }
+    if (!answer) {
+      console.error(`${c.yellow}Cancelled — nothing was copied.${c.reset}`);
+      process.exit(0);
+    }
+    copyDemo(plan);
+    console.error(`${c.dim}Copied ${plan.files.length} file(s) to ${where}/${c.reset}\n`);
+  }
+  demoDir = plan.dir;
 }
 
 // --- Detect URL mode vs directory mode ---
 
 if (positional.length === 1 && isUrl(positional[0])) {
   console.error(`${c.red}Error: URL mode requires at least 2 URLs to race against each other${c.reset}`);
-  console.error(`${c.dim}  Example: node race.js https://react.dev https://angular.dev${c.reset}`);
+  console.error(`${c.dim}  Example: ${invocation} https://react.dev https://angular.dev${c.reset}`);
   process.exit(1);
 }
 
 const urlMode = positional.length >= 2 && positional.every(p => isUrl(p));
 
-// Catch mixed URL/path inputs (e.g. "node race.js https://a.com ./dir")
+// Catch mixed URL/path inputs (e.g. "race-for-the-prize https://a.com ./dir")
 if (!urlMode && positional.length >= 2 && positional.some(p => isUrl(p))) {
   const nonUrls = positional.filter(p => !isUrl(p));
   console.error(`${c.red}Error: Cannot mix URLs and directory paths. These are not valid URLs: ${nonUrls.join(', ')}${c.reset}`);
-  console.error(`${c.dim}  For URL mode, pass only URLs: node race.js https://a.com https://b.com${c.reset}`);
-  console.error(`${c.dim}  For directory mode, pass a race directory: node race.js ./races/my-race${c.reset}`);
+  console.error(`${c.dim}  For URL mode, pass only URLs: ${invocation} https://a.com https://b.com${c.reset}`);
+  console.error(`${c.dim}  For directory mode, pass a race directory: ${invocation} ./my-race${c.reset}`);
   process.exit(1);
 }
 
 let raceDir;
 let ctx, settings, racerNames;
+// Raw settings.json contents, so the race record can tell a value that came
+// from the file apart from a default (URL mode has no file).
+let fileSettings = {};
 
 if (urlMode) {
   if (boolFlags.has('results')) {
@@ -789,10 +944,10 @@ if (urlMode) {
   }
 
   // URL mode: generate race scripts from URLs
-  if (positional.length > 5) {
-    console.error(`${c.yellow}Warning: Using first 5 URLs of ${positional.length} provided${c.reset}`);
+  if (positional.length > MAX_RACERS) {
+    console.error(`${c.yellow}Warning: Using first ${MAX_RACERS} URLs of ${positional.length} provided${c.reset}`);
   }
-  const urls = positional.slice(0, 5);
+  const urls = positional.slice(0, MAX_RACERS);
 
   // Derive names and deduplicate: first occurrence keeps its base name,
   // subsequent duplicates get -2, -3, etc. Uses Object.create(null) to
@@ -823,14 +978,14 @@ if (urlMode) {
   raceDir = path.resolve('races', names.join('-vs-'));
   fs.mkdirSync(raceDir, { recursive: true }); // NOSONAR — directory from sanitized racer names
 
-  settings = applyDefaults(applyOverrides({}, boolFlags, kvFlags));
+  settings = applySettings({}, raceDir);
   racerNames = names;
   ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir });
 } else {
   if (positional.length > 1) {
     console.error(`${c.yellow}Warning: Directory mode expects 1 argument (the race directory), ignoring extra arguments: ${positional.slice(1).join(', ')}${c.reset}`);
   }
-  raceDir = path.resolve(positional[0]);
+  raceDir = demoDir || path.resolve(positional[0]);
 
   if (!fs.existsSync(raceDir)) {
     console.error(`${c.red}Error: Race directory not found: ${raceDir}${c.reset}`);
@@ -842,218 +997,95 @@ if (urlMode) {
     process.exit(0);
   }
 
-  ({ ctx, settings, racerNames } = loadRaceDir(raceDir));
+  ({ ctx, settings, racerNames, fileSettings } = loadRace(raceDir));
 }
 
 
-// --- Setup/Teardown discovery ---
+// --- Race record ---
+// Every results directory keeps the command and the merged configuration that
+// produced it (config.json), and the HTML report shows the same thing: a race's
+// numbers only mean something next to the settings they were measured under.
 
-const { setup: setupScript, teardown: teardownScript } = discoverSetupTeardown(raceDir, settings);
+// The tool's own version, for the record. Absent if package.json is unreadable.
+// (Named apart from the module-level packageVersion(): a block-scoped const of
+// the same name shadowed it for the whole main block, so `--version` and the
+// help banner above threw a temporal-dead-zone ReferenceError.)
+const toolVersion = (() => {
+  try { return packageVersion() || null; } catch { return null; }
+})();
+// The spec files stay the same for the whole invocation, unlike ctx, which is
+// rebuilt per throttling condition.
+const raceFiles = ctx.racerFiles;
+// Shared-spec mode races one race.spec.js under several names.
+const raceMode = urlMode
+  ? 'url'
+  : (raceFiles?.length === 1 && racerNames.length > 1 ? 'shared-spec' : 'directory');
+
+/** Snapshot the configuration a race is about to run with. */
+function raceConfigFor(activeSettings) {
+  return buildRaceConfig({
+    argv: process.argv,
+    settings: activeSettings,
+    fileSettings,
+    boolFlags,
+    kvFlags,
+    raceDir,
+    racerNames,
+    racerFiles: raceFiles,
+    mode: raceMode,
+    version: toolVersion,
+  });
+}
+
+ctx = { ...ctx, raceConfig: raceConfigFor(settings) };
+
+// --- Setup/Teardown discovery ---
+// URL mode uses a generated race dir with no user scripts; skip discovery to
+// avoid picking up stale files from a previously generated dir with the same name.
+
+const { setup: setupScript, teardown: teardownScript } = urlMode
+  ? { setup: null, teardown: null }
+  : discoverSetupTeardown(raceDir, settings);
 
 // Per-racer setup/teardown (e.g., lauda.setup.sh, hunt.teardown.js)
 const racerScripts = racerNames.map(name => ({
   name,
-  ...discoverRacerSetupTeardown(raceDir, name, settings),
+  vars: settings.racers?.[name]?.vars,
+  ...(urlMode ? { setup: null, teardown: null } : discoverRacerSetupTeardown(raceDir, name, settings)),
 }));
 
-/**
- * Run a setup or teardown script.
- * Supports both shell scripts (.sh) and Node.js scripts (.js).
- * Can be a string (script path) or object { command, timeout, waitFor }.
- *
- * @param {string|object} script - Script path or config object
- * @param {string} label - Label for logging ('Setup' or 'Teardown')
- * @returns {Promise<void>}
- */
-async function runScript(script, label) {
-  if (!script) return;
+// runScript lives in cli/task-runner.js; bind raceDir/verbose here so the
+// call sites below keep their original (script, label, vars) shape.
+const runScript = (script, label, vars) => runTaskScript(script, label, vars, { raceDir, verbose });
 
-  const config = typeof script === 'string' ? { command: script } : script;
-  const { command, timeout = 300000, waitFor } = config;
-
-  // Validate command is a non-empty string
-  if (typeof command !== 'string' || !command.trim()) {
-    throw new Error(`${label} script config missing valid 'command' field`);
-  }
-
-  // Validate timeout bounds
-  if (config.timeout !== undefined && (!Number.isFinite(config.timeout) || config.timeout <= 0)) {
-    throw new Error(`${label} timeout must be a positive number`);
-  }
-
-  const scriptPath = path.resolve(raceDir, command);
-  const ext = path.extname(scriptPath);
-
-  // Security: ensure resolved path stays within the race directory
-  const normalizedScript = path.normalize(scriptPath);
-  const normalizedRaceDir = path.normalize(raceDir);
-  if (!normalizedScript.startsWith(normalizedRaceDir + path.sep) && normalizedScript !== normalizedRaceDir) {
-    throw new Error(`${label} script path must be within race directory: ${command}`);
-  }
-
-  // Validate script exists and is a regular file (not a directory or symlink)
-  let stat;
-  try {
-    stat = fs.lstatSync(scriptPath);
-  } catch (e) {
-    if (e.code === 'ENOENT') {
-      console.error(`${c.yellow}Warning: ${label} script not found: ${scriptPath}${c.reset}`);
-      return;
-    }
-    throw e;
-  }
-
-  // lstatSync returns stats for the link itself; isFile() is false for symlinks and directories
-  if (!stat.isFile()) {
-    throw new Error(`${label} script path is not a regular file: ${scriptPath}`);
-  }
-
-  if (ext !== '.sh' && ext !== '.js') {
-    throw new Error(`${label} script has unsupported extension '${ext}' (expected .sh or .js)`);
-  }
-
-  // On Windows, warn if trying to run .sh without bash available
-  if (ext === '.sh' && process.platform === 'win32') {
-    try {
-      execSync('bash --version', { stdio: 'ignore' }); // NOSONAR — bash resolved via PATH is intentional
-    } catch {
-      throw new Error(
-        `${label} script '${command}' requires bash, which was not found. ` +
-        `Install Git Bash or WSL, or use a .js script instead.`
-      );
-    }
-  }
-
-  const progress = startProgress(`Running ${label.toLowerCase()}…`);
-
-  return new Promise((resolve, reject) => {
-    const isShell = ext === '.sh';
-    const args = [scriptPath];
-    const cmd = isShell ? 'bash' : 'node';
-
-    const child = spawn(cmd, args, {
-      cwd: raceDir,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, RACE_DIR: raceDir },
-    });
-
-    let stderr = '';
-    let timedOut = false;
-    let settled = false;
-    let sigkillTimeoutId = null;
-
-    child.stdout.on('data', d => { if (verbose) process.stdout.write(d); });
-    child.stderr.on('data', d => { stderr += d; if (verbose) process.stderr.write(d); });
-
-    const timeoutId = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGTERM');
-      // Give process 5s to clean up after SIGTERM, then SIGKILL
-      sigkillTimeoutId = setTimeout(() => {
-        if (child.exitCode === null) child.kill('SIGKILL');
-      }, 5000);
-    }, timeout);
-
-    child.on('close', (code, signal) => {
-      clearTimeout(timeoutId);
-      if (sigkillTimeoutId) clearTimeout(sigkillTimeoutId);
-      if (settled) return;
-      settled = true;
-
-      if (timedOut) {
-        progress.done(`${label} timed out after ${timeout}ms`);
-        reject(new Error(`${label} script timed out after ${timeout}ms`));
-        return;
-      }
-
-      // Handle process killed by signal (code is null)
-      if (code === null && signal) {
-        progress.done(`${label} killed by ${signal}`);
-        if (stderr) console.error(`${c.dim}${stderr}${c.reset}`);
-        reject(new Error(`${label} script was killed by ${signal}`));
-        return;
-      }
-
-      if (code === 0) {
-        progress.done(`${label} completed`);
-
-        // If waitFor is specified, poll for the condition
-        if (waitFor) {
-          if (typeof waitFor !== 'object' || Array.isArray(waitFor)) {
-            reject(new Error(`${label} waitFor must be an object with a 'url' field`));
-            return;
-          }
-          if (typeof waitFor.url !== 'string' || !waitFor.url.trim()) {
-            reject(new Error(`${label} waitFor.url must be a non-empty string`));
-            return;
-          }
-          if (waitFor.timeout !== undefined && (!Number.isFinite(waitFor.timeout) || waitFor.timeout <= 0)) {
-            reject(new Error(`${label} waitFor.timeout must be a positive number`));
-            return;
-          }
-          if (waitFor.interval !== undefined && (!Number.isFinite(waitFor.interval) || waitFor.interval <= 0)) {
-            reject(new Error(`${label} waitFor.interval must be a positive number`));
-            return;
-          }
-          const { url, timeout: waitTimeout = 30000, interval = 1000 } = waitFor;
-          if (url) {
-            const waitProgress = startProgress(`Waiting for ${url}…`);
-            const startTime = Date.now();
-            let waitSettled = false;
-
-            const poll = async () => {
-              if (waitSettled) return;
-              const remaining = waitTimeout - (Date.now() - startTime);
-              if (remaining <= 0) {
-                if (waitSettled) return;
-                waitSettled = true;
-                waitProgress.done(`Timeout waiting for ${url}`);
-                reject(new Error(`Timeout waiting for ${url} after ${waitTimeout}ms`));
-                return;
-              }
-
-              try {
-                const res = await fetch(url, {
-                  signal: AbortSignal.timeout(Math.min(remaining, interval * 2)),
-                });
-                if (res.ok) {
-                  if (waitSettled) return;
-                  waitSettled = true;
-                  waitProgress.done(`Service ready at ${url}`);
-                  resolve();
-                  return;
-                }
-              } catch {
-                // Connection failed or timed out, will retry
-              }
-
-              if (!waitSettled) setTimeout(poll, interval);
-            };
-            poll();
-            return;
-          }
-        }
-
-        resolve();
-      } else {
-        progress.done(`${label} failed (exit code ${code})`);
-        if (stderr) console.error(`${c.dim}${stderr}${c.reset}`);
-        reject(new Error(`${label} script exited with code ${code}`));
-      }
-    });
-
-    child.on('error', err => {
-      clearTimeout(timeoutId);
-      if (sigkillTimeoutId) clearTimeout(sigkillTimeoutId);
-      if (settled) return;
-      settled = true;
-      progress.done(`${label} error: ${err.message}`);
-      reject(err);
-    });
-  });
-}
 const totalRuns = settings.runs;
-const resultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}`);
+
+// Resolve the network and CPU throttling settings into a list of conditions.
+// A single condition behaves exactly as before; multiple values
+// (comma-separated --network/--cpu or arrays in settings.json) race every
+// combination separately, with results named after the condition.
+// CLI values were already validated in applyOverrides, so anything invalid
+// here came from settings.json — the error labels name those keys.
+let raceConditions;
+try {
+  raceConditions = buildRaceConditions(
+    parseNetworkList(settings.network ?? 'none', 'network'),
+    parseCpuList(settings.cpuThrottle ?? 1, 'cpuThrottle')
+  );
+} catch (e) {
+  if (e instanceof InvalidSettingError) {
+    console.error(`${c.red}Error: ${e.message}${c.reset}`);
+    process.exit(2);
+  }
+  throw e;
+}
+const multiCondition = raceConditions.length > 1;
+
+// Include a short random nonce so rapid successive runs (timestamp collisions,
+// e.g. same second) don't overwrite each other's output.
+const baseResultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}-${crypto.randomBytes(3).toString('hex')}`);
+// In multi-condition mode this is reassigned per condition (baseResultsDir/<label>).
+let resultsDir = baseResultsDir;
 
 // --- Main ---
 
@@ -1062,7 +1094,7 @@ const resultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}`);
  * Returns { rawResult, movedResult } with recordings moved into racerRunDir.
  */
 async function runRacerAlone(browserIdx, racerRunDir) {
-  const recordingsDir = path.join(ctx.raceDir || resultsDir, `tmp-r${browserIdx}`);
+  const recordingsDir = buildRecordingsDir(ctx.raceDir || resultsDir, `tmp-r${browserIdx}`);
   fs.mkdirSync(recordingsDir, { recursive: true });
   fs.mkdirSync(racerRunDir, { recursive: true });
 
@@ -1072,10 +1104,13 @@ async function runRacerAlone(browserIdx, racerRunDir) {
     runnerConfig: { ...ctx.runnerConfig, browsers: [ctx.runnerConfig.browsers[browserIdx]], recordingsDir },
   };
 
-  const rawResult = await spawnRunner(singleCtx);
-  const movedResult = moveResults(recordingsDir, racerNames[browserIdx], racerRunDir, rawResult.browsers?.[0] || {});
-  fs.rmSync(recordingsDir, { recursive: true, force: true });
-  return { rawResult, movedResult };
+  try {
+    const rawResult = await spawnRunner(singleCtx);
+    const movedResult = moveResults(recordingsDir, racerNames[browserIdx], racerRunDir, rawResult.browsers?.[0] || {});
+    return { rawResult, movedResult };
+  } finally {
+    fs.rmSync(recordingsDir, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -1111,27 +1146,19 @@ function generateGeminiCommentary(summary, outputDir) {
   }
 }
 
-/** Inject gemini commentary into the notes textarea of an existing index.html. */
-function bakeNotesIntoHtml(dir, commentary) {
-  if (!commentary) return;
-  const htmlPath = path.join(dir, 'index.html');
-  if (!fs.existsSync(htmlPath)) return;
-  let html = fs.readFileSync(htmlPath, 'utf-8');
-  const escaped = commentary.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  // Replace the empty textarea with commentary content and open the notes section.
-  // Target the notes section specifically via the textarea id.
-  const placeholder = 'id="notesTextarea" placeholder="Add notes about this race..."></textarea>';
-  const replacement = `id="notesTextarea" placeholder="Add notes about this race...">\n🤖 Gemini Race Commentary\n${'─'.repeat(40)}\n${escaped}\n</textarea>`;
-  html = html.replace(placeholder, replacement);
-  // Uncollapse the notes section — match specifically the Notes section's <details>
-  // by anchoring on its unique <summary><h2>Notes</h2></summary> heading.
-  // This prevents accidentally opening a different section even if notesTextarea
-  // appears later in the document.
-  html = html.replace(
-    /(<details class="section" )(?=(?:(?!<\/details>)[\s\S])*?<summary><h2>Notes<\/h2><\/summary>(?:(?!<\/details>)[\s\S])*?id="notesTextarea")/,
-    '$1open'
-  );
-  fs.writeFileSync(htmlPath, html);
+/** Update run nav in each run's index.html with winner colors now that all summaries are available. */
+function updateRunNavColors(summaries) {
+  for (let i = 0; i < summaries.length; i++) {
+    const htmlPath = path.join(resultsDir, String(i + 1), 'index.html');
+    if (!fs.existsSync(htmlPath)) continue;
+    let html = fs.readFileSync(htmlPath, 'utf-8');
+    const oldNavMatch = html.match(/<div class="run-nav">[\s\S]*?<\/div>/);
+    if (!oldNavMatch) continue;
+    const runNav = { currentRun: i + 1, totalRuns: summaries.length, pathPrefix: '../' };
+    const newNav = buildRunNavHtml(runNav, racerNames, summaries);
+    html = html.replace(oldNavMatch[0], newNav);
+    fs.writeFileSync(htmlPath, html);
+  }
 }
 
 /**
@@ -1147,115 +1174,208 @@ function buildRunOutput(runDir, runRawResults, runMovedResults, runNav, raceOpts
   if (isFinalOutput) generateGeminiCommentary(summary, runDir);
   fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
 
-  const { raceScriptFiles, settingsFileCopied } = copyRaceAssets(ctx.raceDir, ctx.racerFiles, runDir);
+  const { raceScriptFiles, settingsFileCopied, raceConfigFile } = storeRaceAssets(ctx, runDir);
 
   progress.done('Recordings processed');
 
+  // No recording means no video player (and no ffmpeg.wasm to ship with it) —
+  // the same as runSingleRace's no-recording path, which only saves measurements.
+  if (settings.noRecording) return { summary, clipTimes: null };
+
   const clipTimes = buildClipTimes(racerNames, (ri) => runRawResults[ri].browsers?.[0], ffmpeg);
 
-  const videoFiles = racerNames.map(name => `${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
-  const traceFiles = racerNames.map(name => `${name}/${name}.trace.json`);
+  const videoFiles = racerNames.map(name => racerRelative(name, raceVideoFile(name)));
+  const traceFiles = racerNames.map(name => racerRelative(name, traceFile(name)));
 
   writePlayerAndAssets({
     runDir, summary, settings, videoFiles,
     playerExtras: {
       traceFiles, raceScriptFiles, settingsFileCopied,
+      raceConfig: ctx.raceConfig, raceConfigFile,
       runNavigation: runNav, clipTimes,
     },
     raceOptions: raceOpts,
+    raceDir: ctx.raceDir,
   });
 
   return { summary, clipTimes };
 }
 
+/**
+ * Run the full race series (all runs, all racers) for the current module-level
+ * settings/ctx/resultsDir. Returns the series' top-level summary: the race
+ * summary for single-run races, or the median summary for multi-run races.
+ */
+async function runRaceSeries() {
+  // Split mode (all runs of one racer before the next) is required when
+  // per-racer setup scripts exist or --pause is set; otherwise racers run
+  // together per run.
+  const needsSplitMode = settings.pauseBetweenRuns || racerScripts.some(r => r.setup);
+  return needsSplitMode ? runSplitModeSeries() : runNormalModeSeries();
+}
+
+/** Normal mode: all racers run together, once per run. */
+async function runNormalModeSeries() {
+  if (totalRuns === 1) {
+    // Commentary is generated before summary.json and the player are written,
+    // so the player renders it into its notes at build time — the same path
+    // split mode takes — instead of patching the finished HTML afterwards.
+    const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir, null, {
+      onSummary: (s) => generateGeminiCommentary(s, resultsDir),
+    });
+    printSummary(summary);
+    fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summary, sideBySidePath ? sideBySideName : null));
+    return summary;
+  }
+
+  fs.mkdirSync(resultsDir, { recursive: true });
+  const summaries = [], sideBySideNames = [], allClipTimes = [];
+
+  for (let i = 0; i < totalRuns; i++) {
+    console.error(`\n  ${c.bold}${c.cyan}── Run ${i + 1} of ${totalRuns} ──${c.reset}`);
+    const runNav = { currentRun: i + 1, totalRuns, pathPrefix: '../' };
+    const { summary, sideBySidePath, sideBySideName, clipTimes: runClipTimes } = await runSingleRace(ctx, path.join(resultsDir, String(i + 1)), runNav, { skipCopyFFmpeg: true, ffmpegPathPrefix: '../' });
+    printSummary(summary);
+    summaries.push(summary);
+    sideBySideNames.push(sideBySidePath ? sideBySideName : null);
+    allClipTimes.push(runClipTimes);
+  }
+
+  updateRunNavColors(summaries);
+  return buildMedianOutput(summaries, sideBySideNames, allClipTimes);
+}
+
+/**
+ * Run every run of one racer in sequence, preceded by its setup script and any
+ * pauses. Fills rawResults[runIdx] / movedResults[runIdx] for that racer.
+ */
+async function runRacerRuns(ri, multiRun, rawResults, movedResults) {
+  if (ri > 0 && settings.pauseBetweenRuns && !racerScripts[ri].setup) {
+    await waitForEnter(`\n  ${c.bold}${c.yellow}⏸  Paused — press Enter to start ${racerNames[ri]}...${c.reset} `);
+  }
+  // Run per-racer setup right before this racer's runs
+  if (racerScripts[ri].setup) {
+    await runScript(racerScripts[ri].setup, `Setup [${racerScripts[ri].name}]`, racerScripts[ri].vars);
+  }
+  for (let i = 0; i < totalRuns; i++) {
+    if (i > 0 && settings.pauseBetweenRuns) {
+      await waitForEnter(`\n  ${c.bold}${c.yellow}⏸  Paused — press Enter to start ${racerNames[ri]} run ${i + 1}...${c.reset} `);
+    }
+    const label = multiRun ? `${racerNames[ri]}: Run ${i + 1} of ${totalRuns}` : racerNames[ri];
+    console.error(`\n  ${c.bold}${c.cyan}── ${label} ──${c.reset}`);
+    const runDir = multiRun ? path.join(resultsDir, String(i + 1)) : resultsDir;
+    const { rawResult, movedResult } = await runRacerAlone(ri, path.join(runDir, racerNames[ri]));
+    rawResults[i] = rawResult;
+    movedResults[i] = movedResult;
+  }
+}
+
+/**
+ * Split mode: all runs of each racer in sequence.
+ * Pattern: setupA → A₁, A₂, …, Aₙ → setupB → B₁, B₂, …, Bₙ
+ */
+async function runSplitModeSeries() {
+  fs.mkdirSync(resultsDir, { recursive: true });
+  const multiRun = totalRuns > 1;
+
+  // rawResults[racerIdx][runIdx], movedResults[racerIdx][runIdx]
+  const rawResults  = racerNames.map(() => Array(totalRuns).fill(null));
+  const movedResults = racerNames.map(() => Array(totalRuns).fill(null));
+
+  for (let ri = 0; ri < racerNames.length; ri++) {
+    await runRacerRuns(ri, multiRun, rawResults[ri], movedResults[ri]);
+  }
+
+  const summaries = [], allClipTimes = [];
+  for (let i = 0; i < totalRuns; i++) {
+    const runDir = multiRun ? path.join(resultsDir, String(i + 1)) : resultsDir;
+    const runNav = multiRun ? { currentRun: i + 1, totalRuns, pathPrefix: '../' } : null;
+    const { summary, clipTimes } = buildRunOutput(
+      runDir,
+      racerNames.map((_, ri) => rawResults[ri][i]),
+      racerNames.map((_, ri) => movedResults[ri][i]),
+      runNav,
+      { skipCopyFFmpeg: multiRun, ffmpegPathPrefix: multiRun ? '../' : './' }
+    );
+    printSummary(summary);
+    summaries.push(summary);
+    allClipTimes.push(clipTimes);
+  }
+
+  if (!multiRun) {
+    fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summaries[0], null));
+    return summaries[0];
+  }
+  updateRunNavColors(summaries);
+  return buildMedianOutput(summaries, summaries.map(() => null), allClipTimes);
+}
+
 async function main() {
+  const missingBrowser = await findMissingBrowser();
+  if (missingBrowser) {
+    console.error(`\n  ${c.red}Error: ${missingBrowser}${c.reset}`);
+    process.exit(1);
+  }
+
   let setupCompleted = false;
 
   try {
     // Run global setup script before races
     await runScript(setupScript, 'Setup');
 
-    const hasRacerSetups = racerScripts.some(r => r.setup);
-
     setupCompleted = true;
-    if (!settings.pauseBetweenRuns && !hasRacerSetups) {
-      // --- Normal mode: both racers run together per run ---
-      if (totalRuns === 1) {
-        const { summary, sideBySidePath, sideBySideName } = await runSingleRace(ctx, resultsDir);
-        printSummary(summary);
-        generateGeminiCommentary(summary, resultsDir);
-        // Re-write summary.json with gemini commentary included
-        fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(summary, null, 2));
-        bakeNotesIntoHtml(resultsDir, summary.geminiCommentary);
-        fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summary, sideBySidePath ? sideBySideName : null));
-      } else {
-        fs.mkdirSync(resultsDir, { recursive: true });
-        const summaries = [], sideBySideNames = [], allClipTimes = [];
 
-        for (let i = 0; i < totalRuns; i++) {
-          console.error(`\n  ${c.bold}${c.cyan}── Run ${i + 1} of ${totalRuns} ──${c.reset}`);
-          const runNav = { currentRun: i + 1, totalRuns, pathPrefix: '../' };
-          const { summary, sideBySidePath, sideBySideName, clipTimes: runClipTimes } = await runSingleRace(ctx, path.join(resultsDir, String(i + 1)), runNav, { skipCopyFFmpeg: true, ffmpegPathPrefix: '../' });
-          printSummary(summary);
-          summaries.push(summary);
-          sideBySideNames.push(sideBySidePath ? sideBySideName : null);
-          allClipTimes.push(runClipTimes);
-        }
-
-        buildMedianOutput(summaries, sideBySideNames, allClipTimes);
-      }
-    } else {
-      // --- Split mode: all runs of each racer in sequence ---
-      // Activated when per-racer setup scripts exist or --pause is set.
-      // Pattern: setupA → A₁, A₂, …, Aₙ → setupB → B₁, B₂, …, Bₙ
-      fs.mkdirSync(resultsDir, { recursive: true });
-      const multiRun = totalRuns > 1;
-
-      // rawResults[racerIdx][runIdx], movedResults[racerIdx][runIdx]
-      const rawResults  = racerNames.map(() => Array(totalRuns).fill(null));
-      const movedResults = racerNames.map(() => Array(totalRuns).fill(null));
-
-      for (let ri = 0; ri < racerNames.length; ri++) {
-        if (ri > 0 && settings.pauseBetweenRuns && !racerScripts[ri].setup) {
-          await waitForEnter(`\n  ${c.bold}${c.yellow}⏸  Paused — press Enter to start ${racerNames[ri]}...${c.reset} `);
-        }
-        // Run per-racer setup right before this racer's runs
-        if (racerScripts[ri].setup) {
-          await runScript(racerScripts[ri].setup, `Setup [${racerScripts[ri].name}]`);
-        }
-        for (let i = 0; i < totalRuns; i++) {
-          const label = multiRun ? `${racerNames[ri]}: Run ${i + 1} of ${totalRuns}` : racerNames[ri];
-          console.error(`\n  ${c.bold}${c.cyan}── ${label} ──${c.reset}`);
-          const runDir = multiRun ? path.join(resultsDir, String(i + 1)) : resultsDir;
-          const { rawResult, movedResult } = await runRacerAlone(ri, path.join(runDir, racerNames[ri]));
-          rawResults[ri][i] = rawResult;
-          movedResults[ri][i] = movedResult;
-        }
-      }
-
-      const summaries = [], allClipTimes = [];
-      for (let i = 0; i < totalRuns; i++) {
-        const runDir = multiRun ? path.join(resultsDir, String(i + 1)) : resultsDir;
-        const runNav = multiRun ? { currentRun: i + 1, totalRuns, pathPrefix: '../' } : null;
-        const { summary, clipTimes } = buildRunOutput(
-          runDir,
-          racerNames.map((_, ri) => rawResults[ri][i]),
-          racerNames.map((_, ri) => movedResults[ri][i]),
-          runNav,
-          { skipCopyFFmpeg: multiRun, ffmpegPathPrefix: multiRun ? '../' : './' }
-        );
-        printSummary(summary);
-        summaries.push(summary);
-        allClipTimes.push(clipTimes);
-      }
-
-      if (!multiRun) {
-        fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMarkdownSummary(summaries[0], null));
-      } else {
-        buildMedianOutput(summaries, summaries.map(() => null), allClipTimes);
-      }
+    // Split mode runs each racer alone and sequentially, which is fundamentally
+    // incompatible with --parallel. Warn once (not per network condition)
+    // instead of silently ignoring the flag.
+    if (settings.parallel && (settings.pauseBetweenRuns || racerScripts.some(r => r.setup))) {
+      const reason = racerScripts.some(r => r.setup) ? 'per-racer setup scripts are present' : '--pause is set';
+      console.error(`  ${c.yellow}Note: --parallel is ignored because ${reason}; racers will run one at a time.${c.reset}`);
     }
 
+    // Race each throttling condition separately. With a single condition this
+    // loop runs once with resultsDir === baseResultsDir (unchanged behavior).
+    const baseSettings = settings;
+    const baseCtx = ctx;
+    const conditionSummaries = [];
+    for (const { network, cpu, label, title } of raceConditions) {
+      settings = { ...baseSettings, network, cpuThrottle: cpu };
+      const throttle = { ...baseCtx.throttle, network, cpu };
+      // The record follows the condition: each one raced a different network/CPU.
+      ctx = {
+        ...baseCtx,
+        settings,
+        throttle,
+        runnerConfig: { ...baseCtx.runnerConfig, throttle },
+        raceConfig: raceConfigFor(settings),
+      };
+      if (multiCondition) {
+        resultsDir = path.join(baseResultsDir, label);
+        console.error(`\n  ${c.bold}${c.magenta}══ ${title} ══${c.reset}`);
+      }
+      conditionSummaries.push({ label, title, network, cpu, summary: await runRaceSeries() });
+    }
+
+    if (multiCondition) {
+      resultsDir = baseResultsDir;
+      // The top-level record keeps the full network/CPU lists that were raced,
+      // not the last condition's single values.
+      fs.mkdirSync(baseResultsDir, { recursive: true });
+      writeRaceConfig(baseResultsDir, baseCtx.raceConfig);
+      // Overview across every condition raced: how the field holds up as the
+      // network and CPU get harder, not just who won each individual race.
+      // The terminal shows total time; the HTML index can switch metrics.
+      printConditionMatrix(buildConditionMatrix(conditionSummaries));
+      if (!settings.noRecording) {
+        fs.writeFileSync(
+          path.join(baseResultsDir, 'index.html'),
+          buildConditionIndexHtml(racerNames.join(' vs '), conditionSummaries, {
+            skin: settings.skin,
+            skinBaseDir: ctx.raceDir,
+          })
+        );
+      }
+    }
 
     const { relResults, relHtml } = buildResultsPaths(resultsDir);
     console.error(`  ${c.dim}📂 ${relResults}${c.reset}`);
@@ -1268,15 +1388,21 @@ async function main() {
       }
     }
   } catch (e) {
-    const phase = setupCompleted ? 'Race' : 'Setup';
-    console.error(`\n${c.red}${c.bold}${phase} failed:${c.reset} ${e.message}\n`);
-    if (!process.exitCode) process.exitCode = 1;
+    if (e instanceof AbortError) {
+      console.error(`\n${c.yellow}${e.message}${c.reset}\n`);
+      // 128 + signo (130=SIGINT, 143=SIGTERM) — set on AbortError at throw site.
+      if (!process.exitCode) process.exitCode = e.exitCode || 130;
+    } else {
+      const phase = setupCompleted ? 'Race' : 'Setup';
+      console.error(`\n${c.red}${c.bold}${phase} failed:${c.reset} ${e.message}\n`);
+      if (!process.exitCode) process.exitCode = 1;
+    }
   } finally {
     // Run per-racer teardown scripts (even on failure)
     for (const racer of racerScripts) {
       if (racer.teardown) {
         try {
-          await runScript(racer.teardown, `Teardown [${racer.name}]`);
+          await runScript(racer.teardown, `Teardown [${racer.name}]`, racer.vars);
         } catch (e) {
           console.error(`\n${c.yellow}Teardown for ${racer.name} failed:${c.reset} ${e.message}`);
         }
@@ -1296,6 +1422,7 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
   const medianSummary = buildMedianSummary(summaries, resultsDir);
   generateGeminiCommentary(medianSummary, resultsDir);
   fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(medianSummary, null, 2));
+  const raceConfigFile = writeRaceConfig(resultsDir, ctx.raceConfig);
 
   if (!settings.noRecording) {
     // For each racer independently, pick the run closest to their median
@@ -1305,9 +1432,9 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
     const overallMedianRunDir = String(overallMedianRunIdx + 1);
     const { ffmpeg, format } = settings;
     const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
-    const medianVideoFiles = racerNames.map((name, i) => `${perRacerRunIdx[i] + 1}/${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
-    const medianFullVideoFiles = ffmpeg ? racerNames.map((name, i) => `${perRacerRunIdx[i] + 1}/${name}/${name}.full${FORMAT_EXTENSIONS.webm}`) : null;
-    const medianAltFiles = ffmpeg && format !== 'webm' ? racerNames.map((name, i) => `${perRacerRunIdx[i] + 1}/${name}/${name}.race${ext}`) : null;
+    const medianVideoFiles = racerNames.map((name, i) => `${perRacerRunIdx[i] + 1}/${racerRelative(name, raceVideoFile(name))}`);
+    const medianFullVideoFiles = ffmpeg ? racerNames.map((name, i) => `${perRacerRunIdx[i] + 1}/${racerRelative(name, fullVideoFile(name))}`) : null;
+    const medianAltFiles = ffmpeg && format !== 'webm' ? racerNames.map((name, i) => `${perRacerRunIdx[i] + 1}/${racerRelative(name, raceVideoFile(name, ext))}`) : null;
     const medianMergedFile = sideBySideNames?.[overallMedianRunIdx] ? `${overallMedianRunDir}/${sideBySideNames[overallMedianRunIdx]}` : null;
     // Clip times: each racer takes their own best run's clip entry
     const medianClipTimes = allClipTimes.some(ct => ct != null)
@@ -1325,10 +1452,14 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
       mergedVideoFile: medianMergedFile,
       raceScriptFiles: ctx.racerFiles ? ctx.racerFiles.map(f => `${overallMedianRunDir}/${f}`) : null,
       settingsFileCopied: fs.existsSync(path.join(resultsDir, overallMedianRunDir, 'settings.json')),
+      raceConfig: ctx.raceConfig,
+      raceConfigFile,
       runNavigation: medianNav,
       medianRunLabel,
       clipTimes: medianClipTimes,
       runSummaries: summaries,
+      skin: settings.skin,
+      skinBaseDir: ctx.raceDir,
     };
     fs.writeFileSync(
       path.join(resultsDir, 'index.html'),
@@ -1340,9 +1471,21 @@ function buildMedianOutput(summaries, sideBySideNames, allClipTimes) {
   console.error(`\n  ${c.bold}${c.cyan}── Median Results (${totalRuns} runs) ──${c.reset}`);
   printSummary(medianSummary);
   fs.writeFileSync(path.join(resultsDir, 'README.md'), buildMultiRunMarkdown(medianSummary, summaries));
+  return medianSummary;
 }
 
 await main();
+
+// Surface runner-level racer failures as a non-zero exit code. main() only sets
+// the exit code when it throws; a race where every browser errored resolves
+// normally with an (empty) summary, so without this a totally failed benchmark
+// would exit 0 and pass CI.
+if (!process.exitCode && runnerFailures.length > 0) {
+  console.error(`\n${c.red}${c.bold}Race completed with errors:${c.reset}`);
+  for (const msg of runnerFailures) console.error(`  ${c.red}• ${msg}${c.reset}`);
+  process.exitCode = 1;
+}
+
 if (settings.noServe || settings.noRecording) process.exit(process.exitCode || 0);
 
 } // end isMainModule

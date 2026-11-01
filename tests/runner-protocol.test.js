@@ -1,0 +1,132 @@
+import { describe, it, expect } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const {
+  PROTOCOL_VERSION,
+  MAX_RACERS,
+  isSafeRacerId,
+  confinePath,
+  formatRaceMessage,
+  createRaceMessageRegex,
+  formatContextClosed,
+} = require('../runner-protocol.cjs');
+
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+function runRunner(config) {
+  return spawnSync('node', ['runner.cjs', JSON.stringify(config)], {
+    cwd: projectRoot,
+    timeout: 30_000,
+    encoding: 'utf-8',
+  });
+}
+
+describe('isSafeRacerId', () => {
+  it('accepts plain names', () => {
+    for (const id of ['lauda', 'racer-a', 'my_racer', 'a.b', 'A1']) {
+      expect(isSafeRacerId(id), id).toBe(true);
+    }
+  });
+
+  it('rejects path separators, traversal, and non-strings', () => {
+    for (const id of ['a/b', 'a\\b', '..', '.', '', '../x', 'a\0b', null, undefined, 42, {}]) {
+      expect(isSafeRacerId(id), String(id)).toBe(false);
+    }
+  });
+});
+
+describe('confinePath', () => {
+  const base = path.join(path.sep, 'tmp', 'recordings');
+
+  it('resolves segments inside the base directory', () => {
+    expect(confinePath(base, 'lauda', 'lauda.trace.json'))
+      .toBe(path.join(base, 'lauda', 'lauda.trace.json'));
+    expect(confinePath(base)).toBe(base);
+  });
+
+  it('throws when segments escape the base directory', () => {
+    expect(() => confinePath(base, '..', 'escape')).toThrow(/escapes base directory/);
+    expect(() => confinePath(base, 'a', '..', '..', 'b')).toThrow(/escapes base directory/);
+    expect(() => confinePath(base, path.join(path.sep, 'etc', 'passwd'))).toThrow(/escapes base directory/);
+  });
+
+  it('does not treat sibling directories with a shared prefix as inside', () => {
+    expect(() => confinePath(base, `..${path.sep}recordings-evil`)).toThrow(/escapes base directory/);
+  });
+});
+
+describe('stderr line formats', () => {
+  it('folds a multi-line message onto one line so the parser keeps all of it', () => {
+    const line = formatRaceMessage('racer-a', '1.0', 'first\nsecond\r\nthird\rfourth');
+    expect(line).not.toMatch(/[\r\n]/);
+    expect(createRaceMessageRegex('racer-a').exec(line)?.[2]).toBe('first second third fourth');
+  });
+
+  it('formatRaceMessage round-trips through createRaceMessageRegex', () => {
+    const line = formatRaceMessage('racer-a', '2.5', 'halfway there');
+    const re = createRaceMessageRegex('racer-a');
+    const m = re.exec(line);
+    expect(m).not.toBeNull();
+    expect(m[1]).toBe('2.5');
+    expect(m[2]).toBe('halfway there');
+  });
+
+  it('regex-escapes ids with special characters', () => {
+    const id = 'a.b+c';
+    const line = formatRaceMessage(id, '0.0', 'hi');
+    expect(createRaceMessageRegex(id).exec(line)?.[2]).toBe('hi');
+    // The dot must not match arbitrary characters
+    expect(createRaceMessageRegex(id).exec(formatRaceMessage('aXb+c', '0.0', 'hi'))).toBeNull();
+  });
+
+  it('formatContextClosed produces the per-racer marker', () => {
+    expect(formatContextClosed('lauda')).toBe('[lauda] Context closed');
+  });
+});
+
+describe('runner.cjs config validation', () => {
+  it('rejects a config with an unsafe racer id before doing any work', () => {
+    const proc = runRunner({
+      protocolVersion: PROTOCOL_VERSION,
+      browsers: [{ id: '../escape', script: '' }],
+      executionMode: 'sequential',
+    });
+    expect(proc.status).toBe(1);
+    expect(proc.stderr).toContain('Unsafe racer id');
+  });
+
+  it('rejects a config without a protocol version', () => {
+    const proc = runRunner({ browsers: [{ id: 'ok', script: '' }], executionMode: 'sequential' });
+    expect(proc.status).toBe(1);
+    expect(proc.stderr).toContain('protocol mismatch');
+  });
+
+  it('rejects a config with no browsers', () => {
+    const proc = runRunner({ protocolVersion: PROTOCOL_VERSION, browsers: [], executionMode: 'sequential' });
+    expect(proc.status).toBe(1);
+    expect(proc.stderr).toContain('non-empty browsers array');
+  });
+
+  it(`rejects a config with more than ${MAX_RACERS} browsers`, () => {
+    // race.js caps the count, but a config handed straight to the runner is
+    // not screened by it, and no window layout past MAX_RACERS keeps every
+    // browser on screen.
+    const browsers = Array.from({ length: MAX_RACERS + 1 }, (_, i) => ({ id: `r${i}`, script: '' }));
+    const proc = runRunner({ protocolVersion: PROTOCOL_VERSION, browsers, executionMode: 'sequential' });
+    expect(proc.status).toBe(1);
+    expect(proc.stderr).toContain(`at most ${MAX_RACERS} can race`);
+  });
+
+  it(`accepts a config with exactly ${MAX_RACERS} browsers`, () => {
+    // The cap is inclusive: a full grid must get past validation. Empty scripts
+    // drive no page, but getting past the check means the runner really does
+    // launch a browser per racer, so this one needs more than the default 5s.
+    const browsers = Array.from({ length: MAX_RACERS }, (_, i) => ({ id: `r${i}`, script: '' }));
+    const proc = runRunner({ protocolVersion: PROTOCOL_VERSION, browsers, executionMode: 'sequential' });
+    expect(proc.stderr).not.toContain('can race');
+  }, 60_000);
+});

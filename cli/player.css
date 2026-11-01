@@ -1,18 +1,222 @@
+/* ===========================================================================
+   RaceForThePrize — results player components
+   ---------------------------------------------------------------------------
+   Layer 3 of the report stylesheet. The palette and semantic roles live in
+   tokens.css, which is inlined ahead of this file; nothing below may contain a
+   literal colour, font, radius or duration, and nothing below may reach past
+   the semantic roles into the raw palette. Tests enforce both.
+   =========================================================================== */
+
+/* --- Document shell ------------------------------------------------------ */
 * { margin: 0; padding: 0; box-sizing: border-box; }
+
 body {
-  background: #1a1a1a;
-  color: #e8e0d0;
-  font-family: ui-monospace, 'Courier New', monospace;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
+  /* Only the foot needs reserving: the title band is sticky, so it takes its
+     own room in the flow rather than hovering over the first thing on the page. */
+  padding-bottom: var(--checker-size);
 }
+
+/* --- Flag bands ----------------------------------------------------------
+   The page is flagged at both ends by the same band: a checker wash faded out
+   across the middle, hemmed by a hairline. The head carries the title, the
+   foot is ornament only. The z-index keeps the page passing underneath —
+   .racer and the share menu are positioned too, and would paint over them —
+   while staying under the export overlay (1000), a modal that covers all. */
+.race-header,
 .checkered-bar {
+  position: relative;
+  /* Contains the ::before, so its negative z-index cannot slip behind the
+     page background. */
+  isolation: isolate;
   width: 100%;
-  height: 20px;
-  background: repeating-conic-gradient(#222 0% 25%, #d4af37 0% 50%) 0 0 / 20px 20px;
+  overflow: hidden;
+  background: var(--bg);
+  z-index: 900;
 }
+/* The flag reads as a texture here rather than a banner: low-alpha squares,
+   masked away across the middle so the title never competes with them. */
+.race-header::before,
+.checkered-bar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    repeating-conic-gradient(var(--checker-wash) 0% 25%, transparent 0% 50%)
+    0 0 / var(--checker-tile) var(--checker-tile);
+  -webkit-mask-image: var(--checker-fade);
+  mask-image: var(--checker-fade);
+}
+
+/* Sticky rather than fixed, so the band keeps its own room in the flow and
+   still rides along as the report scrolls. */
+.race-header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--header-min-height);
+  padding: 0.35rem var(--gutter);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  /* Breathing room before the page starts. It belongs to the band, not to
+     whatever follows, so both reports open with the same gap. */
+  margin-bottom: var(--band-gap);
+}
+
+.checkered-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  height: var(--checker-size);
+  border-top: var(--border-width) solid var(--border-subtle);
+}
+
+h1 {
+  /* A quiet strapline, not a headline: the page's own content is the loud
+     part. Small, medium weight and muted, with the tracking opened up so it
+     still reads as a title at this size. */
+  color: var(--text-muted);
+  font-family: var(--font-banner);
+  font-size: clamp(0.7rem, 1.2vw, 0.85rem);
+  font-weight: 600;
+  font-style: italic;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-widest);
+  /* Four racers with long names would otherwise wrap and push the band to
+     three times its height. overflow:hidden does double duty here — it clips
+     to the ellipsis, and it drops this flex item's automatic minimum size to
+     zero so it can shrink below its own text in the first place. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Shared control chrome ----------------------------------------------
+   Every clickable control starts from the same surface/border/type so a skin
+   only has to move the tokens. Individual rules below declare what differs. */
+.run-nav-btn,
+.control-action-btn,
+.mode-btn,
+.racer-filter-btn,
+.timeline-label,
+.frame-btn,
+.play-btn,
+.file-links a,
+.export-actions button,
+.export-actions a,
+.export-convert-row button,
+.debug-frame-btn,
+.debug-action-btn {
+  background: var(--surface);
+  color: var(--text-dim);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-md);
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background var(--duration),
+    border-color var(--duration),
+    color var(--duration),
+    opacity var(--duration);
+}
+
+/* Hover: lift the surface, light the border. */
+.run-nav-btn:hover,
+.control-action-btn:hover,
+.mode-btn:hover,
+.frame-btn:hover,
+.file-links a:hover,
+.export-actions button:hover,
+.export-actions a:hover {
+  background: var(--surface-raised);
+  border-color: var(--accent);
+}
+
+/* …and, where the resting state is dimmed, brighten the label too. */
+.run-nav-btn:hover,
+.control-action-btn:hover,
+.mode-btn:hover {
+  color: var(--text);
+}
+
+/* Selected/primary state shared by the nav and mode toggles. */
+.run-nav-btn.active,
+.mode-btn.active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-color: var(--accent);
+  font-weight: bold;
+}
+
+/* --- Selects ------------------------------------------------------------- */
+.segment-nav,
+.speed-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--surface) var(--select-arrow) no-repeat right 0.5rem center;
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 0.35rem 1.6rem 0.35rem 0.6rem;
+  font-size: var(--font-size-base);
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition: border-color var(--duration), background-color var(--duration);
+}
+.segment-nav:hover,
+.speed-select:hover {
+  border-color: var(--accent);
+  background-color: var(--surface-raised);
+}
+.segment-nav:focus-visible,
+.speed-select:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* --- Disclosure triangles ------------------------------------------------ */
+.section > summary,
+.section-metric > summary,
+.profile-collapsible summary {
+  list-style: none;
+  cursor: pointer;
+}
+.section > summary::-webkit-details-marker,
+.section-metric > summary::-webkit-details-marker,
+.profile-collapsible summary::-webkit-details-marker { display: none; }
+
+.section > summary::before,
+.section-metric > summary::before,
+.profile-collapsible summary::before {
+  content: "\25B6";
+  font-size: var(--font-size-marker);
+  color: var(--text-ghost);
+  display: inline-block;
+  flex-shrink: 0;
+  transition: transform var(--duration);
+}
+.section[open] > summary::before,
+.section-metric[open] > summary::before,
+.profile-collapsible[open] summary::before { transform: rotate(90deg); }
+
+.section-metric > summary:focus-visible,
+.profile-collapsible summary:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* --- Run navigation ------------------------------------------------------ */
 .run-nav {
   display: flex;
   gap: 0.4rem;
@@ -21,88 +225,58 @@ body {
   flex-wrap: wrap;
 }
 .run-nav-btn {
-  background: #2a2a2a;
-  color: #999;
-  border: 1px solid #444;
-  border-radius: 4px;
+  border-color: var(--border);
   padding: 0.3rem 0.8rem;
-  font-size: 0.8rem;
-  text-decoration: none;
-  font-family: ui-monospace, 'Courier New', monospace;
-  transition: all 0.2s;
+  font-size: var(--font-size-base);
 }
-.run-nav-btn:hover {
-  background: #3a3a3a;
-  border-color: #d4af37;
-  color: #e8e0d0;
-}
-.run-nav-btn.active {
-  background: #d4af37;
-  color: #1a1a1a;
-  border-color: #d4af37;
-  font-weight: bold;
-  cursor: default;
-}
-.header-bar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  max-width: 1440px;
-  padding: 1.2rem 1.5rem 0.3rem;
-  position: relative;
-}
-.header-icon {
-  font-size: 1.4rem;
-  position: absolute;
-}
-.header-icon-left { left: 1.5rem; }
-.header-icon-right {
-  right: 1.5rem;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-.header-action-btn {
-  background: #2a2a2a;
-  border: 1px solid #444;
-  border-radius: 4px;
-  width: 34px;
-  height: 34px;
-  font-size: 1.1rem;
+/* A run whose winner is known is tinted with that racer's colour. This rule
+   has the same specificity as .run-nav-btn.active above and comes later, so it
+   wins on border-color — which is what we want. The brighter label must NOT
+   leak into the active state, though: that one sits on the accent fill and
+   needs its inverted text to stay legible. */
+.run-nav-btn.has-winner { border-color: var(--racer-color, var(--border)); }
+.run-nav-btn.has-winner:not(.active) { color: var(--text-bright); }
+.run-nav-btn.active { cursor: default; }
+
+/* --- Control action buttons --------------------------------------------- */
+.control-action-btn {
+  border-color: var(--border);
+  width: var(--control-size-sm);
+  height: var(--control-size-sm);
+  font-size: var(--font-size-base);
   line-height: 1;
-  cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #999;
-  transition: border-color 0.2s, color 0.2s, background 0.2s;
+  flex-shrink: 0;
 }
-.header-action-btn:hover {
-  border-color: #d4af37;
-  color: #e8e0d0;
-  background: #3a3a3a;
+.control-action-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
 }
-.header-action-btn.active {
-  border-color: #d4af37;
-  color: #d4af37;
-}
-.header-icon-group {
+.control-action-group {
   position: relative;
   display: inline-block;
+  flex-shrink: 0;
 }
+.frame-btn.calibration-btn {
+  width: var(--control-size-sm);
+  height: var(--control-size-sm);
+}
+
+/* --- Share menu ---------------------------------------------------------- */
 .share-menu {
   display: none;
   position: absolute;
   right: 0;
   top: 100%;
-  background: #2a2a2a;
-  border: 1px solid #555;
-  border-radius: 6px;
+  background: var(--surface);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-md);
   padding: 0.3rem 0;
   min-width: 160px;
   z-index: 100;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  box-shadow: var(--shadow-popover);
 }
 .share-menu.visible { display: block; }
 .share-menu-item {
@@ -110,119 +284,78 @@ body {
   width: 100%;
   background: none;
   border: none;
-  color: #e8e0d0;
+  color: var(--text);
   padding: 0.5rem 1rem;
-  font-size: 0.82rem;
-  font-family: ui-monospace, 'Courier New', monospace;
+  font-size: var(--font-size-base);
+  font-family: var(--font-ui);
   text-align: left;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--duration-fast), color var(--duration-fast);
 }
 .share-menu-item:hover {
-  background: #3a3a3a;
-  color: #d4af37;
+  background: var(--surface-raised);
+  color: var(--accent);
 }
-h1 {
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: 1.8rem;
-  color: #d4af37;
-  text-align: center;
-  text-transform: uppercase;
-  letter-spacing: 0.15em;
-}
-.settings-panel {
+
+/* --- Panels --------------------------------------------------------------
+   Settings and calibration share a shape: a bordered block the width of the
+   content column, opened from the controls bar, headed by its name and a line
+   saying what it is for. Only the accent differs — calibration wears the tool
+   colour because it changes playback timing, settings stays page chrome. */
+.panel {
   display: none;
   width: 100%;
-  max-width: 1440px;
-  padding: 0.5rem 1.5rem;
-  gap: 0.8rem;
+  max-width: var(--content-max);
+  /* Top margin, not a gap on a wrapper: a closed panel is display:none and so
+     brings no space with it, which keeps two stacked panels honest. */
+  margin: 0.8rem auto 0;
+  padding: 0.8rem var(--gutter);
+  background: var(--surface);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-md);
+}
+.panel h3 {
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-size: var(--font-size-lg);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  margin-bottom: 0.6rem;
+}
+.panel-note {
+  color: var(--text-dim);
+  font-size: var(--font-size-base);
+  line-height: var(--leading-loose);
+  margin-bottom: 0.8rem;
+}
+
+/* --- Settings panel ------------------------------------------------------ */
+.settings-panel.visible { display: block; }
+.settings-row {
+  display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.8rem;
   flex-wrap: wrap;
 }
-.settings-panel.visible {
-  display: flex;
-}
-.settings-left {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
+.settings-left,
 .settings-right {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
 }
-.winner-banner:empty { display: none; }
-.winner-banner {
-  text-align: center;
-  font-family: Georgia, serif;
-  font-size: 1.2rem;
-  color: #e8e0d0;
-  padding-bottom: 1rem;
-}
-.trophy { font-size: 1.1rem; }
-.video-source-note {
-  text-align: center;
-  font-size: 0.8rem;
-  color: #777;
-  padding-bottom: 0.5rem;
-}
-.race-info, .machine-info {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 0.1rem 1.5rem;
-  font-size: 0.8rem;
-  color: #ccc;
-  padding: 0.1rem 0;
-}
-.info-item {
-  white-space: nowrap;
-}
-.info-label {
-  color: #999;
-  margin-right: 0.4rem;
-}
-.errors {
-  max-width: 900px;
-  width: 100%;
-  padding: 0.3rem 1.5rem;
-}
-.errors ul {
-  list-style: none;
-  font-size: 0.85rem;
-  color: #e74c3c;
-}
-.errors li::before { content: "\26A0  "; }
+
 .mode-toggle {
   display: flex;
   gap: 0.5rem;
   padding: 0;
 }
 .mode-btn {
-  background: #2a2a2a;
-  color: #999;
-  border: 1px solid #555;
-  border-radius: 4px;
   padding: 0.4rem 1rem;
-  font-size: 0.85rem;
-  cursor: pointer;
-  font-family: ui-monospace, 'Courier New', monospace;
-  transition: all 0.2s;
+  font-size: var(--font-size-md);
 }
-.mode-btn:hover {
-  background: #3a3a3a;
-  border-color: #d4af37;
-  color: #e8e0d0;
-}
-.mode-btn.active {
-  background: #d4af37;
-  color: #1a1a1a;
-  border-color: #d4af37;
-  font-weight: bold;
-}
+
 .racer-filter {
   display: none;
   gap: 0.4rem;
@@ -232,273 +365,462 @@ h1 {
   align-items: center;
 }
 .racer-filter-btn {
-  border: 1px solid currentcolor;
-  border-radius: 4px;
+  color: var(--racer-color, var(--text-dim));
+  border-color: currentcolor;
   padding: 0.3rem 0.9rem;
-  font-size: 0.82rem;
-  cursor: pointer;
-  font-family: ui-monospace, 'Courier New', monospace;
-  background: #2a2a2a;
-  transition: opacity 0.2s, background 0.2s;
+  font-size: var(--font-size-base);
   opacity: 0.35;
 }
 .racer-filter-btn.active { opacity: 1; }
-.racer-filter-btn:not(.active):hover { background: #3a3a3a; opacity: 0.6; }
-.racer-filter-btn.active:hover { background: #3a3a3a; }
+.racer-filter-btn:hover { background: var(--surface-raised); }
+.racer-filter-btn:not(.active):hover { opacity: 0.6; }
+
 .segment-nav {
   display: none;
-  appearance: none;
-  -webkit-appearance: none;
-  background: #2a2a2a url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23999'/%3E%3C/svg%3E") no-repeat right 0.5rem center;
-  color: #d4af37;
-  border: 1px solid #555;
-  border-radius: 4px;
-  padding: 0.35rem 1.6rem 0.35rem 0.6rem;
-  font-size: 0.82rem;
+  color: var(--accent);
   font-weight: bold;
-  cursor: pointer;
-  font-family: ui-monospace, 'Courier New', monospace;
-  transition: border-color 0.2s, background-color 0.2s;
 }
-.segment-nav:hover {
-  border-color: #d4af37;
-  background-color: #3a3a3a;
+
+/* --- Banners & notes ----------------------------------------------------- */
+.winner-banner {
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: var(--font-size-3xl);
+  color: var(--text);
+  padding-bottom: 1rem;
 }
-.segment-nav:focus-visible {
-  outline: 2px solid #d4af37;
-  outline-offset: 1px;
+.winner-banner:empty { display: none; }
+/* Zero-height inline-block: the emoji renders centered on the text but adds
+   nothing to the line box, keeping winner and non-winner labels identical. */
+.trophy {
+  display: inline-block;
+  font-size: var(--font-size-2xl);
+  line-height: 0;
+  vertical-align: middle;
 }
+
+
+.errors {
+  max-width: var(--content-max);
+  width: 100%;
+  padding: 0.3rem var(--gutter);
+}
+.errors ul {
+  list-style: none;
+  font-size: var(--font-size-md);
+  color: var(--danger);
+}
+.errors li::before { content: "\26A0  "; }
+
+/* --- Info grids ---------------------------------------------------------- */
+.race-info,
+.machine-info {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 0.1rem var(--gutter);
+  font-size: var(--font-size-base);
+  color: var(--text-muted);
+  padding: 0.1rem 0;
+}
+.info-item { white-space: nowrap; }
+.info-label {
+  color: var(--text-dim);
+  margin-right: 0.4rem;
+}
+
+/* --- Command & configuration --------------------------------------------
+   The invocation reads as a shell line, the settings as a plain table: value
+   plus a badge saying which layer (CLI, settings.json, default) supplied it. */
+.config-command {
+  background: var(--surface-inset);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.7rem;
+  margin-bottom: 0.8rem;
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+  overflow-x: auto;
+}
+.config-command code {
+  font-family: var(--font-ui);
+  white-space: pre;
+}
+.config-command-label {
+  color: var(--accent);
+  user-select: none;
+}
+.config-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-md);
+  margin-top: 0.8rem;
+}
+.config-table th,
+.config-table td {
+  padding: 0.3rem 0.6rem;
+  text-align: left;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  vertical-align: top;
+}
+.config-table th {
+  color: var(--text-subtle);
+  font-size: var(--font-size-sm);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-tight);
+}
+.config-key { color: var(--text-dim); }
+.config-value {
+  color: var(--text-bright);
+  word-break: break-word;
+}
+/* A value that came from somewhere the user chose is worth spotting at a
+   glance; a default is background noise, so it stays dim. */
+.config-source {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-tight);
+  color: var(--text-ghost);
+  white-space: nowrap;
+}
+.config-source-cli { color: var(--accent); }
+.config-source-settingsjson { color: var(--text-muted); }
+
+/* --- Video stage --------------------------------------------------------- */
 .player-container {
   display: flex;
   flex-wrap: wrap;
   gap: 1rem;
-  padding: 0 1.5rem;
+  /* Extra room above the racers, on top of the band's own gap. The fullscreen
+     rule below resets padding to 0, so the grid still fills the screen. */
+  padding: 1.5rem var(--gutter) 0;
   width: 100%;
   justify-content: center;
 }
 .racer {
+  position: relative;
   flex: 1;
-  min-width: 280px;
+  /* Capped at the container, or a phone narrower than 280px plus the gutters
+     scrolls the whole page sideways. */
+  min-width: min(280px, 100%);
   text-align: center;
+  /* Anchors the calibration frame badge and the finish result over this
+     racer's video. The label sits above the video at a height fixed by
+     design (see .racer-label), so overlays that hang off the top of the
+     video clear it with --racer-label-height rather than guessing. */
+  --racer-label-pad: 0.5rem;
+  --racer-label-height: calc(var(--font-size-2xl) * var(--leading) + var(--racer-label-pad) * 2);
+}
+.finish-result {
+  position: absolute;
+  bottom: 0.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.2rem 0.45rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--racer-color, var(--border));
+  border-radius: var(--radius);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-sm);
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
 }
 .racer-label {
-  font-family: Georgia, serif;
-  font-size: 1.1rem;
+  font-family: var(--font-display);
+  font-size: var(--font-size-2xl);
+  color: var(--racer-color, var(--text));
+  /* Explicit line-height keeps every label the same height, so the winner's
+     trophy can never push its video down relative to the other racers. */
+  line-height: var(--leading);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  padding: 0.5rem 0;
+  letter-spacing: var(--tracking-wide);
+  padding: var(--racer-label-pad) 0;
 }
 video {
   width: 100%;
-  border: 2px solid #333;
-  border-radius: 4px;
-  background: #000;
+  border: var(--video-border-width) solid var(--video-border-color);
+  border-radius: var(--radius);
+  background: var(--video-bg);
+}
+/* Block layout drops the inline descender gap under the video, so the frame
+   badge sits flush against the bottom of the picture. */
+.racer video { display: block; }
+
+/* --- Calibration frame badge --------------------------------------------- */
+/* Which frame each racer is showing, painted over the video while the
+   calibration panel is open. Hidden the rest of the time. */
+.frame-badge { display: none; }
+.player-container.show-frame-badges .frame-badge {
+  display: flex;
+  position: absolute;
+  top: calc(var(--racer-label-height) + 0.6rem);
+  left: 50%;
+  transform: translateX(-50%);
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding: 0.1rem 0.3rem;
+  background: var(--scrim);
+  border: var(--border-width) solid var(--tool-accent);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  /* A readout, not a headline: it sits over the recording, so it stays small
+     enough to leave the racer's own page visible behind it. */
+  line-height: var(--leading);
+  pointer-events: none;
+}
+.frame-badge-num {
+  color: var(--tool-accent);
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+}
+.frame-badge-clip {
+  color: var(--text-dim);
+  font-size: var(--font-size-marker);
 }
 .merged-container {
   max-width: 1200px;
   width: 100%;
-  padding: 0 1.5rem;
+  padding: 0 var(--gutter);
 }
 .merged-container video { width: 100%; }
+
+/* --- Transport controls -------------------------------------------------- */
 .controls {
-  max-width: 900px;
+  max-width: var(--content-max);
   width: 100%;
-  padding: 1rem 1.5rem;
+  padding: 0.6rem var(--gutter);
   display: flex;
   align-items: center;
-  gap: 0.8rem;
+  gap: 0.5rem;
   flex-wrap: wrap;
 }
 .controls-row {
   display: flex;
   align-items: center;
-  gap: 0.8rem;
+  gap: 0.5rem;
   flex: 1;
-  min-width: 300px;
+  /* Everything rides one row at full width, so this is only the floor that
+     decides when the bar gives up and wraps: the transport buttons and their
+     gaps come to 212px, leaving a scrubber still worth dragging. */
+  min-width: 320px;
 }
 .play-btn {
-  background: #d4af37;
-  color: #1a1a1a;
+  background: var(--accent);
+  color: var(--accent-contrast);
   border: none;
-  border-radius: 4px;
-  width: 44px;
-  height: 34px;
-  font-size: 1.1rem;
-  cursor: pointer;
+  width: var(--play-btn-width);
+  height: var(--control-size);
+  font-size: var(--font-size-2xl);
   font-weight: bold;
   flex-shrink: 0;
 }
-.play-btn:hover { background: #e8c445; }
+.play-btn:hover { background: var(--accent-bright); }
 .frame-btn {
-  background: #2a2a2a;
-  color: #d4af37;
-  border: 1px solid #555;
-  border-radius: 4px;
-  width: 34px;
-  height: 34px;
-  font-size: 0.7rem;
-  cursor: pointer;
+  color: var(--accent);
+  width: var(--control-size);
+  height: var(--control-size);
+  font-size: var(--font-size-xs);
   flex-shrink: 0;
 }
-.frame-btn:hover { background: #3a3a3a; border-color: #d4af37; }
 .scrubber {
   flex: 1;
-  accent-color: #d4af37;
+  /* A range input's intrinsic width is its automatic minimum, so without this
+     it refuses to shrink and overruns the time display instead. */
+  min-width: 0;
+  /* The thumb is a ~16px disc riding the end of the track, so the row gap
+     alone leaves it almost touching the time readout at the far right. */
+  margin-right: 0.5rem;
+  accent-color: var(--accent);
   height: 6px;
   cursor: pointer;
 }
-.time-display {
-  font-size: 0.75rem;
-  color: #999;
-  min-width: 140px;
+.time-display,
+.frame-display {
+  font-size: var(--font-size-sm);
   text-align: center;
   flex-shrink: 0;
+  white-space: nowrap;
+}
+.time-display {
+  color: var(--text-dim);
 }
 .frame-display {
-  font-size: 0.75rem;
-  color: #777;
-  min-width: 80px;
-  text-align: center;
-  flex-shrink: 0;
+  color: var(--text-faint);
+  min-width: 48px;
 }
 .speed-select {
-  appearance: none;
-  -webkit-appearance: none;
-  background: #2a2a2a url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23999'/%3E%3C/svg%3E") no-repeat right 0.5rem center;
-  color: #e8e0d0;
-  border: 1px solid #555;
-  border-radius: 4px;
-  padding: 0.35rem 1.6rem 0.35rem 0.6rem;
-  font-size: 0.8rem;
-  cursor: pointer;
+  color: var(--text);
   flex-shrink: 0;
-  font-family: ui-monospace, 'Courier New', monospace;
-  transition: border-color 0.2s, background-color 0.2s;
 }
-.speed-select:hover {
-  border-color: #d4af37;
-  background-color: #3a3a3a;
-}
-.speed-select:focus-visible {
-  outline: 2px solid #d4af37;
-  outline-offset: 1px;
-}
+
+/* --- Collapsible report sections ----------------------------------------- */
 .section {
-  max-width: 900px;
+  max-width: var(--content-max);
   width: 100%;
-  padding: 0.8rem 1.5rem 0.5rem;
+  padding: 0.8rem var(--gutter) 0.5rem;
 }
 .section > summary {
-  cursor: pointer;
-  list-style: none;
   display: flex;
   align-items: center;
   gap: 0.5rem;
   padding: 0.2rem 0;
 }
-.section > summary::-webkit-details-marker { display: none; }
-.section > summary::before {
-  content: "\25B6";
-  font-size: 0.55rem;
-  color: #666;
-  display: inline-block;
-  transition: transform 0.2s;
-  flex-shrink: 0;
-}
-.section[open] > summary::before {
-  transform: rotate(90deg);
-}
 .section > summary h2 {
-  font-family: Georgia, serif;
-  color: #d4af37;
-  font-size: 1rem;
+  font-family: var(--font-display);
+  color: var(--accent);
+  font-size: var(--font-size-xl);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--tracking-wide);
   margin: 0;
 }
-.section-body {
-  padding-top: 0.4rem;
-}
-.profile-note {
-  color: #777;
-  font-size: 0.8rem;
-  margin-bottom: 1rem;
-}
-.profile-scope-desc {
-  color: #888;
-  font-size: 0.78rem;
-  font-style: italic;
-  margin: -0.2rem 0 0.8rem;
-}
-.profile-category-desc {
-  color: #777;
-  font-size: 0.75rem;
-  margin: -0.2rem 0 0.5rem;
-}
-.profile-metric-desc {
-  color: #777;
-  font-size: 0.73rem;
-  margin: 0 0 0.2rem 0;
-  line-height: 1.4;
-}
-.profile-info-icon {
-  color: #888;
-  font-size: 0.7rem;
-  cursor: help;
-}
+.section-body { padding-top: 0.4rem; }
 .section h3 {
-  color: #e8e0d0;
-  font-size: 0.95rem;
+  color: var(--text);
+  font-size: var(--font-size-lg);
   margin: 1rem 0 0.5rem;
-  border-bottom: 1px solid #444;
+  border-bottom: var(--border-width) solid var(--border);
   padding-bottom: 0.3rem;
 }
+.section h4 {
+  color: var(--text-dim);
+  font-size: var(--font-size-base);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking);
+  margin: 0.8rem 0 0.4rem;
+}
+
+/* --- Run-by-run comparison table ----------------------------------------- */
 .run-comparison-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.85rem;
+  font-size: var(--font-size-md);
   margin-bottom: 1rem;
 }
 .run-comparison-table th,
 .run-comparison-table td {
   padding: 0.35rem 0.6rem;
   text-align: left;
-  border-bottom: 1px solid #333;
+  border-bottom: var(--border-width) solid var(--border-subtle);
 }
 .run-comparison-table th {
-  color: #888;
-  font-size: 0.75rem;
+  color: var(--racer-color, var(--text-subtle));
+  font-size: var(--font-size-sm);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--tracking-tight);
 }
-.run-comparison-table td {
-  color: #ccc;
-}
+.run-comparison-table td { color: var(--text-muted); }
 .run-comparison-median td {
-  border-top: 2px solid #d4af37;
-  color: #d4af37;
+  border-top: var(--border-width-thick) solid var(--accent);
+  color: var(--accent);
 }
-.section h4 {
-  color: #999;
-  font-size: 0.8rem;
+.run-delta { opacity: 0.5; }
+
+/* --- Run-by-run export controls -------------------------------------------
+   The buttons themselves are the spreadsheet panel's (.spreadsheet-btn, in
+   spreadsheet.css); only their placement in this section lives here. */
+.run-export {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.4rem 0 0.6rem;
+}
+.run-export-label {
+  color: var(--text-faint);
+  font-size: var(--font-size-sm);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin: 0.8rem 0 0.4rem;
+  letter-spacing: var(--tracking);
+  margin-right: 0.3rem;
+}
+.run-table-export {
+  display: flex;
+  gap: 0.4rem;
+  margin: -0.2rem 0 0.5rem;
+}
+
+/* --- Performance profile ------------------------------------------------- */
+.profile-note {
+  color: var(--text-faint);
+  font-size: var(--font-size-base);
+  margin-bottom: 1rem;
+}
+.profile-scope-desc {
+  color: var(--text-subtle);
+  font-size: var(--font-size-base);
+  font-style: italic;
+  margin: -0.2rem 0 0.8rem;
+}
+.profile-category-desc {
+  color: var(--text-faint);
+  font-size: var(--font-size-sm);
+  margin: -0.2rem 0 0.5rem;
+}
+.profile-metric-desc {
+  color: var(--text-faint);
+  font-size: var(--font-size-xs);
+  margin: 0 0 0.2rem;
+  line-height: var(--leading);
+}
+.profile-info-icon {
+  color: var(--text-subtle);
+  font-size: var(--font-size-xs);
+  cursor: help;
 }
 .profile-metric { margin-bottom: 0.6rem; }
 .profile-metric-name {
-  color: #888;
-  font-size: 0.8rem;
+  color: var(--text-subtle);
+  font-size: var(--font-size-base);
   margin-bottom: 0.2rem;
+}
+.profile-metric-total {
+  border: var(--border-width) solid var(--accent-shadow);
+  border-radius: var(--radius-md);
+  padding: 0.55rem 0.65rem 0.35rem;
+  margin-bottom: 0.8rem;
+}
+.profile-metric-total .profile-metric-name {
+  color: var(--accent-bright);
+  font-size: var(--font-size-lg);
+  letter-spacing: var(--tracking-tight);
+  margin-bottom: 0.35rem;
+}
+.section-metric {
+  border-left: var(--border-width-thick) solid var(--border-subtle);
+  padding-left: 0.4rem;
+  opacity: 0.95;
+  margin: 0.45rem 0 0.7rem;
+}
+.section-metric > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.section-metric > summary .profile-metric-name {
+  color: var(--text-dim);
+  margin-bottom: 0;
+}
+.section-metric:not([open]) > summary .profile-metric-name::after {
+  content: " (collapsed)";
+  color: var(--text-ghost);
+  font-size: var(--font-size-xs);
+}
+.section-metric-body {
+  margin-top: 0.25rem;
+  padding: 0.35rem 0.45rem 0.25rem;
+  background: var(--surface-inset);
+  border-radius: var(--radius);
 }
 .profile-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   padding: 0.15rem 0;
-  font-size: 0.82rem;
+  font-size: var(--font-size-base);
 }
 .profile-racer {
+  color: var(--racer-color, var(--text));
   font-weight: bold;
   min-width: 110px;
   flex-shrink: 0;
@@ -506,226 +828,181 @@ video {
 .profile-bar-track {
   flex: 1;
   height: 10px;
-  background: #2a2a2a;
-  border-radius: 3px;
+  background: var(--surface);
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 .profile-bar-fill {
   display: block;
   height: 100%;
-  border-radius: 3px;
+  background: var(--racer-color, var(--accent));
+  border-radius: var(--radius-sm);
   opacity: 0.8;
 }
 .profile-value {
   min-width: 140px;
   flex-shrink: 0;
   text-align: right;
-  color: #ccc;
+  color: var(--text-muted);
   white-space: nowrap;
 }
+.profile-value-trophies { margin-left: auto; }
 .profile-delta {
-  color: #888;
-  font-size: 0.75rem;
+  color: var(--text-subtle);
+  font-size: var(--font-size-sm);
   margin-left: 0.3rem;
 }
-.profile-medal { font-size: 0.85rem; }
+.profile-medal { font-size: var(--font-size-md); }
 .profile-winner {
-  font-size: 0.9rem;
+  font-size: var(--font-size-lg);
   font-weight: bold;
   margin-top: 0.2rem;
 }
-.profile-collapsible {
-  margin-top: 1rem;
-}
+.profile-collapsible { margin-top: 1rem; }
 .profile-collapsible summary {
-  cursor: pointer;
-  list-style: none;
-  color: #e8e0d0;
+  color: var(--text);
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
-.profile-collapsible summary::-webkit-details-marker { display: none; }
-.profile-collapsible summary::before {
-  content: "\25B6";
-  font-size: 0.55rem;
-  color: #666;
-  transition: transform 0.2s;
-  display: inline-block;
-  flex-shrink: 0;
-}
-.profile-collapsible[open] summary::before {
-  transform: rotate(90deg);
-}
+.profile-collapsible-title { display: inline; }
+
+/* Racer name chips reused by the profile and calibration panels. */
+.racer-name { color: var(--racer-color, var(--text)); }
+
+/* --- File links ---------------------------------------------------------- */
 .file-links {
   display: flex;
   gap: 0.6rem;
   flex-wrap: wrap;
 }
 .file-links a {
-  color: #e8e0d0;
-  background: #2a2a2a;
-  border: 1px solid #555;
-  border-radius: 4px;
+  color: var(--text);
   padding: 0.4rem 0.8rem;
-  text-decoration: none;
-  font-size: 0.85rem;
 }
-.file-links a:hover {
-  background: #3a3a3a;
-  border-color: #d4af37;
-}
+
+/* --- Segment timeline ----------------------------------------------------
+   One bar for the whole recording, the race clip marked on it and a block per
+   measurement. Blocks and labels are buttons; each carries its measurement's
+   colour as --segment-color, the way a racer carries --racer-color. */
 .race-timeline {
-  max-width: 900px;
+  max-width: var(--content-max);
   width: 100%;
-  padding: 0.4rem 1.5rem 0;
+  padding: 0.4rem var(--gutter) 0;
   user-select: none;
 }
 .timeline-bar {
   position: relative;
   width: 100%;
   height: 28px;
-  background: #222;
-  border-radius: 4px;
+  background: var(--surface);
+  border-radius: var(--radius);
   overflow: hidden;
   cursor: pointer;
 }
-.timeline-region {
+.timeline-region-clip {
   position: absolute;
   top: 0;
   height: 100%;
-  border-radius: 3px;
-  transition: opacity 0.15s;
-}
-.timeline-region-full {
-  background: #2a2a2a;
-  z-index: 0;
-}
-.timeline-region-clip {
-  background: rgba(212, 175, 55, 0.18);
-  border-left: 2px solid rgba(212, 175, 55, 0.5);
-  border-right: 2px solid rgba(212, 175, 55, 0.5);
-  z-index: 1;
+  background: var(--surface-raised);
+  border-left: var(--border-width-thick) solid var(--accent);
+  border-right: var(--border-width-thick) solid var(--accent);
+  /* A click on the clip region is a click on the bar underneath it. */
   pointer-events: none;
 }
 .timeline-segment {
   position: absolute;
-  top: 3px;
-  height: calc(100% - 6px);
-  border-radius: 3px;
-  z-index: 2;
-  cursor: pointer;
-  transition: opacity 0.15s, filter 0.15s;
-  opacity: 0.7;
+  top: 4px;
+  height: calc(100% - 8px);
   min-width: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--segment-color, var(--accent));
+  opacity: 0.7;
+  cursor: pointer;
+  transition: opacity var(--duration-fast);
 }
-.timeline-segment:hover {
-  opacity: 1;
-  filter: brightness(1.3);
-}
-.timeline-segment.active {
-  opacity: 1;
-  outline: 2px solid #fff;
-  outline-offset: -1px;
+.timeline-segment:hover,
+.timeline-segment.active { opacity: 1; }
+/* The bar clips overflow, so the ring sits inside the block. */
+.timeline-segment.active { box-shadow: inset 0 0 0 var(--border-width-thick) var(--text-bright); }
+.timeline-segment:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
 }
 .timeline-playhead {
   position: absolute;
   top: 0;
   left: 0;
-  width: 2px;
+  width: var(--border-width-thick);
   height: 100%;
-  background: #fff;
-  z-index: 10;
+  background: var(--text-bright);
   pointer-events: none;
-  transition: left 0.05s linear;
 }
 .timeline-labels {
   display: flex;
   gap: 0.3rem;
-  padding: 0.3rem 0 0;
+  padding-top: 0.3rem;
   flex-wrap: wrap;
   justify-content: center;
 }
+/* A chip per measurement, coloured like its block — the racer filter's look,
+   on the shared control chrome. */
 .timeline-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  font-size: 0.72rem;
-  color: #999;
-  cursor: pointer;
+  color: var(--segment-color, var(--text-dim));
+  border-color: currentcolor;
   padding: 0.15rem 0.5rem;
-  border-radius: 3px;
-  transition: background 0.15s, color 0.15s;
+  font-size: var(--font-size-xs);
+  opacity: 0.6;
 }
-.timeline-label:hover {
-  background: #2a2a2a;
-  color: #e8e0d0;
-}
-.timeline-label.active {
-  background: #333;
-  color: #d4af37;
-}
-.timeline-label-swatch {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-  flex-shrink: 0;
-}
+.timeline-label:hover,
+.timeline-label.active { opacity: 1; }
+.timeline-label:hover { background: var(--surface-raised); }
+.timeline-label:focus-visible { outline: var(--focus-ring); }
+
+/* --- Calibration panel ---------------------------------------------------
+   Shape comes from .panel; this is only what marks it out as a tool. */
 .debug-panel {
-  max-width: 900px;
-  width: 100%;
-  padding: 0.8rem 1.5rem;
-  background: #2a2218;
-  border: 1px solid #e67e22;
-  border-radius: 6px;
-  margin: 0 auto;
-  display: none;
+  background: var(--tool-surface);
+  border-color: var(--tool-accent);
 }
-.debug-panel h3 {
-  color: #e67e22;
-  font-family: Georgia, serif;
-  font-size: 0.95rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  margin-bottom: 0.6rem;
-}
-.calibration-note {
-  color: #999;
-  font-size: 0.8rem;
-  line-height: 1.5;
-  margin-bottom: 0.8rem;
-}
+.debug-panel h3 { color: var(--tool-accent); }
 .debug-row {
   display: flex;
   align-items: center;
   gap: 0.6rem;
   padding: 0.3rem 0;
-  font-size: 0.85rem;
+  font-size: var(--font-size-md);
   flex-wrap: wrap;
 }
-.debug-row .racer-name {
+.debug-row .racer-name,
+.debug-stats-row .racer-name {
   font-weight: bold;
   min-width: 90px;
 }
 .debug-row .start-info {
-  color: #999;
+  color: var(--text-dim);
   min-width: 150px;
 }
-.debug-frame-btn {
-  background: #2a2a2a;
-  color: #e67e22;
-  border: 1px solid #e67e22;
-  border-radius: 3px;
-  padding: 0.2rem 0.5rem;
-  font-size: 0.75rem;
-  cursor: pointer;
-  font-family: ui-monospace, 'Courier New', monospace;
-  transition: all 0.2s;
+.debug-frame-btn,
+.debug-action-btn {
+  color: var(--tool-accent);
+  border-color: var(--tool-accent);
 }
-.debug-frame-btn:hover {
-  background: #e67e22;
-  color: #1a1a1a;
+.debug-frame-btn {
+  border-radius: var(--radius-sm);
+  padding: 0.2rem 0.5rem;
+  font-size: var(--font-size-sm);
+}
+.debug-action-btn {
+  padding: 0.3rem 0.8rem;
+  font-size: var(--font-size-base);
+}
+.debug-frame-btn:hover,
+.debug-action-btn:hover {
+  background: var(--tool-accent);
+  color: var(--tool-contrast);
 }
 .debug-footer {
   display: flex;
@@ -733,36 +1010,23 @@ video {
   gap: 0.8rem;
   margin-top: 0.6rem;
   padding-top: 0.5rem;
-  border-top: 1px solid #444;
-  font-size: 0.75rem;
-  color: #777;
+  border-top: var(--border-width) solid var(--border);
+  font-size: var(--font-size-sm);
+  color: var(--text-faint);
   flex-wrap: wrap;
 }
-.debug-action-btn {
-  background: #2a2a2a;
-  color: #e67e22;
-  border: 1px solid #e67e22;
-  border-radius: 4px;
-  padding: 0.3rem 0.8rem;
-  font-size: 0.8rem;
-  cursor: pointer;
-  font-family: ui-monospace, 'Courier New', monospace;
-  transition: all 0.2s;
-}
-.debug-action-btn:hover {
-  background: #e67e22;
-  color: #1a1a1a;
-}
-.debug-stats {
+.debug-stats,
+.debug-frames,
+.debug-timing {
   margin-top: 0.6rem;
   padding-top: 0.5rem;
-  border-top: 1px solid #444;
+  border-top: var(--border-width) solid var(--border);
 }
 .debug-stats-header {
-  color: #e67e22;
-  font-size: 0.8rem;
+  color: var(--tool-accent);
+  font-size: var(--font-size-base);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--tracking);
   margin-bottom: 0.3rem;
 }
 .debug-stats-row {
@@ -770,42 +1034,26 @@ video {
   align-items: center;
   gap: 1rem;
   padding: 0.15rem 0;
-  font-size: 0.8rem;
-  color: #999;
+  font-size: var(--font-size-base);
+  color: var(--text-dim);
   flex-wrap: wrap;
 }
-.debug-stats-row .racer-name {
-  font-weight: bold;
-  min-width: 90px;
-}
-.debug-frames {
-  margin-top: 0.6rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid #444;
-}
-.debug-timing {
-  margin-top: 0.6rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid #444;
-}
-.debug-timing-racer {
-  margin-bottom: 0.5rem;
-}
+.debug-timing-racer { margin-bottom: 0.5rem; }
 .debug-timing-racer .racer-name {
   font-weight: bold;
-  font-size: 0.8rem;
+  font-size: var(--font-size-base);
   display: block;
   margin-bottom: 0.2rem;
 }
 .debug-timing-events {
-  font-size: 0.75rem;
-  color: #999;
+  font-size: var(--font-size-sm);
+  color: var(--text-dim);
 }
 .debug-timing-event {
   display: flex;
   gap: 0.5rem;
   padding: 0.1rem 0;
-  border-bottom: 1px solid #333;
+  border-bottom: var(--border-width) solid var(--border-subtle);
 }
 .debug-timing-label {
   flex: 1;
@@ -814,22 +1062,25 @@ video {
 .debug-timing-val {
   min-width: 70px;
   text-align: right;
-  color: #bbb;
+  color: var(--text-muted);
 }
+.debug-timing-empty { color: var(--text-faint); }
+
+/* --- Export overlay ------------------------------------------------------ */
 .export-overlay {
   position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.85);
+  inset: 0;
+  background: var(--scrim);
   z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .export-modal {
-  background: #1a1a1a;
-  border: 2px solid #d4af37;
-  border-radius: 8px;
-  padding: 1.5rem;
+  background: var(--bg);
+  border: var(--border-width-thick) solid var(--accent);
+  border-radius: var(--radius-lg);
+  padding: var(--gutter);
   max-width: 90vw;
   max-height: 90vh;
   display: flex;
@@ -838,16 +1089,16 @@ video {
   gap: 1rem;
 }
 .export-modal h3 {
-  font-family: Georgia, serif;
-  color: #d4af37;
-  font-size: 1rem;
+  font-family: var(--font-display);
+  color: var(--accent);
+  font-size: var(--font-size-xl);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--tracking-wide);
   margin: 0;
 }
 .export-modal canvas {
-  border: 1px solid #333;
-  border-radius: 4px;
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius);
   max-width: 100%;
   max-height: 50vh;
   object-fit: contain;
@@ -855,41 +1106,30 @@ video {
 .export-progress-bar {
   width: 100%;
   height: 8px;
-  background: #2a2a2a;
-  border-radius: 4px;
+  background: var(--surface);
+  border-radius: var(--radius);
   overflow: hidden;
 }
 .export-progress-fill {
   height: 100%;
-  background: #d4af37;
-  border-radius: 4px;
+  background: var(--accent);
+  border-radius: var(--radius);
   width: 0%;
-  transition: width 0.2s;
+  transition: width var(--duration);
 }
 .export-actions {
   display: flex;
   gap: 0.8rem;
   align-items: center;
 }
-.export-actions button, .export-actions a {
-  background: #2a2a2a;
-  color: #e8e0d0;
-  border: 1px solid #555;
-  border-radius: 4px;
+.export-actions button,
+.export-actions a {
+  color: var(--text);
   padding: 0.4rem 1rem;
-  font-size: 0.85rem;
-  cursor: pointer;
-  font-family: ui-monospace, 'Courier New', monospace;
-  text-decoration: none;
-  transition: all 0.2s;
-}
-.export-actions button:hover, .export-actions a:hover {
-  background: #3a3a3a;
-  border-color: #d4af37;
 }
 .export-status {
-  color: #999;
-  font-size: 0.85rem;
+  color: var(--text-dim);
+  font-size: var(--font-size-md);
 }
 .export-convert-row {
   display: flex;
@@ -899,46 +1139,59 @@ video {
   justify-content: center;
 }
 .export-convert-row button {
-  background: #2a2a2a;
-  color: #d4af37;
-  border: 1px solid #d4af37;
-  border-radius: 4px;
+  color: var(--accent);
+  border-color: var(--accent);
   padding: 0.4rem 1rem;
-  font-size: 0.85rem;
-  cursor: pointer;
-  font-family: ui-monospace, 'Courier New', monospace;
-  transition: all 0.2s;
 }
-.export-convert-row button:hover { background: #d4af37; color: #1a1a1a; }
+.export-convert-row button:hover {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
 .export-convert-row button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-  background: #2a2a2a;
-  color: #999;
-  border-color: #555;
+  background: var(--surface);
+  color: var(--text-dim);
+  border-color: var(--border-strong);
 }
+
+/* --- Notes --------------------------------------------------------------- */
+.notes-textarea {
+  width: 100%;
+  min-height: 100px;
+  background: var(--surface);
+  color: var(--text);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.6rem;
+  font-family: var(--font-ui);
+  font-size: var(--font-size-md);
+  resize: vertical;
+}
+.notes-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* --- Fullscreen ----------------------------------------------------------
+   :is() has a forgiving selector list, so the unprefixed and -webkit- forms
+   can share one block: whichever the browser does not know is dropped rather
+   than invalidating the rule. */
 .fullscreen-wrapper {
   width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
-.fullscreen-wrapper:fullscreen,
-.fullscreen-wrapper:-webkit-full-screen {
-  background: #000;
-  display: flex;
-  flex-direction: column;
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) {
+  background: var(--video-bg);
   justify-content: center;
-  align-items: center;
   padding: 0;
   position: relative;
   cursor: none;
 }
-.fullscreen-wrapper.fs-controls-visible {
-  cursor: default;
-}
-.fullscreen-wrapper:fullscreen .player-container,
-.fullscreen-wrapper:-webkit-full-screen .player-container {
+.fullscreen-wrapper.fs-controls-visible { cursor: default; }
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .player-container {
   display: grid;
   grid-template-columns: repeat(var(--fs-cols, 2), 1fr);
   grid-auto-rows: 1fr;
@@ -949,18 +1202,31 @@ video {
   min-height: 0;
   max-width: 100%;
 }
-.fullscreen-wrapper:fullscreen .racer,
-.fullscreen-wrapper:-webkit-full-screen .racer {
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .racer {
   min-width: 0;
   max-width: none;
   overflow: hidden;
 }
-.fullscreen-wrapper:fullscreen .racer-label,
-.fullscreen-wrapper:-webkit-full-screen .racer-label {
-  display: none;
+/* Out of the flow and onto the video: the fullscreen grid gives each row the
+   viewport, so a label that still took its own line would shrink every video
+   by its height. Centred at the top, where it clears the recording dot and the
+   wall clock burned into the footage's top-left corner. */
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .racer-label {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  max-width: 100%;
+  padding: 0.25rem 0.75rem;
+  background: var(--scrim);
+  border-radius: 0 0 var(--radius) var(--radius);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
 }
-.fullscreen-wrapper:fullscreen video,
-.fullscreen-wrapper:-webkit-full-screen video {
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) video {
   width: 100%;
   height: 100%;
   max-height: 100%;
@@ -968,8 +1234,7 @@ video {
   border: none;
   border-radius: 0;
 }
-.fullscreen-wrapper:fullscreen .merged-container,
-.fullscreen-wrapper:-webkit-full-screen .merged-container {
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .merged-container {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -979,16 +1244,11 @@ video {
   padding: 0;
   height: 100vh;
 }
-.fullscreen-wrapper:fullscreen .merged-container video,
-.fullscreen-wrapper:-webkit-full-screen .merged-container video {
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .merged-container video {
   height: 100vh;
   max-height: 100vh;
-  object-fit: contain;
-  border: none;
-  border-radius: 0;
 }
-.fullscreen-wrapper:fullscreen .controls,
-.fullscreen-wrapper:-webkit-full-screen .controls {
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .controls {
   position: absolute;
   bottom: 0;
   left: 0;
@@ -996,44 +1256,81 @@ video {
   max-width: 100%;
   padding: 0.5rem 1rem;
   gap: 0.5rem;
-  background: linear-gradient(transparent, rgba(0,0,0,0.85));
+  background: linear-gradient(transparent, var(--scrim));
   opacity: 0;
-  transition: opacity 0.3s;
+  transition: opacity var(--duration-slow);
   pointer-events: none;
   z-index: 10;
+}
+/* The calibration and settings panels are rendered outside the fullscreen
+   wrapper, and the export overlay is appended to <body> — none of them are in
+   the fullscreen subtree, so these toggles have nothing to open while
+   fullscreen. Hide them with the racer labels. #fullscreenBtn stays: it is the
+   way back out. */
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) :is(.calibration-btn, .control-action-group, #settingsToggle) {
+  display: none;
+}
+/* The grid takes the whole screen, so the timeline would only add a scroll
+   below it; the scrubber in the overlaid controls carries fullscreen. */
+.fullscreen-wrapper:is(:fullscreen, :-webkit-full-screen) .race-timeline {
+  display: none;
 }
 .fullscreen-wrapper.fs-controls-visible .controls {
   opacity: 1;
   pointer-events: auto;
 }
+
+/* --- Utilities ----------------------------------------------------------- */
 .sr-only {
   position: absolute; width: 1px; height: 1px;
   padding: 0; margin: -1px; overflow: hidden;
-  clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
   }
 }
-.notes-textarea {
-  width: 100%;
-  min-height: 100px;
-  background: #2a2a2a;
-  color: #e8e0d0;
-  border: 1px solid #444;
-  border-radius: 4px;
-  padding: 0.6rem;
-  font-family: ui-monospace, 'Courier New', monospace;
-  font-size: 0.85rem;
-  resize: vertical;
-}
-.notes-textarea:focus {
-  outline: none;
-  border-color: #d4af37;
-}
+
 @media (max-width: 600px) {
-  .controls-row { min-width: auto; flex-wrap: wrap; }
-  .time-display { min-width: auto; }
+  /* Every pixel of a phone is worth more to the report than to its margins. */
+  body { --gutter: 1rem; }
+
+  /* The transport buttons take a line of their own; otherwise the row shares
+     it with the time readout and the last button drops onto a line alone. */
+  .controls { justify-content: center; }
+  .controls-row { min-width: auto; flex-basis: 100%; flex-wrap: wrap; justify-content: center; }
+  /* No width left to share, so give the scrubber its own line rather than
+     letting it shrink to a stub beside the transport buttons. */
+  .scrubber { flex-basis: 100%; margin-right: 0; }
+
+  /* Three columns leave the value a sliver between the setting name and its
+     badge, and it wraps a character at a time. Stack each row instead: name
+     and source on one line, the value under them at full width. */
+  .config-table thead { display: none; }
+  .config-table,
+  .config-table tbody { display: block; }
+  .config-table tr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    column-gap: 0.6rem;
+    padding: 0.3rem 0;
+    border-bottom: var(--border-width) solid var(--border-subtle);
+  }
+  .config-table td { border-bottom: none; padding: 0.1rem 0.2rem; }
+  .config-table .config-value { grid-column: 1 / -1; grid-row: 2; }
+
+  /* The fixed name and value columns alone nearly fill a narrow screen, which
+     squeezes the bar to nothing and pushes a row of trophies off the edge. */
+  .profile-racer {
+    min-width: 0;
+    flex-basis: 5.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .profile-value { min-width: 7.5rem; }
+  .profile-value-trophies { white-space: normal; }
 }

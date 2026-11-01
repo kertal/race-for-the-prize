@@ -99,11 +99,8 @@ describe('calibration integration', () => {
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
     const parsed = await extractFromScripts(() => {
-      for (const s of document.querySelectorAll('script')) {
-        const match = s.textContent.match(/const clipTimes = (\[.*?\]);/);
-        if (match) return JSON.parse(match[1]);
-      }
-      return null;
+      const cfg = document.getElementById('race-config');
+      return cfg ? JSON.parse(cfg.textContent).clipTimes : null;
     });
 
     expect(parsed).toHaveLength(2);
@@ -143,10 +140,8 @@ describe('calibration integration', () => {
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
     const result = await extractFromScripts(() => {
-      const clipTimesMatch = [...document.querySelectorAll('script')]
-        .map(s => s.textContent.match(/const clipTimes = (\[.*?\]);/))
-        .find(Boolean);
-      const parsedClipTimes = clipTimesMatch ? JSON.parse(clipTimesMatch[1]) : null;
+      const cfgEl = document.getElementById('race-config');
+      const parsedClipTimes = cfgEl ? JSON.parse(cfgEl.textContent).clipTimes : null;
       const hasTraceCalibration = ct => !!(ct && ct.traceCalibration && Number.isFinite(ct.traceCalibration.recordingStartTs));
       const needsCalibration = parsedClipTimes
         ? parsedClipTimes.some(ct => ct && ct.calibratedStart == null && !hasTraceCalibration(ct))
@@ -154,9 +149,12 @@ describe('calibration integration', () => {
 
       for (const s of document.querySelectorAll('script')) {
         if (s.textContent.includes('applyCalibrationToClip')) {
+          const hasCalibrationLocalStorageFallback =
+            /localStorage\.(getItem|setItem)\([^)]*calibr/i.test(s.textContent) ||
+            s.textContent.includes('calibrationCache');
           return {
             hasNoCanvasFallback: !s.textContent.includes('calibrateFromCanvas'),
-            hasNoLocalStorageFallback: !s.textContent.includes('localStorage'),
+            hasNoCalibrationLocalStorageFallback: !hasCalibrationLocalStorageFallback,
             hasTraceFixtures: Array.isArray(parsedClipTimes) && parsedClipTimes.every(ct => !!ct.traceCalibration),
             needsCalibration,
           };
@@ -167,7 +165,7 @@ describe('calibration integration', () => {
 
     expect(result).toBeTruthy();
     expect(result.hasNoCanvasFallback).toBe(true);
-    expect(result.hasNoLocalStorageFallback).toBe(true);
+    expect(result.hasNoCalibrationLocalStorageFallback).toBe(true);
     expect(result.hasTraceFixtures).toBe(true);
     expect(result.needsCalibration).toBe(false);
   });
@@ -227,20 +225,17 @@ describe('calibration integration', () => {
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
     const result = await extractFromScripts(() => {
-      for (const s of document.querySelectorAll('script')) {
-        const match = s.textContent.match(/const clipTimes = (\[.*?\]);/);
-        if (match) {
-          return JSON.parse(match[1]).map(ct => {
-            const segDuration = ct.end - ct.start;
-            return {
-              wcStart: ct.start, wcEnd: ct.end, segDuration,
-              expectedStart: (ct.traceCalibration.recordingStartTs - ct.traceCalibration.firstFrameTs) / 1e6,
-              expectedEnd: ((ct.traceCalibration.recordingStartTs - ct.traceCalibration.firstFrameTs) / 1e6) + segDuration,
-            };
-          });
-        }
-      }
-      return null;
+      const cfg = document.getElementById('race-config');
+      const clipTimes = cfg ? JSON.parse(cfg.textContent).clipTimes : null;
+      if (!clipTimes) return null;
+      return clipTimes.map(ct => {
+        const segDuration = ct.end - ct.start;
+        return {
+          wcStart: ct.start, wcEnd: ct.end, segDuration,
+          expectedStart: (ct.traceCalibration.recordingStartTs - ct.traceCalibration.firstFrameTs) / 1e6,
+          expectedEnd: ((ct.traceCalibration.recordingStartTs - ct.traceCalibration.firstFrameTs) / 1e6) + segDuration,
+        };
+      });
     });
 
     expect(result).toHaveLength(2);

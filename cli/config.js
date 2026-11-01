@@ -5,8 +5,68 @@
 
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
 
-const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'height', 'gemini-spec']);
+// The racer cap is declared in runner-protocol.cjs, because the runner has to
+// enforce the same number on a config handed to it directly. Re-exported here
+// so the CLI side has one import site for it.
+export const { MAX_RACERS } = createRequire(import.meta.url)('../runner-protocol.cjs');
+
+const KV_FLAG_NAMES = new Set(['runs', 'cpu', 'format', 'network', 'slowmo', 'height', 'gemini-spec', 'skin']);
+const BOOLEAN_VALUE_FLAGS = new Set([
+  'parallel', 'headless', 'overlay', 'recording',
+  'ffmpeg', 'har', 'wasm', 'serve', 'pause', 'ignore-https-errors', 'gemini',
+  'cue-markers', 'wall-clock', 'fps',
+]);
+
+/** Boolean flags the CLI recognises. Unknown flags produce an error. */
+export const KNOWN_BOOL_FLAGS = new Set([
+  'parallel', 'headless', 'overlay', 'recording',
+  'ffmpeg', 'har', 'wasm', 'serve', 'pause', 'ignore-https-errors',
+  'gemini', 'results', 'init', 'verbose', 'help', 'version', 'yes',
+  'cue-markers', 'wall-clock', 'fps',
+]);
+
+/** Combined set of all valid flag names (bool + kv). */
+export const KNOWN_FLAGS = new Set([...KNOWN_BOOL_FLAGS, ...KV_FLAG_NAMES]);
+
+/**
+ * CLI flag name → the settings key `applyOverrides` writes for it. Flags that
+ * touch no setting (`--results`, `--help`, …) are absent.
+ *
+ * This is what lets a race record say where each effective setting came from
+ * (see `cli/race-config.js`) without re-running the overrides. A unit test
+ * cross-checks every entry against `applyOverrides`, so the two cannot drift.
+ */
+export const FLAG_SETTING_KEYS = {
+  parallel: 'parallel',
+  headless: 'headless',
+  overlay: 'noOverlay',
+  recording: 'noRecording',
+  ffmpeg: 'ffmpeg',
+  har: 'har',
+  wasm: 'noWasm',
+  serve: 'noServe',
+  pause: 'pauseBetweenRuns',
+  'ignore-https-errors': 'ignoreHTTPSErrors',
+  gemini: 'gemini',
+  'cue-markers': 'cueMarkers',
+  'wall-clock': 'wallClock',
+  fps: 'fps',
+  network: 'network',
+  cpu: 'cpuThrottle',
+  skin: 'skin',
+  format: 'format',
+  runs: 'runs',
+  slowmo: 'slowmo',
+  height: 'viewportHeight',
+};
+
+function isBooleanLikeValue(value) {
+  if (typeof value !== 'string') return false;
+  const s = value.trim().toLowerCase();
+  return s === 'true' || s === 'false' || s === '1' || s === '0' || s === 'yes' || s === 'no';
+}
 
 export function parseArgs(argv) {
   const positional = [];
@@ -24,6 +84,14 @@ export function parseArgs(argv) {
         if (KV_FLAG_NAMES.has(name) && argv[i + 1] !== undefined && !argv[i + 1].startsWith('--')) {
           kvFlags[name] = argv[i + 1];
           i++;
+        } else if (
+          BOOLEAN_VALUE_FLAGS.has(name) &&
+          argv[i + 1] !== undefined &&
+          !argv[i + 1].startsWith('--') &&
+          isBooleanLikeValue(argv[i + 1])
+        ) {
+          kvFlags[name] = argv[i + 1];
+          i++;
         } else {
           boolFlags.add(name);
         }
@@ -34,6 +102,31 @@ export function parseArgs(argv) {
   }
 
   return { positional, boolFlags, kvFlags };
+}
+
+/**
+ * Return list of unknown flag names (neither in KNOWN_BOOL_FLAGS nor KV_FLAG_NAMES).
+ * Callers should reject the invocation if this returns non-empty.
+ */
+export function findUnknownFlags(boolFlags, kvFlags) {
+  const unknown = [];
+  for (const name of boolFlags) {
+    if (!KNOWN_FLAGS.has(name)) unknown.push(name);
+  }
+  for (const name of Object.keys(kvFlags)) {
+    if (!KNOWN_FLAGS.has(name)) unknown.push(name);
+  }
+  return unknown;
+}
+
+/**
+ * Return value-requiring flags (e.g. --runs, --cpu) that were passed without a
+ * value and therefore landed in boolFlags. Left unreported, they are silently
+ * ignored — `--runs` at the end of argv, or `--runs --parallel`, would run once
+ * with no warning even though the user clearly meant to set a count.
+ */
+export function findValuelessKvFlags(boolFlags) {
+  return [...boolFlags].filter(name => KV_FLAG_NAMES.has(name));
 }
 
 export function discoverRacers(raceDir) {
@@ -50,8 +143,10 @@ export function discoverRacers(raceDir) {
     }
   }
 
-  if (racerFiles.length > 5) {
-    racerFiles = racerFiles.slice(0, 5);
+  const totalFound = racerFiles.length;
+  const dropped = racerFiles.length > MAX_RACERS ? racerFiles.slice(MAX_RACERS) : [];
+  if (racerFiles.length > MAX_RACERS) {
+    racerFiles = racerFiles.slice(0, MAX_RACERS);
   }
 
   const racerNames = racerFiles.map(f => f.replace(/\.spec\.js$/, '').replace(/\.js$/, ''));
@@ -60,7 +155,61 @@ export function discoverRacers(raceDir) {
     const unique = [...new Set(dupes)].join(', ');
     throw new Error(`Duplicate racer names detected: ${unique}. Rename files so each racer has a unique name.`);
   }
-  return { racerFiles, racerNames };
+  return { racerFiles, racerNames, totalFound, dropped };
+}
+
+/**
+ * Resolve racer names for shared-spec mode from settings.json.
+ * Shared-spec mode uses one race.spec.js script and settings-defined racers.
+ *
+ * Rules:
+ * - settings.racers must be an object with 2..MAX_RACERS keys
+ * - racer names must be non-empty strings
+ * - racer order follows declaration order in settings.racers
+ *
+ * @param {object} settings
+ * @returns {string[]} ordered racer names
+ * @throws {InvalidSettingError}
+ */
+export function resolveSharedRacerNames(settings) {
+  const racers = settings?.racers;
+  if (!racers || typeof racers !== 'object' || Array.isArray(racers)) {
+    throw new InvalidSettingError('shared-spec mode requires settings.racers to be an object');
+  }
+
+  const names = Object.keys(racers);
+  if (names.length < 2) {
+    throw new InvalidSettingError(`shared-spec mode requires at least 2 racers in settings.racers, found ${names.length}`);
+  }
+  if (names.length > MAX_RACERS) {
+    throw new InvalidSettingError(`shared-spec mode supports up to ${MAX_RACERS} racers, found ${names.length}`);
+  }
+  const emptyName = names.find(name => typeof name !== 'string' || name.trim() === '');
+  if (emptyName !== undefined) {
+    throw new InvalidSettingError('shared-spec mode racer names must be non-empty strings');
+  }
+  for (const name of names) {
+    // Keep names filesystem-safe because they become output directory names.
+    if (name === '.' || name === '..') {
+      throw new InvalidSettingError(`shared-spec racer name "${name}" is not allowed`);
+    }
+    if (/^\d+$/.test(name)) {
+      throw new InvalidSettingError(`shared-spec racer name "${name}" must not be integer-like`);
+    }
+    if (name.includes('/') || name.includes('\\')) {
+      throw new InvalidSettingError(`shared-spec racer name "${name}" must not contain path separators`);
+    }
+    // Windows filename constraints: reserved chars and trailing spaces/dots.
+    if (/[<>:"|?*]/.test(name) || /[ .]$/.test(name)) {
+      throw new InvalidSettingError(`shared-spec racer name "${name}" contains filesystem-unsafe characters`);
+    }
+    // Block DOS device names (case-insensitive), with or without extension.
+    if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(name)) {
+      throw new InvalidSettingError(`shared-spec racer name "${name}" is reserved on Windows`);
+    }
+  }
+
+  return names;
 }
 
 /**
@@ -117,6 +266,37 @@ try {
 `;
 }
 
+/** Settings keys that must be real booleans (JSON often has strings — "false" is truthy in JS). */
+const BOOLEAN_SETTING_KEYS = [
+  'parallel',
+  'headless',
+  'noOverlay',
+  'noRecording',
+  'ffmpeg',
+  'har',
+  'noWasm',
+  'noServe',
+  'pauseBetweenRuns',
+  'ignoreHTTPSErrors',
+  'cueMarkers',
+  'wallClock',
+  'fps',
+];
+
+/**
+ * Coerce a settings value to boolean. Strings like "false" / "0" / "no" → false.
+ */
+export function coerceBooleanSetting(value) {
+  if (value === true || value === 1) return true;
+  if (value === false || value === 0 || value === null || value === undefined) return false;
+  if (typeof value === 'string') {
+    const s = value.trim().toLowerCase();
+    if (s === 'true' || s === '1' || s === 'yes') return true;
+    if (s === 'false' || s === '0' || s === 'no' || s === '') return false;
+  }
+  return Boolean(value);
+}
+
 /**
  * Apply default values for all settings properties.
  * Call after applyOverrides to ensure every key has a defined value.
@@ -129,7 +309,7 @@ export function applyDefaults(settings) {
   const cleaned = Object.fromEntries(
     Object.entries(settings).filter(([k, v]) => v != null || preserveNullKeys.has(k))
   );
-  return {
+  const result = {
     parallel: false,
     headless: false,
     noOverlay: false,
@@ -140,6 +320,9 @@ export function applyDefaults(settings) {
     noServe: false,
     pauseBetweenRuns: false,
     ignoreHTTPSErrors: false,
+    cueMarkers: false,
+    wallClock: false,
+    fps: false,
     viewportHeight: 720,
     format: 'webm',
     network: 'none',
@@ -148,55 +331,300 @@ export function applyDefaults(settings) {
     runs: 1,
     ...cleaned,
   };
+  for (const key of BOOLEAN_SETTING_KEYS) {
+    if (key in result) result[key] = coerceBooleanSetting(result[key]);
+  }
+  return result;
 }
 
-const VALID_NETWORKS = ['none', 'slow-3g', 'fast-3g', '4g'];
-const VALID_FORMATS = ['webm', 'mov', 'gif'];
+export const VALID_NETWORKS = ['none', 'slow-3g', 'fast-3g', '4g'];
+export const VALID_FORMATS = ['webm', 'mov', 'gif'];
 
+/**
+ * Parse a throttling setting into a validated list of conditions. Accepts a
+ * single value, a comma-separated string ("slow-3g,4g"), or an array
+ * (settings.json). Entries are trimmed, empties dropped, and each surviving
+ * entry goes through `parseEntry`. Duplicates are rejected because every
+ * condition becomes a results directory name.
+ *
+ * @template T
+ * @param {*} value
+ * @param {object} spec
+ * @param {string} spec.source - Label used in error messages (e.g. "--cpu")
+ * @param {string} spec.emptyMessage - Completes "<source> ..." when nothing is left
+ * @param {string} spec.duplicateLabel - Names the unit in the duplicate error
+ * @param {(entry: string) => T} spec.parseEntry - Validates one entry
+ * @returns {T[]} validated entries, at least one
+ * @throws {InvalidSettingError}
+ */
+function parseThrottleList(value, { source, emptyMessage, duplicateLabel, parseEntry }) {
+  const parts = Array.isArray(value)
+    ? value.map(v => String(v).trim())
+    : String(value).split(',').map(v => v.trim());
+  const entries = parts.filter(p => p !== '');
+  if (entries.length === 0) {
+    throw new InvalidSettingError(`${source} ${emptyMessage}`);
+  }
+  const parsed = entries.map(parseEntry);
+  const dupes = [...new Set(parsed.filter((v, i) => parsed.indexOf(v) !== i))];
+  if (dupes.length > 0) {
+    throw new InvalidSettingError(`Duplicate ${duplicateLabel} in ${source}: ${dupes.join(', ')}`);
+  }
+  return parsed;
+}
+
+/**
+ * Parse a network setting into a validated list of network presets.
+ * Each entry must be one of VALID_NETWORKS.
+ *
+ * @param {string|string[]} value
+ * @param {string} source - Label used in error messages (e.g. "--network")
+ * @returns {string[]} validated network presets, at least one
+ * @throws {InvalidSettingError}
+ */
+export function parseNetworkList(value, source = '--network') {
+  return parseThrottleList(value, {
+    source,
+    emptyMessage: `requires at least one network preset. Valid values: ${VALID_NETWORKS.join(', ')}`,
+    duplicateLabel: 'network preset(s)',
+    parseEntry: network => {
+      if (!VALID_NETWORKS.includes(network)) {
+        throw new InvalidSettingError(`Unknown network preset "${network}". Valid values: ${VALID_NETWORKS.join(', ')}`);
+      }
+      return network;
+    },
+  });
+}
+
+/**
+ * Parse a CPU throttle setting into a validated list of slowdown rates.
+ * Each entry must be a finite number >= 1.
+ *
+ * @param {number|string|Array<number|string>} value
+ * @param {string} source - Label used in error messages (e.g. "--cpu")
+ * @returns {number[]} validated CPU throttle rates, at least one
+ * @throws {InvalidSettingError}
+ */
+export function parseCpuList(value, source = '--cpu') {
+  return parseThrottleList(value, {
+    source,
+    emptyMessage: 'requires at least one CPU throttle rate (a number >= 1)',
+    duplicateLabel: 'CPU throttle rate(s)',
+    parseEntry: entry => {
+      const cpu = Number(entry);
+      if (!Number.isFinite(cpu) || cpu < 1) {
+        throw new InvalidSettingError(`${source} must be a number >= 1, got "${entry}"`);
+      }
+      return cpu;
+    },
+  });
+}
+
+/**
+ * Expand network presets x CPU rates into the list of conditions to race.
+ * Each condition carries a directory-safe `label` and a human-readable
+ * `title` naming only the dimensions that actually vary, so a network-only
+ * race keeps its short name ("slow-3g"), a CPU-only race reads "cpu4x", and
+ * a two-dimensional one is unambiguous ("slow-3g-cpu4x").
+ *
+ * @param {string[]} networks - from parseNetworkList
+ * @param {number[]} cpus - from parseCpuList
+ * @returns {Array<{network: string, cpu: number, label: string, title: string}>}
+ */
+export function buildRaceConditions(networks, cpus) {
+  const varyNetwork = networks.length > 1;
+  const varyCpu = cpus.length > 1;
+  const conditions = [];
+  for (const network of networks) {
+    for (const cpu of cpus) {
+      const labelParts = [];
+      const titleParts = [];
+      // Network names the condition unless CPU is the only dimension varying.
+      if (varyNetwork || !varyCpu) {
+        labelParts.push(network);
+        titleParts.push(`Network: ${network}`);
+      }
+      if (varyCpu) {
+        labelParts.push(`cpu${cpu}x`);
+        titleParts.push(`CPU: ${cpu}x`);
+      }
+      conditions.push({ network, cpu, label: labelParts.join('-'), title: titleParts.join(' · ') });
+    }
+  }
+  return conditions;
+}
+
+function parseCliBoolean(value, flagName) {
+  if (value === true || value === 1) return true;
+  if (value === false || value === 0) return false;
+  if (typeof value === 'string') {
+    const s = value.trim().toLowerCase();
+    if (s === 'true' || s === '1' || s === 'yes') return true;
+    if (s === 'false' || s === '0' || s === 'no') return false;
+  }
+  throw new InvalidSettingError(`${flagName} must be a boolean (true/false, 1/0, yes/no), got "${value}"`);
+}
+
+/** Error thrown for invalid user-supplied settings. CLI catches and exits 2 (convention: misuse). */
+export class InvalidSettingError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'InvalidSettingError';
+  }
+}
+
+const VIEWPORT_HEIGHT_MIN = 480;
+const VIEWPORT_HEIGHT_MAX = 4320;
+const VIEWPORT_HEIGHT_DEFAULT = 720;
+
+/** Coerce a raw height value (CLI --height flag or settings.json `height`) to a valid viewportHeight. */
+function resolveViewportHeight(rawValue, label) {
+  // Only strings and numbers can be a height. settings.json keeps JSON types,
+  // and Number(true) is 1 and Number([900]) is 900 — a boolean or array would
+  // otherwise clamp or pass instead of taking the same non-numeric fallback the
+  // CLI's "true" gets.
+  const coercible = typeof rawValue === 'number' || typeof rawValue === 'string';
+  const height = coercible ? Number(rawValue) : NaN;
+  if (!Number.isFinite(height)) {
+    console.error(`Warning: ${label} "${rawValue}" is not numeric, using default ${VIEWPORT_HEIGHT_DEFAULT}`);
+    return VIEWPORT_HEIGHT_DEFAULT;
+  }
+  const rounded = Math.round(height);
+  if (rounded < VIEWPORT_HEIGHT_MIN) {
+    console.error(`Warning: ${label} clamped from ${rounded} to ${VIEWPORT_HEIGHT_MIN} (minimum)`);
+    return VIEWPORT_HEIGHT_MIN;
+  }
+  if (rounded > VIEWPORT_HEIGHT_MAX) {
+    console.error(`Warning: ${label} clamped from ${rounded} to ${VIEWPORT_HEIGHT_MAX} (maximum)`);
+    return VIEWPORT_HEIGHT_MAX;
+  }
+  return rounded;
+}
+
+/** Only a string or a number can be a numeric setting: Number(true) is 1 and Number([3]) is 3. */
+function toNumberSetting(rawValue) {
+  return typeof rawValue === 'number' || typeof rawValue === 'string' ? Number(rawValue) : NaN;
+}
+
+/** Validate a run count (CLI --runs or settings.json `runs`): a positive integer, at most 100. */
+function resolveRuns(rawValue, label) {
+  const runs = toNumberSetting(rawValue);
+  // Check the rounded count: 0.4 is "≥ 0" but rounds to zero runs.
+  const rounded = Math.round(runs);
+  if (!Number.isFinite(rounded) || rounded < 1) {
+    throw new InvalidSettingError(`${label} must be a positive integer, got "${rawValue}"`);
+  }
+  if (rounded > 100) {
+    console.error(`Warning: ${label} clamped from ${rounded} to 100 (maximum)`);
+    return 100;
+  }
+  return rounded;
+}
+
+/** Validate a slow-motion factor (CLI --slowmo or settings.json `slowmo`): 0 to 20. */
+function resolveSlowmo(rawValue, label) {
+  const slowmo = toNumberSetting(rawValue);
+  if (!Number.isFinite(slowmo) || slowmo < 0) {
+    throw new InvalidSettingError(`${label} must be a non-negative number, got "${rawValue}"`);
+  }
+  if (slowmo > 20) {
+    console.error(`Warning: ${label} clamped from ${slowmo} to 20 (maximum)`);
+    return 20;
+  }
+  return slowmo;
+}
+
+/** Validate an output format (CLI --format or settings.json `format`). */
+function resolveFormat(rawValue, label) {
+  if (!VALID_FORMATS.includes(rawValue)) {
+    throw new InvalidSettingError(`Unknown format "${rawValue}" (${label}). Valid values: ${VALID_FORMATS.join(', ')}`);
+  }
+  return rawValue;
+}
+
+/**
+ * Apply CLI overrides to settings. Mutates neither input.
+ * Throws InvalidSettingError for unrecoverable errors (for example, bad enum values
+ * and invalid numeric flag values such as cpu/runs/slowmo).
+ * Warns to stderr for clamped numeric values, but does not throw.
+ */
 export function applyOverrides(settings, boolFlags, kvFlags) {
   const s = { ...settings };
+  // settings.json values reach the runner as they are, so each key gets the
+  // same validation, clamp and rounding as its CLI flag. Unchecked, a
+  // `"runs": "three"` ran zero runs and failed on the median, and a
+  // `"format": "avi"` fell back to .webm while every label said avi.
+  // A key the CLI overrides is skipped: only the effective value has to be
+  // valid, so `--format webm` still rescues a bad settings.json entry.
+  if (s.viewportHeight != null) {
+    s.viewportHeight = resolveViewportHeight(s.viewportHeight, '"viewportHeight" in settings.json');
+  }
+  if (s.format != null && kvFlags.format === undefined) s.format = resolveFormat(s.format, '"format" in settings.json');
+  if (s.runs != null && kvFlags.runs === undefined) s.runs = resolveRuns(s.runs, '"runs" in settings.json');
+  if (s.slowmo != null && kvFlags.slowmo === undefined) s.slowmo = resolveSlowmo(s.slowmo, '"slowmo" in settings.json');
+  // `height` is the settings.json alias for `viewportHeight`, mirroring the
+  // --height CLI flag. A null value means "not set", as for every other key —
+  // applyDefaults strips nulls, but it runs after this, so guard here too.
+  if (s.height != null) {
+    s.viewportHeight = resolveViewportHeight(s.height, '"height" in settings.json');
+  }
+  delete s.height;
   if (boolFlags.has('parallel')) s.parallel = true;
   if (boolFlags.has('headless')) s.headless = true;
-  if (boolFlags.has('no-overlay')) s.noOverlay = true;
-  if (boolFlags.has('no-recording')) s.noRecording = true;
+  if (boolFlags.has('overlay')) s.noOverlay = false;
+  if (boolFlags.has('recording')) s.noRecording = false;
   if (boolFlags.has('ffmpeg')) s.ffmpeg = true;
   if (boolFlags.has('har')) s.har = true;
-  if (boolFlags.has('no-wasm')) s.noWasm = true;
-  if (boolFlags.has('no-serve')) s.noServe = true;
-  // Backward compatibility: legacy --serve=false / --serve=true
-  if (kvFlags.serve === 'false') s.noServe = true;
-  else if (kvFlags.serve === 'true') s.noServe = false;
+  if (boolFlags.has('wasm')) s.noWasm = false;
+  if (boolFlags.has('serve')) s.noServe = false;
   if (boolFlags.has('pause')) s.pauseBetweenRuns = true;
   if (boolFlags.has('ignore-https-errors')) s.ignoreHTTPSErrors = true;
+  if (boolFlags.has('gemini')) s.gemini = true;
+  if (boolFlags.has('cue-markers')) s.cueMarkers = true;
+  if (boolFlags.has('wall-clock')) s.wallClock = true;
+  if (boolFlags.has('fps')) s.fps = true;
+  // Explicit boolean values (for example --parallel=false) override presence flags.
+  if (kvFlags.parallel !== undefined) s.parallel = parseCliBoolean(kvFlags.parallel, '--parallel');
+  if (kvFlags.headless !== undefined) s.headless = parseCliBoolean(kvFlags.headless, '--headless');
+  if (kvFlags.overlay !== undefined) s.noOverlay = !parseCliBoolean(kvFlags.overlay, '--overlay');
+  if (kvFlags.recording !== undefined) s.noRecording = !parseCliBoolean(kvFlags.recording, '--recording');
+  if (kvFlags.ffmpeg !== undefined) s.ffmpeg = parseCliBoolean(kvFlags.ffmpeg, '--ffmpeg');
+  if (kvFlags.har !== undefined) s.har = parseCliBoolean(kvFlags.har, '--har');
+  if (kvFlags.wasm !== undefined) s.noWasm = !parseCliBoolean(kvFlags.wasm, '--wasm');
+  if (kvFlags.serve !== undefined) s.noServe = !parseCliBoolean(kvFlags.serve, '--serve');
+  if (kvFlags.pause !== undefined) s.pauseBetweenRuns = parseCliBoolean(kvFlags.pause, '--pause');
+  if (kvFlags['ignore-https-errors'] !== undefined) {
+    s.ignoreHTTPSErrors = parseCliBoolean(kvFlags['ignore-https-errors'], '--ignore-https-errors');
+  }
+  if (kvFlags.gemini !== undefined) s.gemini = parseCliBoolean(kvFlags.gemini, '--gemini');
+  if (kvFlags['cue-markers'] !== undefined) {
+    s.cueMarkers = parseCliBoolean(kvFlags['cue-markers'], '--cue-markers');
+  }
+  if (kvFlags['wall-clock'] !== undefined) {
+    s.wallClock = parseCliBoolean(kvFlags['wall-clock'], '--wall-clock');
+  }
+  if (kvFlags.fps !== undefined) s.fps = parseCliBoolean(kvFlags.fps, '--fps');
   if (kvFlags.network !== undefined) {
-    if (!VALID_NETWORKS.includes(kvFlags.network)) {
-      console.error(`Warning: Unknown network preset "${kvFlags.network}", valid values: ${VALID_NETWORKS.join(', ')}`);
-    }
-    s.network = kvFlags.network;
+    const networks = parseNetworkList(kvFlags.network);
+    s.network = networks.length === 1 ? networks[0] : networks;
   }
   if (kvFlags.cpu !== undefined) {
-    const cpu = Number(kvFlags.cpu);
-    s.cpuThrottle = Number.isFinite(cpu) && cpu >= 1 ? cpu : 1;
+    const cpus = parseCpuList(kvFlags.cpu);
+    s.cpuThrottle = cpus.length === 1 ? cpus[0] : cpus;
   }
-  if (kvFlags.format !== undefined) {
-    if (!VALID_FORMATS.includes(kvFlags.format)) {
-      console.error(`Warning: Unknown format "${kvFlags.format}", valid values: ${VALID_FORMATS.join(', ')}`);
+  if (kvFlags.skin !== undefined) {
+    const skin = String(kvFlags.skin).trim();
+    if (skin === '') {
+      throw new InvalidSettingError('--skin needs a skin name or a path to a .css file');
     }
-    s.format = kvFlags.format;
+    s.skin = skin;
   }
-  if (kvFlags.runs !== undefined) {
-    const runs = Number(kvFlags.runs);
-    s.runs = Number.isFinite(runs) && runs >= 1 ? Math.min(Math.round(runs), 100) : 1;
-  }
-  if (kvFlags.slowmo !== undefined) {
-    const slowmo = Number(kvFlags.slowmo);
-    s.slowmo = Number.isFinite(slowmo) && slowmo >= 0 ? Math.min(slowmo, 20) : 0;
-  }
+  if (kvFlags.format !== undefined) s.format = resolveFormat(kvFlags.format, '--format');
+  if (kvFlags.runs !== undefined) s.runs = resolveRuns(kvFlags.runs, '--runs');
+  if (kvFlags.slowmo !== undefined) s.slowmo = resolveSlowmo(kvFlags.slowmo, '--slowmo');
   if (kvFlags.height !== undefined) {
-    const height = Number(kvFlags.height);
-    s.viewportHeight = Number.isFinite(height) ? Math.min(Math.max(Math.round(height), 480), 4320) : 720;
+    s.viewportHeight = resolveViewportHeight(kvFlags.height, '--height');
   }
-  if (boolFlags.has('gemini')) s.gemini = true;
   return s;
 }
 
@@ -253,6 +681,7 @@ export function discoverSetupTeardown(raceDir, settings = {}) {
  * Discover per-racer setup and teardown scripts.
  * Convention: {racer-name}.setup.sh, {racer-name}.setup.js,
  *             {racer-name}.teardown.sh, {racer-name}.teardown.js
+ * Shared-spec convention (single race.spec.js): race.setup.sh/.js, race.teardown.sh/.js
  * Can be overridden via settings.json racers.{name}.setup/teardown fields.
  *
  * @param {string} raceDir - Path to the race directory
@@ -262,10 +691,14 @@ export function discoverSetupTeardown(raceDir, settings = {}) {
  */
 export function discoverRacerSetupTeardown(raceDir, racerName, settings = {}) {
   const allFiles = fs.readdirSync(raceDir).filter(f => !f.startsWith('.'));
+  const specFiles = allFiles.filter(f => f.endsWith('.spec.js')).sort();
+  const isSharedSpecMode = specFiles.length === 1 && specFiles[0] === 'race.spec.js' && settings.racers?.[racerName] !== undefined;
 
   // Convention-based discovery (.sh preferred over .js)
   const setupOrder = getScriptOrder(`${racerName}.setup`);
   const teardownOrder = getScriptOrder(`${racerName}.teardown`);
+  const sharedSetupOrder = getScriptOrder('race.setup');
+  const sharedTeardownOrder = getScriptOrder('race.teardown');
 
   const setupConvention = setupOrder.find(f =>
     allFiles.includes(f) && isFile(path.join(raceDir, f))
@@ -273,11 +706,47 @@ export function discoverRacerSetupTeardown(raceDir, racerName, settings = {}) {
   const teardownConvention = teardownOrder.find(f =>
     allFiles.includes(f) && isFile(path.join(raceDir, f))
   );
+  const sharedSetupConvention = sharedSetupOrder.find(f =>
+    allFiles.includes(f) && isFile(path.join(raceDir, f))
+  );
+  const sharedTeardownConvention = sharedTeardownOrder.find(f =>
+    allFiles.includes(f) && isFile(path.join(raceDir, f))
+  );
+  const effectiveSetupConvention = setupConvention || (isSharedSpecMode ? sharedSetupConvention : null);
+  const effectiveTeardownConvention = teardownConvention || (isSharedSpecMode ? sharedTeardownConvention : null);
 
   // Settings override convention (settings.racers.{name}.setup/teardown)
   const racerSettings = settings.racers?.[racerName] || {};
-  const setup = racerSettings.setup !== undefined ? racerSettings.setup : (setupConvention || null);
-  const teardown = racerSettings.teardown !== undefined ? racerSettings.teardown : (teardownConvention || null);
+  const setup = racerSettings.setup !== undefined ? racerSettings.setup : (effectiveSetupConvention || null);
+  const teardown = racerSettings.teardown !== undefined ? racerSettings.teardown : (effectiveTeardownConvention || null);
 
   return { setup, teardown };
+}
+
+/**
+ * Convert per-racer `vars` (from settings.json) into `RACE_VAR_*` env vars
+ * for per-racer setup/teardown scripts.
+ *
+ * Keys are uppercased and non-alphanumeric chars replaced with `_`.
+ * String/number/boolean values are stringified; objects/arrays are JSON-encoded.
+ * `null`/`undefined` values are skipped. Non-object `vars` returns `{}`.
+ */
+export function varsToEnv(vars) {
+  if (!vars || typeof vars !== 'object' || Array.isArray(vars)) return {};
+  const env = {};
+  const seenSources = new Map();
+  for (const [key, value] of Object.entries(vars)) {
+    if (value === null || value === undefined) continue;
+    const valueStr = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    const envKey = 'RACE_VAR_' + String(key).toUpperCase().replace(/[^A-Z0-9]/g, '_');
+    const prev = seenSources.get(envKey);
+    if (prev && prev.key !== key) {
+      console.warn(
+        `Warning: vars keys "${prev.key}" and "${key}" both map to ${envKey}; later value wins`
+      );
+    }
+    seenSources.set(envKey, { key });
+    env[envKey] = valueStr;
+  }
+  return env;
 }

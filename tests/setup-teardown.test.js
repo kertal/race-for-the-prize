@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
-import { discoverSetupTeardown, discoverRacerSetupTeardown } from '../cli/config.js';
+import { discoverSetupTeardown, discoverRacerSetupTeardown, varsToEnv } from '../cli/config.js';
 
 const isWindows = process.platform === 'win32';
 let tmpDir;
@@ -137,6 +137,80 @@ describe('setup/teardown discovery edge cases', () => {
 });
 
 describe('per-racer setup/teardown discovery edge cases', () => {
+  it('supports shared-spec mode racer names from settings.racers', () => {
+    fs.writeFileSync(path.join(tmpDir, 'race.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'commit-a.setup.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'commit-b.setup.sh'), '#!/bin/bash');
+
+    const settings = {
+      racers: {
+        'commit-a': { vars: { COMMIT_SHA: 'abc123' } },
+        'commit-b': { vars: { COMMIT_SHA: 'def456' } },
+      },
+    };
+
+    const a = discoverRacerSetupTeardown(tmpDir, 'commit-a', settings);
+    const b = discoverRacerSetupTeardown(tmpDir, 'commit-b', settings);
+
+    expect(a.setup).toBe('commit-a.setup.sh');
+    expect(b.setup).toBe('commit-b.setup.sh');
+  });
+
+  it('uses race.setup.sh convention in shared-spec mode', () => {
+    fs.writeFileSync(path.join(tmpDir, 'race.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'race.setup.sh'), '#!/bin/bash');
+
+    const settings = {
+      racers: {
+        alpha: { vars: { COMMIT_SHA: 'abc123' } },
+        beta: { vars: { COMMIT_SHA: 'def456' } },
+      },
+    };
+
+    const alpha = discoverRacerSetupTeardown(tmpDir, 'alpha', settings);
+    const beta = discoverRacerSetupTeardown(tmpDir, 'beta', settings);
+
+    expect(alpha.setup).toBe('race.setup.sh');
+    expect(beta.setup).toBe('race.setup.sh');
+  });
+
+  it('prefers racer-specific setup over race.setup.sh in shared-spec mode', () => {
+    fs.writeFileSync(path.join(tmpDir, 'race.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'race.setup.sh'), '#!/bin/bash');
+    fs.writeFileSync(path.join(tmpDir, 'alpha.setup.sh'), '#!/bin/bash');
+
+    const settings = {
+      racers: {
+        alpha: {},
+        beta: {},
+      },
+    };
+
+    const alpha = discoverRacerSetupTeardown(tmpDir, 'alpha', settings);
+    const beta = discoverRacerSetupTeardown(tmpDir, 'beta', settings);
+
+    expect(alpha.setup).toBe('alpha.setup.sh');
+    expect(beta.setup).toBe('race.setup.sh');
+  });
+
+  it('uses race.teardown.sh convention in shared-spec mode', () => {
+    fs.writeFileSync(path.join(tmpDir, 'race.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'race.teardown.sh'), '#!/bin/bash');
+
+    const settings = {
+      racers: {
+        alpha: {},
+        beta: {},
+      },
+    };
+
+    const alpha = discoverRacerSetupTeardown(tmpDir, 'alpha', settings);
+    const beta = discoverRacerSetupTeardown(tmpDir, 'beta', settings);
+
+    expect(alpha.teardown).toBe('race.teardown.sh');
+    expect(beta.teardown).toBe('race.teardown.sh');
+  });
+
   it.each([
     { desc: 'hyphens', name: 'my-app-v1', other: 'my-app-v2', ext: '.sh', content: '#!/bin/bash' },
     { desc: 'dots', name: 'app.v1.0', other: 'app.v2.0', ext: '.sh', content: '#!/bin/bash' },
@@ -368,5 +442,81 @@ echo "setup-end" >> "${logFile}"
     const lines = log.trim().split('\n');
 
     expect(lines).toEqual(['script1', 'script2']);
+  });
+});
+
+describe('varsToEnv', () => {
+  it('returns empty object for null/undefined/non-object inputs', () => {
+    expect(varsToEnv(null)).toEqual({});
+    expect(varsToEnv(undefined)).toEqual({});
+    expect(varsToEnv('string')).toEqual({});
+    expect(varsToEnv(42)).toEqual({});
+    expect(varsToEnv(['a', 'b'])).toEqual({});
+  });
+
+  it('prefixes keys with RACE_VAR_ and uppercases them', () => {
+    expect(varsToEnv({ sha: 'abc' })).toEqual({ RACE_VAR_SHA: 'abc' });
+    expect(varsToEnv({ MyKey: 'v' })).toEqual({ RACE_VAR_MYKEY: 'v' });
+  });
+
+  it('replaces non-alphanumeric chars in keys with underscores', () => {
+    expect(varsToEnv({ 'my-key': 'v', 'foo.bar': 'w' })).toEqual({
+      RACE_VAR_MY_KEY: 'v',
+      RACE_VAR_FOO_BAR: 'w',
+    });
+  });
+
+  it('stringifies primitive values', () => {
+    expect(varsToEnv({ n: 42, b: true, s: 'hi' })).toEqual({
+      RACE_VAR_N: '42',
+      RACE_VAR_B: 'true',
+      RACE_VAR_S: 'hi',
+    });
+  });
+
+  it('JSON-encodes object and array values', () => {
+    expect(varsToEnv({ obj: { a: 1 }, arr: [1, 2] })).toEqual({
+      RACE_VAR_OBJ: '{"a":1}',
+      RACE_VAR_ARR: '[1,2]',
+    });
+  });
+
+  it('skips null and undefined values', () => {
+    expect(varsToEnv({ a: 'x', b: null, c: undefined, d: 0 })).toEqual({
+      RACE_VAR_A: 'x',
+      RACE_VAR_D: '0',
+    });
+  });
+
+  it('warns when multiple keys collapse to the same env var', () => {
+    const originalWarn = console.warn;
+    const warnings = [];
+    console.warn = (msg) => warnings.push(String(msg));
+    try {
+      const env = varsToEnv({ 'my-key': 'a', 'my.key': 'b' });
+      expect(env.RACE_VAR_MY_KEY).toBe('b');
+      expect(warnings.length).toBe(1);
+      expect(warnings[0]).toMatch(/both map to RACE_VAR_MY_KEY/);
+      expect(warnings[0]).toMatch(/my-key/);
+      expect(warnings[0]).toMatch(/my\.key/);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+});
+
+describe.skipIf(isWindows)('per-racer setup receives RACE_VAR_* env', () => {
+  it('vars from settings.racers.<name>.vars are exposed to the setup script', async () => {
+    const markerFile = path.join(tmpDir, 'vars-marker.txt');
+    const setupScript = path.join(tmpDir, 'setup.sh');
+    const env = { ...process.env, ...varsToEnv({ sha: 'abc123', 'branch-name': 'main' }) };
+
+    await runShellScript(
+      setupScript,
+      `#!/bin/bash\necho "$RACE_VAR_SHA|$RACE_VAR_BRANCH_NAME" > "${markerFile}"`,
+      { env }
+    );
+
+    expect(fs.readFileSync(markerFile, 'utf-8').trim()).toBe('abc123|main');
   });
 });

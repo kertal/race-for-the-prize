@@ -1,4 +1,4 @@
-// 🏆 Niki Lauda - The Computer
+// 🏁 Niki Lauda - The Computer
 // Three-time World Champion. Precision incarnate.
 // Race: Scroll to the bottom of his Wikipedia page — human-like speed.
 

@@ -34,55 +34,51 @@ style: |
 ---
 
 <!-- Slide 1: Title -->
-# 🏆 RaceForThePrize
+# 🏁 RaceForThePrize
 
-## *Browser Performance. Head-to-Head. No Judges.*
-
-<br>
-
-**Pit two browsers against each other. Measure everything. Declare a winner.**
+## *Browser Performance. Head-to-Head.*
 
 <br>
 
-*A Playwright-powered CLI performance benchmarking tool*
+**Pit browsers against each other. Measure everything. Declare a winner.**
+
+<br>
+
+*A Playwright-powered CLI benchmarking tool — `npx race-for-the-prize`*
 
 ---
 
-<!-- Slide 2: Positioning -->
-## Numbers Tell You *What*. Racing Shows You *Why*.
-
-*Traditional benchmarks and RaceForThePrize are complementary.*
+<!-- Slide 2: The Problem -->
+## You Have Metrics. But Do You Have *Proof*?
 
 <br>
 
-| Traditional Benchmarking | RaceForThePrize |
-|---|---|
-| Lighthouse score: **72 → 81** | Side-by-side video of both loading |
-| LCP: 3.2s → 2.1s | Watch the faster page paint first |
-| CI metric regressed by 8% | Replay exactly what changed |
+- Lighthouse score: **72 → 81** — *which change did it?*
+- LCP (Largest Contentful Paint) improved by 34% — *can you actually see that?*
+- CI is red — *what exactly regressed?*
 
 <br>
 
-> Traditional tools give you the **numbers**. RaceForThePrize gives you the **comparison**.
+> RaceForThePrize makes performance **visible**. Side by side. In milliseconds.
 
 ---
 
 <!-- Slide 3: How It Works -->
 ## How It Works
 
-*Two scripts. Two browsers. One winner.*
+*Write scripts. Launch browsers. One winner.*
 
 <br>
 
-- Write **two Playwright `.spec.js` scripts**
-- Add **four race API calls** to define start, stop, and recording
-- Run the CLI — get results, video, and a full report
+- Write **Playwright `.spec.js` scripts** — one per racer
+- Add simple **API calls** to define start, stop, recording
+- Run the CLI — get video, timings, and a full report
 
 <br>
 
 ```bash
-npm install && npx playwright install chromium
-node race.js ./races/lauda-vs-hunt
+npx race-for-the-prize demo:lauda-vs-hunt   # a bundled race, no clone needed
+npx race-for-the-prize ./races/my-race      # your own
 ```
 
 ---
@@ -90,23 +86,23 @@ node race.js ./races/lauda-vs-hunt
 <!-- Slide 4: The Race API -->
 ## The Race API
 
-*Wrap any Playwright script with four calls.*
+*Wrap any Playwright script with a few calls.*
 
 <br>
 
 ```javascript
-await page.raceRecordingStart();          // 📹 Start recording
-await page.raceStart('Scroll to Bottom'); // ⏱ Start timer
+await page.raceRecordingStart();
+await page.raceStart('Page Load');
 
-// ... your Playwright interactions here ...
+// ... your Playwright interactions ...
 
-page.raceEnd('Scroll to Bottom');         // ⏱ Stop timer
-await page.raceRecordingEnd();            // 📹 Stop recording
+page.raceEnd('Page Load');
+await page.raceRecordingEnd();
 ```
 
 <br>
 
-> Any existing Playwright script can become a racer in minutes.
+> Any existing Playwright script becomes a racer in minutes.
 
 ---
 
@@ -121,39 +117,68 @@ await page.raceRecordingEnd();            // 📹 Stop recording
 
 ---
 
-<!-- Slide 6: What You Get -->
-## What You Get
+<!-- Slide 6: Race Anything -->
+## Race Anything
 
-*Every race produces a full set of results.*
-
-<br>
-
-| Output | Description |
-|---|---|
-| `index.html` | Interactive video player — watch both racers |
-| `README.md` | Medal table, timings, machine info |
-| `summary.json` | CI-ready structured results |
-| `*.race.webm` | Trimmed, frame-accurate recordings |
+*If you can script it in Playwright, you can race it.*
 
 <br>
 
-> Add `--runs=5 --network=slow-3g --cpu=4` to simulate real-world conditions.
+- **Production vs. Staging** — checkout flow, login, search
+- **Feature flag on vs. off** — lazy loading, third-party scripts
+- **Weekly in CI** — fail the build if performance regresses
 
 ---
 
-<!-- Slide 7: Get Started -->
+<!-- Slide 7: What You Get -->
+## Every Race Ships With
+
+<br>
+
+- **Interactive HTML player** — video with segment navigation
+- **Markdown report** — medal table, timings, diffs, machine info
+- **`summary.json`** — structured results for CI pipelines
+- **Chrome traces + HAR** — deep-dive when you need it
+
+<br>
+
+> Drop the report straight into a PR description.
+
+---
+
+<!-- Slide 8: Real-World Conditions -->
+## Simulate the Real World
+
+<br>
+
+- `--runs=5` — median wins, noise smoothed out
+- `--network=slow-3g` — throttle via CDP
+- `--cpu=4` — 4× slower for budget devices
+- `--headless` — runs on any CI system
+
+<br>
+
+> CLI flags always override `settings.json`. The stewards have spoken.
+
+---
+
+<!-- Slide 9: Get Started -->
 ## Get Started
 
-*Three steps to your first race.*
+<br>
+
+**1.** `npx race-for-the-prize demo:lauda-vs-hunt`
+
+**2.** `npx race-for-the-prize --init my-race`
+
+**3.** Pick a winner.
 
 <br>
 
-**1. Install**  `git clone` + `npm install` + `npx playwright install chromium`
+Racing often? `npm install -g race-for-the-prize` — then just `race-for-the-prize …`
 
-**2. Race**  `node race.js ./races/lauda-vs-hunt`
-
-**3. Explore**  `lauda-vs-hunt` · `lebron-vs-curry` · `react-vs-angular`
+Bundled demos: `lauda-vs-hunt` · `lebron-vs-curry` · `react-vs-angular` · `caching-comparison`
 
 <br>
 
-> "May the fastest browser win."
+> *"May the fastest browser win."* — [npmjs.com/package/race-for-the-prize](https://www.npmjs.com/package/race-for-the-prize)

@@ -1,3 +1,41 @@
 {
-  "headless": true
+  "headless": true,
+  "racers": {
+    "alpha": {
+      "vars": {
+        "color": "#e74c3c",
+        "label": "ALPHA",
+        "recordingDelayMs": 100,
+        "renderMs": 600,
+        "reloadMs": 400
+      }
+    },
+    "bravo": {
+      "vars": {
+        "color": "#3498db",
+        "label": "BRAVO",
+        "recordingDelayMs": 200,
+        "renderMs": 800,
+        "reloadMs": 500
+      }
+    },
+    "charlie": {
+      "vars": {
+        "color": "#27ae60",
+        "label": "CHARLIE",
+        "recordingDelayMs": 300,
+        "renderMs": 1000,
+        "reloadMs": 600
+      }
+    },
+    "delta": {
+      "vars": {
+        "color": "#f1c40f",
+        "label": "DELTA",
+        "recordingDelayMs": 400,
+        "renderMs": 1200,
+        "reloadMs": 700
+      }
+    }
+  }
 }

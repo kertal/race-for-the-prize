@@ -2,3 +2,5 @@ node_modules/
 .DS_Store
 races/**/results-*/
 my-races/
+test-results/
+recordings/

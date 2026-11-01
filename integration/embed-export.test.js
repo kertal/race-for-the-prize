@@ -18,6 +18,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { createStaticHandler } from '../race.js';
 import { buildPlayerHtml } from '../cli/videoplayer.js';
+import { readZipEntries } from './test-helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -50,22 +51,6 @@ function makeSummary() {
     wins: { alpha: 1, bravo: 0 },
     videos: {},
   };
-}
-
-function readZipEntries(buf) {
-  const entries = [];
-  let pos = 0;
-  while (pos + 30 <= buf.length) {
-    if (buf.readUInt32LE(pos) !== 0x04034b50) break;
-    const fnLen = buf.readUInt16LE(pos + 26);
-    const extraLen = buf.readUInt16LE(pos + 28);
-    const compressedSize = buf.readUInt32LE(pos + 18);
-    const name = buf.subarray(pos + 30, pos + 30 + fnLen).toString('utf8');
-    const dataStart = pos + 30 + fnLen + extraLen;
-    entries.push({ name, data: buf.subarray(dataStart, dataStart + compressedSize) });
-    pos = dataStart + compressedSize;
-  }
-  return entries;
 }
 
 /** Wait for videos to load with blob: URLs and readyState >= 1. */
