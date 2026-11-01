@@ -53,14 +53,18 @@ export function buildRaceInfoRows(summary) {
   const rows = [];
   if (timestamp) rows.push({ label: 'Date', value: new Date(timestamp).toISOString() });
   racers.forEach((r, i) => rows.push({ label: `Racer ${i + 1}`, value: r }));
-  if (settings) {
-    rows.push({ label: 'Mode', value: settings.parallel === false ? 'sequential' : 'parallel' });
-    if (settings.network && settings.network !== 'none') rows.push({ label: 'Network', value: settings.network });
-    if (settings.cpuThrottle && settings.cpuThrottle > 1) rows.push({ label: 'CPU Throttle', value: `${settings.cpuThrottle}x slower` });
-    if (settings.format && settings.format !== 'webm') rows.push({ label: 'Format', value: settings.format });
-    if (settings.headless) rows.push({ label: 'Headless', value: 'yes' });
-    if (settings.runs && settings.runs > 1) rows.push({ label: 'Runs', value: String(settings.runs) });
-  }
+  if (settings) rows.push(...buildSettingsInfoRows(settings));
+  return rows;
+}
+
+/** The settings part of the Race Info rows: the mode always, the rest only when set to something non-default. */
+function buildSettingsInfoRows(settings) {
+  const rows = [{ label: 'Mode', value: settings.parallel === false ? 'sequential' : 'parallel' }];
+  if (settings.network && settings.network !== 'none') rows.push({ label: 'Network', value: settings.network });
+  if (settings.cpuThrottle && settings.cpuThrottle > 1) rows.push({ label: 'CPU Throttle', value: `${settings.cpuThrottle}x slower` });
+  if (settings.format && settings.format !== 'webm') rows.push({ label: 'Format', value: settings.format });
+  if (settings.headless) rows.push({ label: 'Headless', value: 'yes' });
+  if (settings.runs && settings.runs > 1) rows.push({ label: 'Runs', value: String(settings.runs) });
   return rows;
 }
 
