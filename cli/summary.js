@@ -276,6 +276,26 @@ function buildResultsTable(comparisons, racers) {
 
 // --- Main summary functions ---
 
+// summary.json travels with the results folder — it is bundled into the ZIP
+// export, copied to other machines, committed to repos — so nothing in it may
+// name where that folder happened to live. The folder itself is recorded as
+// the terminal printed it (relative to the working directory the race was
+// launched from), and every file inside it relative to the folder, with
+// forward slashes so the same summary reads the same on every platform.
+function portableResultsDir(resultsDir, cwd = process.cwd()) {
+  if (!resultsDir) return resultsDir;
+  return toPosix(path.relative(cwd, resultsDir) || '.');
+}
+
+function portableResultPath(resultsDir, filePath) {
+  if (!filePath) return null;
+  return toPosix(resultsDir ? path.relative(resultsDir, filePath) : filePath);
+}
+
+function toPosix(p) {
+  return p.split(path.sep).join('/');
+}
+
 export function buildSummary(racerNames, results, settings, resultsDir) {
   const measurements = results.map(r => r.measurements || []);
 
@@ -295,7 +315,7 @@ export function buildSummary(racerNames, results, settings, resultsDir) {
 
   return {
     timestamp: new Date().toISOString(),
-    resultsDir,
+    resultsDir: portableResultsDir(resultsDir),
     racers: racerNames,
     settings: settings || {},
     comparisons,
@@ -303,10 +323,10 @@ export function buildSummary(racerNames, results, settings, resultsDir) {
     wins,
     errors: results.flatMap((r, i) => r.error ? [`${racerNames[i]}: ${r.error}`] : []),
     videos: Object.fromEntries(results.flatMap((r, i) => [
-      [racerNames[i], r.videoPath || null],
-      [`${racerNames[i]}_full`, r.fullVideoPath || null],
+      [racerNames[i], portableResultPath(resultsDir, r.videoPath)],
+      [`${racerNames[i]}_full`, portableResultPath(resultsDir, r.fullVideoPath)],
     ])),
-    harFiles: Object.fromEntries(racerNames.map((n, i) => [n, results[i].harPath || null])),
+    harFiles: Object.fromEntries(racerNames.map((n, i) => [n, portableResultPath(resultsDir, results[i].harPath)])),
     profileMetrics: results.map(r => r.profileMetrics || null),
     profileComparison: buildProfileComparison(racerNames, results.map(r => r.profileMetrics || null)),
     machineInfo: getMachineInfo(),
@@ -435,7 +455,7 @@ export function buildMarkdownSummary(summary, sideBySideName) {
   // videos of its own, and a --recording=0 race has none at all).
   const fileLines = [];
   for (const [key, val] of Object.entries(videos || {})) {
-    if (val) fileLines.push(`- **${key}**: [${path.basename(val)}](./${path.basename(path.dirname(val))}/${path.basename(val)})`);
+    if (val) fileLines.push(`- **${key}**: [${path.posix.basename(val)}](./${val})`);
   }
   if (sideBySideName) {
     fileLines.push(`- **side-by-side**: [${sideBySideName}](./${sideBySideName})`);
@@ -565,7 +585,7 @@ export function buildMedianSummary(summaries, resultsDir) {
 
   return {
     timestamp: new Date().toISOString(),
-    resultsDir,
+    resultsDir: portableResultsDir(resultsDir),
     racers,
     settings: summaries[0].settings,
     comparisons,

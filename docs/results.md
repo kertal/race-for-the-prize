@@ -28,6 +28,12 @@ race mode and scripts, and every effective setting alongside where it came from
 the same thing under **Command & Configuration**, so a report read a month later
 says how to reproduce the race, not just who won.
 
+`summary.json` is written to travel: the results folder it names is relative
+to the directory the race was launched from (the same path the terminal
+prints), and every video and HAR file in it is relative to the results folder
+(`lauda/lauda.race.webm`). Move the folder, zip it, commit it, or open it on
+another machine and nothing inside points back at where it was made.
+
 `--recording=false` is the exception to all of this: it keeps the measurements,
 the traces, `summary.json` and the Markdown report card, and writes no videos
 and no `index.html` at all. Nothing is served and nothing opens — the numbers

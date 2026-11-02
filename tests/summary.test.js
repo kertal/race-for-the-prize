@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import path from 'path';
 import { buildSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, getPlacementOrder, findMedianRunIndex, printSummary, buildRaceInfoRows, buildMachineInfoRows } from '../cli/summary.js';
 
 describe('buildSummary', () => {
@@ -190,17 +191,44 @@ describe('buildSummary', () => {
     expect(summary.errors).toEqual(['lauda: timeout']);
   });
 
-  it('records video paths', () => {
+  it('records video paths relative to the results directory', () => {
+    // moveResults() hands back absolute paths; summary.json travels with the
+    // results folder (ZIP export, other machines), so it must not keep them.
+    const resultsDir = path.resolve('races/demo/results-2025-01-01_00-00-00-abc123');
     const results = [
-      { measurements: [], videoPath: '/tmp/a.webm', fullVideoPath: '/tmp/a_full.webm', error: null },
-      { measurements: [], videoPath: '/tmp/b.webm', fullVideoPath: null, error: null },
+      { measurements: [], videoPath: path.join(resultsDir, 'lauda', 'lauda.race.webm'), fullVideoPath: path.join(resultsDir, 'lauda', 'lauda.full.webm'), error: null },
+      { measurements: [], videoPath: path.join(resultsDir, 'hunt', 'hunt.race.webm'), fullVideoPath: null, error: null },
     ];
-    const summary = buildSummary(names, results, {}, 'test-results');
+    const summary = buildSummary(names, results, {}, resultsDir);
 
-    expect(summary.videos.lauda).toBe('/tmp/a.webm');
-    expect(summary.videos.lauda_full).toBe('/tmp/a_full.webm');
-    expect(summary.videos.hunt).toBe('/tmp/b.webm');
+    expect(summary.videos.lauda).toBe('lauda/lauda.race.webm');
+    expect(summary.videos.lauda_full).toBe('lauda/lauda.full.webm');
+    expect(summary.videos.hunt).toBe('hunt/hunt.race.webm');
     expect(summary.videos.hunt_full).toBeNull();
+  });
+
+  it('records HAR paths relative to the results directory', () => {
+    const resultsDir = path.resolve('races/demo/results-2025-01-01_00-00-00-abc123');
+    const results = [
+      { measurements: [], videoPath: null, fullVideoPath: null, harPath: path.join(resultsDir, 'lauda', 'lauda.har'), error: null },
+      { measurements: [], videoPath: null, fullVideoPath: null, harPath: null, error: null },
+    ];
+    const summary = buildSummary(names, results, {}, resultsDir);
+
+    expect(summary.harFiles).toEqual({ lauda: 'lauda/lauda.har', hunt: null });
+  });
+
+  it('records the results directory relative to the working directory, never absolute', () => {
+    const results = [
+      { measurements: [], videoPath: null, fullVideoPath: null, error: null },
+      { measurements: [], videoPath: null, fullVideoPath: null, error: null },
+    ];
+    const absolute = path.resolve('races/demo/results-2025-01-01_00-00-00-abc123/2');
+    const summary = buildSummary(names, results, {}, absolute);
+
+    expect(path.isAbsolute(summary.resultsDir)).toBe(false);
+    expect(summary.resultsDir).toBe('races/demo/results-2025-01-01_00-00-00-abc123/2');
+    expect(JSON.stringify(summary)).not.toContain(process.cwd());
   });
 
   it('preserves settings in summary', () => {
@@ -287,7 +315,7 @@ describe('buildMarkdownSummary', () => {
       overallWinner: 'lauda',
       wins: { lauda: 1, hunt: 0 },
       errors: [],
-      videos: { lauda: 'test-results/lauda.race.webm', hunt: 'test-results/hunt.race.webm' },
+      videos: { lauda: 'lauda/lauda.race.webm', hunt: 'hunt/hunt.race.webm' },
       settings: { parallel: true },
       timestamp: '2025-01-01T00:00:00.000Z',
       ...overrides,
@@ -303,7 +331,8 @@ describe('buildMarkdownSummary', () => {
   it('lists the video files when there are any', () => {
     const md = buildMarkdownSummary(makeSummary(), 'lauda-vs-hunt.webm');
     expect(md).toContain('### Files');
-    expect(md).toContain('- **lauda**: [lauda.race.webm]');
+    expect(md).toContain('- **lauda**: [lauda.race.webm](./lauda/lauda.race.webm)');
+    expect(md).toContain('- **hunt**: [hunt.race.webm](./hunt/hunt.race.webm)');
     expect(md).toContain('- **side-by-side**: [lauda-vs-hunt.webm]');
   });
 
@@ -514,6 +543,11 @@ describe('buildMedianSummary', () => {
     const median = buildMedianSummary(makeSummaries(), 'test-results');
     expect(median.comparisons[0].racers[0].duration).toBe(2.0);
     expect(median.comparisons[0].racers[1].duration).toBe(4.0);
+  });
+
+  it('records the results directory relative to the working directory', () => {
+    const median = buildMedianSummary(makeSummaries(), path.resolve('races/demo/results-2025-01-01_00-00-00-abc123'));
+    expect(median.resultsDir).toBe('races/demo/results-2025-01-01_00-00-00-abc123');
   });
 
   it('computes winner from median values', () => {
