@@ -111,7 +111,9 @@ the published experience rather than a race: it runs `npm pack`, unpacks the
 tarball the way npm would install it, and drives the result through `npx
 --no-install` with no Playwright in reach. That catches a file missing from the
 `files` allowlist, broken `bin` wiring, or a top-level `import 'playwright'`
-sneaking into `race.js` — all of which only hurt people installing from npm.
+sneaking into `race.js` — all of which only hurt people installing from npm. It
+is POSIX-only: Windows installs a bin as npm-generated `.cmd` shims rather than
+a symlink, so the test says so and skips instead of staging a shim of its own.
 
 
 ## Contributing

@@ -12,8 +12,10 @@
  * and no node_modules anywhere above the temp directory to resolve Playwright
  * from by accident.
  *
- * Requires: npm, npx and tar on PATH, and a filesystem that allows symlinks.
- * Those missing skip the suite; anything else going wrong fails it.
+ * Requires POSIX: npm, npx and tar on PATH, and a filesystem that allows
+ * symlinks. Those missing skip the suite, as does Windows, where npm's shims
+ * make this staging invalid (see findMissingPrerequisite); anything else going
+ * wrong fails it.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawnSync } from 'node:child_process';
@@ -33,15 +35,25 @@ let missingPrerequisite = null;
 /**
  * Name what this test needs and cannot find, or null when it can run.
  *
- * Only an absent prerequisite may skip the suite. A tool that is present but
- * fails — `npm pack` choking on the `files` allowlist, a tarball that will not
- * extract — is the packaging regression this suite exists to catch, so staging
- * lets those throw and fail the run instead.
+ * Only an absent prerequisite — or a platform this staging cannot speak for —
+ * may skip the suite. A tool that is present but fails — `npm pack` choking on
+ * the `files` allowlist, a tarball that will not extract — is the packaging
+ * regression this suite exists to catch, so staging lets those throw and fail
+ * the run instead.
  *
  * @param {string} dir - a writable directory to probe symlink support in
  * @returns {string|null} the skip reason, or null
  */
 function findMissingPrerequisite(dir) {
+  // Windows installs a bin as generated `.cmd`/`.ps1` shims rather than a
+  // symlink, and reaches npm and npx through shims of their own that spawnSync
+  // cannot run without a shell. Hand-rolling those here would test this file's
+  // idea of a shim instead of npm's, so the suite stands aside and says so —
+  // real Windows coverage wants a Windows runner doing a real install. Without
+  // this the npm probe below would report npm missing, which is not true.
+  if (process.platform === 'win32') {
+    return 'Windows stages a package bin through npm-generated shims, not a symlink; skipping npx packaging test';
+  }
   for (const tool of ['npm', 'npx', 'tar']) {
     const probe = spawnSync(tool, ['--version'], { encoding: 'utf-8', timeout: 30_000 });
     if (probe.error || probe.status !== 0) return `${tool} is not available; skipping npx packaging test`;
