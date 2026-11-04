@@ -28,8 +28,23 @@ describe('findMissingBrowser', () => {
     const result = await findMissingBrowser({
       importPlaywright: async () => { throw new Error('Cannot find module'); },
       exists: () => true,
+      invocation: 'node race.js',
     });
     expect(result).toContain('Playwright is not installed');
+    expect(result).toContain('npm install');
+  });
+
+  it('tells an npx user to reinstall rather than to run npm install', async () => {
+    // They never ran an install of their own to repeat: Playwright comes with
+    // the package npx fetched, so a missing one means that install is broken.
+    const result = await findMissingBrowser({
+      importPlaywright: async () => { throw new Error('Cannot find module'); },
+      exists: () => true,
+      invocation: 'npx race-for-the-prize',
+    });
+    expect(result).toContain('Playwright is not installed');
+    expect(result).toContain('reinstall the package');
+    expect(result).not.toContain('npm install');
   });
 
   it('stays quiet when Playwright will not name an executable', async () => {
