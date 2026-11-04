@@ -157,7 +157,10 @@ describe('duration probe', () => {
   // duration that never resolved can be followed all the way to the clock.
   function metaHarness() {
     const ctx = {
-      setTimeout, Date, activeClip: null, duration: 0, scrubber: { value: 0 }, SCRUBBER_MAX,
+      // The real scrubber is an <input>, and updateTimeDisplay announces the
+      // time on it, so the stub needs the attribute setter as well as the value.
+      setTimeout, Date, activeClip: null, duration: 0,
+      scrubber: { value: 0, setAttribute() {} }, SCRUBBER_MAX,
       timeDisplay: {}, frameDisplay: {}, activeSegmentName: null,
       calibrateClipTimes: () => ({ convertedAny: false, pending: false }),
       resolveAdjustedClip: () => null, revealCalibrationToggle() {}, buildSegmentNav() {},

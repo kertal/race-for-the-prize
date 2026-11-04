@@ -25,6 +25,7 @@ function setCalibrationVisible(on) {
   if (!debugPanel) return;
   debugPanel.style.display = on ? 'block' : 'none';
   modeDebug?.classList.toggle('active', on);
+  modeDebug?.setAttribute('aria-expanded', String(on));
   playerContainer?.classList.toggle('show-frame-badges', on);
   if (!on) return;
   updateDebugDisplay();

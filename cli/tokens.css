@@ -78,7 +78,7 @@
 
   /* --- Typography ------------------------------------------------------- */
   --font-ui: ui-monospace, 'Courier New', monospace;
-  --font-display: Georgia, 'Times New Roman', serif;
+  --font-display: 'Georgia', 'Times New Roman', serif;
   /* The title band only. A heavy italic sans reads as racing livery, which the
      serif display face used by every other heading does not. */
   --font-banner: system-ui, -apple-system, 'Segoe UI', sans-serif;

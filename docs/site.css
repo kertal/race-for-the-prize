@@ -43,7 +43,7 @@
 
   /* --- Typography ------------------------------------------------------- */
   --font-ui: ui-monospace, 'Courier New', monospace;
-  --font-display: Georgia, 'Times New Roman', serif;
+  --font-display: 'Georgia', 'Times New Roman', serif;
   --font-banner: system-ui, -apple-system, 'Segoe UI', sans-serif;
   --tracking-wide: 0.1em;
   --tracking-widest: 0.15em;
